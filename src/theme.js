@@ -1,0 +1,17 @@
+export const colors = {
+  screen: '#1b1715',
+  sheet: '#221d19',
+  cardTop: '#332b25',
+  cardBottom: '#241f1b',
+  input: '#1f1a17',
+  line: '#4a4038',
+  tabLine: '#2a2420',
+  fg: '#f1ebe4',
+  muted: '#a99e93',
+  passage: '#d4cbc2',
+  accent: '#e0702a',
+  teal: '#8fe3c3',
+  lavender: '#c9c0f2',
+  amber: '#f0a76a',
+  yellow: '#f5d58a',
+};
