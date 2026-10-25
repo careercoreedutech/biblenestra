@@ -13,6 +13,7 @@
       "supportsTablet": false
     },
     "android": {
+      "package": "com.biblenestra.app",
       "adaptiveIcon": {
         "backgroundColor": "#1b1715"
       }
@@ -20,6 +21,12 @@
     "plugins": [
       "expo-asset",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "30e35cb8-13b4-47d3-8257-aca31fd44f2c"
+      }
+    },
+    "owner": "somavarapuakash"
   }
 }
