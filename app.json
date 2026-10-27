@@ -5,9 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#1b1715",
+    "backgroundColor": "#0e0c0b",
     "splash": {
-      "backgroundColor": "#1b1715"
+      "backgroundColor": "#0e0c0b"
     },
     "ios": {
       "supportsTablet": false
@@ -15,7 +15,7 @@
     "android": {
       "package": "com.biblenestra.app",
       "adaptiveIcon": {
-        "backgroundColor": "#1b1715"
+        "backgroundColor": "#0e0c0b"
       }
     },
     "plugins": [

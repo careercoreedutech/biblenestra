@@ -1,8 +1,10 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Path } from 'react-native-svg';
 import { Screen, Section, Row, Badge, Tag, Button, Spark } from '../components/ui';
 import Card from '../components/Card';
-import { colors } from '../theme';
+import { colors, fonts } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { VERSE_OF_DAY, getChapter, refLabel, CHAPTER_TITLES } from '../data/bible';
@@ -25,86 +27,320 @@ export default function HomeScreen() {
   const activePrayers = state.prayers.filter((p) => p.status !== 'answered').slice(0, 2);
 
   return (
-    <Screen title="Home" menu={() => nav.push('Profile')} right={<Pressable onPress={() => nav.push('Search')} hitSlop={10}><Text style={{ color: colors.muted, fontSize: 16 }}>⌕</Text></Pressable>}>
-      <View style={{ alignItems: 'center', marginTop: 16 }}>
+    <Screen
+      title="Home"
+      menu={() => nav.push('Profile')}
+      right={
+        <Pressable onPress={() => nav.push('Search')} hitSlop={12} style={styles.searchIconBtn}>
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <Path d="M21 21l-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0z" stroke={colors.fg} strokeWidth={2.2} strokeLinecap="round" />
+          </Svg>
+        </Pressable>
+      }
+    >
+      {/* Editorial Header */}
+      <View style={styles.header}>
+        <View style={styles.statusChip}>
+          <View style={[styles.statusDot, { backgroundColor: sync.status === 'failed' ? '#e85d5d' : colors.teal }]} />
+          <Text style={styles.statusText}>
+            {sync.status === 'failed' ? 'Tap to retry sync' : sync.status === 'syncing' ? 'Syncing...' : 'All synced'}
+          </Text>
+        </View>
         <Text style={styles.h1}>{greeting()}, {state.user.displayName}!</Text>
-        <Text style={styles.sub}>{sync.status === 'failed' ? 'Save failed · tap to retry' : sync.status === 'syncing' ? 'Syncing your study data…' : 'All study data saved'}</Text>
+        <Text style={styles.sub}>Walk in faith, grace, and understanding today.</Text>
       </View>
 
-      <Pressable style={styles.vod} onPress={() => nav.push('Bible', { bookId: vod.bookId, chapter: vod.chapter, verse: vod.verse })}>
-        <Text style={styles.vodLabel}>VERSE OF THE DAY · {state.translation}</Text>
-        <Text style={styles.vodText}>{vodText}</Text>
-        <Text style={styles.vodRef}>{refLabel(vod.bookId, vod.chapter, vod.verse)}</Text>
-        <Text style={styles.vodQ}>{vod.reflection}</Text>
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-          <Button small kind="ghost" label="Read in context" onPress={() => nav.push('Bible', { bookId: vod.bookId, chapter: vod.chapter, verse: vod.verse })} />
-          <Button small kind="ghost" label="Save" onPress={() => dispatch({ type: 'bookmark', b: { bookId: vod.bookId, chapter: vod.chapter, verse: vod.verse, folder: 'Verse of the Day' } })} />
-          <Button small kind="ghost" label="Pray" onPress={() => nav.push('NewPrayer', { verse: refLabel(vod.bookId, vod.chapter, vod.verse) })} />
-        </View>
-      </Pressable>
+      {/* Glossy Masterpiece: Verse of the Day Card */}
+      <View style={styles.vodCard}>
+        <LinearGradient
+          colors={['#292019', '#171310']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+        {/* Specular top highlight */}
+        <View style={styles.vodShimmer} />
 
-      <Section title="Continue studying" action="Library" onAction={() => nav.push('Library')}>
+        {/* Decorative Golden Quotation Symbol */}
+        <Text style={styles.watermarkQuote}>“</Text>
+
+        <View style={styles.vodHeadRow}>
+          <View style={styles.vodBadge}>
+            <Text style={styles.vodBadgeSpark}>✦</Text>
+            <Text style={styles.vodBadgeLabel}>VERSE OF THE DAY · {state.translation}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.vodText}>"{vodText}"</Text>
+
+        <Text style={styles.vodRef}>{refLabel(vod.bookId, vod.chapter, vod.verse)}</Text>
+
+        {vod.reflection ? (
+          <Text style={styles.vodReflection}>"{vod.reflection}"</Text>
+        ) : null}
+
+        <View style={styles.vodActions}>
+          <Pressable
+            style={styles.vodActionBtn}
+            onPress={() => nav.push('Bible', { bookId: vod.bookId, chapter: vod.chapter, verse: vod.verse })}
+          >
+            <Text style={styles.vodActionText}>📖 Read Context</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.vodActionBtn}
+            onPress={() => dispatch({ type: 'bookmark', b: { bookId: vod.bookId, chapter: vod.chapter, verse: vod.verse, folder: 'Verse of the Day' } })}
+          >
+            <Text style={styles.vodActionText}>☆ Bookmark</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.vodActionBtn}
+            onPress={() => nav.push('NewPrayer', { verse: refLabel(vod.bookId, vod.chapter, vod.verse) })}
+          >
+            <Text style={styles.vodActionText}>🙏 Pray This</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Continue Studying Section */}
+      <Section title="Continue Studying" action="Library" onAction={() => nav.push('Library')}>
         <View style={styles.grid}>
-          <Card compact color={colors.teal} question="Last read" title={CHAPTER_TITLES[`${lp.bookId}:${lp.chapter}`] || refLabel(lp.bookId, lp.chapter)} subtitle={refLabel(lp.bookId, lp.chapter)} onPress={() => nav.push('Bible', lp)} />
-          <Card compact color={colors.lavender} question={`Day ${plan.done + 1} of ${plan.days}`} title={plan.name} subtitle={refLabel(plan.today.bookId, plan.today.chapter)} onPress={() => nav.push('Plan', { id: plan.id })} />
+          <Card
+            compact
+            color={colors.gold}
+            icon="📖"
+            question="Recent Reading"
+            title={CHAPTER_TITLES[`${lp.bookId}:${lp.chapter}`] || refLabel(lp.bookId, lp.chapter)}
+            subtitle={refLabel(lp.bookId, lp.chapter)}
+            onPress={() => nav.push('Bible', lp)}
+          />
+          <Card
+            compact
+            color={colors.lavender}
+            icon="✦"
+            question={`Day ${plan.done + 1} of ${plan.days}`}
+            title={plan.name}
+            subtitle={refLabel(plan.today.bookId, plan.today.chapter)}
+            onPress={() => nav.push('Plan', { id: plan.id })}
+          />
         </View>
       </Section>
 
+      {/* Live Fellowship if active */}
       {live.length ? (
-        <Section title="Live now" action="All live" onAction={() => nav.push('Live')}>
+        <Section title="Live Now" action="All live" onAction={() => nav.push('Live')}>
           {live.map((l) => (
-            <Row key={l.id} title={l.title} subtitle={`${l.host} · ${l.language}${l.captions ? ' · Captions' : ''}`} left={<Text style={{ color: '#e85d5d', fontSize: 10 }}>●</Text>} right={<Badge label={`${l.viewers} watching`} tint="#e85d5d" />} onPress={() => nav.push('Live', { id: l.id })} />
+            <Row
+              key={l.id}
+              title={l.title}
+              subtitle={`${l.host} · ${l.language}${l.captions ? ' · Captions' : ''}`}
+              left={<Text style={{ color: '#ef4444', fontSize: 12 }}>●</Text>}
+              right={<Badge label={`${l.viewers} watching`} tint="#ef4444" />}
+              onPress={() => nav.push('Live', { id: l.id })}
+            />
           ))}
         </Section>
       ) : null}
 
-      <Section title="Prayer activity" action="Prayer wall" onAction={() => nav.push('PrayerTab')}>
+      {/* Prayer Wall Preview */}
+      <Section title="Prayer Wall" action="View all" onAction={() => nav.push('PrayerTab')}>
         {activePrayers.map((p) => (
-          <Row key={p.id} title={p.title} subtitle={`${p.author} · ${p.audience}`} right={<Text style={{ color: colors.muted, fontSize: 11 }}>🙏 {p.praying}</Text>} onPress={() => nav.push('Prayer', { id: p.id })} />
+          <Row
+            key={p.id}
+            title={p.title}
+            subtitle={`${p.author} · ${p.audience}`}
+            right={<Text style={{ color: colors.gold, fontFamily: fonts.sansMedium, fontSize: 12 }}>🙏 {p.praying}</Text>}
+            onPress={() => nav.push('Prayer', { id: p.id })}
+          />
         ))}
       </Section>
 
-      <Section title="Your communities" action="Explore" onAction={() => nav.push('Communities')}>
+      {/* Communities */}
+      <Section title="Your Communities" action="Explore" onAction={() => nav.push('Communities')}>
         {state.communities.filter((c) => c.joined === true).map((c) => (
-          <Row key={c.id} title={c.name} subtitle={`${c.members.toLocaleString()} members · ${c.privacy}`} right={c.verified ? <Badge label="Verified" /> : null} onPress={() => nav.push('Group', { id: c.id })} />
+          <Row
+            key={c.id}
+            title={c.name}
+            subtitle={`${c.members.toLocaleString()} members · ${c.privacy}`}
+            right={c.verified ? <Badge label="Verified" tint={colors.gold} /> : null}
+            onPress={() => nav.push('Group', { id: c.id })}
+          />
         ))}
       </Section>
 
+      {/* Upcoming Events */}
       {nextEvent ? (
         <Section title="Upcoming" action="Calendar" onAction={() => nav.push('Calendar')}>
-          <Row title={nextEvent.title} subtitle={`${nextEvent.date}${nextEvent.time ? ' · ' + nextEvent.time : ''}${nextEvent.where ? ' · ' + nextEvent.where : ''}`} right={<Tag label={nextEvent.kind} />} onPress={() => nav.push('Calendar')} />
+          <Row
+            title={nextEvent.title}
+            subtitle={`${nextEvent.date}${nextEvent.time ? ' · ' + nextEvent.time : ''}${nextEvent.where ? ' · ' + nextEvent.where : ''}`}
+            right={<Tag label={nextEvent.kind} tint={colors.teal} />}
+            onPress={() => nav.push('Calendar')}
+          />
         </Section>
       ) : null}
 
-      <Section title="For you" action="Feed" onAction={() => nav.push('Feed')}>
-        {state.feed.slice(0, 3).map((f) => (
-          <Pressable key={f.id} style={styles.post} onPress={() => nav.push('Feed')}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.postAuthor}>{f.author}</Text>
-              <Tag label={f.kind} />
-            </View>
-            <Text style={styles.postText}>{f.text}</Text>
-            <Text style={styles.postMeta}>{f.time} · {f.likes} amens · {f.comments} comments</Text>
-          </Pressable>
-        ))}
-      </Section>
-
-      <Button label="＋ Create" onPress={() => nav.push('Create')} style={{ marginTop: 24 }} />
+      {/* Quick Action Button */}
+      <Button
+        label="＋ Create Post or Request"
+        onPress={() => nav.push('Create')}
+        style={{ marginTop: 28 }}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  h1: { fontSize: 22, fontWeight: '600', color: colors.fg, letterSpacing: -0.2 },
-  sub: { fontSize: 11, color: colors.muted, marginTop: 6 },
-  vod: { marginTop: 22, backgroundColor: colors.cardBottom, borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 16 },
-  vodLabel: { fontSize: 9, letterSpacing: 2, color: colors.muted },
-  vodText: { fontSize: 15, lineHeight: 22, color: colors.fg, marginTop: 10 },
-  vodRef: { fontSize: 11, color: colors.teal, marginTop: 8, fontWeight: '600' },
-  vodQ: { fontSize: 11, color: colors.muted, marginTop: 10, fontStyle: 'italic', lineHeight: 15 },
-  grid: { flexDirection: 'row', gap: 12 },
-  post: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.tabLine },
-  postAuthor: { fontSize: 12, fontWeight: '600', color: colors.fg },
-  postText: { fontSize: 12.5, color: colors.passage, lineHeight: 18, marginTop: 6 },
-  postMeta: { fontSize: 10, color: colors.muted, marginTop: 6 },
+  searchIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  header: {
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  statusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    marginBottom: 8,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontFamily: fonts.sans,
+    fontSize: 10.5,
+    color: colors.muted,
+  },
+  h1: {
+    fontFamily: fonts.serifBold,
+    fontSize: 24,
+    color: colors.fg,
+    letterSpacing: -0.3,
+  },
+  sub: {
+    fontFamily: fonts.sans,
+    fontSize: 12.5,
+    color: colors.muted,
+    marginTop: 4,
+  },
+  vodCard: {
+    marginTop: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderTopColor: colors.glossBorderTop,
+    borderColor: colors.line,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 18,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 5,
+  },
+  vodShimmer: {
+    position: 'absolute',
+    top: 0,
+    left: 20,
+    right: 20,
+    height: 1,
+    backgroundColor: 'rgba(246, 216, 146, 0.35)',
+  },
+  watermarkQuote: {
+    position: 'absolute',
+    right: 14,
+    top: -10,
+    fontSize: 100,
+    fontFamily: fonts.serifBold,
+    color: 'rgba(229, 184, 105, 0.07)',
+  },
+  vodHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  vodBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    backgroundColor: 'rgba(229, 184, 105, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(229, 184, 105, 0.3)',
+  },
+  vodBadgeSpark: {
+    color: colors.gold,
+    fontSize: 11,
+  },
+  vodBadgeLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 9.5,
+    color: colors.gold,
+    letterSpacing: 1.2,
+  },
+  vodText: {
+    fontFamily: fonts.serif,
+    fontSize: 17,
+    lineHeight: 26,
+    color: colors.fg,
+    letterSpacing: -0.1,
+  },
+  vodRef: {
+    fontFamily: fonts.serifBold,
+    fontSize: 13,
+    color: colors.gold,
+    marginTop: 10,
+    letterSpacing: 0.3,
+  },
+  vodReflection: {
+    fontFamily: fonts.serif,
+    fontStyle: 'italic',
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.muted,
+    marginTop: 10,
+  },
+  vodActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 16,
+    flexWrap: 'wrap',
+  },
+  vodActionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: colors.lineLight,
+  },
+  vodActionText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    color: colors.fg,
+  },
+  grid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
 });

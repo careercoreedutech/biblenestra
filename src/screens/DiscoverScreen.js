@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider } from '../components/ui';
-import { colors } from '../theme';
+import { colors, fonts } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS } from '../data/seed';
@@ -14,32 +15,124 @@ export default function DiscoverScreen() {
   const nav = useNav();
   const { state } = useStore();
   const unread = state.chats.reduce((n, c) => n + c.unread, 0) + state.requests.length;
-  const tiles = [
-    { title: 'Communities', sub: 'Churches, groups, Bible studies', color: colors.teal, go: 'Communities' },
-    { title: 'Chat', sub: unread ? `${unread} waiting` : 'Private & group conversations', color: colors.lavender, go: 'ChatList' },
-    { title: 'Calendar', sub: 'Church, community & Christian observances', color: colors.yellow, go: 'Calendar' },
-    { title: 'People', sub: 'Christians available to chat', color: colors.amber, go: 'People' },
-    { title: 'Care Network', sub: 'Find someone who understands', color: colors.teal, go: 'Care' },
-    { title: 'Make a Wish', sub: 'A hope, a need, a request', color: colors.lavender, go: 'Wishes' },
-    { title: 'Learn', sub: 'Plans, devotionals, memorize, courses', color: colors.yellow, go: 'Learn' },
-    { title: 'Sermon Studio', sub: 'Record, transcribe, search', color: colors.amber, go: 'SermonStudio' },
-    { title: 'Live', sub: `${LIVE.filter((l) => l.status === 'live').length} live now`, color: colors.teal, go: 'Live' },
-    { title: 'Feed', sub: 'For you · Following · Communities', color: colors.lavender, go: 'Feed' },
-  ];
+
   return (
-    <Screen title="Discover" menu={() => nav.push('Profile')} right={<Pressable onPress={() => nav.push('Search')} hitSlop={10}><Text style={{ color: colors.muted, fontSize: 16 }}>⌕</Text></Pressable>}>
-      <View style={{ alignItems: 'center', marginTop: 16 }}>
-        <Text style={styles.h1}>Discover → Study → Connect</Text>
-        <Text style={styles.sub}>Grow · Serve · Share</Text>
+    <Screen
+      title="Discover"
+      subtitle="Connect · Study · Grow"
+      menu={() => nav.push('Profile')}
+      right={
+        <Pressable onPress={() => nav.push('Search')} hitSlop={12} style={styles.searchIconBtn}>
+          <Text style={{ color: colors.fg, fontSize: 15 }}>⌕</Text>
+        </Pressable>
+      }
+    >
+      <View style={{ alignItems: 'center', marginTop: 14 }}>
+        <Text style={styles.h1}>Explore & Connect</Text>
+        <Text style={styles.sub}>Find fellow believers, study scripture, and serve together.</Text>
       </View>
-      <View style={{ gap: 12, marginTop: 22 }}>
-        {Array.from({ length: tiles.length / 2 }, (_, i) => (
-          <View key={i} style={{ flexDirection: 'row', gap: 12 }}>
-            {tiles.slice(i * 2, i * 2 + 2).map((t) => <Card key={t.title} compact title={t.title} subtitle={t.sub} color={t.color} onPress={() => nav.push(t.go)} />)}
-          </View>
-        ))}
-      </View>
-      <Button label="＋ Create" onPress={() => nav.push('Create')} style={{ marginTop: 22 }} />
+
+      {/* Group 1: Fellowship & Community */}
+      <Section title="Fellowship & Community">
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <Card
+            compact
+            title="Communities"
+            subtitle="Churches, small groups & study circles"
+            color={colors.teal}
+            icon="👥"
+            onPress={() => nav.push('Communities')}
+          />
+          <Card
+            compact
+            title="Chat & Groups"
+            subtitle={unread ? `${unread} waiting` : 'Direct & group fellowship'}
+            color={colors.lavender}
+            icon="💬"
+            onPress={() => nav.push('ChatList')}
+          />
+        </View>
+        <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+          <Card
+            compact
+            title="People Directory"
+            subtitle="Believers open to spiritual conversation"
+            color={colors.gold}
+            icon="🕊"
+            onPress={() => nav.push('People')}
+          />
+          <Card
+            compact
+            title="Live Fellowship"
+            subtitle={`${LIVE.filter((l) => l.status === 'live').length} active broadcasts`}
+            color={colors.accent}
+            icon="●"
+            onPress={() => nav.push('Live')}
+          />
+        </View>
+        <View style={{ marginTop: 12 }}>
+          <Row
+            title="Community Feed"
+            subtitle="Testimonies, reflections, and announcements from your network"
+            right="Browse Feed ›"
+            onPress={() => nav.push('Feed')}
+          />
+        </View>
+      </Section>
+
+      {/* Group 2: Growth & Discipleship */}
+      <Section title="Growth & Study">
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <Card
+            compact
+            title="Learning Hub"
+            subtitle="Plans, devotionals, memorization, and courses"
+            color={colors.gold}
+            icon="📖"
+            onPress={() => nav.push('Learn')}
+          />
+          <Card
+            compact
+            title="Sermon Studio"
+            subtitle="Audio recording, AI transcription & notes"
+            color={colors.amber}
+            icon="🎙"
+            onPress={() => nav.push('SermonStudio')}
+          />
+        </View>
+        <View style={{ marginTop: 12 }}>
+          <Row
+            title="Christian Calendar"
+            subtitle="Church gatherings, global feasts & observance reminders"
+            right="View Calendar ›"
+            onPress={() => nav.push('Calendar')}
+          />
+        </View>
+      </Section>
+
+      {/* Group 3: Care & Support */}
+      <Section title="Spiritual Care & Needs">
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <Card
+            compact
+            title="Care Network"
+            subtitle="Confidential support from qualified ministers"
+            color={colors.teal}
+            icon="🤍"
+            onPress={() => nav.push('Care')}
+          />
+          <Card
+            compact
+            title="Make a Wish"
+            subtitle="Share an urgent need or offer assistance"
+            color={colors.lavender}
+            icon="✨"
+            onPress={() => nav.push('Wishes')}
+          />
+        </View>
+      </Section>
+
+      <Button label="＋ Create Post, Group or Stream" onPress={() => nav.push('Create')} style={{ marginTop: 28 }} />
     </Screen>
   );
 }
@@ -426,30 +519,40 @@ export function FeedScreen() {
 }
 
 const styles = StyleSheet.create({
-  h1: { fontSize: 20, fontWeight: '600', color: colors.fg, letterSpacing: -0.2 },
-  sub: { fontSize: 11.5, color: colors.muted, marginTop: 6 },
-  card: { backgroundColor: colors.cardBottom, borderWidth: 1, borderColor: colors.line, borderRadius: 14, padding: 14, marginTop: 12 },
-  cardTitle: { fontSize: 14, fontWeight: '600', color: colors.fg },
-  cardMeta: { fontSize: 10.5, color: colors.muted, marginTop: 3 },
-  cardBody: { fontSize: 12.5, color: colors.passage, lineHeight: 18, marginTop: 8 },
+  searchIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  h1: { fontFamily: fonts.serifBold, fontSize: 24, color: colors.fg, letterSpacing: -0.3 },
+  sub: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.muted, marginTop: 4, textAlign: 'center' },
+  card: { backgroundColor: '#1c1714', borderWidth: 1, borderTopColor: colors.glossBorderTop, borderColor: colors.line, borderRadius: 16, padding: 16, marginTop: 12 },
+  cardTitle: { fontFamily: fonts.serifBold, fontSize: 15, color: colors.fg },
+  cardMeta: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 3 },
+  cardBody: { fontFamily: fonts.sans, fontSize: 13, color: colors.passage, lineHeight: 18, marginTop: 8 },
   pinned: { marginHorizontal: 18, marginTop: 6, backgroundColor: colors.cardTop, borderRadius: 8, padding: 8 },
-  pinnedText: { fontSize: 10.5, color: colors.fg },
-  msg: { alignSelf: 'flex-start', backgroundColor: colors.cardBottom, borderWidth: 1, borderColor: colors.line, borderRadius: 14, borderBottomLeftRadius: 4, padding: 10, maxWidth: '85%' },
+  pinnedText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
+  msg: { alignSelf: 'flex-start', backgroundColor: '#201a16', borderWidth: 1, borderColor: colors.line, borderRadius: 14, borderBottomLeftRadius: 4, padding: 12, maxWidth: '85%' },
   msgMine: { alignSelf: 'flex-end', backgroundColor: colors.accent, borderColor: colors.accent, borderBottomLeftRadius: 14, borderBottomRightRadius: 4 },
-  msgFrom: { fontSize: 10, color: colors.teal, fontWeight: '600', marginBottom: 3 },
-  msgText: { fontSize: 13, lineHeight: 18, color: colors.fg },
-  msgTime: { fontSize: 9, color: colors.muted, marginTop: 4 },
-  passageChip: { marginTop: 8, backgroundColor: colors.cardTop, borderRadius: 8, padding: 8 },
-  passageChipText: { fontSize: 11, color: colors.fg },
-  composerChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  composerChipText: { fontSize: 10.5, color: colors.fg },
-  menu: { position: 'absolute', right: 14, top: 44, zIndex: 5, backgroundColor: colors.cardTop, borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 6 },
-  menuItem: { color: colors.fg, fontSize: 12.5, paddingVertical: 8, paddingHorizontal: 12 },
-  event: { flexDirection: 'row', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.tabLine },
-  dateBox: { width: 44, alignItems: 'center', backgroundColor: colors.cardTop, borderRadius: 10, paddingVertical: 8, borderWidth: 1, borderColor: colors.line },
-  dateDay: { fontSize: 16, fontWeight: '600', color: colors.fg },
-  dateMon: { fontSize: 9, color: colors.muted },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.cardTop, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
-  video: { height: 190, backgroundColor: '#0f0d0b', alignItems: 'center', justifyContent: 'center' },
-  post: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.tabLine },
+  msgFrom: { fontFamily: fonts.sansMedium, fontSize: 10.5, color: colors.gold, fontWeight: '700', marginBottom: 3 },
+  msgText: { fontFamily: fonts.sans, fontSize: 13.5, lineHeight: 19, color: colors.fg },
+  msgTime: { fontFamily: fonts.sans, fontSize: 9.5, color: colors.muted, marginTop: 4 },
+  passageChip: { marginTop: 8, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: colors.lineLight },
+  passageChipText: { fontFamily: fonts.serif, fontSize: 12, color: colors.fg },
+  composerChip: { borderWidth: 1, borderColor: colors.lineLight, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: 'rgba(255, 255, 255, 0.04)' },
+  composerChipText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
+  menu: { position: 'absolute', right: 14, top: 44, zIndex: 5, backgroundColor: '#201a16', borderWidth: 1, borderColor: colors.glossBorder, borderRadius: 12, padding: 6 },
+  menuItem: { fontFamily: fonts.sans, color: colors.fg, fontSize: 13, paddingVertical: 8, paddingHorizontal: 12 },
+  event: { flexDirection: 'row', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.line },
+  dateBox: { width: 48, alignItems: 'center', backgroundColor: colors.cardTop, borderRadius: 12, paddingVertical: 8, borderWidth: 1, borderColor: colors.lineLight },
+  dateDay: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.fg },
+  dateMon: { fontFamily: fonts.sansMedium, fontSize: 9.5, color: colors.gold, letterSpacing: 0.5 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.cardTop, borderWidth: 1, borderColor: colors.lineLight, alignItems: 'center', justifyContent: 'center' },
+  video: { height: 200, backgroundColor: '#090807', alignItems: 'center', justifyContent: 'center', borderRadius: 16, overflow: 'hidden' },
+  post: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.line },
 });
