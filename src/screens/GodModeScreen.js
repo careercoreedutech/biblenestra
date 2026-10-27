@@ -623,7 +623,7 @@ const styles = StyleSheet.create({
   },
   glassSheet: {
     borderTopWidth: 1,
-    borderTopColor: colors.glossBorderTop,
+    borderTopColor: colors.glossBorder,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 18,
@@ -793,8 +793,7 @@ const styles = StyleSheet.create({
   aiCard: {
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderTopColor: colors.glossBorderTop,
-    borderColor: colors.line,
+    borderColor: colors.lineLight,
     borderRadius: 18,
     borderBottomLeftRadius: 4,
     padding: 14,
@@ -894,8 +893,7 @@ const styles = StyleSheet.create({
   passageCard: {
     borderRadius: 16,
     borderWidth: 1,
-    borderTopColor: colors.glossBorderTop,
-    borderColor: colors.line,
+    borderColor: colors.lineLight,
     padding: 16,
     marginTop: 12,
     overflow: 'hidden',

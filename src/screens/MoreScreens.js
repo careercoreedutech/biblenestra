@@ -452,7 +452,7 @@ export function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: '#1c1714', borderWidth: 1, borderTopColor: colors.glossBorderTop, borderColor: colors.line, borderRadius: 16, padding: 16, marginTop: 12 },
+  card: { backgroundColor: '#1c1714', borderWidth: 1, borderColor: colors.lineLight, borderRadius: 16, padding: 16, marginTop: 12 },
   cardTitle: { fontFamily: fonts.serifBold, fontSize: 15, color: colors.fg },
   cardMeta: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 4 },
   cardBody: { fontFamily: fonts.sans, fontSize: 13, color: colors.passage, lineHeight: 19, marginTop: 8 },

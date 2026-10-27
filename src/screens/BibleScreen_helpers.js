@@ -384,8 +384,7 @@ const styles = StyleSheet.create({
   commCard: {
     backgroundColor: '#1b1613',
     borderWidth: 1,
-    borderTopColor: colors.glossBorderTop,
-    borderColor: colors.line,
+    borderColor: colors.lineLight,
     borderRadius: 16,
     padding: 16,
     marginTop: 12,

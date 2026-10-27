@@ -275,8 +275,7 @@ const styles = StyleSheet.create({
   },
   card: {
     borderWidth: 1,
-    borderTopColor: colors.glossBorderTop,
-    borderColor: colors.line,
+    borderColor: colors.lineLight,
     borderRadius: 18,
     padding: 16,
     marginTop: 14,

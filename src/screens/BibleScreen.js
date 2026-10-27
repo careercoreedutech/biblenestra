@@ -548,7 +548,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderTopWidth: 1,
-    borderTopColor: colors.glossBorderTop,
+    borderTopColor: colors.glossBorder,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 16,

@@ -3,8 +3,8 @@ import { Platform } from 'react-native';
 export const fonts = {
   serif: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
   serifBold: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
-  sans: Platform.select({ ios: 'System', android: 'sans-serif', default: 'sans-serif' }),
-  sansMedium: Platform.select({ ios: 'System', android: 'sans-serif-medium', default: 'sans-serif' }),
+  sans: Platform.select({ ios: 'System', android: undefined, default: undefined }),
+  sansMedium: Platform.select({ ios: 'System', android: undefined, default: undefined }),
   display: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
 };
 
