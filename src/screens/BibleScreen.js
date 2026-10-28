@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import { Screen, Section, Row, Pill, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider } from '../components/ui';
 import Card from '../components/Card';
@@ -96,27 +95,27 @@ export default function BibleScreen({ params = {} }) {
         </Pressable>
       }
     >
-      {/* Glossy Reader Quick-Toolbar */}
+      {/* Reader Quick-Toolbar */}
       <View style={styles.toolbar}>
         <Pressable onPress={() => setPicker('book')} style={styles.toolBtn}>
-          <Text style={styles.toolText}>📖 Books ▾</Text>
+          <Text style={styles.toolText}>Books ▾</Text>
         </Pressable>
         <Pressable onPress={() => nav.push('Search')} style={styles.toolBtn}>
-          <Text style={styles.toolText}>⌕ Search</Text>
+          <Text style={styles.toolText}>Search</Text>
         </Pressable>
         <Pressable onPress={() => setCompare(!compare)} style={[styles.toolBtn, compare && styles.toolBtnActive]}>
-          <Text style={[styles.toolText, compare && { color: colors.gold }]}>⫼ Compare</Text>
+          <Text style={[styles.toolText, compare && { color: colors.gold }]}>Compare</Text>
         </Pressable>
         <Pressable
           onPress={() => dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter } })}
           style={styles.toolBtn}
         >
           <Text style={[styles.toolText, bookmarked && { color: colors.gold }]}>
-            {bookmarked ? '★ Saved' : '☆ Save'}
+            {bookmarked ? 'Saved' : 'Save'}
           </Text>
         </Pressable>
         <Pressable onPress={() => nav.push('Library')} style={styles.toolBtn}>
-          <Text style={styles.toolText}>▤ Library</Text>
+          <Text style={styles.toolText}>Library</Text>
         </Pressable>
       </View>
 
@@ -197,14 +196,6 @@ export default function BibleScreen({ params = {} }) {
       {/* Floating Verse Action Sheet */}
       {selected && verses ? (
         <View style={styles.sheet}>
-          <LinearGradient
-            colors={['#251e1a', '#14100e']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <View style={styles.sheetTopShimmer} />
-
           <View style={styles.sheetHeader}>
             <View style={styles.sheetVerseBadge}>
               <Text style={styles.sheetVerseBadgeText}>VERSE {selected}</Text>
@@ -231,16 +222,16 @@ export default function BibleScreen({ params = {} }) {
             ))}
             <View style={styles.vDivider} />
             <Pressable onPress={() => setPanel(panel === 'note' ? null : 'note')} style={styles.actionChip}>
-              <Text style={styles.actionChipText}>✎ Note</Text>
+              <Text style={styles.actionChipText}>Note</Text>
             </Pressable>
             <Pressable
               onPress={() => dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter, verse: selected } })}
               style={styles.actionChip}
             >
-              <Text style={styles.actionChipText}>☆ Bookmark</Text>
+              <Text style={styles.actionChipText}>Save</Text>
             </Pressable>
             <Pressable onPress={share} style={styles.actionChip}>
-              <Text style={styles.actionChipText}>↗ Share</Text>
+              <Text style={styles.actionChipText}>Share</Text>
             </Pressable>
           </View>
 
@@ -272,12 +263,12 @@ export default function BibleScreen({ params = {} }) {
 
           {/* Contextual Action Pills */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 12 }}>
-            <Pill small label="✦ Bible Chat" onPress={() => nav.push('BibleChat', { context: { ...pos, verse: selected } })} />
-            <Pill small label="📖 Commentary" onPress={() => nav.push('Study', { ...pos, verse: selected, tab: 'Commentary' })} />
-            <Pill small label="🔗 Cross-references" onPress={() => nav.push('Study', { ...pos, verse: selected, tab: 'Cross-references' })} />
-            <Pill small label="🔍 Word Study" onPress={() => nav.push('Study', { ...pos, verse: selected, tab: 'Word study' })} />
-            <Pill small label="🙏 Pray This" onPress={() => nav.push('NewPrayer', { verse: refLabel(pos.bookId, pos.chapter, selected) })} />
-            <Pill small label="💡 Memorize" onPress={() => nav.push('Learn', { tab: 'Memorize' })} />
+            <Pill small label="Exegesis" onPress={() => nav.push('BibleChat', { context: { ...pos, verse: selected } })} />
+            <Pill small label="Commentary" onPress={() => nav.push('Study', { ...pos, verse: selected, tab: 'Commentary' })} />
+            <Pill small label="Cross-refs" onPress={() => nav.push('Study', { ...pos, verse: selected, tab: 'Cross-references' })} />
+            <Pill small label="Word study" onPress={() => nav.push('Study', { ...pos, verse: selected, tab: 'Word study' })} />
+            <Pill small label="Intercede" onPress={() => nav.push('NewPrayer', { verse: refLabel(pos.bookId, pos.chapter, selected) })} />
+            <Pill small label="Memorize" onPress={() => nav.push('Learn', { tab: 'Memorize' })} />
           </ScrollView>
         </View>
       ) : null}
@@ -445,18 +436,18 @@ const styles = StyleSheet.create({
   toolbar: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    paddingVertical: 8,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: colors.line,
+    borderBottomColor: colors.border,
   },
   toolBtn: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   toolBtnActive: {
-    backgroundColor: 'rgba(229, 184, 105, 0.1)',
+    backgroundColor: colors.raised,
   },
   toolText: {
     fontFamily: fonts.sansMedium,
@@ -523,11 +514,11 @@ const styles = StyleSheet.create({
   },
   pagerBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.lineLight,
+    borderColor: colors.border,
     alignItems: 'center',
   },
   pagerBtnText: {
@@ -547,25 +538,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: colors.glossBorder,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopColor: colors.border,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     padding: 16,
-    paddingBottom: 20,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  sheetTopShimmer: {
-    position: 'absolute',
-    top: 0,
-    left: 30,
-    right: 30,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingBottom: 24,
   },
   sheetHeader: {
     flexDirection: 'row',

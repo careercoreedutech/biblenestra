@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
 import { Screen, Section, Row, Pills, Pill, Button, Tag, Badge, Notice, Input, Empty } from '../components/ui';
@@ -23,30 +22,26 @@ export default function GodModeScreen() {
   const lp = state.lastPosition;
 
   return (
-    <Screen title="God Mode" menu={() => nav.push('Profile')} scroll={true}>
-      {/* Illuminated Header */}
+    <Screen title="Scripture Intelligence" menu={() => nav.push('Profile')} scroll={true}>
+      {/* Editorial Header */}
       <View style={styles.greet}>
-        <View style={styles.divinePill}>
-          <Text style={styles.divineSpark}>✦</Text>
-          <Text style={styles.divineText}>SCRIPTURE INTELLIGENCE</Text>
-        </View>
-        <Text style={styles.h1}>{greeting()}, {state.user.displayName}!</Text>
-        <Text style={styles.sub}>What would you like to explore in God's Word today?</Text>
+        <Text style={styles.h1}>{greeting()}, {state.user.displayName}</Text>
+        <Text style={styles.sub}>Seek wisdom, examine context, and deepen your understanding of Scripture.</Text>
       </View>
 
       {/* Pathways Grid */}
       <View style={styles.grid}>
         <View style={styles.gridRow}>
           <Card
-            title={'Emotional\nTriage'}
-            subtitle="Anxious, angry, or seeking comfort."
-            color={colors.teal}
+            title={'Pastoral\nGuidance'}
+            subtitle="Comfort, anxiety, and prayerful direction."
+            color={colors.gold}
             icon="🕊"
             onPress={() => nav.push('Companion')}
           />
           <Card
-            title={'Topic\nExplorer'}
-            subtitle="What does the Bible teach about...?"
+            title={'Theological\nInquiry'}
+            subtitle="What does Scripture teach about..."
             color={colors.lavender}
             icon="✦"
             onPress={() => nav.push('BibleChat', { seed: 'Which passages discuss ' })}
@@ -54,15 +49,15 @@ export default function GodModeScreen() {
         </View>
         <View style={styles.gridRow}>
           <Card
-            title={'1:1 Guided\nStudy'}
-            subtitle="Walk through a chapter deeply with AI."
-            color={colors.gold}
+            title={'Guided\nExegesis'}
+            subtitle="Chapter study with contextual AI."
+            color={colors.teal}
             icon="📖"
             onPress={() => nav.push('Reading', lp)}
           />
           <Card
-            title={'The Hard\nQuestions'}
-            subtitle="Doubts, tensions, and deep theology."
+            title={'Difficult\nPassages'}
+            subtitle="Tensions, history, and apologetics."
             color={colors.amber}
             icon="⚖"
             onPress={() => nav.push('BibleChat', { seed: 'Why ' })}
@@ -72,7 +67,7 @@ export default function GodModeScreen() {
 
       {/* Quick suggestions */}
       <View style={styles.suggestionsContainer}>
-        <Text style={styles.quickPromptTitle}>QUICK EXPLORATION</Text>
+        <Text style={styles.quickPromptTitle}>EXPLORATION TOPICS</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
           {['Peace in anxiety', 'Forgiving when hurt', 'Who is the Holy Spirit?', 'Romans 8 walk-through'].map((item) => (
             <Pressable
@@ -133,15 +128,8 @@ export function ReadingScreen({ params }) {
         ))}
       </ScrollView>
 
-      {/* Glossy Interactive Sheet */}
+      {/* Flat Bottom Sheet */}
       <View style={styles.glassSheet}>
-        <LinearGradient
-          colors={['#241d19', '#14100e']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <View style={styles.sheetShimmer} />
 
         <View style={styles.sheetHandle} />
 
@@ -290,24 +278,12 @@ export function BibleChatScreen({ params = {} }) {
         {history.map((m) =>
           m.role === 'user' ? (
             <View key={m.id} style={styles.userBubble}>
-              <LinearGradient
-                colors={['#e2752b', '#c05814']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
-              />
               <Text style={styles.userText}>{m.text}</Text>
             </View>
           ) : (
             <View key={m.id} style={styles.aiCard}>
-              <LinearGradient
-                colors={['#241d19', '#171311']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
-              />
               <View style={styles.aiCardHeader}>
-                <Text style={styles.aiBadge}>✦ BIBLICAL INSIGHT</Text>
+                <Text style={styles.aiBadge}>✦ SCRIPTURE EXEGESIS</Text>
               </View>
 
               {m.blocks.map((b, i) => (
@@ -442,12 +418,6 @@ export function CompanionScreen() {
 
           {result.passages.map((p) => (
             <View key={p.ref} style={styles.passageCard}>
-              <LinearGradient
-                colors={['#241d19', '#171311']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-                style={StyleSheet.absoluteFillObject}
-              />
               <Text style={styles.passageRef}>✦ {p.ref} ({p.translation})</Text>
               <Text style={styles.passageScripture}>"{p.text}"</Text>
               <Text style={styles.passageWhy}>{p.why}</Text>
@@ -622,28 +592,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   glassSheet: {
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: colors.glossBorder,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 18,
-    paddingTop: 12,
+    borderTopColor: colors.border,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 10,
     paddingBottom: 16,
-    overflow: 'hidden',
-  },
-  sheetShimmer: {
-    position: 'absolute',
-    top: 0,
-    left: 40,
-    right: 40,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
   sheetHandle: {
-    width: 36,
-    height: 4,
+    width: 32,
+    height: 3.5,
     borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: colors.borderStrong,
     alignSelf: 'center',
     marginBottom: 10,
   },
@@ -777,28 +739,30 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     alignSelf: 'flex-end',
-    borderRadius: 18,
-    borderBottomRightRadius: 4,
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderBottomRightRadius: 2,
     paddingHorizontal: 14,
     paddingVertical: 10,
     maxWidth: '85%',
-    overflow: 'hidden',
   },
   userText: {
     fontFamily: fonts.sans,
-    color: '#fff',
+    color: colors.fg,
     fontSize: 14,
     lineHeight: 20,
   },
   aiCard: {
     alignSelf: 'flex-start',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.lineLight,
-    borderRadius: 18,
-    borderBottomLeftRadius: 4,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderBottomLeftRadius: 2,
     padding: 14,
     maxWidth: '96%',
-    overflow: 'hidden',
     gap: 10,
   },
   aiCardHeader: {
@@ -878,25 +842,25 @@ const styles = StyleSheet.create({
   },
   acknowledgmentCard: {
     padding: 14,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 12,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.lineLight,
+    borderColor: colors.border,
     marginTop: 14,
   },
   ackText: {
     fontFamily: fonts.serif,
     fontSize: 14.5,
     lineHeight: 21,
-    color: colors.fg,
+    color: colors.passage,
   },
   passageCard: {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.lineLight,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     padding: 16,
     marginTop: 12,
-    overflow: 'hidden',
   },
   passageRef: {
     fontFamily: fonts.sansMedium,

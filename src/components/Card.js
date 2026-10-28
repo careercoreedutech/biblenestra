@@ -1,9 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { colors, fonts } from '../theme';
 
-export default function Card({ title, subtitle, question, color = colors.gold, onPress, compact, icon, style }) {
+export default function Card({ title, subtitle, question, color = colors.gold, onPress, compact, icon, style, right }) {
   return (
     <Pressable
       onPress={onPress}
@@ -13,36 +12,31 @@ export default function Card({ title, subtitle, question, color = colors.gold, o
         style,
       ]}
     >
-      <View style={[styles.cardContainer, compact && styles.compactContainer]}>
-        {/* Glossy gradient background */}
-        <LinearGradient
-          colors={['#251e1a', '#171311']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
+      <View style={[styles.card, compact && styles.cardCompact]}>
+        {/* Top meta row */}
+        {(question || icon) ? (
+          <View style={styles.headerRow}>
+            {icon ? (
+              <View style={styles.iconBox}>
+                {typeof icon === 'string' ? (
+                  <Text style={[styles.iconText, { color }]}>{icon}</Text>
+                ) : (
+                  icon
+                )}
+              </View>
+            ) : null}
 
-        {/* Glossy top specular light reflection */}
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.0)']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 0.5 }}
-          style={styles.glossOverlay}
-        />
+            {question ? (
+              <Text style={styles.questionText} numberOfLines={1}>
+                {question}
+              </Text>
+            ) : null}
 
-        {/* Header row: sparkle/icon and optional category/question */}
-        <View style={styles.headerRow}>
-          <View style={[styles.sparkBadge, { borderColor: color + '44', backgroundColor: color + '15' }]}>
-            <Text style={[styles.spark, { color }]}>{icon || '✦'}</Text>
+            {right ? <View style={styles.rightSlot}>{right}</View> : null}
           </View>
-          {question ? (
-            <View style={styles.questionBadge}>
-              <Text style={styles.questionText} numberOfLines={1}>{question}</Text>
-            </View>
-          ) : null}
-        </View>
+        ) : null}
 
-        {/* Content */}
+        {/* Content body */}
         <View style={styles.body}>
           <Text
             style={[
@@ -63,8 +57,8 @@ export default function Card({ title, subtitle, question, color = colors.gold, o
           ) : null}
         </View>
 
-        {/* Accent glow corner indicator */}
-        <View style={[styles.cornerPill, { backgroundColor: color }]} />
+        {/* Quiet indicator line at the bottom */}
+        <View style={[styles.indicator, { backgroundColor: color }]} />
       </View>
     </Pressable>
   );
@@ -75,107 +69,90 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.985 }],
+    opacity: 0.82,
   },
-  cardContainer: {
-    borderRadius: 18,
-    paddingHorizontal: 15,
-    paddingTop: 15,
-    paddingBottom: 16,
-    minHeight: 136,
-    overflow: 'hidden',
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.glossBorder,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 4,
+    borderColor: colors.border,
+    padding: 16,
+    minHeight: 128,
     justifyContent: 'space-between',
+    overflow: 'hidden',
   },
-  compactContainer: {
-    minHeight: 98,
-    paddingTop: 12,
-    paddingBottom: 12,
-    paddingHorizontal: 13,
-    borderRadius: 15,
-  },
-  glossOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 48,
+  cardCompact: {
+    minHeight: 96,
+    padding: 13,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    gap: 8,
+    marginBottom: 10,
   },
-  sparkBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  iconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: colors.raised,
     borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  spark: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  questionBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+  iconText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   questionText: {
-    fontSize: 10,
-    color: colors.muted,
-    fontFamily: fonts.sansMedium,
-    letterSpacing: 0.3,
-  },
-  body: {
-    marginTop: 'auto',
-  },
-  title: {
-    color: colors.fg,
-    letterSpacing: -0.2,
-  },
-  titleRegular: {
-    fontFamily: fonts.serifBold,
-    fontSize: 16,
-    lineHeight: 21,
-  },
-  titleCompact: {
-    fontFamily: fonts.serifBold,
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  subtitle: {
     fontFamily: fonts.sans,
     fontSize: 11,
     color: colors.muted,
-    lineHeight: 15,
-    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    flex: 1,
+  },
+  rightSlot: {
+    marginLeft: 'auto',
+  },
+  body: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  title: {
+    fontFamily: fonts.sansMedium,
+    color: colors.fg,
+    letterSpacing: -0.2,
+    lineHeight: 20,
+  },
+  titleRegular: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  titleCompact: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginBottom: 3,
+  },
+  subtitle: {
+    fontFamily: fonts.sans,
+    fontSize: 12,
+    color: colors.muted,
+    lineHeight: 16,
   },
   subtitleCompact: {
-    fontSize: 10.5,
-    lineHeight: 14,
-    marginTop: 2,
+    fontSize: 11,
+    color: colors.muted,
+    lineHeight: 15,
   },
-  cornerPill: {
+  indicator: {
     position: 'absolute',
+    left: 0,
+    top: 0,
     bottom: 0,
-    right: 0,
-    width: 24,
-    height: 2,
-    borderTopLeftRadius: 2,
-    opacity: 0.6,
+    width: 2.5,
   },
 });

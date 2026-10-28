@@ -9,53 +9,43 @@ export const fonts = {
 };
 
 export const colors = {
-  // Ultra-luxurious warm obsidian & velvet dark tones
-  screen: '#0e0c0b',
-  sheet: '#171311',
-  sheetGlass: 'rgba(23, 19, 17, 0.94)',
-  cardTop: '#231d19',
-  cardBottom: '#181412',
-  cardSurface: '#1c1714',
-  cardGloss: 'rgba(255, 255, 255, 0.05)',
-  input: '#15110f',
-  inputBorder: 'rgba(255, 255, 255, 0.1)',
+  // Ground & Elevation — True warm near-black (Taste-Skill Anti-Slop)
+  screen: '#0a0908',       // Deep obsidian ground
+  surface: '#131210',      // Primary card & sheet surface (one tone step)
+  raised: '#1a1816',       // Nested panels, chips, search inputs
+  active: '#24211e',       // Pressed / active background
   
-  // Sleek glass borders & highlights
-  line: 'rgba(255, 255, 255, 0.08)',
-  lineLight: 'rgba(255, 255, 255, 0.14)',
-  glossBorder: 'rgba(255, 255, 255, 0.16)',
-  glossBorderTop: 'rgba(255, 255, 255, 0.22)',
-  tabLine: 'rgba(255, 255, 255, 0.06)',
+  // Clean hairline rules & structural borders (1px)
+  border: '#211e1b',       // Card & panel borders
+  borderStrong: '#332e29', // Focused input borders & active controls
+  rule: '#191715',         // Table & row separators
+  tabLine: '#1e1b18',      // Dock top hairline rule
 
-  // Typographic hierarchy
-  fg: '#faf6f0',          // Pure crystalline ivory
-  muted: '#a39688',       // Refined neutral beige
-  subtle: '#6d6257',      // Secondary subtle
-  passage: '#e8e0d5',     // Elegant book reader ivory
-
-  // Royal & Divine Accents
-  accent: '#e2752b',      // Divine Warm Amber
-  accentGlow: 'rgba(226, 117, 43, 0.25)',
-  gold: '#e5b869',        // Scripture Gold Leaf
-  goldLight: '#f6d892',
-  goldGlow: 'rgba(229, 184, 105, 0.25)',
+  // Typographic hierarchy (High legibility, serene contrast)
+  fg: '#f6f3ee',           // Pure ivory white
+  muted: '#9a9187',        // Neutral warm grey (passes 4.5:1)
+  faint: '#6e665d',        // Timestamps, captions, metadata
+  passage: '#ece5db',      // Refined scripture reader ink
   
-  // Celestial secondary highlights
-  teal: '#5eead4',        // Celestial Cyan/Teal
-  lavender: '#c4b5fd',    // Royal Lavender
-  amber: '#f59e0b',       // Warm Sacred Amber
-  yellow: '#fde047',      // Golden Sunlight
-  rose: '#fda4af',        // Grace Rose
-};
+  // Inverted primary control tokens (Taste Skill house rule)
+  primaryBg: '#f6f3ee',    // Inverted button background
+  primaryFg: '#0a0908',    // Inverted button label
 
-// Gradient sets for LinearGradient
-export const gradients = {
-  card: ['#241e1a', '#171311'],
-  cardGloss: ['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.01)'],
-  gold: ['#f6d892', '#d49b45'],
-  accent: ['#eb823b', '#cc5c18'],
-  teal: ['#6ee7b7', '#2dd4bf'],
-  lavender: ['#d8b4fe', '#a855f7'],
-  dock: ['rgba(22, 18, 16, 0.96)', 'rgba(14, 12, 11, 0.98)'],
-  verseHero: ['#28201a', '#171311'],
+  // Data & Sacred Accents (Under 3% pixel budget, reserved for meaningful data)
+  gold: '#dfa84a',         // Scripture Gold leaf & active scripture marks
+  goldMuted: '#947236',    // Quiet gold for verse numbers
+  goldFaint: 'rgba(223, 168, 74, 0.12)', // Subtle tint for scripture badges
+  
+  positive: '#48b87e',     // Answered prayers, online indicators
+  positiveFaint: 'rgba(72, 184, 126, 0.12)',
+  
+  warning: '#df9438',      // Notices & alerts
+  warningFaint: 'rgba(223, 148, 56, 0.12)',
+
+  negative: '#d9534f',     // Deletion & destructive actions
+  negativeFaint: 'rgba(217, 83, 79, 0.12)',
+
+  teal: '#46b2a0',         // Topic badges
+  lavender: '#a89bc9',     // Historical context badges
+  amber: '#df9438',
 };

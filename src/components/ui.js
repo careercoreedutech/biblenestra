@@ -1,29 +1,29 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { LinearGradient } from 'expo-linear-gradient';
 import { colors, fonts } from '../theme';
 import { useNav } from '../navigation';
 
 export function Screen({ title, children, back, right, scroll = true, menu, subtitle, padded = true, style }) {
   const nav = useNav();
   const Body = scroll ? ScrollView : View;
+
   return (
     <View style={[styles.screen, style]}>
       <View style={styles.topbar}>
         {back ? (
           <Pressable onPress={() => nav.pop()} hitSlop={14} style={styles.leftBtn}>
-            <View style={styles.iconCircle}>
+            <View style={styles.navIconBox}>
               <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                <Path d="M15 18l-6-6 6-6" stroke={colors.fg} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M15 18l-6-6 6-6" stroke={colors.fg} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
               </Svg>
             </View>
           </Pressable>
         ) : menu ? (
           <Pressable onPress={menu} hitSlop={14} style={styles.leftBtn}>
-            <View style={styles.iconCircle}>
+            <View style={styles.navIconBox}>
               <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                <Path d="M4 6h16M4 12h16M4 18h16" stroke={colors.fg} strokeWidth={2} strokeLinecap="round" />
+                <Path d="M4 6h16M4 12h16M4 18h16" stroke={colors.fg} strokeWidth={1.8} strokeLinecap="round" />
               </Svg>
             </View>
           </Pressable>
@@ -39,7 +39,7 @@ export function Screen({ title, children, back, right, scroll = true, menu, subt
 
       <Body
         style={{ flex: 1 }}
-        contentContainerStyle={scroll ? [padded && styles.pad, { paddingBottom: 36 }] : undefined}
+        contentContainerStyle={scroll ? [padded && styles.pad, { paddingBottom: 40 }] : undefined}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -115,14 +115,11 @@ export function Pill({ label, active, onPress, tint = colors.gold, small, style 
         style,
       ]}
     >
-      {active ? (
-        <View style={[styles.pillActiveGlow, { backgroundColor: tint + '22' }]} />
-      ) : null}
       <Text
         style={[
           styles.pillText,
           small && { fontSize: 11 },
-          active && { color: tint, fontWeight: '700' },
+          active && { color: tint, fontWeight: '600' },
         ]}
       >
         {label}
@@ -164,33 +161,24 @@ export function Button({ label, onPress, kind = 'primary', style, small, disable
       disabled={disabled}
       style={({ pressed }) => [
         styles.btn,
-        small && styles.btnSmall,
+        isPrimary && styles.btnPrimary,
         isGhost && styles.btnGhost,
         isDanger && styles.btnDanger,
+        small && styles.btnSmall,
         disabled && { opacity: 0.4 },
-        pressed && { opacity: 0.88, transform: [{ scale: 0.985 }] },
+        pressed && { opacity: 0.82 },
         style,
       ]}
     >
-      {isPrimary ? (
-        <LinearGradient
-          colors={['#eb833c', '#cb5c18']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-      ) : null}
-
-      {/* Top subtle highlight */}
-      <View style={styles.btnHighlight} />
-
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         {icon}
         <Text
           style={[
             styles.btnText,
+            isPrimary && styles.btnTextPrimary,
+            isGhost && styles.btnTextGhost,
+            isDanger && styles.btnTextDanger,
             small && { fontSize: 12 },
-            isGhost && { color: colors.fg },
           ]}
         >
           {label}
@@ -203,7 +191,7 @@ export function Button({ label, onPress, kind = 'primary', style, small, disable
 export function Input({ style, multiline, ...props }) {
   return (
     <TextInput
-      placeholderTextColor={colors.muted}
+      placeholderTextColor={colors.faint}
       style={[styles.input, multiline && styles.inputMulti, style]}
       multiline={multiline}
       {...props}
@@ -213,15 +201,15 @@ export function Input({ style, multiline, ...props }) {
 
 export function Tag({ label, tint = colors.muted, style }) {
   return (
-    <View style={[styles.tag, { borderColor: tint + '44', backgroundColor: tint + '12' }, style]}>
+    <View style={[styles.tag, { borderColor: colors.border, backgroundColor: colors.raised }, style]}>
       <Text style={[styles.tagText, { color: tint }]}>{label}</Text>
     </View>
   );
 }
 
-export function Badge({ label, tint = colors.teal }) {
+export function Badge({ label, tint = colors.gold }) {
   return (
-    <View style={[styles.badge, { backgroundColor: tint + '18', borderColor: tint + '55' }]}>
+    <View style={[styles.badge, { backgroundColor: colors.raised, borderColor: colors.border }]}>
       <Text style={[styles.badgeText, { color: tint }]}>{label}</Text>
     </View>
   );
@@ -234,8 +222,8 @@ export function Spark() {
 export function Empty({ title, body, action, onAction }) {
   return (
     <View style={styles.empty}>
-      <View style={styles.emptySparkBadge}>
-        <Text style={{ fontSize: 18, color: colors.gold }}>✦</Text>
+      <View style={styles.emptyIconBox}>
+        <Text style={{ fontSize: 16, color: colors.muted }}>—</Text>
       </View>
       <Text style={styles.emptyTitle}>{title}</Text>
       {body ? <Text style={styles.emptyBody}>{body}</Text> : null}
@@ -246,13 +234,7 @@ export function Empty({ title, body, action, onAction }) {
 
 export function Notice({ text, tint = colors.gold }) {
   return (
-    <View style={[styles.notice, { borderColor: tint + '44' }]}>
-      <LinearGradient
-        colors={['rgba(35, 29, 25, 0.7)', 'rgba(23, 19, 17, 0.7)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
+    <View style={[styles.notice, { borderColor: colors.border }]}>
       <Text style={[styles.noticeText, { color: tint }]}>✦ {text}</Text>
     </View>
   );
@@ -271,29 +253,28 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
-    minHeight: 50,
+    height: 48,
     borderBottomWidth: 1,
-    borderBottomColor: colors.tabLine,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.screen,
   },
   leftBtn: {
-    width: 40,
+    width: 36,
     alignItems: 'flex-start',
     justifyContent: 'center',
   },
   rightBtn: {
-    width: 40,
+    width: 36,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
-  iconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  navIconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -302,8 +283,9 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   topTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 15,
+    fontFamily: fonts.sansMedium,
+    fontSize: 14.5,
+    fontWeight: '600',
     color: colors.fg,
     letterSpacing: -0.2,
   },
@@ -311,87 +293,89 @@ export const styles = StyleSheet.create({
     fontFamily: fonts.sans,
     fontSize: 10.5,
     color: colors.muted,
-    marginTop: 2,
-    letterSpacing: 0.2,
+    marginTop: 1,
   },
   pad: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
   },
   h1: {
-    fontFamily: fonts.serifBold,
-    fontSize: 24,
+    fontFamily: fonts.sansMedium,
+    fontSize: 22,
+    fontWeight: '600',
     color: colors.fg,
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
     textAlign: 'center',
-    lineHeight: 30,
+    lineHeight: 28,
   },
   h2: {
-    fontFamily: fonts.serifBold,
-    fontSize: 18,
+    fontFamily: fonts.sansMedium,
+    fontSize: 17,
+    fontWeight: '600',
     color: colors.fg,
     letterSpacing: -0.2,
   },
   sub: {
     fontFamily: fonts.sans,
-    fontSize: 12.5,
+    fontSize: 13,
     color: colors.muted,
-    marginTop: 6,
+    marginTop: 5,
     textAlign: 'center',
-    lineHeight: 17,
+    lineHeight: 18,
   },
   section: {
-    marginTop: 26,
+    marginTop: 24,
   },
   sectionHead: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   sectionTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 14.5,
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    fontWeight: '600',
     color: colors.fg,
     letterSpacing: -0.1,
   },
   sectionAction: {
-    fontFamily: fonts.sansMedium,
+    fontFamily: fonts.sans,
     fontSize: 12,
     color: colors.gold,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    paddingVertical: 14,
+    gap: 12,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: colors.line,
+    borderBottomColor: colors.rule,
   },
   rowPressed: {
     opacity: 0.75,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
   },
   rowLeft: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: colors.cardTop,
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.lineLight,
+    borderColor: colors.border,
   },
   rowTitle: {
     fontFamily: fonts.sansMedium,
-    fontSize: 14,
+    fontSize: 13.5,
+    fontWeight: '500',
     color: colors.fg,
     letterSpacing: -0.1,
   },
   rowSub: {
     fontFamily: fonts.sans,
-    fontSize: 11.5,
+    fontSize: 12,
     color: colors.muted,
-    marginTop: 3,
+    marginTop: 2,
     lineHeight: 16,
   },
   rowRight: {
@@ -403,143 +387,132 @@ export const styles = StyleSheet.create({
     color: colors.muted,
   },
   pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.lineLight,
-    backgroundColor: 'rgba(34, 28, 25, 0.7)',
-    overflow: 'hidden',
-    position: 'relative',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   pillSmall: {
-    paddingHorizontal: 11,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 6,
   },
   pillActive: {
-    backgroundColor: 'rgba(229, 184, 105, 0.1)',
-  },
-  pillActiveGlow: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
+    backgroundColor: colors.raised,
+    borderColor: colors.gold,
   },
   pillText: {
-    fontFamily: fonts.sansMedium,
+    fontFamily: fonts.sans,
     fontSize: 12,
-    color: colors.fg,
-    letterSpacing: 0.1,
+    color: colors.muted,
   },
   btn: {
-    borderRadius: 14,
-    paddingVertical: 13,
-    paddingHorizontal: 20,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-    position: 'relative',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    shadowColor: colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 3,
+    minHeight: 38,
   },
-  btnSmall: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 11,
+  btnPrimary: {
+    backgroundColor: colors.primaryBg,
   },
   btnGhost: {
-    backgroundColor: 'rgba(34, 28, 25, 0.8)',
-    borderColor: colors.lineLight,
-    shadowOpacity: 0,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   btnDanger: {
-    backgroundColor: '#8a2f2f',
-    borderColor: '#b44a4a',
+    backgroundColor: colors.negativeFaint,
+    borderWidth: 1,
+    borderColor: colors.negative,
   },
-  btnHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 10,
-    right: 10,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  btnSmall: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    minHeight: 30,
   },
   btnText: {
     fontFamily: fonts.sansMedium,
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
-    letterSpacing: 0.2,
+    fontSize: 13.5,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+  },
+  btnTextPrimary: {
+    color: colors.primaryFg,
+  },
+  btnTextGhost: {
+    color: colors.fg,
+  },
+  btnTextDanger: {
+    color: colors.negative,
   },
   input: {
-    backgroundColor: colors.input,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.inputBorder,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
     fontSize: 13.5,
     fontFamily: fonts.sans,
     color: colors.fg,
   },
   inputMulti: {
-    minHeight: 96,
+    minHeight: 88,
     textAlignVertical: 'top',
   },
   tag: {
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
   tagText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 10,
-    letterSpacing: 0.3,
+    fontFamily: fonts.sans,
+    fontSize: 10.5,
+    letterSpacing: 0.2,
   },
   badge: {
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
   badgeText: {
     fontFamily: fonts.sansMedium,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   spark: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.gold,
   },
   empty: {
     alignItems: 'center',
-    paddingVertical: 40,
-    gap: 8,
+    paddingVertical: 36,
+    gap: 6,
   },
-  emptySparkBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(229, 184, 105, 0.1)',
+  emptyIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.raised,
     borderWidth: 1,
-    borderColor: 'rgba(229, 184, 105, 0.25)',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   emptyTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 16,
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.fg,
   },
   emptyBody: {
@@ -547,25 +520,24 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.muted,
     textAlign: 'center',
-    lineHeight: 17,
-    maxWidth: 280,
+    lineHeight: 16,
+    maxWidth: 260,
   },
   notice: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderRadius: 14,
-    padding: 13,
-    marginTop: 14,
-    overflow: 'hidden',
-    position: 'relative',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 12,
   },
   noticeText: {
     fontFamily: fonts.sans,
-    fontSize: 11.5,
-    lineHeight: 16,
+    fontSize: 12,
+    lineHeight: 17,
   },
   divider: {
     height: 1,
-    backgroundColor: colors.line,
-    marginVertical: 16,
+    backgroundColor: colors.rule,
+    marginVertical: 14,
   },
 });

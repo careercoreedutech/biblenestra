@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty } from '../components/ui';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
@@ -47,14 +46,6 @@ export default function PrayerScreen() {
 
       {filtered.map((p) => (
         <Pressable key={p.id} style={styles.card} onPress={() => nav.push('Prayer', { id: p.id })}>
-          <LinearGradient
-            colors={['#241d19', '#171311']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <View style={styles.cardShimmer} />
-
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <View style={styles.avatarCircle}>
@@ -75,8 +66,8 @@ export default function PrayerScreen() {
               onPress={() => dispatch({ type: 'pray', id: p.id })}
               style={[styles.pray, p.prayed && styles.prayOn]}
             >
-              <Text style={[styles.prayText, p.prayed && { color: '#0e0c0b', fontWeight: '700' }]}>
-                🙏 {p.prayed ? "You're praying" : "I'm praying"} · {p.praying}
+              <Text style={[styles.prayText, p.prayed && { color: colors.primaryFg, fontWeight: '600' }]}>
+                {p.prayed ? "Interceding" : "Pray"} · {p.praying}
               </Text>
             </Pressable>
             <Text style={styles.meta}>
@@ -264,87 +255,84 @@ export function Toggle({ value, onChange }) {
 
 const styles = StyleSheet.create({
   addPrayerBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(229, 184, 105, 0.1)',
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: 'rgba(229, 184, 105, 0.3)',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   card: {
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.lineLight,
-    borderRadius: 18,
+    borderColor: colors.border,
+    borderRadius: 12,
     padding: 16,
-    marginTop: 14,
-    overflow: 'hidden',
-  },
-  cardShimmer: {
-    position: 'absolute',
-    top: 0,
-    left: 20,
-    right: 20,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    marginTop: 12,
   },
   avatarCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitial: {
     fontFamily: fonts.sansMedium,
-    fontSize: 11,
+    fontSize: 10.5,
     color: colors.fg,
   },
   author: {
-    fontFamily: fonts.sansMedium,
+    fontFamily: fonts.sans,
     fontSize: 11.5,
     color: colors.muted,
   },
   title: {
-    fontFamily: fonts.serifBold,
-    fontSize: 16,
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+    fontWeight: '600',
     color: colors.fg,
-    marginTop: 10,
+    marginTop: 8,
     letterSpacing: -0.2,
   },
   body: {
     fontFamily: fonts.sans,
-    fontSize: 13,
-    color: colors.passage,
+    fontSize: 12.5,
+    color: colors.muted,
     lineHeight: 18,
-    marginTop: 6,
+    marginTop: 5,
   },
   verse: {
     fontFamily: fonts.serif,
     fontSize: 12,
     color: colors.gold,
-    marginTop: 10,
-    fontStyle: 'italic',
+    marginTop: 8,
   },
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 14,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.rule,
   },
   pray: {
     borderWidth: 1,
-    borderColor: colors.lineLight,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: colors.border,
+    borderRadius: 7,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    backgroundColor: colors.raised,
   },
   prayOn: {
-    backgroundColor: colors.gold,
-    borderColor: colors.gold,
+    backgroundColor: colors.primaryBg,
+    borderColor: colors.primaryBg,
   },
   prayText: {
     fontFamily: fonts.sansMedium,

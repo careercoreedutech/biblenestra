@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { LinearGradient } from 'expo-linear-gradient';
 import { colors, fonts } from '../theme';
 
-export default function AskBar({ placeholder = 'Ask anything...', onSend, initial }) {
+export default function AskBar({ placeholder = 'Ask anything in scripture...', onSend, initial }) {
   const [text, setText] = useState(initial || '');
   const [focused, setFocused] = useState(false);
 
@@ -18,18 +17,15 @@ export default function AskBar({ placeholder = 'Ask anything...', onSend, initia
 
   return (
     <View style={[styles.container, focused && styles.containerFocused]}>
-      <LinearGradient
-        colors={focused ? ['#28201a', '#1a1411'] : ['#201915', '#14100e']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
-      {/* Top subtle highlight */}
-      <View style={styles.topBorderShimmer} />
-
-      {/* Spark icon indicator */}
-      <View style={styles.sparkWrapper}>
-        <Text style={[styles.sparkIcon, focused && { color: colors.gold }]}>✦</Text>
+      <View style={styles.iconWrapper}>
+        <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M21 21l-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0z"
+            stroke={focused ? colors.gold : colors.muted}
+            strokeWidth={1.8}
+            strokeLinecap="round"
+          />
+        </Svg>
       </View>
 
       <TextInput
@@ -39,7 +35,7 @@ export default function AskBar({ placeholder = 'Ask anything...', onSend, initia
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         placeholder={placeholder}
-        placeholderTextColor={colors.muted}
+        placeholderTextColor={colors.faint}
         style={styles.input}
         returnKeyType="send"
       />
@@ -49,21 +45,15 @@ export default function AskBar({ placeholder = 'Ask anything...', onSend, initia
         disabled={!hasText}
         style={({ pressed }) => [
           styles.sendBtn,
-          hasText && styles.sendBtnActive,
+          hasText ? styles.sendBtnActive : styles.sendBtnDisabled,
           pressed && { opacity: 0.8 },
         ]}
         accessibilityLabel="Send"
       >
-        <LinearGradient
-          colors={hasText ? ['#f5d58a', '#e2752b'] : ['#362c26', '#221a15']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+        <Svg width={13} height={13} viewBox="0 0 14 14" fill="none">
           <Path
             d="M2 7h9M7.5 3.5 11 7l-3.5 3.5"
-            stroke={hasText ? '#0e0c0b' : colors.muted}
+            stroke={hasText ? colors.primaryFg : colors.faint}
             strokeWidth={2}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -78,64 +68,44 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 22,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.glossBorder,
-    overflow: 'hidden',
-    paddingLeft: 12,
-    paddingRight: 6,
-    paddingVertical: 5,
-    minHeight: 52,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 3,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginVertical: 8,
   },
   containerFocused: {
-    borderColor: 'rgba(229, 184, 105, 0.45)',
-    shadowColor: colors.accent,
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.raised,
   },
-  topBorderShimmer: {
-    position: 'absolute',
-    top: 0,
-    left: 14,
-    right: 14,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
-  },
-  sparkWrapper: {
-    width: 24,
+  iconWrapper: {
+    marginRight: 9,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sparkIcon: {
-    fontSize: 14,
-    color: colors.muted,
   },
   input: {
     flex: 1,
     fontFamily: fonts.sans,
-    fontSize: 13.5,
+    fontSize: 14,
     color: colors.fg,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    overflow: 'hidden',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 6,
   },
   sendBtnActive: {
-    shadowColor: colors.gold,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 4,
+    backgroundColor: colors.primaryBg,
+  },
+  sendBtnDisabled: {
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
 });
