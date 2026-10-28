@@ -295,26 +295,139 @@ export function ProfileScreen({ params = {} }) {
   const u = state.user;
   const [tab, setTab] = useState(params.tab || 'Profile');
   const set = (patch) => dispatch({ type: 'user', user: patch });
+  const myProposals = (state.proposals || []).filter((p) => p.userId === u.username || p.userId === 'user');
+  const myVideos = (state.videos || []).filter((v) => v.creator?.username === u.username || v.creator?.name === u.displayName);
+
   return (
-    <Screen back title={u.displayName} subtitle={`@${u.username} · ${u.profileVisibility}`}>
-      <Pills small items={['Profile', 'Study', 'Privacy', 'Notifications', 'Family', 'Account']} value={tab} onChange={setTab} />
+    <Screen back={nav.stack.length > 0} title={u.displayName} subtitle={`@${u.username} · ${u.profileVisibility}`}>
+      <Pills
+        small
+        items={['Profile', 'Wallet & Gifts', 'Creator', 'Jobs', 'Study', 'Privacy', 'Account']}
+        value={tab}
+        onChange={setTab}
+      />
       {tab === 'Profile' ? (
         <View>
           <View style={{ alignItems: 'center', marginTop: 14 }}>
-            <View style={styles.avatar}><Text style={{ color: colors.fg, fontSize: 22, fontWeight: '600' }}>{u.displayName[0]}</Text></View>
-            <Text style={[styles.cardTitle, { fontSize: 18, marginTop: 10 }]}>{u.displayName}</Text>
+            <View style={[styles.avatar, { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.raised, borderColor: colors.gold, borderWidth: 2 }]}>
+              <Text style={{ color: colors.gold, fontSize: 24, fontWeight: '700' }}>{u.displayName[0]}</Text>
+            </View>
+            <Text style={[styles.cardTitle, { fontSize: 20, marginTop: 10 }]}>{u.displayName}</Text>
             <Text style={styles.cardMeta}>{u.headline} · {u.country} · {u.languages.join(', ')}</Text>
-            {u.church.visible ? <Text style={[styles.cardMeta, { color: colors.teal }]}>⛪ {u.church.name}</Text> : null}
+            {u.church.visible ? <Text style={[styles.cardMeta, { color: colors.teal, marginTop: 4 }]}>⛪ {u.church.name}</Text> : null}
+
+            {/* Quick Stats Banner */}
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 14, width: '100%', justifyContent: 'center' }}>
+              <View style={styles.statBox}>
+                <Text style={styles.statValue}>🪙 {state.coins || 0}</Text>
+                <Text style={styles.statLabel}>Kingdom Coins</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statValue}>{state.bookmarks?.length || 0}</Text>
+                <Text style={styles.statLabel}>Bookmarks</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statValue}>{state.highlights?.length || 0}</Text>
+                <Text style={styles.statLabel}>Highlights</Text>
+              </View>
+            </View>
           </View>
+
+          <Section title="Kingdom Wallet & Support">
+            <Row
+              title="Virtual Coin Balance"
+              subtitle="Use coins to send virtual gifts & support Christian creators"
+              right={`🪙 ${state.coins || 0} Coins`}
+              onPress={() => setTab('Wallet & Gifts')}
+            />
+          </Section>
+
           <Section title="Availability for chat">
             <Pills small items={['Available now', 'Selected times', 'Message requests', 'Not accepting']} value={{ now: 'Available now', times: 'Selected times', requests: 'Message requests', none: 'Not accepting' }[u.availability]} onChange={(v) => set({ availability: { 'Available now': 'now', 'Selected times': 'times', 'Message requests': 'requests', 'Not accepting': 'none' }[v] })} />
             <Text style={styles.label}>I accept</Text>
             <Pills small items={['General chat', 'Bible study', 'Prayer', 'Professional', 'Mentoring', 'Care / support']} value={u.acceptsChat} onChange={(v) => set({ acceptsChat: u.acceptsChat.includes(v) ? u.acceptsChat.filter((x) => x !== v) : [...u.acceptsChat, v] })} />
           </Section>
           <Section title="Professional profile">
-            <Row title="Headline & testimony" right="›" /><Row title="Christian skills" subtitle="Teaching, worship, discipleship" right="›" /><Row title="Professional skills" subtitle="Technology" right="›" /><Row title="Experience, education, certifications" right="›" /><Row title="Portfolio" right="›" /><Row title="Verification" subtitle="Identity · Church affiliation · Licence · Education" right={<Badge label="Identity" tint={colors.lavender} />} /><Row title="Open to opportunities" right={<Toggle value={false} onChange={() => {}} />} />
+            <Row title="Headline & testimony" right="›" /><Row title="Christian skills" subtitle="Teaching, worship, discipleship" right="›" /><Row title="Professional skills" subtitle="Technology, Design, Audio" right="›" /><Row title="Experience, education, certifications" right="›" /><Row title="Portfolio" right="›" /><Row title="Verification" subtitle="Identity · Church affiliation · Licence · Education" right={<Badge label="Identity" tint={colors.gold} />} /><Row title="Open to opportunities" right={<Toggle value={false} onChange={() => {}} />} />
           </Section>
           <Section title="Memberships">{state.communities.filter((c) => c.joined === true).map((c) => <Row key={c.id} title={c.name} right="›" onPress={() => nav.push('Group', { id: c.id })} />)}</Section>
+        </View>
+      ) : null}
+
+      {tab === 'Wallet & Gifts' ? (
+        <View style={{ marginTop: 12 }}>
+          <View style={[styles.card, { alignItems: 'center', borderColor: colors.gold, borderWidth: 1.5 }]}>
+            <Text style={{ fontSize: 32 }}>🪙</Text>
+            <Text style={{ fontFamily: fonts.serifBold, fontSize: 26, color: colors.gold, marginTop: 4 }}>{state.coins || 0} Coins</Text>
+            <Text style={styles.cardMeta}>Kingdom Virtual Currency Balance</Text>
+            <Text style={[styles.cardBody, { textAlign: 'center', marginTop: 8 }]}>
+              Gift Christian evangelists, ministries, worship artists, and teachers on Socials.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <Button small label="＋ Add 100 Coins" onPress={() => dispatch({ type: 'buyCoins', amount: 100 })} />
+              <Button small kind="ghost" label="＋ Add 500 Coins" onPress={() => dispatch({ type: 'buyCoins', amount: 500 })} />
+            </View>
+          </View>
+
+          <Section title="Gifts Sent & Received">
+            {state.giftTransactions && state.giftTransactions.length ? (
+              state.giftTransactions.map((tx) => (
+                <Row
+                  key={tx.id}
+                  title={`${tx.giftName} sent`}
+                  subtitle={new Date(tx.timestamp).toLocaleTimeString()}
+                  right={`-${tx.cost} Coins`}
+                />
+              ))
+            ) : (
+              <Notice text="You haven't sent any gifts yet. Watch short videos on Socials and bless your favorite creators!" />
+            )}
+          </Section>
+        </View>
+      ) : null}
+
+      {tab === 'Creator' ? (
+        <View style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={styles.cardTitle}>My Ministry Videos</Text>
+            <Button small label="＋ Upload Short" onPress={() => nav.push('Socials')} />
+          </View>
+          {myVideos.length ? (
+            myVideos.map((v) => (
+              <Row
+                key={v.id}
+                title={v.caption}
+                subtitle={`${v.views} views · ${v.likes} likes · ${v.giftsCount || 0} gifts`}
+                right="▶"
+                onPress={() => nav.push('Socials', { initialVideoId: v.id })}
+              />
+            ))
+          ) : (
+            <Notice text="You haven't posted any ministry videos yet. Tap 'Upload Short' in Socials to share gospel reflections and testimonies." />
+          )}
+        </View>
+      ) : null}
+
+      {tab === 'Jobs' ? (
+        <View style={{ marginTop: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={styles.cardTitle}>My Marketplace Activity</Text>
+            <Button small label="Post Work" onPress={() => nav.push('Jobs')} />
+          </View>
+          <Section title="Submitted Proposals">
+            {myProposals.length ? (
+              myProposals.map((pr) => (
+                <Row
+                  key={pr.id}
+                  title={`Applied for ${pr.jobTitle || 'Gig'}`}
+                  subtitle={`Rate: ${pr.bidRate} · Delivery: ${pr.deliveryDays} days`}
+                  right={<Badge label={pr.status.toUpperCase()} tint={colors.gold} />}
+                />
+              ))
+            ) : (
+              <Notice text="No active proposals submitted. Browse jobs and tasks in the marketplace!" />
+            )}
+          </Section>
         </View>
       ) : null}
       {tab === 'Study' ? (
@@ -467,4 +580,7 @@ const styles = StyleSheet.create({
   h1: { fontFamily: fonts.sansMedium, fontSize: 21, fontWeight: '600', color: colors.fg, textAlign: 'center', letterSpacing: -0.3 },
   sub: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.muted, marginTop: 5, textAlign: 'center', lineHeight: 18 },
   spark: { fontSize: 14, color: colors.gold, letterSpacing: 1 },
+  statBox: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16, alignItems: 'center', minWidth: 90 },
+  statValue: { fontFamily: fonts.serifBold, fontSize: 16, color: colors.fg },
+  statLabel: { fontFamily: fonts.sans, fontSize: 10, color: colors.muted, marginTop: 2 },
 });

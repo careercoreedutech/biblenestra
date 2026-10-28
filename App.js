@@ -13,6 +13,9 @@ import BibleScreen, { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen }
 import GodModeScreen, { ReadingScreen, BibleChatScreen, CompanionScreen } from './src/screens/GodModeScreen';
 import PrayerScreen, { PrayerDetailScreen, NewPrayerScreen } from './src/screens/PrayerScreen';
 import { LearnScreen, PlanScreen, LessonScreen, SermonStudioScreen, TranscriptScreen, CreateScreen, ProfileScreen, OnboardingScreen } from './src/screens/MoreScreens';
+import SocialsScreen from './src/screens/SocialsScreen';
+import ConcordanceScreen from './src/screens/ConcordanceScreen';
+import JobsScreen from './src/screens/JobsScreen';
 
 class ErrorBoundary extends Component {
   state = { hasError: false, error: null };
@@ -47,19 +50,26 @@ class ErrorBoundary extends Component {
 const ROUTES = {
   Bible: BibleScreen, Study: StudyScreen, Factbook: FactbookScreen, Search: SearchScreen, Library: LibraryScreen,
   Reading: ReadingScreen, BibleChat: BibleChatScreen, Companion: CompanionScreen,
-  Prayer: PrayerDetailScreen, NewPrayer: NewPrayerScreen, PrayerTab: PrayerScreen,
+  Prayer: PrayerDetailScreen, NewPrayer: NewPrayerScreen, PrayerTab: PrayerScreen, PrayerWall: PrayerScreen,
   Communities: CommunitiesScreen, Group: GroupScreen, ChatList: ChatListScreen, Chat: ChatScreen, Calendar: CalendarScreen,
   People: PeopleScreen, Person: PersonScreen, Care: CareScreen, Wishes: WishesScreen, Live: LiveScreen, Feed: FeedScreen,
   Learn: LearnScreen, Plan: PlanScreen, Lesson: LessonScreen, SermonStudio: SermonStudioScreen, Transcript: TranscriptScreen,
   Create: CreateScreen, Profile: ProfileScreen, Onboarding: OnboardingScreen,
+  Socials: SocialsScreen, Concordance: ConcordanceScreen, Jobs: JobsScreen, Chats: ChatListScreen,
 };
 
-const TABS = { Home: HomeScreen, Discover: DiscoverScreen, Bible: BibleScreen, 'God Mode': GodModeScreen, Prayer: PrayerScreen };
+const TABS = {
+  Bible: BibleScreen,
+  Discover: DiscoverScreen,
+  Socials: SocialsScreen,
+  Chats: ChatListScreen,
+  Profile: ProfileScreen,
+};
 
 function Root() {
   const { state, ready } = useStore();
   const nav = useNav();
-  const [tab, setTab] = useState('God Mode');
+  const [tab, setTab] = useState('Bible');
   if (!ready) return <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>;
   if (!state.onboarded) return <OnboardingScreen />;
   const top = nav.stack[nav.stack.length - 1];

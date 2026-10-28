@@ -9,43 +9,48 @@ export const fonts = {
 };
 
 export const colors = {
-  // Ground & Elevation — True warm near-black (Taste-Skill Anti-Slop)
-  screen: '#0a0908',       // Deep obsidian ground
-  surface: '#131210',      // Primary card & sheet surface (one tone step)
-  raised: '#1a1816',       // Nested panels, chips, search inputs
-  active: '#24211e',       // Pressed / active background
+  // Distinctive Brand Colors (Forest Emerald & Warm Ivory - Copyright Safe)
+  screen: '#0c1411',        // Deep verdant sanctuary charcoal
+  surface: '#14201b',       // Rich forest slate surface
+  raised: '#1b2b25',        // Elevated containers, inputs, chips
+  active: '#243931',        // Pressed / active highlights
   
-  // Clean hairline rules & structural borders (1px)
-  border: '#211e1b',       // Card & panel borders
-  borderStrong: '#332e29', // Focused input borders & active controls
-  rule: '#191715',         // Table & row separators
-  tabLine: '#1e1b18',      // Dock top hairline rule
+  // Hairline borders & rules (1px)
+  border: '#22362e',        // Structural card borders
+  borderStrong: '#345246',  // Active/focused borders
+  rule: '#182621',          // Table and row hairlines
+  tabLine: '#1b2b25',       // Bottom dock border
 
-  // Typographic hierarchy (High legibility, serene contrast)
-  fg: '#f6f3ee',           // Pure ivory white
-  muted: '#9a9187',        // Neutral warm grey (passes 4.5:1)
-  faint: '#6e665d',        // Timestamps, captions, metadata
-  passage: '#ece5db',      // Refined scripture reader ink
+  // Typographic hierarchy (Serene high-legibility ivory)
+  fg: '#f4efe3',            // Pure warm ivory
+  muted: '#94a69e',         // Refined sage grey (passes 4.5:1)
+  faint: '#64756e',         // Timestamps, captions, metadata
+  passage: '#ece6d8',       // Sacred scripture reader ink
+
+  // Brand anchors & Action colors
+  forest: '#173d32',        // Deep forest brand anchor
+  primaryBg: '#1d4f40',     // Forest green primary action fill
+  primaryFg: '#f4efe3',     // Ivory button label
+  primaryInvertedBg: '#f4efe3',
+  primaryInvertedFg: '#0c1411',
+
+  // Biblical Gold & Secondary Accents
+  gold: '#c9a45c',          // Muted biblical gold leaf
+  goldMuted: '#8a703d',     // Subdued gold for verse markers
+  goldFaint: 'rgba(201, 164, 92, 0.15)',
+
+  // Secondary elements & status
+  slate: '#7a8eaa',         // Slate blue for secondary indicators
+  sage: '#a3c4b5',          // Sage green for tags
+  teal: '#46a38e',          // Topics & exegesis
+  lavender: '#9e9bbd',      // Historical context
   
-  // Inverted primary control tokens (Taste Skill house rule)
-  primaryBg: '#f6f3ee',    // Inverted button background
-  primaryFg: '#0a0908',    // Inverted button label
-
-  // Data & Sacred Accents (Under 3% pixel budget, reserved for meaningful data)
-  gold: '#dfa84a',         // Scripture Gold leaf & active scripture marks
-  goldMuted: '#947236',    // Quiet gold for verse numbers
-  goldFaint: 'rgba(223, 168, 74, 0.12)', // Subtle tint for scripture badges
+  positive: '#3da374',      // Verified, answered, online
+  positiveFaint: 'rgba(61, 163, 116, 0.15)',
   
-  positive: '#48b87e',     // Answered prayers, online indicators
-  positiveFaint: 'rgba(72, 184, 126, 0.12)',
-  
-  warning: '#df9438',      // Notices & alerts
-  warningFaint: 'rgba(223, 148, 56, 0.12)',
+  warning: '#d99738',       // Alerts & warnings
+  warningFaint: 'rgba(217, 151, 56, 0.15)',
 
-  negative: '#d9534f',     // Deletion & destructive actions
-  negativeFaint: 'rgba(217, 83, 79, 0.12)',
-
-  teal: '#46b2a0',         // Topic badges
-  lavender: '#a89bc9',     // Historical context badges
-  amber: '#df9438',
+  negative: '#d9534f',      // Destructive & reports
+  negativeFaint: 'rgba(217, 83, 79, 0.15)',
 };

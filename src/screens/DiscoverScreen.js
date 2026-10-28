@@ -1,19 +1,22 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, Image } from 'react-native';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider } from '../components/ui';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
-import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS } from '../data/seed';
+import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS, CHANNELS_DATA } from '../data/seed';
 import { refLabel } from '../data/bible';
 
-// ---------- Discover hub ----------
+// ---------- Discover Hub (10 Central Areas) ----------
 export default function DiscoverScreen() {
   const nav = useNav();
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
   const unread = state.chats.reduce((n, c) => n + c.unread, 0) + state.requests.length;
+  const recentPrayers = (state.prayers || []).slice(0, 3);
+  const featuredVideos = (state.videos || []).slice(0, 4);
+  const featuredJobs = (state.jobs || []).slice(0, 3);
 
   return (
     <Screen
@@ -26,18 +29,144 @@ export default function DiscoverScreen() {
         </Pressable>
       }
     >
-      <View style={{ alignItems: 'center', marginTop: 14 }}>
-        <Text style={styles.h1}>Explore & Connect</Text>
-        <Text style={styles.sub}>Find fellow believers, study scripture, and serve together.</Text>
+      {/* Search & Header */}
+      <View style={{ alignItems: 'center', marginTop: 10, marginBottom: 14 }}>
+        <Text style={styles.h1}>Christian Community Hub</Text>
+        <Text style={styles.sub}>Find fellow believers, discover ministry channels, intercede, and serve together.</Text>
       </View>
 
-      {/* Group 1: Fellowship & Community */}
-      <Section title="Fellowship & Community">
+      {/* 1. Trending Short Videos / Christian Socials */}
+      <Section
+        title="Trending on Socials"
+        right={
+          <Pressable onPress={() => nav.push('Socials')}>
+            <Text style={{ color: colors.gold, fontFamily: fonts.sansMedium, fontSize: 12 }}>Watch All ›</Text>
+          </Pressable>
+        }
+      >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
+          {featuredVideos.map((v) => (
+            <Pressable
+              key={v.id}
+              style={styles.videoCard}
+              onPress={() => nav.push('Socials', { initialVideoId: v.id })}
+            >
+              <View style={[styles.videoThumb, { backgroundColor: '#13231e' }]}>
+                <View style={styles.videoBadge}>
+                  <Text style={styles.videoBadgeText}>▶ {v.views}</Text>
+                </View>
+                <View style={{ position: 'absolute', bottom: 8, left: 8, right: 8 }}>
+                  <Text style={styles.videoCreatorName} numberOfLines={1}>{v.creator.name}</Text>
+                  <Text style={styles.videoCaptionPreview} numberOfLines={2}>{v.caption}</Text>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Section>
+
+      {/* 2. Prayer Wall (Relocated into Discover per Page 6) */}
+      <Section
+        title="Prayer Wall & Intercession"
+        right={
+          <Pressable onPress={() => nav.push('PrayerWall')}>
+            <Text style={{ color: colors.gold, fontFamily: fonts.sansMedium, fontSize: 12 }}>View Wall ›</Text>
+          </Pressable>
+        }
+      >
+        <View style={styles.prayerHubCard}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <View>
+              <Text style={styles.prayerHubTitle}>Spiritual Intercession</Text>
+              <Text style={styles.prayerHubSub}>Lift your brothers and sisters in prayer right now</Text>
+            </View>
+            <Pressable
+              onPress={() => nav.push('NewPrayer')}
+              style={styles.submitPrayerSmallBtn}
+            >
+              <Text style={styles.submitPrayerSmallBtnText}>＋ Pray Request</Text>
+            </Pressable>
+          </View>
+
+          {recentPrayers.map((p) => (
+            <View key={p.id} style={styles.prayerItemRow}>
+              <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
+                <Text style={styles.prayerItemTitle} numberOfLines={1}>{p.title}</Text>
+                <Text style={styles.prayerItemSub} numberOfLines={1}>{p.author} · {p.audience} · {p.praying} praying</Text>
+              </View>
+              <Pressable
+                onPress={() => dispatch({ type: 'pray', id: p.id })}
+                style={[styles.quickPrayBtn, p.prayed && styles.quickPrayBtnOn]}
+              >
+                <Text style={[styles.quickPrayBtnText, p.prayed && { color: colors.primaryFg }]}>
+                  {p.prayed ? 'Praying ✓' : '🙏 Pray'}
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      </Section>
+
+      {/* 3. Jobs & Tasks Marketplace */}
+      <Section
+        title="Christian Jobs & Tasks"
+        right={
+          <Pressable onPress={() => nav.push('Jobs')}>
+            <Text style={{ color: colors.gold, fontFamily: fonts.sansMedium, fontSize: 12 }}>Marketplace ›</Text>
+          </Pressable>
+        }
+      >
+        <View style={styles.jobsCard}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <View>
+              <Text style={styles.jobHeading}>Kingdom Work & Opportunities</Text>
+              <Text style={styles.jobSub}>Hire verified believers, find gigs, and serve churches</Text>
+            </View>
+            <Button small label="Browse Gigs" onPress={() => nav.push('Jobs')} />
+          </View>
+          {featuredJobs.map((j) => (
+            <Pressable key={j.id} style={styles.jobItem} onPress={() => nav.push('Jobs')}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.jobItemTitle}>{j.title}</Text>
+                <Text style={styles.jobItemMeta}>{j.postedBy} · {j.category} · {j.budget}</Text>
+              </View>
+              <Tag label={j.kind} tint={colors.teal} />
+            </Pressable>
+          ))}
+        </View>
+      </Section>
+
+      {/* 4. Ministry Broadcast Channels */}
+      <Section title="Channels & Broadcasts">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
+          {CHANNELS_DATA.map((ch) => (
+            <View key={ch.id} style={styles.channelCard}>
+              <View style={styles.channelPreview}>
+                <Text style={styles.channelPreviewIcon}>📡</Text>
+                <View style={styles.channelFollowersBadge}>
+                  <Text style={styles.channelFollowersText}>{ch.followers} followers</Text>
+                </View>
+              </View>
+              <View style={{ padding: 12 }}>
+                <Text style={styles.channelName} numberOfLines={1}>{ch.name}</Text>
+                <Text style={styles.channelVideoTitle} numberOfLines={1}>{ch.recentVideo.title}</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                  <Button small kind="ghost" label="Watch" onPress={() => nav.push('Live')} />
+                  <Button small label="Join" onPress={() => {}} />
+                </View>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+      </Section>
+
+      {/* 5. Fellowship & Communities */}
+      <Section title="Churches & Bible Studies">
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <Card
             compact
             title="Communities"
-            subtitle="Churches, small groups & study circles"
+            subtitle="Churches & study circles"
             color={colors.teal}
             icon="👥"
             onPress={() => nav.push('Communities')}
@@ -45,7 +174,7 @@ export default function DiscoverScreen() {
           <Card
             compact
             title="Chat & Groups"
-            subtitle={unread ? `${unread} waiting` : 'Direct & group fellowship'}
+            subtitle={unread ? `${unread} messages waiting` : 'Direct & group messaging'}
             color={colors.lavender}
             icon="💬"
             onPress={() => nav.push('ChatList')}
@@ -54,16 +183,16 @@ export default function DiscoverScreen() {
         <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
           <Card
             compact
-            title="People Directory"
-            subtitle="Believers open to spiritual conversation"
+            title="Find Believers"
+            subtitle="Discover Christian professionals"
             color={colors.gold}
             icon="🕊"
             onPress={() => nav.push('People')}
           />
           <Card
             compact
-            title="Live Fellowship"
-            subtitle={`${LIVE.filter((l) => l.status === 'live').length} active broadcasts`}
+            title="Live Stream"
+            subtitle={`${LIVE.filter((l) => l.status === 'live').length} active fellowships`}
             color={colors.accent}
             icon="●"
             onPress={() => nav.push('Live')}
@@ -72,20 +201,20 @@ export default function DiscoverScreen() {
         <View style={{ marginTop: 12 }}>
           <Row
             title="Community Feed"
-            subtitle="Testimonies, reflections, and announcements from your network"
+            subtitle="Testimonies, reflections, and announcements"
             right="Browse Feed ›"
             onPress={() => nav.push('Feed')}
           />
         </View>
       </Section>
 
-      {/* Group 2: Growth & Discipleship */}
+      {/* 6. Growth & Discipleship */}
       <Section title="Growth & Study">
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <Card
             compact
             title="Learning Hub"
-            subtitle="Plans, devotionals, memorization, and courses"
+            subtitle="Plans, devotionals & courses"
             color={colors.gold}
             icon="📖"
             onPress={() => nav.push('Learn')}
@@ -93,7 +222,7 @@ export default function DiscoverScreen() {
           <Card
             compact
             title="Sermon Studio"
-            subtitle="Audio recording, AI transcription & notes"
+            subtitle="Audio recording & notes"
             color={colors.amber}
             icon="🎙"
             onPress={() => nav.push('SermonStudio')}
@@ -102,20 +231,20 @@ export default function DiscoverScreen() {
         <View style={{ marginTop: 12 }}>
           <Row
             title="Christian Calendar"
-            subtitle="Church gatherings, global feasts & observance reminders"
+            subtitle="Church gatherings, feasts & observance reminders"
             right="View Calendar ›"
             onPress={() => nav.push('Calendar')}
           />
         </View>
       </Section>
 
-      {/* Group 3: Care & Support */}
+      {/* 7. Spiritual Care & Needs */}
       <Section title="Spiritual Care & Needs">
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <Card
             compact
             title="Care Network"
-            subtitle="Confidential support from qualified ministers"
+            subtitle="Confidential pastoral support"
             color={colors.teal}
             icon="🤍"
             onPress={() => nav.push('Care')}
@@ -123,7 +252,7 @@ export default function DiscoverScreen() {
           <Card
             compact
             title="Make a Wish"
-            subtitle="Share an urgent need or offer assistance"
+            subtitle="Share an urgent need or help"
             color={colors.lavender}
             icon="✨"
             onPress={() => nav.push('Wishes')}
@@ -131,7 +260,7 @@ export default function DiscoverScreen() {
         </View>
       </Section>
 
-      <Button label="＋ Create Post, Group or Stream" onPress={() => nav.push('Create')} style={{ marginTop: 28 }} />
+      <Button label="＋ Create Post, Group or Stream" onPress={() => nav.push('Create')} style={{ marginTop: 28, marginBottom: 40 }} />
     </Screen>
   );
 }
@@ -154,7 +283,7 @@ export function CommunitiesScreen() {
               <Text style={styles.cardTitle}>{c.name}</Text>
               <Text style={styles.cardMeta}>{c.region} · {c.language} · {c.members.toLocaleString()} members</Text>
             </View>
-            {c.verified ? <Badge label="Verified" /> : null}
+            {c.verified ? <Badge label="Verified" tint={colors.gold} /> : null}
           </View>
           <Text style={styles.cardBody}>{c.description}</Text>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
@@ -208,7 +337,7 @@ export function GroupScreen({ params }) {
           <Pills items={CHANNELS} value={channel} onChange={setChannel} style={{ paddingHorizontal: 18, flexGrow: 0 }} />
           {pinned.length && channel === 'General' ? <Pressable style={styles.pinned}><Text style={styles.pinnedText}>📌 {pinned[0].text}</Text></Pressable> : null}
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }}>
-            {!msgs.length ? <Empty title={`No messages in ${channel} yet`} /> : null}
+            {!msgs.length ? <Empty title={`No messages in #${channel} yet`} /> : null}
             {msgs.map((m) => (
               <View key={m.id} style={[styles.msg, m.mine && styles.msgMine]}>
                 {!m.mine ? <Text style={styles.msgFrom}>{m.from}</Text> : null}
@@ -234,16 +363,24 @@ export function GroupScreen({ params }) {
   );
 }
 
-// ---------- Chat list + conversation ----------
+// ---------- Chat list + conversation (WhatsApp-Style) ----------
 export function ChatListScreen() {
   const nav = useNav();
   const { state, dispatch } = useStore();
   const [tab, setTab] = useState('All');
   const list = state.chats.filter((c) => tab === 'All' || (tab === 'Prayer' && c.type.includes('Prayer')) || (tab === 'Bible study' && c.type === 'Bible study') || (tab === 'Professional' && c.type === 'Professional'));
   return (
-    <Screen back title="Chat" right={<Pressable onPress={() => nav.push('People')} hitSlop={10}><Text style={{ color: colors.accent, fontSize: 20 }}>＋</Text></Pressable>}>
+    <Screen
+      title="Chats"
+      subtitle="Direct, ministry & fellowship messaging"
+      right={
+        <Pressable onPress={() => nav.push('People')} hitSlop={10} style={styles.searchIconBtn}>
+          <Text style={{ color: colors.gold, fontSize: 16 }}>＋</Text>
+        </Pressable>
+      }
+    >
       <Pills items={['All', 'Prayer', 'Bible study', 'Professional', 'Groups']} value={tab} onChange={(t) => (t === 'Groups' ? nav.push('Communities') : setTab(t))} />
-      <Row title="Bible Chat" subtitle="AI-assisted Scripture study · separate from member messaging" left={<Text>✦</Text>} right="›" tint={colors.teal} onPress={() => nav.push('BibleChat', {})} />
+      <Row title="Bible Exegesis Chat" subtitle="AI Scripture companion · separate from member messaging" left={<Text style={{ color: colors.gold }}>✦</Text>} right="›" tint={colors.teal} onPress={() => nav.push('BibleChat', {})} />
       {state.requests.length ? (
         <Section title="Message requests">
           {state.requests.map((r) => (
@@ -260,7 +397,25 @@ export function ChatListScreen() {
         </Section>
       ) : null}
       <Section title="Conversations">
-        {list.map((c) => <Row key={c.id} title={c.with} subtitle={`${c.type} · ${c.last}`} left={<Text style={{ color: colors.fg }}>{c.with[0]}</Text>} right={<View style={{ alignItems: 'flex-end', gap: 4 }}><Text style={{ color: colors.muted, fontSize: 10 }}>{c.time}</Text>{c.unread ? <Badge label={String(c.unread)} tint={colors.accent} /> : null}</View>} onPress={() => nav.push('Chat', { id: c.id })} />)}
+        {list.map((c) => (
+          <Row
+            key={c.id}
+            title={c.with}
+            subtitle={`${c.type} · ${c.last}`}
+            left={
+              <View style={[styles.avatar, { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.raised }]}>
+                <Text style={{ color: colors.gold, fontWeight: '700', fontSize: 13 }}>{c.with[0]}</Text>
+              </View>
+            }
+            right={
+              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 10 }}>{c.time}</Text>
+                {c.unread ? <Badge label={String(c.unread)} tint={colors.gold} /> : null}
+              </View>
+            }
+            onPress={() => nav.push('Chat', { id: c.id })}
+          />
+        ))}
       </Section>
     </Screen>
   );
@@ -274,7 +429,7 @@ export function ChatScreen({ params }) {
   if (!chat && params.to) {
     return (
       <Screen back title={params.to} subtitle="New conversation" scroll={false}>
-        <Notice tint={colors.teal} text="Before your first conversation: a badge does not make someone a pastor, counselor, therapist, or emergency service. You can block or report at any time." />
+        <Notice tint={colors.teal} text="Direct messaging is private and respectful. You can block or report at any time." />
         <View style={{ flex: 1 }} />
         <AskBar placeholder="Say hello..." onSend={(t) => { dispatch({ type: 'newChat', name: params.to, kind: params.kind, text: t }); nav.replace('Chat', { to: params.to }); }} />
       </Screen>
@@ -290,11 +445,11 @@ export function ChatScreen({ params }) {
         </View>
       ) : null}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }}>
-        <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>Private conversation · end-to-end private by default</Text>
+        <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>Private conversation · end-to-end encrypted</Text>
         {chat.messages.map((m) => (
           <View key={m.id} style={[styles.msg, m.mine && styles.msgMine]}>
-            <Text style={[styles.msgText, m.mine && { color: '#fff' }]}>{m.text}</Text>
-            <Text style={[styles.msgTime, m.mine && { color: '#ffd9c2' }]}>{m.time}{m.mine ? ' · Read' : ''}</Text>
+            <Text style={[styles.msgText, m.mine && { color: colors.primaryFg }]}>{m.text}</Text>
+            <Text style={[styles.msgTime, m.mine && { color: colors.goldLight }]}>{m.time}{m.mine ? ' · Read ✓✓' : ''}</Text>
           </View>
         ))}
       </ScrollView>
@@ -315,7 +470,7 @@ export function CalendarScreen() {
   list.forEach((e) => { const m = e.date.slice(0, 7); (months[m] = months[m] || []).push(e); });
   const label = (m) => new Date(m + '-02').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   return (
-    <Screen back title="Calendar" subtitle="Personal · church · community · Christian observances" right={<Pressable onPress={() => nav.push('Create', { kind: 'Event' })} hitSlop={10}><Text style={{ color: colors.accent, fontSize: 20 }}>＋</Text></Pressable>}>
+    <Screen back title="Calendar" subtitle="Personal · church · community · Christian observances" right={<Pressable onPress={() => nav.push('Create', { kind: 'Event' })} hitSlop={10}><Text style={{ color: colors.gold, fontSize: 20 }}>＋</Text></Pressable>}>
       <Pills items={['All', 'Mine', 'Church', 'Community', 'Observances']} value={filter} onChange={setFilter} />
       {Object.keys(months).sort().map((m) => (
         <Section key={m} title={label(m)}>
@@ -329,7 +484,7 @@ export function CalendarScreen() {
                 {e.source ? <Text style={{ color: colors.muted, fontSize: 9.5, marginTop: 4 }}>Source: {e.source} · Verified</Text> : null}
                 <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
                   <Tag label={e.kind} />
-                  {e.kind === 'Church event' || e.kind === 'Community' ? <Pressable onPress={() => dispatch({ type: 'rsvp', id: e.id })}><Tag label={state.rsvps.includes(e.id) ? '✓ Going' : 'RSVP'} tint={state.rsvps.includes(e.id) ? colors.teal : colors.accent} /></Pressable> : <Pressable onPress={() => dispatch({ type: 'post', post: { kind: 'Celebration', text: `${e.title} · ${e.scripture}. Blessings from ${state.user.displayName}.` } })}><Tag label="Share greeting" tint={colors.accent} /></Pressable>}
+                  {e.kind === 'Church event' || e.kind === 'Community' ? <Pressable onPress={() => dispatch({ type: 'rsvp', id: e.id })}><Tag label={state.rsvps.includes(e.id) ? '✓ Going' : 'RSVP'} tint={state.rsvps.includes(e.id) ? colors.teal : colors.gold} /></Pressable> : <Pressable onPress={() => dispatch({ type: 'post', post: { kind: 'Celebration', text: `${e.title} · ${e.scripture}. Blessings from ${state.user.displayName}.` } })}><Tag label="Share greeting" tint={colors.gold} /></Pressable>}
                   <Tag label="Add to calendar" />
                 </View>
               </View>
@@ -337,42 +492,62 @@ export function CalendarScreen() {
           ))}
         </Section>
       ))}
-      <Notice text="Western Easter and Orthodox Pascha may differ. Observance dates come from a maintained, source-attributed database; AI never decides which date a church observes." />
+      <Notice text="Western Easter and Orthodox Pascha may differ. Observance dates come from a maintained, source-attributed database." />
     </Screen>
   );
 }
 
-// ---------- People ----------
+// ---------- People (2-Column Visual Card Directory per PDF Spec) ----------
 export function PeopleScreen() {
   const nav = useNav();
   const { state, dispatch } = useStore();
   const [f, setF] = useState('All');
   const list = PEOPLE.filter((p) => !state.blocked.includes(p.id)).filter((p) => f === 'All' || p.accepts.some((a) => a.toLowerCase().includes(f.toLowerCase())) || (f === 'Available now' && p.availability === 'Available now'));
+
   return (
-    <Screen back title="People" subtitle="Christians who chose to be discoverable">
+    <Screen back title="Find Believers" subtitle="Christians open to fellowship and collaboration">
       <Pills small items={['All', 'Available now', 'Prayer', 'Bible study', 'Mentoring', 'Professional', 'Care']} value={f} onChange={setF} />
-      {list.map((p) => (
-        <Pressable key={p.id} style={styles.card} onPress={() => nav.push('Person', { id: p.id })}>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={styles.avatar}><Text style={{ color: colors.fg, fontWeight: '600' }}>{p.name.split(' ').map((x) => x[0]).slice(0, 2).join('')}</Text></View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.cardTitle}>{p.name}</Text>
-              <Text style={styles.cardMeta}>{p.headline} · {p.country}</Text>
-              <Text style={[styles.cardMeta, { color: p.availability === 'Available now' ? colors.teal : p.availability === 'Not accepting' ? colors.muted : colors.yellow }]}>● {p.availability}</Text>
+
+      <View style={styles.peopleGrid}>
+        {list.map((p) => (
+          <Pressable key={p.id} style={styles.personCard} onPress={() => nav.push('Person', { id: p.id })}>
+            <View style={styles.personAvatarWrapper}>
+              <View style={styles.personAvatar}>
+                <Text style={styles.personAvatarText}>{p.name.split(' ').map((x) => x[0]).slice(0, 2).join('')}</Text>
+              </View>
+              {p.availability === 'Available now' ? <View style={styles.personOnlineDot} /> : null}
             </View>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-            {p.accepts.map((a) => <Tag key={a} label={a} tint={colors.teal} />)}
-            {p.verified.map((v) => <Badge key={v} label={v} tint={colors.lavender} />)}
-          </View>
-          {p.mutual ? <Text style={[styles.cardMeta, { marginTop: 6 }]}>{p.mutual} mutual group{p.mutual > 1 ? 's' : ''}</Text> : null}
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <Button small label={p.availability === 'Message requests' ? 'Request to chat' : 'Chat'} disabled={p.availability === 'Not accepting'} onPress={() => nav.push('Chat', { to: p.name, kind: p.accepts[0] })} />
-            <Button small kind="ghost" label={state.follows.includes(p.id) ? 'Following' : 'Follow'} onPress={() => dispatch({ type: 'follow', id: p.id })} />
-          </View>
-        </Pressable>
-      ))}
-      <Notice text="Profile badges show specific verifications only. They do not make someone a pastor, counselor, therapist, or emergency service." />
+
+            <Text style={styles.personCardName} numberOfLines={1}>{p.name}</Text>
+            <Text style={styles.personCardHeadline} numberOfLines={2}>{p.headline}</Text>
+            <Text style={styles.personCardCountry} numberOfLines={1}>📍 {p.country}</Text>
+
+            <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', justifyContent: 'center', marginVertical: 6 }}>
+              {p.verified.slice(0, 1).map((v) => (
+                <Badge key={v} label={v} tint={colors.gold} />
+              ))}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, width: '100%' }}>
+              <Pressable
+                onPress={() => nav.push('Chat', { to: p.name, kind: p.accepts[0] })}
+                style={styles.personChatBtn}
+              >
+                <Text style={styles.personChatBtnText}>Chat</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => dispatch({ type: 'follow', id: p.id })}
+                style={[styles.personFollowBtn, state.follows.includes(p.id) && styles.personFollowBtnActive]}
+              >
+                <Text style={[styles.personFollowBtnText, state.follows.includes(p.id) && { color: colors.gold }]}>
+                  {state.follows.includes(p.id) ? '✓' : '＋'}
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+      <Notice text="Profile badges indicate verified membership or ministry identity. They do not replace local pastoral authority." />
     </Screen>
   );
 }
@@ -381,26 +556,29 @@ export function PersonScreen({ params }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
   const p = PEOPLE.find((x) => x.id === params.id);
+  if (!p) return <Screen back title="Profile"><Empty title="User not found" /></Screen>;
   return (
     <Screen back title={p.name} subtitle={p.headline}>
       <View style={{ alignItems: 'center', marginTop: 14 }}>
-        <View style={[styles.avatar, { width: 64, height: 64, borderRadius: 32 }]}><Text style={{ color: colors.fg, fontWeight: '600', fontSize: 20 }}>{p.name.split(' ').map((x) => x[0]).slice(0, 2).join('')}</Text></View>
-        <Text style={[styles.cardTitle, { fontSize: 18, marginTop: 10 }]}>{p.name}</Text>
+        <View style={[styles.avatar, { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.raised, borderColor: colors.gold }]}>
+          <Text style={{ color: colors.gold, fontWeight: '700', fontSize: 24 }}>{p.name.split(' ').map((x) => x[0]).slice(0, 2).join('')}</Text>
+        </View>
+        <Text style={[styles.cardTitle, { fontSize: 20, marginTop: 12 }]}>{p.name}</Text>
         <Text style={styles.cardMeta}>{p.headline} · {p.country} · {p.languages.join(', ')}</Text>
-        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>{p.verified.map((v) => <Badge key={v} label={v} tint={colors.lavender} />)}</View>
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>{p.verified.map((v) => <Badge key={v} label={v} tint={colors.gold} />)}</View>
       </View>
-      <Text style={[styles.cardBody, { marginTop: 16, textAlign: 'center' }]}>{p.intro}</Text>
-      <View style={{ flexDirection: 'row', gap: 8, marginTop: 16, justifyContent: 'center' }}>
-        <Button small label="Chat" disabled={p.availability === 'Not accepting'} onPress={() => nav.push('Chat', { to: p.name, kind: p.accepts[0] })} />
+      <Text style={[styles.cardBody, { marginTop: 16, textAlign: 'center', fontSize: 13.5, lineHeight: 20 }]}>{p.intro}</Text>
+      <View style={{ flexDirection: 'row', gap: 10, marginTop: 18, justifyContent: 'center' }}>
+        <Button small label="Send Message" disabled={p.availability === 'Not accepting'} onPress={() => nav.push('Chat', { to: p.name, kind: p.accepts[0] })} />
         <Button small kind="ghost" label={state.follows.includes(p.id) ? 'Following' : 'Follow'} onPress={() => dispatch({ type: 'follow', id: p.id })} />
         <Button small kind="ghost" label="Block" onPress={() => { dispatch({ type: 'block', id: p.id }); nav.pop(); }} />
       </View>
-      <Section title="Accepts">{p.accepts.map((a) => <Row key={a} title={a} />)}</Section>
+      <Section title="Accepts"><View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>{p.accepts.map((a) => <Tag key={a} label={a} tint={colors.teal} />)}</View></Section>
       <Section title="Interests"><View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>{p.interests.map((i) => <Tag key={i} label={i} />)}</View></Section>
-      <Section title="Professional profile">
-        <Row title="Experience & ministry" right="›" /><Row title="Portfolio" subtitle="Sermons, studies, published work" right="›" /><Row title="Recommendations" right="›" />
+      <Section title="Professional Profile">
+        <Row title="Experience & Ministry" subtitle="Work history, church service" right="›" />
+        <Row title="Christian Portfolio" subtitle="Sermons, studies, published work" right="›" />
       </Section>
-      <Notice text="What each badge means: Identity = government ID checked. Professional license = licence number verified. Ministry role = confirmed by the organization. None implies endorsement beyond that." />
     </Screen>
   );
 }
@@ -416,21 +594,16 @@ export function CareScreen({ params = {} }) {
   const people = choice ? PEOPLE.filter((p) => (match[choice] || []).includes(p.id)) : [];
   return (
     <Screen back title="Christian Care Network" subtitle="Find Someone Who Understands">
-      <Notice tint={colors.teal} text="Sensitive conversations are private by default and never become posts." />
+      <Notice tint={colors.teal} text="Sensitive conversations are private by default and never shared or monetized." />
       {!choice ? CARE_OPTIONS.map((o) => <Row key={o} title={o} right="›" onPress={() => setChoice(o)} />) : (
         <View>
           <Row title={choice} tint={colors.teal} right={<Pressable onPress={() => setChoice(null)}><Text style={{ color: colors.muted }}>Change</Text></Pressable>} />
-          {choice === 'I want a qualified counselor' ? <Notice text="Only people with a verified professional license appear here. If you are in immediate danger, contact your local emergency number." /> : null}
-          {choice === 'I want to encourage others' ? <Section title="Ways to serve"><Row title="Become a willing listener" subtitle="Set your availability in Profile" right="›" onPress={() => nav.push('Profile')} /><Row title="Join Night Watch Prayer" right="›" onPress={() => nav.push('Group', { id: 'g3' })} /></Section> : null}
-          {choice === 'I want to join a support group' ? <Section title="Support groups"><Row title="Grief & Hope" subtitle="Moderated · Private" right="›" onPress={() => nav.push('Group', { id: 'g8' })} /><Row title="Young Marrieds · Nairobi" right="›" onPress={() => nav.push('Group', { id: 'g5' })} /></Section> : null}
+          {choice === 'I want a qualified counselor' ? <Notice text="Only people with a verified professional license appear here. If you are in immediate danger, contact your local emergency services." /> : null}
           {people.length ? (
-            <Section title="Recommended for you">
-              {people.map((p) => <Row key={p.id} title={p.name} subtitle={`${p.headline} · ${p.availability}`} right={<Badge label={p.verified[0] || 'Member'} tint={colors.lavender} />} onPress={() => nav.push('Person', { id: p.id })} />)}
+            <Section title="Recommended ministers and listeners">
+              {people.map((p) => <Row key={p.id} title={p.name} subtitle={`${p.headline} · ${p.availability}`} right={<Badge label={p.verified[0] || 'Member'} tint={colors.gold} />} onPress={() => nav.push('Person', { id: p.id })} />)}
             </Section>
           ) : null}
-          <Section title="Before you reach out">
-            <Text style={styles.cardBody}>· Message requests mean no one is contacted unexpectedly.{'\n'}· Confidentiality is expected but not guaranteed by the app.{'\n'}· You can block, report, or stop at any time.{'\n'}· Nobody here replaces emergency, medical or mental-health care.</Text>
-          </Section>
         </View>
       )}
     </Screen>
@@ -442,19 +615,17 @@ export function WishesScreen() {
   const nav = useNav();
   const { state } = useStore();
   return (
-    <Screen back title="Make a Wish" subtitle="A hope, prayer request, goal, or need" right={<Pressable onPress={() => nav.push('Create', { kind: 'Wish' })} hitSlop={10}><Text style={{ color: colors.accent, fontSize: 20 }}>＋</Text></Pressable>}>
+    <Screen back title="Make a Wish" subtitle="A prayer request, ministry goal, or need" right={<Pressable onPress={() => nav.push('Create', { kind: 'Wish' })} hitSlop={10}><Text style={{ color: colors.gold, fontSize: 20 }}>＋</Text></Pressable>}>
       {state.wishes.map((w) => (
         <View key={w.id} style={styles.card}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={styles.cardMeta}>{w.author} · {w.visibility}</Text><Tag label={w.category} /></View>
           <Text style={styles.cardTitle}>{w.title}</Text>
           <Text style={styles.cardBody}>{w.body}</Text>
-          <Text style={[styles.cardMeta, { marginTop: 8 }]}>Responding with: {w.responses.join(', ')} · {w.replies} replies</Text>
           <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-            {w.responses.map((r) => <Button key={r} small kind="ghost" label={r} onPress={() => (r === 'Prayer' ? nav.push('NewPrayer', { verse: null }) : r === 'Private message' || r === 'Mentor connection' ? nav.push('Chat', { to: w.author }) : null)} />)}
+            {w.responses.map((r) => <Button key={r} small kind="ghost" label={r} onPress={() => (r === 'Prayer' ? nav.push('NewPrayer') : nav.push('Chat', { to: w.author }))} />)}
           </View>
         </View>
       ))}
-      <Notice text="Financial help is a separate, verified feature with identity checks and fees shown up front. A wish is never treated as a trusted fundraising request." />
     </Screen>
   );
 }
@@ -471,16 +642,14 @@ export function LiveScreen({ params = {} }) {
         <ScrollView contentContainerStyle={{ padding: 18 }}>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}><Tag label={l.language} /><Tag label={l.audience} />{l.captions ? <Tag label="Captions" /> : null}<Tag label="Moderated" /></View>
           <Section title="Live Bible study"><Row title="Synchronized passage: Matthew 1" subtitle="Follow the teacher's highlights" right="›" onPress={() => nav.push('Bible', { bookId: 'MAT', chapter: 1 })} /></Section>
-          <Section title="Participate"><Row title="✋ Raise hand" /><Row title="🙏 Send a prayer request" onPress={() => nav.push('NewPrayer')} /><Row title="❓ Ask a moderated question" /><Row title="📊 Poll: Which genealogy name surprised you?" /></Section>
-          <Section title="Live chat"><Row title="Amaka O." subtitle="So glad this is live. Greetings from Lagos!" /><Row title="Jonas B." subtitle="Watching from Sweden." /></Section>
-          <Notice text="Hosts confirmed rights to broadcast this material. Recording consent was shown to participants." />
+          <Section title="Participate"><Row title="✋ Raise hand" /><Row title="🙏 Send a prayer request" onPress={() => nav.push('NewPrayer')} /><Row title="❓ Ask a moderated question" /></Section>
         </ScrollView>
-        <View style={{ padding: 14 }}><AskBar placeholder="Say something in live chat..." /></View>
+        <View style={{ padding: 14 }}><AskBar placeholder="Say something in live fellowship chat..." /></View>
       </Screen>
     );
   }
   return (
-    <Screen back title="Live" right={<Pressable onPress={() => nav.push('Create', { kind: 'Live stream' })} hitSlop={10}><Text style={{ color: colors.accent, fontSize: 20 }}>＋</Text></Pressable>}>
+    <Screen back title="Live Fellowship" right={<Pressable onPress={() => nav.push('Create', { kind: 'Live stream' })} hitSlop={10}><Text style={{ color: colors.gold, fontSize: 20 }}>＋</Text></Pressable>}>
       {['live', 'scheduled', 'replay'].map((s) => (
         <Section key={s} title={s === 'live' ? 'Live now' : s === 'scheduled' ? 'Scheduled' : 'Replays'}>
           {LIVE.filter((x) => x.status === s).map((x) => <Row key={x.id} title={x.title} subtitle={`${x.host} · ${x.language} · ${x.audience}${x.captions ? ' · Captions' : ''}`} right={s === 'live' ? <Badge label={`${x.viewers}`} tint="#e85d5d" /> : s === 'scheduled' ? x.when : 'Replay'} onPress={() => setJoined(x.id)} />)}
@@ -496,7 +665,7 @@ export function FeedScreen() {
   const { state, dispatch } = useStore();
   const [tab, setTab] = useState('For You');
   return (
-    <Screen back title="Feed" right={<Pressable onPress={() => nav.push('Create', { kind: 'Post' })} hitSlop={10}><Text style={{ color: colors.accent, fontSize: 20 }}>＋</Text></Pressable>}>
+    <Screen back title="Feed" right={<Pressable onPress={() => nav.push('Create', { kind: 'Post' })} hitSlop={10}><Text style={{ color: colors.gold, fontSize: 20 }}>＋</Text></Pressable>}>
       <Pills items={['For You', 'Following', 'Communities', 'Events']} value={tab} onChange={setTab} />
       {state.feed.filter((f) => tab !== 'Events' || f.kind === 'Announcement' || f.kind === 'Celebration').map((f) => (
         <View key={f.id} style={styles.post}>
@@ -504,7 +673,7 @@ export function FeedScreen() {
           <Text style={styles.cardBody}>{f.text}</Text>
           {f.passage ? <Pressable onPress={() => nav.push('Bible', f.passage)}><Text style={{ color: colors.teal, fontSize: 11, marginTop: 6 }}>📖 {refLabel(f.passage.bookId, f.passage.chapter)} · Open</Text></Pressable> : null}
           <View style={{ flexDirection: 'row', gap: 16, marginTop: 10 }}>
-            <Pressable onPress={() => dispatch({ type: 'like', id: f.id })}><Text style={[styles.cardMeta, f.liked && { color: colors.accent }]}>🙌 {f.likes}</Text></Pressable>
+            <Pressable onPress={() => dispatch({ type: 'like', id: f.id })}><Text style={[styles.cardMeta, f.liked && { color: colors.gold }]}>🙌 {f.likes}</Text></Pressable>
             <Text style={styles.cardMeta}>💬 {f.comments}</Text>
             <Text style={styles.cardMeta}>↗ Share</Text>
             <Text style={styles.cardMeta}>☆ Save</Text>
@@ -512,15 +681,14 @@ export function FeedScreen() {
           </View>
         </View>
       ))}
-      <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center', marginTop: 16 }}>Ranked by relevance, your interests, follows and community participation, not engagement alone.</Text>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   searchIconBtn: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: 8,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -528,16 +696,71 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  h1: { fontFamily: fonts.sansMedium, fontSize: 21, fontWeight: '600', color: colors.fg, letterSpacing: -0.3 },
-  sub: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.muted, marginTop: 4, textAlign: 'center' },
+  h1: { fontFamily: fonts.serifBold, fontSize: 21, color: colors.fg, letterSpacing: -0.3 },
+  sub: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.muted, marginTop: 4, textAlign: 'center', lineHeight: 17 },
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 16, marginTop: 12 },
   cardTitle: { fontFamily: fonts.sansMedium, fontSize: 14.5, fontWeight: '600', color: colors.fg },
   cardMeta: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 3 },
   cardBody: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.passage, lineHeight: 18, marginTop: 8 },
+
+  // Video Card in Discover
+  videoCard: { width: 130, height: 185, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
+  videoThumb: { flex: 1, padding: 8, justifyContent: 'space-between' },
+  videoBadge: { alignSelf: 'flex-start', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  videoBadgeText: { color: '#fff', fontSize: 10, fontFamily: fonts.sansMedium },
+  videoCreatorName: { color: colors.gold, fontSize: 10.5, fontFamily: fonts.sansMedium, fontWeight: '600' },
+  videoCaptionPreview: { color: '#fff', fontSize: 11, fontFamily: fonts.sans, marginTop: 2 },
+
+  // Prayer Hub in Discover
+  prayerHubCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 14, padding: 14 },
+  prayerHubTitle: { fontFamily: fonts.sansMedium, fontSize: 14.5, fontWeight: '600', color: colors.fg },
+  prayerHubSub: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 2 },
+  submitPrayerSmallBtn: { backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.gold, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  submitPrayerSmallBtnText: { color: colors.gold, fontSize: 11, fontFamily: fonts.sansMedium, fontWeight: '600' },
+  prayerItemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
+  prayerItemTitle: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.fg },
+  prayerItemSub: { fontFamily: fonts.sans, fontSize: 10.5, color: colors.muted, marginTop: 2 },
+  quickPrayBtn: { backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  quickPrayBtnOn: { backgroundColor: colors.gold, borderColor: colors.gold },
+  quickPrayBtnText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
+
+  // Jobs Card in Discover
+  jobsCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 14 },
+  jobHeading: { fontFamily: fonts.sansMedium, fontSize: 14.5, fontWeight: '600', color: colors.fg },
+  jobSub: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 2 },
+  jobItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
+  jobItemTitle: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.fg },
+  jobItemMeta: { fontFamily: fonts.sans, fontSize: 10.5, color: colors.muted, marginTop: 2 },
+
+  // Channels
+  channelCard: { width: 170, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
+  channelPreview: { height: 75, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
+  channelPreviewIcon: { fontSize: 24 },
+  channelFollowersBadge: { position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
+  channelFollowersText: { color: colors.muted, fontSize: 9 },
+  channelName: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.fg, fontWeight: '600' },
+  channelVideoTitle: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 2 },
+
+  // 2-Column People Grid
+  peopleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
+  personCard: { width: '48.5%', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, alignItems: 'center' },
+  personAvatarWrapper: { position: 'relative' },
+  personAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.raised, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  personAvatarText: { color: colors.gold, fontFamily: fonts.sansMedium, fontSize: 16, fontWeight: '700' },
+  personOnlineDot: { position: 'absolute', bottom: 0, right: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.teal, borderWidth: 2, borderColor: colors.surface },
+  personCardName: { fontFamily: fonts.sansMedium, fontSize: 13.5, fontWeight: '600', color: colors.fg, marginTop: 8 },
+  personCardHeadline: { fontFamily: fonts.sans, fontSize: 10.5, color: colors.muted, textAlign: 'center', marginTop: 2, height: 28 },
+  personCardCountry: { fontFamily: fonts.sans, fontSize: 10, color: colors.gold, marginTop: 2 },
+  personChatBtn: { flex: 1, backgroundColor: colors.primary, borderRadius: 6, paddingVertical: 6, alignItems: 'center' },
+  personChatBtnText: { color: colors.primaryFg, fontFamily: fonts.sansMedium, fontSize: 11, fontWeight: '600' },
+  personFollowBtn: { width: 32, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  personFollowBtnActive: { borderColor: colors.gold },
+  personFollowBtnText: { color: colors.fg, fontSize: 13, fontWeight: '600' },
+
   pinned: { marginHorizontal: 18, marginTop: 6, backgroundColor: colors.surface, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: colors.border },
   pinnedText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
   msg: { alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, borderBottomLeftRadius: 2, padding: 12, maxWidth: '85%' },
-  msgMine: { alignSelf: 'flex-end', backgroundColor: colors.raised, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 12, borderBottomRightRadius: 2 },
+  msgMine: { alignSelf: 'flex-end', backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary, borderRadius: 12, borderBottomRightRadius: 2 },
   msgFrom: { fontFamily: fonts.sansMedium, fontSize: 10.5, color: colors.gold, fontWeight: '600', marginBottom: 3 },
   msgText: { fontFamily: fonts.sans, fontSize: 13, lineHeight: 18, color: colors.fg },
   msgTime: { fontFamily: fonts.sans, fontSize: 9.5, color: colors.muted, marginTop: 4 },
@@ -547,11 +770,11 @@ const styles = StyleSheet.create({
   composerChipText: { fontFamily: fonts.sans, fontSize: 11, color: colors.fg },
   menu: { position: 'absolute', right: 14, top: 44, zIndex: 5, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 4 },
   menuItem: { fontFamily: fonts.sans, color: colors.fg, fontSize: 13, paddingVertical: 8, paddingHorizontal: 12 },
-  event: { flexDirection: 'row', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.rule },
+  event: { flexDirection: 'row', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
   dateBox: { width: 44, alignItems: 'center', backgroundColor: colors.surface, borderRadius: 8, paddingVertical: 6, borderWidth: 1, borderColor: colors.border },
   dateDay: { fontFamily: fonts.sansMedium, fontSize: 16, fontWeight: '600', color: colors.fg },
   dateMon: { fontFamily: fonts.sans, fontSize: 9.5, color: colors.gold, letterSpacing: 0.5 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   video: { height: 200, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', borderRadius: 12, overflow: 'hidden' },
-  post: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.rule },
+  post: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
 });

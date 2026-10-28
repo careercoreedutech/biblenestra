@@ -1,16 +1,26 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Path, Circle } from 'react-native-svg';
+import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { colors, fonts } from '../theme';
 
 const icons = {
-  Home: (active) => (
+  Bible: (active) => (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Path
-        d="M3 10.5L12 3l9 7.5v9.5a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-9.5z"
-        stroke={active ? colors.fg : colors.muted}
-        strokeWidth={1.6}
-        strokeLinejoin="round"
+        d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5z"
+        stroke={active ? colors.gold : colors.muted}
+        strokeWidth={1.8}
+      />
+      <Path
+        d="M6.5 2H20v4H6.5A2.5 2.5 0 0 0 4 8.5"
+        stroke={active ? colors.gold : colors.muted}
+        strokeWidth={1.8}
+      />
+      <Path
+        d="M12 7v7M9.5 9.5h5"
+        stroke={active ? colors.gold : colors.muted}
+        strokeWidth={1.8}
+        strokeLinecap="round"
       />
     </Svg>
   ),
@@ -21,68 +31,74 @@ const icons = {
         cy={12}
         r={9}
         stroke={active ? colors.fg : colors.muted}
-        strokeWidth={1.6}
+        strokeWidth={1.8}
       />
       <Path
         d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"
         stroke={active ? colors.fg : colors.muted}
-        strokeWidth={1.6}
+        strokeWidth={1.8}
         strokeLinejoin="round"
       />
     </Svg>
   ),
-  Bible: (active) => (
+  Socials: (active) => (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5z"
-        stroke={active ? colors.fg : colors.muted}
-        strokeWidth={1.6}
-      />
-      <Path
-        d="M6.5 2H20v4H6.5A2.5 2.5 0 0 0 4 8.5"
-        stroke={active ? colors.fg : colors.muted}
-        strokeWidth={1.6}
-      />
-      <Path
-        d="M12 7v7M9.5 9.5h5"
-        stroke={active ? colors.fg : colors.muted}
-        strokeWidth={1.6}
-        strokeLinecap="round"
-      />
-    </Svg>
-  ),
-  'God Mode': (active) => (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 2l2.4 6.2L21 9.5l-5 4.3 1.6 6.7L12 17l-5.6 3.5 1.6-6.7-5-4.3 6.6-1.3L12 2z"
+      <Rect
+        x={3}
+        y={3}
+        width={18}
+        height={18}
+        rx={5}
         stroke={active ? colors.gold : colors.muted}
-        strokeWidth={1.6}
+        strokeWidth={1.8}
+      />
+      <Path
+        d="M10 8.5l6 3.5-6 3.5V8.5z"
+        fill={active ? colors.gold : 'none'}
+        stroke={active ? colors.gold : colors.muted}
+        strokeWidth={1.8}
         strokeLinejoin="round"
       />
     </Svg>
   ),
-  Prayer: (active) => (
+  Chats: (active) => (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Path
-        d="M7 20h10M12 20v-8M9 8a3 3 0 0 1 6 0c0 2-2 3.5-3 5-1-1.5-3-3-3-5z"
+        d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
         stroke={active ? colors.fg : colors.muted}
-        strokeWidth={1.6}
-        strokeLinecap="round"
+        strokeWidth={1.8}
         strokeLinejoin="round"
+      />
+    </Svg>
+  ),
+  Profile: (active) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
+        stroke={active ? colors.fg : colors.muted}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+      <Circle
+        cx={12}
+        cy={7}
+        r={4}
+        stroke={active ? colors.fg : colors.muted}
+        strokeWidth={1.8}
       />
     </Svg>
   ),
 };
 
-export const TABS = ['Home', 'Discover', 'Bible', 'God Mode', 'Prayer'];
+export const TABS = ['Bible', 'Discover', 'Socials', 'Chats', 'Profile'];
 
 export default function TabBar({ active, onChange }) {
   return (
     <View style={styles.dock}>
       {TABS.map((name) => {
         const isActive = name === active;
-        const isGodMode = name === 'God Mode';
-        const labelColor = isActive ? (isGodMode ? colors.gold : colors.fg) : colors.muted;
+        const isBibleOrSocials = name === 'Bible' || name === 'Socials';
+        const labelColor = isActive ? (isBibleOrSocials ? colors.gold : colors.fg) : colors.muted;
 
         return (
           <Pressable
@@ -109,7 +125,7 @@ export default function TabBar({ active, onChange }) {
             </Text>
 
             {isActive ? (
-              <View style={[styles.activeDot, { backgroundColor: isGodMode ? colors.gold : colors.fg }]} />
+              <View style={[styles.activeDot, { backgroundColor: isBibleOrSocials ? colors.gold : colors.fg }]} />
             ) : (
               <View style={styles.inactivePlaceholder} />
             )}
@@ -130,7 +146,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.tabLine,
     paddingTop: 8,
     paddingBottom: 6,
-    height: 56,
+    height: 58,
   },
   tab: {
     flex: 1,

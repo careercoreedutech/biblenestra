@@ -1,5 +1,5 @@
-// Seed data for communities, people, prayers, calendar, plans, chats. Example records
-// so every screen opens in a working state; a backend replaces these.
+// Seed data for communities, people, prayers, calendar, plans, chats,
+// Christian short-videos, virtual gifts, jobs/tasks marketplace, and channels.
 
 export const USER = {
   id: 'me',
@@ -10,19 +10,218 @@ export const USER = {
   languages: ['English', 'Yoruba'],
   church: { name: 'Grace Chapel Lagos', visible: true },
   profileVisibility: 'community-only',
-  discoverable: { people: true, professionals: false, communities: true, churches: true },
-  availability: 'requests',
-  acceptsChat: ['Bible study', 'Prayer'],
+  discoverable: { people: true, professionals: true, communities: true, churches: true },
+  availability: 'Available for ministry projects',
+  acceptsChat: ['Bible study', 'Prayer', 'Work inquiries'],
   translation: 'KJV',
-  interests: ['Gospels', 'Leadership', 'Prayer', 'Youth'],
-  preset: 'Morning Devotion',
-  presets: [
-    { name: 'Morning Devotion', translation: 'KJV', layout: 'Distraction-free', audio: true, reminder: '06:30' },
-    { name: 'Academic Study', translation: 'WEB', layout: 'Study panel', audio: false, reminder: null },
-    { name: 'Group Study', translation: 'KJV', layout: 'Split screen', audio: false, reminder: 'Thu 19:00' },
-    { name: 'Sermon Preparation', translation: 'KJV', layout: 'Notes-first', audio: false, reminder: null },
-  ],
+  interests: ['Gospels', 'Leadership', 'Prayer', 'Software Development'],
+  coins: 350, // Virtual coins balance for gifting
 };
+
+export const GIFTS = [
+  { id: 'g_rose', name: 'Rose', price: 5, icon: '🌹', desc: 'Affordable everyday appreciation' },
+  { id: 'g_bouquet', name: 'Flower Bouquet', price: 25, icon: '💐', desc: 'A more expressive thank-you gift' },
+  { id: 'g_star', name: 'Golden Star', price: 100, icon: '⭐', desc: 'Premium appreciation gift' },
+  { id: 'g_crown', name: 'Royal Crown', price: 500, icon: '👑', desc: 'High-value creator-support gift' },
+];
+
+export const VIDEOS = [
+  {
+    id: 'v1',
+    creator: { name: 'Pastor Tunde', handle: '@pastortunde', verified: true, avatar: 'PT', church: 'Grace Chapel Lagos' },
+    caption: 'Why did Matthew include Tamar, Rahab, Ruth & Bathsheba in Jesus\'s genealogy? Grace rewrites family stories.',
+    scripture: 'Matthew 1:5',
+    category: 'Sermons',
+    hashtags: ['#GenealogyOfGrace', '#BibleStudy', '#Gospel', '#JesusSaves'],
+    duration: '0:58',
+    sound: 'Original Sermon Audio · Pastor Tunde',
+    bg: '#142921',
+    views: '24.8K',
+    likes: 1840,
+    liked: false,
+    shares: 312,
+    reposts: 95,
+    gifts: 42,
+    comments: [
+      { id: 'c1', from: 'Sarah K.', text: 'This changed my whole perspective on generational blessings!', time: '2h', likes: 24, replies: [
+        { id: 'cr1', from: 'Pastor Tunde', text: 'Amen Sarah! God breaks generational curses.', time: '1h' }
+      ] },
+      { id: 'c2', from: 'Daniel M.', text: 'Rahab\'s scarlet cord points straight to the cross.', time: '3h', likes: 18, replies: [] },
+    ],
+  },
+  {
+    id: 'v2',
+    creator: { name: 'Grace Adeyemi', handle: '@graceadeyemi', verified: true, avatar: 'GA', church: 'Worship City UK' },
+    caption: 'Acoustic worship session: "It Is Well With My Soul" recorded live at sunset. Rest in His peace today.',
+    scripture: 'Psalm 23:2',
+    category: 'Worship',
+    hashtags: ['#AcousticWorship', '#ItIsWell', '#Peace', '#SpiritualRest'],
+    duration: '1:15',
+    sound: 'Live Acoustic Session · Grace Adeyemi',
+    bg: '#1a2736',
+    views: '48.2K',
+    likes: 4210,
+    liked: true,
+    shares: 980,
+    reposts: 340,
+    gifts: 156,
+    comments: [
+      { id: 'c3', from: 'Amaka O.', text: 'Your voice is so anointed. Tears in my eyes listening to this.', time: '4h', likes: 32, replies: [] },
+    ],
+  },
+  {
+    id: 'v3',
+    creator: { name: 'Dr. Samuel Reyes', handle: '@samuelreyes', verified: true, avatar: 'SR', church: 'Amazon Basin Missions' },
+    caption: 'Crossing the river to deliver Bibles in indigenous dialects. The harvest is plentiful!',
+    scripture: 'Romans 10:14',
+    category: 'Evangelism',
+    hashtags: ['#Missions', '#GreatCommission', '#BibleTranslation', '#FaithInAction'],
+    duration: '0:45',
+    sound: 'River Journey Atmosphere · Field Audio',
+    bg: '#2e261a',
+    views: '19.4K',
+    likes: 2150,
+    liked: false,
+    shares: 420,
+    reposts: 110,
+    gifts: 78,
+    comments: [
+      { id: 'c4', from: 'Chidi N.', text: 'Praying for your safety and fruitfulness in the field!', time: '1d', likes: 15, replies: [] },
+    ],
+  },
+  {
+    id: 'v4',
+    creator: { name: 'David Okafor', handle: '@davidokafor', verified: false, avatar: 'DO', church: 'Lagos Fellowship' },
+    caption: 'When you try to schedule the Holy Spirit but John 3:8 reminds you the wind blows where it wishes 😅',
+    scripture: 'John 3:8',
+    category: 'Christian Comedy',
+    hashtags: ['#ChristianHumor', '#Relatable', '#HolySpirit', '#FaithLife'],
+    duration: '0:32',
+    sound: 'Original Funny Commentary · David',
+    bg: '#251b29',
+    views: '35.1K',
+    likes: 3890,
+    liked: false,
+    shares: 1140,
+    reposts: 412,
+    gifts: 65,
+    comments: [
+      { id: 'c5', from: 'Glen', text: 'This happens to me every single Sunday morning haha!', time: '5h', likes: 45, replies: [] },
+    ],
+  },
+];
+
+export const JOBS = [
+  {
+    id: 'job1',
+    kind: 'job',
+    title: 'Senior React Native Developer for Bible Translation App',
+    client: { name: 'Wycliffe Global Partners', church: 'Faith Missions Alliance', verified: true },
+    category: 'Software & Web Development',
+    budget: '$3,500 – $4,500 / mo',
+    deadline: 'Full-time · Remote',
+    skills: ['React Native', 'Expo', 'TypeScript', 'Offline SQLite', 'Hermes'],
+    description: 'We are expanding our mobile Scripture delivery platform to reach 50+ regional languages. Seeking an experienced React Native developer passionate about spreading God\'s Word.',
+    proposalsCount: 6,
+    status: 'open',
+    posted: '2 days ago',
+  },
+  {
+    id: 'job2',
+    kind: 'task',
+    title: 'Edit 5 Sermon Videos for Social Reels & YouTube Shorts',
+    client: { name: 'Grace Spring Church', church: 'Grace Fellowship', verified: true },
+    category: 'Graphic Design & Video Editing',
+    budget: '$250 Fixed',
+    deadline: '5 Days Delivery',
+    skills: ['Premiere Pro', 'CapCut', 'Subtitles/Captions', 'Color Grading'],
+    description: 'Cut 5 high-impact clips (under 60s) from our Sunday service. Add accurate subtitles, royalty-free background pad, and clean brand hooks.',
+    proposalsCount: 11,
+    status: 'open',
+    posted: '1 day ago',
+  },
+  {
+    id: 'job3',
+    kind: 'task',
+    title: 'Virtual Assistant for Church Outreach Administration',
+    client: { name: 'Pastor Ade', church: 'Harvest International Lagos', verified: true },
+    category: 'Virtual Assistants',
+    budget: '$400 / month',
+    deadline: '10 hrs/week · Ongoing',
+    skills: ['Email Management', 'Google Sheets', 'Calendar Coordination', 'Member Care'],
+    description: 'Help coordinate visitor follow-ups, prayer request logging, and monthly event reminders for a congregation of 500 members.',
+    proposalsCount: 8,
+    status: 'open',
+    posted: '3 days ago',
+  },
+  {
+    id: 'job4',
+    kind: 'job',
+    title: 'Worship Music Producer / Mixing Engineer',
+    client: { name: 'Zion Sound Records', church: 'Redeemed Music Ministry', verified: true },
+    category: 'Worship Musicians & Producers',
+    budget: '$800 per EP Track',
+    deadline: 'Contract · 3 Tracks',
+    skills: ['Logic Pro / Pro Tools', 'Vocal Tuning', 'Mastering', 'Acoustic Guitar Mixing'],
+    description: 'Production and mixing for a 3-track acoustic worship EP. Looking for a producer with deep appreciation for atmospheric sacred music.',
+    proposalsCount: 4,
+    status: 'open',
+    posted: 'Just now',
+  },
+  {
+    id: 'job5',
+    kind: 'task',
+    title: 'Translate 20 Devotional Articles from English to Yoruba',
+    client: { name: 'West Africa Gospel Network', church: 'BSN Nigeria', verified: true },
+    category: 'Writers, Editors & Translators',
+    budget: '$300 Fixed',
+    deadline: '2 Weeks',
+    skills: ['Yoruba Fluency', 'Theological Translation', 'Proofreading'],
+    description: 'Faithful translation of 20 daily devotional guides into standard written Yoruba with proper diacritics and scripture accuracy.',
+    proposalsCount: 5,
+    status: 'open',
+    posted: '4 days ago',
+  },
+];
+
+export const CHANNELS_DATA = [
+  {
+    id: 'ch1',
+    name: 'Grace Spring Church',
+    tagline: 'A family of believers walking in grace, truth, and community.',
+    followers: '14.2K',
+    category: 'Church Ministry',
+    language: 'English · Yoruba',
+    videoThumbnail: '#173d32',
+    videoTitle: 'Welcome to Grace Spring: Our Heart & Mission',
+    videoDuration: '1:45',
+    recentPost: 'Sunday Service Live streaming tomorrow at 9:00 AM & 11:00 AM. Join us!',
+  },
+  {
+    id: 'ch2',
+    name: 'The Global Bible Project',
+    tagline: 'Exploring the literary beauty and unified message of Scripture.',
+    followers: '68.5K',
+    category: 'Bible Education',
+    language: 'Multilingual',
+    videoThumbnail: '#2e261a',
+    videoTitle: 'How to Read Biblical Poetry: The Psalms',
+    videoDuration: '3:10',
+    recentPost: 'New animated video series walking through Psalms 23 and the Good Shepherd motif.',
+  },
+  {
+    id: 'ch3',
+    name: 'Nairobi Worship Collective',
+    tagline: 'Equipping and inspiring the African worship leaders of tomorrow.',
+    followers: '9.8K',
+    category: 'Music & Worship',
+    language: 'English · Swahili',
+    videoThumbnail: '#1b2b38',
+    videoTitle: 'Swahili & English Worship Acoustic Session',
+    videoDuration: '2:20',
+    recentPost: 'Next worship workshop scheduled for Saturday Nov 21 at All Saints Cathedral.',
+  },
+];
 
 export const CHURCHES = [
   { id: 'c1', name: 'Grace Chapel Lagos', location: 'Lagos, Nigeria', tradition: 'Pentecostal', verified: true, members: 1240, join: 'approval' },
@@ -42,8 +241,6 @@ export const COMMUNITIES = [
   { id: 'g4', name: 'Christian Software Engineers', category: 'Professionals', region: 'Global', language: 'English', members: 980, verified: false, privacy: 'Public', description: 'Faith and work for developers, designers and founders. Job posts on Fridays.', joined: false, rules: 'No recruiter spam.' },
   { id: 'g5', name: 'Young Marrieds · Nairobi', category: 'Life & family', region: 'Kenya', language: 'English · Swahili', members: 310, verified: false, privacy: 'Private', description: 'Couples in their first ten years of marriage. Monthly meetups.', joined: false, rules: 'Confidential.' },
   { id: 'g6', name: 'New Believers Welcome', category: 'New believers', region: 'Global', language: 'English', members: 6700, verified: true, privacy: 'Public', description: 'Ask anything. Mentors reply within a day.', joined: false, rules: 'No question is too basic.' },
-  { id: 'g7', name: 'Campus Fellowship · UNILAG', category: 'Youth', region: 'Nigeria', language: 'English', members: 450, verified: false, privacy: 'Public', description: 'Students at the University of Lagos. Weekly Bible study on Thursdays.', joined: false, rules: 'Students only.' },
-  { id: 'g8', name: 'Grief & Hope', category: 'Life & family', region: 'Global', language: 'English', members: 1520, verified: true, privacy: 'Private', description: 'A moderated support group for those walking through loss.', joined: false, rules: 'Moderated. Private by default.' },
 ];
 
 export const CHANNELS = ['General', 'Prayer', 'Bible Study', 'Announcements', 'Events'];
@@ -79,25 +276,25 @@ export const GROUP_MESSAGES = {
 };
 
 export const PEOPLE = [
-  { id: 'p1', name: 'Rev. Esther Mwangi', headline: 'Pastoral care · Nairobi', country: 'Kenya', languages: ['English', 'Swahili'], verified: ['Ministry role', 'Identity'], accepts: ['Prayer', 'Pastoral guidance'], availability: 'Available now', interests: ['Grief', 'Marriage'], mutual: 2, intro: 'Twelve years in pastoral care. Happy to pray with you or talk things through.' },
-  { id: 'p2', name: 'David Okafor', headline: 'Product designer · Mentor', country: 'Nigeria', languages: ['English'], verified: ['Identity'], accepts: ['Professional', 'Mentoring'], availability: 'Selected times', interests: ['Career', 'Leadership'], mutual: 1, intro: 'Mentoring young designers and engineers. Faith and work.' },
-  { id: 'p3', name: 'Maria Santos', headline: 'Licensed counselor (LPC)', country: 'Philippines', languages: ['English', 'Tagalog'], verified: ['Professional license', 'Identity'], accepts: ['Care / support'], availability: 'Message requests', interests: ['Anxiety', 'Family'], mutual: 0, intro: 'Licensed professional counselor. Christian, trauma-informed.' },
-  { id: 'p4', name: 'Jonas Berg', headline: 'Bible study partner · Greek student', country: 'Sweden', languages: ['English', 'Swedish'], verified: [], accepts: ['Bible study', 'General chat'], availability: 'Available now', interests: ['Greek', 'Romans'], mutual: 1, intro: 'Reading through Romans in Greek. Looking for a study partner.' },
-  { id: 'p5', name: 'Grace Adeyemi', headline: 'Worship leader · Vocal coach', country: 'UK', languages: ['English', 'Yoruba'], verified: ['Identity'], accepts: ['General chat', 'Mentoring'], availability: 'Selected times', interests: ['Worship', 'Youth'], mutual: 3, intro: 'Leading worship for 15 years. Coaching young worship leaders.' },
-  { id: 'p6', name: 'Samuel Reyes', headline: 'Missionary · Church planter', country: 'Brazil', languages: ['Portuguese', 'Spanish', 'English'], verified: ['Ministry role'], accepts: ['Prayer', 'General chat'], availability: 'Not accepting', interests: ['Missions', 'Evangelism'], mutual: 0, intro: 'Planting churches in the north of Brazil.' },
+  { id: 'p1', name: 'Rev. Esther Mwangi', username: '@esther_m', avatar: 'EM', headline: 'Pastoral care & Family counselor', church: 'St. Andrew\'s Anglican', country: 'Kenya', languages: ['English', 'Swahili'], verified: ['Ministry role', 'Identity'], accepts: ['Prayer', 'Pastoral guidance'], availability: 'Available now', skills: ['Counseling', 'Pastoral Care', 'Preaching'], interests: ['Grief', 'Marriage', 'Spiritual Growth'], mutual: 2, intro: 'Twelve years in pastoral care. Happy to pray with you or talk things through.' },
+  { id: 'p2', name: 'David Okafor', username: '@david_o', avatar: 'DO', headline: 'UI/UX Product Designer & Video Creator', church: 'Grace Chapel Lagos', country: 'Nigeria', languages: ['English', 'Igbo'], verified: ['Identity'], accepts: ['Professional', 'Mentoring'], availability: 'Selected times', skills: ['Figma', 'Video Editing', 'Product Design'], interests: ['Career', 'Leadership', 'Youth'], mutual: 1, intro: 'Mentoring young designers and engineers. Faith and work in technology.' },
+  { id: 'p3', name: 'Maria Santos', username: '@maria_s', avatar: 'MS', headline: 'Licensed Counselor (LPC) & Speaker', church: 'Hillside Baptist', country: 'Philippines', languages: ['English', 'Tagalog'], verified: ['Professional license', 'Identity'], accepts: ['Care / support'], availability: 'Message requests', skills: ['Trauma Therapy', 'Family Counseling'], interests: ['Anxiety', 'Family', 'Mental Health'], mutual: 0, intro: 'Licensed professional counselor. Christian, trauma-informed guidance.' },
+  { id: 'p4', name: 'Jonas Berg', username: '@jonas_b', avatar: 'JB', headline: 'Koine Greek Student & Seminary Scholar', church: 'Grace Lutheran', country: 'Sweden', languages: ['English', 'Swedish'], verified: [], accepts: ['Bible study', 'General chat'], availability: 'Available now', skills: ['Biblical Greek', 'Manuscript Study'], interests: ['Greek', 'Romans', 'Theology'], mutual: 1, intro: 'Reading through Romans in Greek. Looking for a study partner.' },
+  { id: 'p5', name: 'Grace Adeyemi', username: '@grace_worship', avatar: 'GA', headline: 'Worship Leader, Songwriter & Vocal Coach', church: 'Worship City UK', country: 'UK', languages: ['English', 'Yoruba'], verified: ['Identity'], accepts: ['General chat', 'Mentoring'], availability: 'Selected times', skills: ['Vocal Coaching', 'Worship Leading', 'Songwriting'], interests: ['Worship', 'Youth', 'Music Production'], mutual: 3, intro: 'Leading worship for 15 years. Coaching and mentoring worship teams.' },
+  { id: 'p6', name: 'Samuel Reyes', username: '@samuel_missions', avatar: 'SR', headline: 'Church Planter & Cross-Cultural Missionary', church: 'Amazon Basin Missions', country: 'Brazil', languages: ['Portuguese', 'Spanish', 'English'], verified: ['Ministry role'], accepts: ['Prayer', 'General chat'], availability: 'Field missions', skills: ['Church Planting', 'Discipleship', 'Translation'], interests: ['Missions', 'Evangelism'], mutual: 0, intro: 'Planting churches and translating Scripture along the Amazon river basin.' },
 ];
 
 export const CHATS = [
-  { id: 'd1', with: 'Rev. Esther Mwangi', type: 'Prayer conversation', last: 'I will be praying for you this week.', time: '09:14', unread: 1, messages: [
-    { id: 'x1', from: 'Glen', text: 'Thank you for agreeing to talk. I have been anxious about a decision at work.', mine: true, time: '09:02' },
-    { id: 'x2', from: 'Rev. Esther Mwangi', text: 'Thank you for trusting me with that. Can I pray with you now, and then we talk through it?', time: '09:05' },
-    { id: 'x3', from: 'Rev. Esther Mwangi', text: 'I will be praying for you this week.', time: '09:14' },
+  { id: 'd1', with: 'Rev. Esther Mwangi', username: '@esther_m', avatar: 'EM', type: 'Prayer conversation', last: 'I will be praying for you this week.', time: '09:14', unread: 1, messages: [
+    { id: 'x1', from: 'Glen', text: 'Thank you for agreeing to talk. I have been anxious about a decision at work.', mine: true, time: '09:02', status: 'read' },
+    { id: 'x2', from: 'Rev. Esther Mwangi', text: 'Thank you for trusting me with that. Can I pray with you now, and then we talk through it?', time: '09:05', status: 'delivered' },
+    { id: 'x3', from: 'Rev. Esther Mwangi', text: 'I will be praying for you this week.', time: '09:14', status: 'delivered' },
   ] },
-  { id: 'd2', with: 'Jonas Berg', type: 'Bible study', last: 'Romans 8 on Thursday?', time: 'Yesterday', unread: 0, messages: [
-    { id: 'y1', from: 'Jonas Berg', text: 'Romans 8 on Thursday?', time: 'Yesterday' },
+  { id: 'd2', with: 'Jonas Berg', username: '@jonas_b', avatar: 'JB', type: 'Bible study', last: 'Romans 8 on Thursday?', time: 'Yesterday', unread: 0, messages: [
+    { id: 'y1', from: 'Jonas Berg', text: 'Romans 8 on Thursday?', time: 'Yesterday', status: 'read' },
   ] },
-  { id: 'd3', with: 'David Okafor', type: 'Professional', last: 'Sent you the portfolio feedback.', time: 'Mon', unread: 0, messages: [
-    { id: 'z1', from: 'David Okafor', text: 'Sent you the portfolio feedback.', time: 'Mon' },
+  { id: 'd3', with: 'David Okafor', username: '@david_o', avatar: 'DO', type: 'Professional', last: 'Sent you the portfolio feedback.', time: 'Mon', unread: 0, messages: [
+    { id: 'z1', from: 'David Okafor', text: 'Sent you the portfolio feedback.', time: 'Mon', status: 'read' },
   ] },
 ];
 
@@ -112,22 +309,12 @@ export const PRAYERS = [
   { id: 'pr4', author: 'Chidi N.', audience: 'Community', title: 'Exams next week', body: 'Final year exams. Pray for focus and peace.', status: 'answered', praying: 22, updates: [{ text: 'Answered! Passed everything. God is faithful.', when: '1d' }], created: '3w', verse: null, anonymous: false },
 ];
 
-export const WISHES = [
-  { id: 'w1', author: 'Amaka O.', category: 'Mentor / collaborator', title: 'Looking for a Christian business mentor', body: 'Starting a small catering business in Lagos. Would love guidance from someone who has done it.', responses: ['Mentor connection', 'Advice', 'Prayer'], visibility: 'Community', replies: 4 },
-  { id: 'w2', author: 'Glen', category: 'Prayer & spiritual growth', title: 'Pray before an important decision', body: 'Deciding between two roles this week.', responses: ['Prayer', 'Encouragement'], visibility: 'Connections', replies: 2, mine: true },
-  { id: 'w3', author: 'Daniel M.', category: 'Education', title: 'Need study resources on Greek', body: 'Beginner Koine Greek. Any free resources?', responses: ['Resources', 'Advice'], visibility: 'Public', replies: 7 },
-];
-
 export const CALENDAR = [
   { id: 'e1', date: '2026-10-26', title: 'Youth Night', kind: 'Church event', where: 'Grace Chapel · Main Hall', time: '18:00', tradition: null, rsvp: true },
   { id: 'e2', date: '2026-10-29', title: 'Gospel of John · Day 7 live discussion', kind: 'Community', where: 'Online · Live room', time: '20:00', tradition: null, rsvp: false },
   { id: 'e3', date: '2026-10-31', title: 'Reformation Day', kind: 'Observance', where: null, time: null, tradition: 'Protestant', scripture: 'Romans 1:17', source: 'USC Christian Holy Days Calendar' },
   { id: 'e4', date: '2026-11-01', title: 'All Saints\' Day', kind: 'Observance', where: null, time: null, tradition: 'Western (Catholic, Anglican, Lutheran)', scripture: 'Hebrews 12:1', source: 'USC Christian Holy Days Calendar' },
   { id: 'e5', date: '2026-11-15', title: 'Harvest Thanksgiving', kind: 'Church event', where: 'Grace Chapel', time: '09:00', tradition: null, rsvp: false },
-  { id: 'e6', date: '2026-11-21', title: 'Presentation of the Theotokos', kind: 'Observance', where: null, time: null, tradition: 'Orthodox', scripture: 'Luke 1:46-55', source: 'Greek Orthodox Archdiocese planner' },
-  { id: 'e7', date: '2026-11-29', title: 'First Sunday of Advent', kind: 'Season', where: null, time: null, tradition: 'Western', scripture: 'Isaiah 9:6', source: 'USC Christian Holy Days Calendar' },
-  { id: 'e8', date: '2026-12-25', title: 'Christmas Day', kind: 'Observance', where: null, time: null, tradition: 'Western', scripture: 'Luke 2:11', source: 'USC Christian Holy Days Calendar' },
-  { id: 'e9', date: '2027-01-07', title: 'Christmas (Julian calendar)', kind: 'Observance', where: null, time: null, tradition: 'Orthodox · Ethiopian · Coptic', scripture: 'Matthew 2:1', source: 'Greek Orthodox Archdiocese planner' },
 ];
 
 export const PLANS = [
@@ -156,22 +343,6 @@ export const COURSES = [
 export const LIVE = [
   { id: 'l1', title: 'Wednesday Bible Study · Matthew 1', host: 'Grace Chapel Lagos', status: 'live', viewers: 214, language: 'English', captions: true, audience: 'Community' },
   { id: 'l2', title: 'Night Watch Prayer Room', host: 'Night Watch Prayer', status: 'live', viewers: 58, language: 'English', captions: false, audience: 'Public' },
-  { id: 'l3', title: 'Gospel of John · Day 7 discussion', host: 'Sarah K.', status: 'scheduled', when: 'Thu 20:00', language: 'English', captions: true, audience: 'Group' },
-  { id: 'l4', title: 'Worship Night · Replay', host: 'Grace Adeyemi', status: 'replay', language: 'English', captions: true, audience: 'Followers' },
-];
-
-export const RECORDINGS = [
-  { id: 'rc1', title: 'Sunday Sermon · The Genealogy of Grace', speaker: 'Pastor Tunde', passage: 'Matthew 1', duration: '38:12', status: 'transcribed', privacy: 'Church', refs: ['Matthew 1:1', 'Luke 3:23', 'Genesis 22:18'] },
-  { id: 'rc2', title: 'Personal study · Psalm 23', speaker: 'Glen', passage: 'Psalm 23', duration: '12:40', status: 'draft', privacy: 'Private', refs: [] },
-  { id: 'rc3', title: 'Youth talk · Anxiety', speaker: 'Glen', passage: 'Philippians 4', duration: '21:05', status: 'failed', privacy: 'Private', refs: [] },
-];
-
-export const FEED = [
-  { id: 'f1', author: 'Grace Chapel Lagos', kind: 'Announcement', text: 'Harvest Thanksgiving · Sunday 15 Nov. Bring your family.', time: '2h', likes: 48, comments: 6 },
-  { id: 'f2', author: 'Sarah K.', kind: 'Reflection', text: 'John 3:8. The wind blows where it wishes. I keep trying to schedule the Spirit.', time: '4h', likes: 120, comments: 18, passage: { bookId: 'JHN', chapter: 3 } },
-  { id: 'f3', author: 'Chidi N.', kind: 'Answered prayer', text: 'Passed all my finals. Thank you to everyone in the Prayer channel.', time: '1d', likes: 230, comments: 41 },
-  { id: 'f4', author: 'Christian Software Engineers', kind: 'Job', text: 'Senior React Native engineer, remote, faith-based nonprofit. Apply in the group.', time: '1d', likes: 12, comments: 3 },
-  { id: 'f5', author: 'Grace Adeyemi', kind: 'Worship', text: 'New arrangement of "It Is Well". Replay available in Live.', time: '2d', likes: 310, comments: 27 },
 ];
 
 export const CARE_OPTIONS = [

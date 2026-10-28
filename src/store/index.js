@@ -1,40 +1,45 @@
-// App state with durable persistence (AsyncStorage). Saves are versioned and show
-// a sync status (saved / syncing / failed) as the spec requires (§1.5.8).
+// Durable persistence (AsyncStorage) with support for Bible, Socials, Gifting,
+// Discover, WhatsApp-style Chat, and Jobs/Tasks Marketplace.
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as seed from '../data/seed';
 
-const KEY = 'biblenestra.state.v1';
+const KEY = 'biblenestra.state.v2';
 
 const initial = {
   onboarded: false,
   user: seed.USER,
+  coins: seed.USER.coins || 350,
   translation: 'KJV',
-  compareWith: ['WEB'],
+  compareWith: ['WEB', 'YOR'],
   lastPosition: { bookId: 'MAT', chapter: 1 },
   recent: [{ bookId: 'MAT', chapter: 1 }, { bookId: 'JHN', chapter: 3 }],
-  highlights: [{ id: 'h1', bookId: 'JHN', chapter: 3, verse: 16, color: '#8fe3c3', label: 'Promise', when: 'Yesterday' }],
+  highlights: [{ id: 'h1', bookId: 'JHN', chapter: 3, verse: 16, color: '#c9a45c', label: 'Promise', when: 'Yesterday' }],
   notes: [{ id: 'n1', bookId: 'MAT', chapter: 1, verse: 21, text: 'Jesus = "Yahweh saves". The name is the mission.', scope: 'Private', when: 'Mon' }],
   bookmarks: [{ id: 'b1', bookId: 'PSA', chapter: 23, verse: null, folder: 'Comfort', when: 'Sun' }],
   savedAnswers: [],
-  savedSearches: ['grace', 'peace'],
+  savedSearches: ['grace', 'peace', 'salvation', 'shalom'],
   chatHistory: [],
   companionHistory: [],
   prayers: seed.PRAYERS,
-  wishes: seed.WISHES,
   communities: seed.COMMUNITIES,
   groupMessages: seed.GROUP_MESSAGES,
   chats: seed.CHATS,
   requests: seed.MESSAGE_REQUESTS,
   plans: seed.PLANS,
-  recordings: seed.RECORDINGS,
-  feed: seed.FEED,
+  videos: seed.VIDEOS,
+  jobs: seed.JOBS,
+  proposals: [],
+  channels: seed.CHANNELS_DATA,
+  giftTransactions: [
+    { id: 'gt1', recipient: 'Grace Adeyemi', giftName: 'Flower Bouquet', coins: 25, time: 'Yesterday' },
+  ],
   rsvps: ['e1'],
-  follows: ['p1', 'p5'],
+  follows: ['@pastortunde', '@graceadeyemi', 'ch1'],
   blocked: [],
-  notifications: { push: true, email: false, quietHours: '22:00–07:00', bible: true, groups: true, prayer: true, events: true, safety: true },
+  notifications: { push: true, email: false, bible: true, groups: true, prayer: true, events: true, gifts: true, jobs: true },
   streaksEnabled: true,
-  fontSize: 15,
+  fontSize: 16,
   version: 0,
 };
 
@@ -62,27 +67,72 @@ function reducer(s, a) {
     case 'saveSearch': return bump({ savedSearches: [a.q, ...s.savedSearches.filter((x) => x !== a.q)].slice(0, 10) });
     case 'chat': return bump({ chatHistory: a.history });
     case 'companion': return bump({ companionHistory: [a.entry, ...s.companionHistory].slice(0, 20) });
-    case 'addPrayer': return bump({ prayers: [{ id: 'pr' + Date.now(), created: 'Now', praying: 0, updates: [], status: 'active', mine: true, author: a.p.anonymous ? 'Anonymous' : s.user.displayName, ...a.p }, ...s.prayers] });
+    
+    // Prayers
+    case 'addPrayer': return bump({ prayers: [{ id: 'pr' + Date.now(), created: 'Just now', praying: 0, updates: [], status: 'active', mine: true, author: a.p.anonymous ? 'Anonymous' : s.user.displayName, ...a.p }, ...s.prayers] });
     case 'pray': return bump({ prayers: s.prayers.map((p) => (p.id === a.id ? { ...p, praying: p.praying + (p.prayed ? -1 : 1), prayed: !p.prayed, status: p.status === 'active' ? 'receiving' : p.status } : p)) });
-    case 'prayerStatus': return bump({ prayers: s.prayers.map((p) => (p.id === a.id ? { ...p, status: a.status, updates: a.update ? [{ text: a.update, when: 'Now' }, ...p.updates] : p.updates } : p)) });
-    case 'addWish': return bump({ wishes: [{ id: 'w' + Date.now(), author: s.user.displayName, replies: 0, mine: true, ...a.w }, ...s.wishes] });
+    case 'prayerStatus': return bump({ prayers: s.prayers.map((p) => (p.id === a.id ? { ...p, status: a.status, updates: a.update ? [{ text: a.update, when: 'Just now' }, ...p.updates] : p.updates } : p)) });
+
+    // Socials & Virtual Gifting
+    case 'likeVideo': return bump({
+      videos: s.videos.map((v) => (v.id === a.id ? { ...v, likes: v.likes + (v.liked ? -1 : 1), liked: !v.liked } : v)),
+    });
+    case 'commentVideo': return bump({
+      videos: s.videos.map((v) => {
+        if (v.id !== a.id) return v;
+        const newC = { id: 'c' + Date.now(), from: s.user.displayName, text: a.text, time: 'Just now', likes: 0, replies: [] };
+        if (a.replyTo) {
+          return {
+            ...v,
+            comments: v.comments.map((c) => (c.id === a.replyTo ? { ...c, replies: [...c.replies, { id: 'cr' + Date.now(), from: s.user.displayName, text: a.text, time: 'Just now' }] } : c)),
+          };
+        }
+        return { ...v, comments: [newC, ...v.comments] };
+      }),
+    });
+    case 'sendGift': {
+      if (s.coins < a.coins) return s;
+      const tx = { id: 'gt' + Date.now(), recipient: a.recipient, giftName: a.giftName, coins: a.coins, time: 'Just now' };
+      return bump({
+        coins: s.coins - a.coins,
+        giftTransactions: [tx, ...s.giftTransactions],
+        videos: s.videos.map((v) => (v.id === a.videoId ? { ...v, gifts: v.gifts + 1 } : v)),
+      });
+    }
+    case 'buyCoins': return bump({ coins: s.coins + a.amount });
+    case 'publishVideo': return bump({ videos: [a.video, ...s.videos] });
+
+    // Jobs & Marketplace
+    case 'postJob': return bump({ jobs: [{ id: 'job' + Date.now(), posted: 'Just now', proposalsCount: 0, status: 'open', client: { name: s.user.displayName, church: s.user.church?.name || 'Local Church', verified: true }, ...a.job }, ...s.jobs] });
+    case 'applyJob': {
+      const prop = { id: 'prop' + Date.now(), jobId: a.jobId, jobTitle: a.jobTitle, time: 'Just now', status: 'Pending Review', ...a.proposal };
+      return bump({
+        proposals: [prop, ...s.proposals],
+        jobs: s.jobs.map((j) => (j.id === a.jobId ? { ...j, proposalsCount: j.proposalsCount + 1 } : j)),
+      });
+    }
+
+    // Communities & Chats
     case 'join': return bump({ communities: s.communities.map((c) => (c.id === a.id ? { ...c, joined: c.privacy === 'Private' && !c.joined ? 'requested' : !c.joined } : c)) });
     case 'groupMessage': {
       const g = s.groupMessages[a.gid] || {};
       const ch = g[a.channel] || [];
-      return bump({ groupMessages: { ...s.groupMessages, [a.gid]: { ...g, [a.channel]: [...ch, { id: 'm' + Date.now(), from: s.user.displayName, mine: true, time: 'Now', ...a.m }] } } });
+      return bump({ groupMessages: { ...s.groupMessages, [a.gid]: { ...g, [a.channel]: [...ch, { id: 'm' + Date.now(), from: s.user.displayName, mine: true, time: 'Just now', ...a.m }] } } });
     }
-    case 'dm': return bump({ chats: s.chats.map((c) => (c.id === a.cid ? { ...c, last: a.text, time: 'Now', messages: [...c.messages, { id: 'x' + Date.now(), from: s.user.displayName, mine: true, time: 'Now', text: a.text }] } : c)) });
-    case 'newChat': return bump({ chats: [{ id: 'd' + Date.now(), with: a.name, type: a.kind || 'General', last: a.text || 'New conversation', time: 'Now', unread: 0, messages: a.text ? [{ id: 'x' + Date.now(), from: s.user.displayName, mine: true, time: 'Now', text: a.text }] : [] }, ...s.chats] });
-    case 'request': return bump({ requests: s.requests.filter((r) => r.id !== a.id), chats: a.accept ? [{ id: 'd' + Date.now(), with: a.from, type: 'General', last: a.text, time: 'Now', unread: 0, messages: [{ id: 'x' + Date.now(), from: a.from, time: 'Now', text: a.text }] }, ...s.chats] : s.chats });
+    case 'dm': return bump({
+      chats: s.chats.map((c) => (c.id === a.cid ? { ...c, last: a.text, time: 'Just now', messages: [...c.messages, { id: 'x' + Date.now(), from: s.user.displayName, mine: true, time: 'Just now', text: a.text, status: 'sent', audio: a.audio || null }] } : c)),
+    });
+    case 'newChat': return bump({
+      chats: [{ id: 'd' + Date.now(), with: a.name, username: a.username || '@user', avatar: a.avatar || a.name.slice(0, 2).toUpperCase(), type: a.kind || 'Direct', last: a.text || 'Started a conversation', time: 'Just now', unread: 0, messages: a.text ? [{ id: 'x' + Date.now(), from: s.user.displayName, mine: true, time: 'Just now', text: a.text, status: 'sent' }] : [] }, ...s.chats],
+    });
+    case 'request': return bump({
+      requests: s.requests.filter((r) => r.id !== a.id),
+      chats: a.accept ? [{ id: 'd' + Date.now(), with: a.from, username: '@member', avatar: a.from.slice(0, 2).toUpperCase(), type: 'General', last: a.text, time: 'Just now', unread: 0, messages: [{ id: 'x' + Date.now(), from: a.from, time: 'Just now', text: a.text, status: 'delivered' }] }, ...s.chats] : s.chats,
+    });
     case 'planDone': return bump({ plans: s.plans.map((p) => (p.id === a.id ? { ...p, done: Math.min(p.days, p.done + 1), streak: p.streak + 1 } : p)) });
     case 'rsvp': return bump({ rsvps: s.rsvps.includes(a.id) ? s.rsvps.filter((x) => x !== a.id) : [...s.rsvps, a.id] });
     case 'follow': return bump({ follows: s.follows.includes(a.id) ? s.follows.filter((x) => x !== a.id) : [...s.follows, a.id] });
     case 'block': return bump({ blocked: [...s.blocked, a.id] });
-    case 'recording': return bump({ recordings: [{ id: 'rc' + Date.now(), status: 'draft', privacy: 'Private', refs: [], ...a.r }, ...s.recordings] });
-    case 'recordingStatus': return bump({ recordings: s.recordings.map((r) => (r.id === a.id ? { ...r, status: a.status } : r)) });
-    case 'post': return bump({ feed: [{ id: 'f' + Date.now(), author: s.user.displayName, time: 'Now', likes: 0, comments: 0, ...a.post }, ...s.feed] });
-    case 'like': return bump({ feed: s.feed.map((f) => (f.id === a.id ? { ...f, likes: f.likes + (f.liked ? -1 : 1), liked: !f.liked } : f)) });
     case 'user': return bump({ user: { ...s.user, ...a.user } });
     case 'reset': return { ...initial, version: s.version + 1 };
     default: return s;
@@ -102,7 +152,7 @@ export function StoreProvider({ children }) {
       try {
         const raw = await AsyncStorage.getItem(KEY);
         if (raw) dispatch({ type: 'hydrate', state: JSON.parse(raw) });
-      } catch (e) { /* start fresh; nothing is lost because nothing was saved yet */ }
+      } catch (e) { /* Start clean */ }
       setReady(true);
     })();
   }, []);

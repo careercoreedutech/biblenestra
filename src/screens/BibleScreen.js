@@ -103,6 +103,9 @@ export default function BibleScreen({ params = {} }) {
         <Pressable onPress={() => nav.push('Search')} style={styles.toolBtn}>
           <Text style={styles.toolText}>Search</Text>
         </Pressable>
+        <Pressable onPress={() => nav.push('Concordance')} style={styles.toolBtn}>
+          <Text style={[styles.toolText, { color: colors.gold }]}>Lexicon ✦</Text>
+        </Pressable>
         <Pressable onPress={() => setCompare(!compare)} style={[styles.toolBtn, compare && styles.toolBtnActive]}>
           <Text style={[styles.toolText, compare && { color: colors.gold }]}>Compare</Text>
         </Pressable>
@@ -263,6 +266,7 @@ export default function BibleScreen({ params = {} }) {
 
           {/* Contextual Action Pills */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 12 }}>
+            <Pill small label="Concordance" onPress={() => nav.push('Concordance')} />
             <Pill small label="Exegesis" onPress={() => nav.push('BibleChat', { context: { ...pos, verse: selected } })} />
             <Pill small label="Commentary" onPress={() => nav.push('Study', { ...pos, verse: selected, tab: 'Commentary' })} />
             <Pill small label="Cross-refs" onPress={() => nav.push('Study', { ...pos, verse: selected, tab: 'Cross-references' })} />
@@ -336,7 +340,7 @@ export default function BibleScreen({ params = {} }) {
               </Pressable>
             </View>
             <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 50 }}>
-              {['English', 'French', 'Spanish', 'Yoruba', 'Swahili'].map((lang) => (
+              {Array.from(new Set(TRANSLATIONS.map((t) => t.lang))).map((lang) => (
                 <View key={lang} style={{ marginTop: 12 }}>
                   <Text style={styles.testamentLabel}>{lang}</Text>
                   {TRANSLATIONS.filter((t) => t.lang === lang).map((t) => {

@@ -13,7 +13,7 @@ const STATUS_TINT = {
   archived: colors.subtle,
 };
 
-export default function PrayerScreen() {
+export default function PrayerScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
   const [tab, setTab] = useState('All');
@@ -28,6 +28,7 @@ export default function PrayerScreen() {
 
   return (
     <Screen
+      back={nav.stack.length > 0}
       title="Prayer Wall"
       subtitle="Intercede & share with the body of Christ"
       menu={() => nav.push('Profile')}
