@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import React, { Component, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { StoreProvider, useStore } from './src/store';
 import { NavProvider, useNav } from './src/navigation';
@@ -13,6 +13,36 @@ import BibleScreen, { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen }
 import GodModeScreen, { ReadingScreen, BibleChatScreen, CompanionScreen } from './src/screens/GodModeScreen';
 import PrayerScreen, { PrayerDetailScreen, NewPrayerScreen } from './src/screens/PrayerScreen';
 import { LearnScreen, PlanScreen, LessonScreen, SermonStudioScreen, TranscriptScreen, CreateScreen, ProfileScreen, OnboardingScreen } from './src/screens/MoreScreens';
+
+class ErrorBoundary extends Component {
+  state = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('App caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={[styles.safe, styles.errorContainer]}>
+          <Text style={styles.errorTitle}>Something went wrong</Text>
+          <Text style={styles.errorText}>{this.state.error?.message || String(this.state.error)}</Text>
+          <TouchableOpacity
+            style={styles.retryBtn}
+            onPress={() => this.setState({ hasError: false, error: null })}
+          >
+            <Text style={styles.retryText}>Reload App</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const ROUTES = {
   Bible: BibleScreen, Study: StudyScreen, Factbook: FactbookScreen, Search: SearchScreen, Library: LibraryScreen,
@@ -49,20 +79,27 @@ function Root() {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <NavProvider>
-        <SafeAreaProvider>
-          <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-            <StatusBar style="light" />
-            <Root />
-          </SafeAreaView>
-        </SafeAreaProvider>
-      </NavProvider>
-    </StoreProvider>
+    <ErrorBoundary>
+      <StoreProvider>
+        <NavProvider>
+          <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+            <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+              <StatusBar style="light" />
+              <Root />
+            </SafeAreaView>
+          </SafeAreaProvider>
+        </NavProvider>
+      </StoreProvider>
+    </ErrorBoundary>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.screen },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.screen },
+  errorContainer: { padding: 24, justifyContent: 'center', alignItems: 'center' },
+  errorTitle: { color: colors.gold, fontSize: 20, fontWeight: '700', marginBottom: 12 },
+  errorText: { color: colors.muted, fontSize: 13, marginBottom: 20, textAlign: 'center' },
+  retryBtn: { backgroundColor: colors.gold, paddingVertical: 10, paddingHorizontal: 22, borderRadius: 10 },
+  retryText: { color: '#0e0c0b', fontWeight: '700', fontSize: 14 },
 });

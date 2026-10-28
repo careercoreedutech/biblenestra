@@ -19,12 +19,13 @@ export default function HomeScreen() {
   const { state, dispatch, sync } = useStore();
   const nav = useNav();
   const vod = VERSE_OF_DAY;
-  const vodText = (getChapter(state.translation, vod.bookId, vod.chapter) || getChapter('KJV', vod.bookId, vod.chapter))[vod.verse - 1];
-  const plan = state.plans[0];
-  const lp = state.lastPosition;
-  const nextEvent = CALENDAR.find((e) => e.date >= '2026-10-25');
-  const live = LIVE.filter((l) => l.status === 'live');
-  const activePrayers = state.prayers.filter((p) => p.status !== 'answered').slice(0, 2);
+  const ch = (getChapter(state.translation, vod.bookId, vod.chapter) || getChapter('KJV', vod.bookId, vod.chapter) || []);
+  const vodText = ch[vod.verse - 1] || 'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.';
+  const plan = state.plans?.[0] || { done: 0, days: 1, name: 'Daily Reading', today: { bookId: 'MAT', chapter: 1 }, id: 'p1' };
+  const lp = state.lastPosition || { bookId: 'MAT', chapter: 1 };
+  const nextEvent = (CALENDAR || []).find((e) => e.date >= '2026-10-25');
+  const live = (LIVE || []).filter((l) => l.status === 'live');
+  const activePrayers = (state.prayers || []).filter((p) => p.status !== 'answered').slice(0, 2);
 
   return (
     <Screen
