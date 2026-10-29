@@ -31,6 +31,9 @@ const initial = {
   jobs: seed.JOBS,
   proposals: [],
   channels: seed.CHANNELS_DATA,
+  wishes: [],
+  feed: [],
+  vodLiked: false,
   giftTransactions: [
     { id: 'gt1', recipient: 'Grace Adeyemi', giftName: 'Flower Bouquet', coins: 25, time: 'Yesterday' },
   ],
@@ -74,6 +77,7 @@ function reducer(s, a) {
     case 'prayerStatus': return bump({ prayers: s.prayers.map((p) => (p.id === a.id ? { ...p, status: a.status, updates: a.update ? [{ text: a.update, when: 'Just now' }, ...p.updates] : p.updates } : p)) });
 
     // Socials & Virtual Gifting
+    case 'like': return bump({ vodLiked: !s.vodLiked });
     case 'likeVideo': return bump({
       videos: s.videos.map((v) => (v.id === a.id ? { ...v, likes: v.likes + (v.liked ? -1 : 1), liked: !v.liked } : v)),
     });

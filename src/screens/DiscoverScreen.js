@@ -13,7 +13,7 @@ import { refLabel, VERSE_OF_DAY, getChapter } from '../data/bible';
 export default function DiscoverScreen() {
   const nav = useNav();
   const { state, dispatch } = useStore();
-  const unread = state.chats.reduce((n, c) => n + c.unread, 0) + state.requests.length;
+  const unread = (state.chats || []).reduce((n, c) => n + (c.unread || 0), 0) + ((state.requests || []).length);
   const recentPrayers = (state.prayers || []).slice(0, 3);
   const featuredVideos = (state.videos || []).slice(0, 4);
   const featuredJobs = (state.jobs || []).slice(0, 3);
@@ -244,7 +244,7 @@ export default function DiscoverScreen() {
                   <Text style={styles.videoBadgeText}>▶ {v.views}</Text>
                 </View>
                 <View style={{ position: 'absolute', bottom: 10, left: 10, right: 10 }}>
-                  <Text style={styles.videoCreatorName} numberOfLines={1}>{v.creator.name}</Text>
+                  <Text style={styles.videoCreatorName} numberOfLines={1}>{v.creator?.name || 'Creator'}</Text>
                   <Text style={styles.videoCaptionPreview} numberOfLines={2}>{v.caption}</Text>
                 </View>
               </View>
@@ -316,7 +316,7 @@ export default function DiscoverScreen() {
             <Pressable key={j.id} style={styles.jobItem} onPress={() => nav.push('Jobs')}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.jobItemTitle}>{j.title}</Text>
-                <Text style={styles.jobItemMeta}>{j.postedBy} · {j.category} · {j.budget}</Text>
+                <Text style={styles.jobItemMeta}>{j.client?.name || j.postedBy || 'Church Ministry'} · {j.category} · {j.budget}</Text>
               </View>
               <Tag label={j.kind} tint={colors.forest} />
             </Pressable>
@@ -356,7 +356,7 @@ export default function DiscoverScreen() {
           <Card
             compact
             title="Live Fellowship"
-            subtitle={`${LIVE.filter((l) => l.status === 'live').length} active fellowships`}
+            subtitle={`${(LIVE || []).filter((l) => l.status === 'live').length} active fellowships`}
             color={colors.terracotta}
             icon="●"
             onPress={() => nav.push('Live')}
@@ -377,7 +377,7 @@ export default function DiscoverScreen() {
               </View>
               <View style={{ padding: 12 }}>
                 <Text style={styles.channelName} numberOfLines={1}>{ch.name}</Text>
-                <Text style={styles.channelVideoTitle} numberOfLines={1}>{ch.recentVideo.title}</Text>
+                <Text style={styles.channelVideoTitle} numberOfLines={1}>{ch.videoTitle || ch.recentVideo?.title || 'Watch Message'}</Text>
                 <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
                   <Button small kind="ghost" label="Watch" onPress={() => nav.push('Live')} />
                   <Button small label="Join" onPress={() => {}} />
@@ -747,7 +747,7 @@ export function WishesScreen() {
   const { state } = useStore();
   return (
     <Screen back title="Make a Wish" subtitle="A prayer request, ministry goal, or need" right={<Pressable onPress={() => nav.push('Create', { kind: 'Wish' })} hitSlop={10}><Text style={{ color: colors.forest, fontSize: 20 }}>＋</Text></Pressable>}>
-      {state.wishes.map((w) => (
+      {(state.wishes || []).map((w) => (
         <View key={w.id} style={styles.card}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={styles.cardMeta}>{w.author} · {w.visibility}</Text><Tag label={w.category} /></View>
           <Text style={styles.cardTitle}>{w.title}</Text>
@@ -798,7 +798,7 @@ export function FeedScreen() {
   return (
     <Screen back title="Feed" right={<Pressable onPress={() => nav.push('Create', { kind: 'Post' })} hitSlop={10}><Text style={{ color: colors.forest, fontSize: 20 }}>＋</Text></Pressable>}>
       <Pills items={['For You', 'Following', 'Communities', 'Events']} value={tab} onChange={setTab} />
-      {state.feed.filter((f) => tab !== 'Events' || f.kind === 'Announcement' || f.kind === 'Celebration').map((f) => (
+      {(state.feed || []).filter((f) => tab !== 'Events' || f.kind === 'Announcement' || f.kind === 'Celebration').map((f) => (
         <View key={f.id} style={styles.post}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><Text style={styles.cardTitle}>{f.author}</Text><Tag label={f.kind} /></View>
           <Text style={styles.cardBody}>{f.text}</Text>

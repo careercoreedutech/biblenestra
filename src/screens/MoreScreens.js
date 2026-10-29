@@ -313,8 +313,8 @@ export function ProfileScreen({ params = {} }) {
               <Text style={{ color: colors.gold, fontSize: 24, fontWeight: '700' }}>{u.displayName[0]}</Text>
             </View>
             <Text style={[styles.cardTitle, { fontSize: 20, marginTop: 10 }]}>{u.displayName}</Text>
-            <Text style={styles.cardMeta}>{u.headline} · {u.country} · {u.languages.join(', ')}</Text>
-            {u.church.visible ? <Text style={[styles.cardMeta, { color: colors.teal, marginTop: 4 }]}>⛪ {u.church.name}</Text> : null}
+            <Text style={styles.cardMeta}>{u.headline} · {u.country} · {(u.languages || []).join(', ')}</Text>
+            {u.church?.visible ? <Text style={[styles.cardMeta, { color: colors.teal, marginTop: 4 }]}>⛪ {u.church?.name}</Text> : null}
 
             {/* Quick Stats Banner */}
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 14, width: '100%', justifyContent: 'center' }}>
