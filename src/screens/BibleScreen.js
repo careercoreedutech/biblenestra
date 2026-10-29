@@ -86,13 +86,18 @@ export default function BibleScreen({ params = {} }) {
     <Screen
       scroll={false}
       padded={false}
-      title={`${bookName(pos.bookId)} ${pos.chapter}`}
+      title={`${bookName(pos.bookId)} ${pos.chapter} ▾`}
       subtitle={`${tr} · ${title || 'Scripture'}`}
       menu={() => setPicker('book')}
       right={
-        <Pressable onPress={() => setPicker('translation')} hitSlop={12} style={styles.trBadge}>
-          <Text style={styles.trBadgeText}>{tr}</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Pressable onPress={() => setAudio(!audio)} hitSlop={10} style={styles.trBadge}>
+            <Text style={[styles.trBadgeText, audio && { color: colors.gold }]}>{audio ? '◼ Pause' : '▷ Audio'}</Text>
+          </Pressable>
+          <Pressable onPress={() => setPicker('translation')} hitSlop={12} style={styles.trBadge}>
+            <Text style={styles.trBadgeText}>{tr}</Text>
+          </Pressable>
+        </View>
       }
     >
       {/* Reader Quick-Toolbar */}
@@ -132,8 +137,9 @@ export default function BibleScreen({ params = {} }) {
           <Notice tint={colors.teal} text={`Streaming audio narration for ${refLabel(pos.bookId, pos.chapter)} (${tr}).`} />
         ) : null}
 
-        {/* Chapter Header */}
+        {/* Chapter Header (Vintage Editorial Aesthetic) */}
         <View style={styles.chapterHead}>
+          <Text style={styles.decorativeArch}>✦ · ─────────── · ✦</Text>
           <Text style={styles.eyebrow}>THE BOOK OF {bookName(pos.bookId).toUpperCase()}</Text>
           <Text style={styles.chapterLargeNumber}>Chapter {pos.chapter}</Text>
           {title ? <Text style={styles.chTitle}>{title}</Text> : null}
@@ -156,6 +162,36 @@ export default function BibleScreen({ params = {} }) {
             const notes = noteFor(n);
             const isSel = selected === n;
 
+            if (n === 1) {
+              return (
+                <Pressable
+                  key={n}
+                  onPress={() => {
+                    setSelected(isSel ? null : n);
+                    setPanel(null);
+                  }}
+                  style={[
+                    styles.verseRow,
+                    isSel && styles.verseSel,
+                    h && { backgroundColor: h.color + '22' },
+                    { marginTop: 4, marginBottom: 8 },
+                  ]}
+                >
+                  <View style={styles.dropCapRow}>
+                    <View style={styles.dropCapBox}>
+                      <Text style={styles.dropCapText}>1</Text>
+                    </View>
+                    <Text style={[styles.verseText, { fontSize: state.fontSize, lineHeight: state.fontSize * 1.68, flex: 1 }]}>
+                      <Text style={h ? { color: colors.fg, borderBottomWidth: 1, borderBottomColor: h.color } : null}>
+                        {v}
+                      </Text>
+                      {notes.length ? <Text style={{ color: colors.amber }}> ✎</Text> : null}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            }
+
             return (
               <Pressable
                 key={n}
@@ -166,10 +202,10 @@ export default function BibleScreen({ params = {} }) {
                 style={[
                   styles.verseRow,
                   isSel && styles.verseSel,
-                  h && { backgroundColor: h.color + '18' },
+                  h && { backgroundColor: h.color + '22' },
                 ]}
               >
-                <Text style={[styles.verseText, { fontSize: state.fontSize, lineHeight: state.fontSize * 1.62 }]}>
+                <Text style={[styles.verseText, { fontSize: state.fontSize, lineHeight: state.fontSize * 1.68 }]}>
                   <Text style={[styles.vnum, isSel && { color: colors.gold }]}>{n}  </Text>
                   <Text style={h ? { color: colors.fg, borderBottomWidth: 1, borderBottomColor: h.color } : null}>
                     {v}
@@ -431,27 +467,41 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(229, 184, 105, 0.3)',
   },
+  trBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   trBadgeText: {
     fontFamily: fonts.sansMedium,
-    color: colors.gold,
+    color: colors.forest,
     fontSize: 11,
     fontWeight: '700',
   },
   toolbar: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingVertical: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   toolBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: colors.raised,
   },
   toolBtnActive: {
-    backgroundColor: colors.raised,
+    backgroundColor: colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: colors.gold,
   },
   toolText: {
     fontFamily: fonts.sansMedium,
@@ -461,42 +511,78 @@ const styles = StyleSheet.create({
   chapterHead: {
     alignItems: 'center',
     marginBottom: 20,
+    marginTop: 8,
+  },
+  decorativeArch: {
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    color: colors.gold,
+    letterSpacing: 2,
+    marginBottom: 8,
+    opacity: 0.85,
   },
   eyebrow: {
     fontFamily: fonts.sansMedium,
-    fontSize: 9.5,
+    fontSize: 10,
     letterSpacing: 2,
     color: colors.gold,
+    fontWeight: '700',
   },
   chapterLargeNumber: {
     fontFamily: fonts.serifBold,
-    fontSize: 26,
+    fontSize: 28,
     color: colors.fg,
     marginTop: 4,
   },
   chTitle: {
     fontFamily: fonts.serif,
-    fontSize: 14,
+    fontSize: 14.5,
     color: colors.muted,
     fontStyle: 'italic',
     marginTop: 4,
     textAlign: 'center',
   },
   goldDivider: {
-    width: 32,
+    width: 36,
     height: 1.5,
-    backgroundColor: 'rgba(229, 184, 105, 0.4)',
+    backgroundColor: colors.gold,
     marginTop: 14,
     borderRadius: 1,
+    opacity: 0.6,
+  },
+  dropCapRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  dropCapBox: {
+    width: 40,
+    height: 46,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.gold,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  dropCapText: {
+    fontFamily: fonts.serifBold,
+    fontSize: 26,
+    color: colors.forest,
   },
   verseRow: {
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 8,
-    borderRadius: 10,
+    borderRadius: 8,
     marginVertical: 1,
   },
   verseSel: {
-    backgroundColor: 'rgba(229, 184, 105, 0.15)',
+    backgroundColor: colors.cardGold,
     borderLeftWidth: 3,
     borderLeftColor: colors.gold,
   },
@@ -507,7 +593,7 @@ const styles = StyleSheet.create({
   vnum: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,
-    color: colors.muted,
+    color: colors.gold,
     fontWeight: '700',
   },
   pager: {
@@ -518,21 +604,27 @@ const styles = StyleSheet.create({
   },
   pagerBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 20,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   pagerBtnText: {
     fontFamily: fonts.sansMedium,
     fontSize: 12.5,
     color: colors.fg,
+    fontWeight: '600',
   },
   copyright: {
     fontFamily: fonts.sans,
-    fontSize: 10,
+    fontSize: 10.5,
     color: colors.muted,
     textAlign: 'center',
     marginTop: 20,
@@ -545,10 +637,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 16,
     paddingBottom: 24,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 8,
   },
   sheetHeader: {
     flexDirection: 'row',
@@ -558,9 +655,11 @@ const styles = StyleSheet.create({
   },
   sheetVerseBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 10,
-    backgroundColor: 'rgba(229, 184, 105, 0.15)',
+    backgroundColor: colors.cardGold,
+    borderWidth: 1,
+    borderColor: colors.gold,
   },
   sheetVerseBadgeText: {
     fontFamily: fonts.sansMedium,
@@ -571,14 +670,14 @@ const styles = StyleSheet.create({
   },
   sheetRef: {
     fontFamily: fonts.serifBold,
-    fontSize: 14,
+    fontSize: 14.5,
     color: colors.fg,
   },
   sheetCloseBtn: {
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: colors.raised,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -595,37 +694,40 @@ const styles = StyleSheet.create({
   },
   colorDotActive: {
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: colors.forest,
     transform: [{ scale: 1.15 }],
   },
   vDivider: {
     width: 1,
     height: 18,
-    backgroundColor: colors.line,
+    backgroundColor: colors.border,
     marginHorizontal: 4,
   },
   actionChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   actionChipText: {
     fontFamily: fonts.sansMedium,
     fontSize: 11.5,
     color: colors.fg,
+    fontWeight: '600',
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(28, 25, 23, 0.45)',
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: '#161210',
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
-    borderColor: colors.glossBorderTop,
+    borderColor: colors.border,
     maxHeight: '85%',
   },
   modalHead: {
@@ -634,18 +736,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 18,
     borderBottomWidth: 1,
-    borderBottomColor: colors.line,
+    borderBottomColor: colors.border,
   },
   modalTitle: {
     fontFamily: fonts.serifBold,
-    fontSize: 16,
+    fontSize: 16.5,
     color: colors.fg,
   },
   modalClose: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: colors.raised,
   },
   modalSub: {
     fontFamily: fonts.sansMedium,
@@ -656,7 +758,7 @@ const styles = StyleSheet.create({
   },
   testamentLabel: {
     fontFamily: fonts.serifBold,
-    fontSize: 13,
+    fontSize: 13.5,
     color: colors.fg,
     marginBottom: 8,
   },
@@ -679,12 +781,12 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: colors.line,
+    borderBottomColor: colors.rule,
   },
   compareTr: {
     fontFamily: fonts.sansMedium,
     fontSize: 9.5,
-    color: colors.teal,
+    color: colors.forest,
     fontWeight: '700',
     marginBottom: 3,
   },

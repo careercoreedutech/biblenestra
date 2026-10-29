@@ -247,9 +247,9 @@ export function Toggle({ value, onChange }) {
   return (
     <Pressable
       onPress={() => onChange(!value)}
-      style={[styles.toggle, value && { backgroundColor: colors.gold }]}
+      style={[styles.toggle, value && { backgroundColor: colors.forest }]}
     >
-      <View style={[styles.knob, value && { alignSelf: 'flex-end', backgroundColor: '#0e0c0b' }]} />
+      <View style={[styles.knob, value && { alignSelf: 'flex-end', backgroundColor: '#FFFFFF' }]} />
     </Pressable>
   );
 }
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 24,
     borderRadius: 12,
-    backgroundColor: colors.lineLight,
+    backgroundColor: colors.border,
     padding: 2,
     justifyContent: 'center',
   },
@@ -376,6 +376,6 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
 });

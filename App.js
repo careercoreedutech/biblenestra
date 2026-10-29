@@ -94,7 +94,7 @@ export default function App() {
         <NavProvider>
           <SafeAreaProvider initialMetrics={initialWindowMetrics}>
             <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-              <StatusBar style="light" />
+              <StatusBar style="dark" />
               <Root />
             </SafeAreaView>
           </SafeAreaProvider>

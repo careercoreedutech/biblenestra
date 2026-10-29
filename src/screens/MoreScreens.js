@@ -159,7 +159,7 @@ export function SermonStudioScreen() {
     dispatch({ type: 'recording', r: { title: title.trim() || 'Untitled recording', speaker: state.user.displayName, passage: passage || '—', duration: fmt(secs), privacy } });
     setRec('idle'); setSecs(0); setTitle(''); setPassage('');
   };
-  const statusTint = { transcribed: colors.teal, draft: colors.yellow, failed: '#e85d5d', transcribing: colors.lavender };
+  const statusTint = { transcribed: colors.teal, draft: colors.warning, failed: colors.negative, transcribing: colors.lavender };
   return (
     <Screen back title="Sermon Studio" subtitle="Record · transcribe · search · share safely">
       {!consent ? (
@@ -198,7 +198,7 @@ export function SermonStudioScreen() {
               {r.status === 'transcribed' ? <Button small kind="ghost" label="Transcript" onPress={() => nav.push('Transcript', { id: r.id })} /> : null}
               <Button small kind="ghost" label="Trim" /><Button small kind="ghost" label="Rename" />
             </View>
-            {r.status === 'failed' ? <Text style={[styles.cardMeta, { color: '#e85d5d' }]}>Transcription failed. Your audio is safe and was not deleted.</Text> : null}
+            {r.status === 'failed' ? <Text style={[styles.cardMeta, { color: colors.negative }]}>Transcription failed. Your audio is safe and was not deleted.</Text> : null}
           </View>
         ))}
       </Section>
@@ -477,7 +477,7 @@ export function ProfileScreen({ params = {} }) {
       ) : null}
       {tab === 'Account' ? (
         <View>
-          <Row title="Sync status" subtitle={sync.at ? 'Last successful sync ' + sync.at.toLocaleTimeString() : 'Saved locally'} right={<Badge label={sync.status} tint={sync.status === 'failed' ? '#e85d5d' : colors.teal} />} />
+          <Row title="Sync status" subtitle={sync.at ? 'Last successful sync ' + sync.at.toLocaleTimeString() : 'Saved locally'} right={<Badge label={sync.status} tint={sync.status === 'failed' ? colors.negative : colors.teal} />} />
           <Row title="Backup & restore" subtitle="Verified backup before updates and migrations" right="›" />
           <Row title="Sessions & devices" right="›" /><Row title="Change password" right="›" /><Row title="Subscriptions & ad-free" subtitle="Ads never interrupt Scripture, prayer, audio or search" right="›" />
           <Row title="Redo onboarding" right="›" onPress={() => dispatch({ type: 'set', patch: { onboarded: false } })} />
