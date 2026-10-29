@@ -461,14 +461,6 @@ export { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen } from './Bibl
 const styles = StyleSheet.create({
   trBadge: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-    backgroundColor: 'rgba(229, 184, 105, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(229, 184, 105, 0.3)',
-  },
-  trBadge: {
-    paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 14,
     backgroundColor: colors.raised,

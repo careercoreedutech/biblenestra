@@ -7,7 +7,7 @@ import * as seed from '../data/seed';
 const KEY = 'biblenestra.state.v2';
 
 const initial = {
-  onboarded: false,
+  onboarded: true,
   user: seed.USER,
   coins: seed.USER.coins || 350,
   translation: 'KJV',

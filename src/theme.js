@@ -72,4 +72,11 @@ export const colors = {
 
   // Shadows
   shadowColor: '#1C1917',
+
+  // Compatibility aliases
+  accent: '#1B4D3E',
+  lineLight: '#EDE7DC',
+  yellow: '#B8860B',
+  glossBorder: '#E8E1D5',
+  subtle: '#78716C',
 };

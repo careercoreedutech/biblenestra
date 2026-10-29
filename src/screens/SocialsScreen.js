@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Dimensions,
   FlatList,
   Modal,
@@ -42,7 +43,7 @@ export default function SocialsScreen() {
 
   const handleSendGift = (gift) => {
     if (state.coins < gift.price) {
-      alert(`Insufficient coins. You have ${state.coins} coins, but ${gift.name} costs ${gift.price} coins.`);
+      Alert.alert('Notice', `Insufficient coins. You have ${state.coins} coins, but ${gift.name} costs ${gift.price} coins.`);
       return;
     }
     dispatch({
@@ -275,7 +276,7 @@ export default function SocialsScreen() {
 
                 {/* Share Button */}
                 <Pressable
-                  onPress={() => alert(`Shared "${item.caption.slice(0, 30)}..." to Christian Social network!`)}
+                  onPress={() => Alert.alert('Share', `Shared "${item.caption.slice(0, 30)}..." to Christian Social network!`)}
                   style={styles.railAction}
                 >
                   <View style={styles.railIconCircle}>
@@ -288,7 +289,7 @@ export default function SocialsScreen() {
 
                 {/* Repost Button */}
                 <Pressable
-                  onPress={() => alert('Reposted to your Christian Socials profile!')}
+                  onPress={() => Alert.alert('Repost', 'Reposted to your Christian Socials profile!')}
                   style={styles.railAction}
                 >
                   <View style={styles.railIconCircle}>
@@ -344,7 +345,7 @@ export default function SocialsScreen() {
                 label="＋ Refill 250 Coins ($2.99)"
                 onPress={() => {
                   dispatch({ type: 'buyCoins', amount: 250 });
-                  alert('Added 250 coins to your balance!');
+                  Alert.alert('Success', 'Added 250 coins to your balance!');
                 }}
               />
               <Button small kind="ghost" label="Close" onPress={() => setShowGiftStore(false)} />

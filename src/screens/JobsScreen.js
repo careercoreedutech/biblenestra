@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Screen, Section, Badge, Tag, Button, Row } from '../components/ui';
 import { colors, fonts } from '../theme';
@@ -56,7 +56,7 @@ export default function JobsScreen() {
 
   const handleApply = () => {
     if (!bidRate.trim() || !coverNote.trim()) {
-      alert('Please enter your rate and cover note.');
+      Alert.alert('Required', 'Please enter your rate and cover note.');
       return;
     }
     dispatch({
@@ -71,7 +71,7 @@ export default function JobsScreen() {
         coverNote: coverNote.trim(),
       },
     });
-    alert('Proposal submitted successfully! The client will review your application.');
+    Alert.alert('Success', 'Proposal submitted successfully! The client will review your application.');
     setShowApplyModal(false);
     setBidRate('');
     setDeliveryTime('');
@@ -80,7 +80,7 @@ export default function JobsScreen() {
 
   const handlePostJob = () => {
     if (!postTitle.trim() || !postBudget.trim()) {
-      alert('Please enter job title and budget.');
+      Alert.alert('Required', 'Please enter job title and budget.');
       return;
     }
     dispatch({
@@ -95,7 +95,7 @@ export default function JobsScreen() {
         description: postDesc.trim() || 'Detailed scope discussed during consultation.',
       },
     });
-    alert('Job opportunity published to Christian marketplace!');
+    Alert.alert('Success', 'Job opportunity published to Christian marketplace!');
     setShowPostModal(false);
     setPostTitle('');
     setPostBudget('');

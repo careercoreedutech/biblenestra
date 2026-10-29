@@ -31,7 +31,7 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <SafeAreaView style={[styles.safe, styles.errorContainer]}>
+        <View style={[styles.safe, styles.errorContainer]}>
           <Text style={styles.errorTitle}>Something went wrong</Text>
           <Text style={styles.errorText}>{this.state.error?.message || String(this.state.error)}</Text>
           <TouchableOpacity
@@ -40,7 +40,7 @@ class ErrorBoundary extends Component {
           >
             <Text style={styles.retryText}>Reload App</Text>
           </TouchableOpacity>
-        </SafeAreaView>
+        </View>
       );
     }
     return this.props.children;
@@ -89,18 +89,18 @@ function Root() {
 
 export default function App() {
   return (
-    <ErrorBoundary>
-      <StoreProvider>
-        <NavProvider>
-          <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <ErrorBoundary>
+        <StoreProvider>
+          <NavProvider>
             <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
               <StatusBar style="dark" />
               <Root />
             </SafeAreaView>
-          </SafeAreaProvider>
-        </NavProvider>
-      </StoreProvider>
-    </ErrorBoundary>
+          </NavProvider>
+        </StoreProvider>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }
 

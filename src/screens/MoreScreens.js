@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider } from '../components/ui';
 import { Toggle } from './PrayerScreen';
-import { colors } from '../theme';
+import { colors, fonts } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { DEVOTIONALS, MEMORY_DECK, COURSES, CHURCHES } from '../data/seed';
