@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Alert,
   Dimensions,
@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Icon } from '../components/Icons';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
@@ -30,10 +31,199 @@ const GIFT_ICONS = {
   g_crown: { name: 'cross', color: colors.lavender },
 };
 
+function VideoReelItem({
+  item,
+  index,
+  isActive,
+  isLiked,
+  isFollowing,
+  onLike,
+  onComment,
+  onGift,
+  onShare,
+  onRepost,
+  onFollow,
+  onOpenBible,
+}) {
+  const cardBg = VIDEO_THEMES[index % VIDEO_THEMES.length];
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [showPlayIcon, setShowPlayIcon] = useState(false);
+
+  const player = useVideoPlayer(item.videoUrl || null, (p) => {
+    p.loop = true;
+    if (isActive) {
+      p.play();
+    }
+  });
+
+  useEffect(() => {
+    if (!player) return;
+    try {
+      if (isActive) {
+        player.play();
+        setIsPlaying(true);
+      } else {
+        player.pause();
+        setIsPlaying(false);
+      }
+    } catch (e) {}
+  }, [isActive, player]);
+
+  const togglePlayback = () => {
+    if (!player) return;
+    try {
+      if (player.playing) {
+        player.pause();
+        setIsPlaying(false);
+      } else {
+        player.play();
+        setIsPlaying(true);
+      }
+      setShowPlayIcon(true);
+      setTimeout(() => setShowPlayIcon(false), 800);
+    } catch (e) {}
+  };
+
+  return (
+    <Pressable activeOpacity={0.95} onPress={togglePlayback} style={[styles.videoCard, { backgroundColor: cardBg }]}>
+      {/* Video Player */}
+      {item.videoUrl ? (
+        <VideoView
+          style={StyleSheet.absoluteFill}
+          player={player}
+          allowsFullscreen={false}
+          allowsPictureInPicture={false}
+          nativeControls={false}
+          contentFit="cover"
+        />
+      ) : (
+        <View style={styles.videoPlayerGraphic}>
+          <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="video" size={30} color="#FFFFFF" />
+          </View>
+          <Text style={styles.ambientCategoryBadge}>{item.category.toUpperCase()}</Text>
+          <Text style={styles.ambientDurationText}>{item.duration}</Text>
+        </View>
+      )}
+
+      {/* Scrim Overlay for high-contrast typography */}
+      <View style={styles.videoScrim} pointerEvents="none" />
+
+      {/* Tap Feedback Badge */}
+      {showPlayIcon ? (
+        <View style={styles.centerPlayBadge} pointerEvents="none">
+          <Icon name={isPlaying ? 'play' : 'video'} size={34} color="#FFFFFF" />
+        </View>
+      ) : null}
+
+      {/* Top Category Badge */}
+      <View style={styles.topCategoryOverlay} pointerEvents="none">
+        <Text style={styles.ambientCategoryBadge}>{item.category.toUpperCase()}</Text>
+        <Text style={styles.ambientDurationText}>{item.duration}</Text>
+      </View>
+
+      {/* Bottom Information Overlay (Creator & Caption) */}
+      <View style={styles.bottomInfo}>
+        <View style={styles.creatorRow}>
+          <View style={styles.creatorAvatar}>
+            <Text style={styles.creatorAvatarText}>{item.creator.avatar}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Text style={styles.creatorName}>{item.creator.name}</Text>
+              {item.creator.verified ? (
+                <View style={[styles.verifiedDot, { backgroundColor: colors.forest }]}>
+                  <Icon name="check" size={9} color="#FFFFFF" strokeWidth={3} />
+                </View>
+              ) : null}
+            </View>
+            <Text style={styles.creatorHandle}>{item.creator.handle} · {item.creator.church}</Text>
+          </View>
+          <Pressable
+            onPress={onFollow}
+            style={[styles.followBtn, isFollowing && styles.followBtnActive]}
+          >
+            <Text style={[styles.followBtnText, isFollowing && { color: colors.fg }]}>
+              {isFollowing ? 'Following' : 'Follow'}
+            </Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.captionText}>{item.caption}</Text>
+
+        {item.scripture ? (
+          <Pressable onPress={onOpenBible} style={styles.scripturePill}>
+            <Icon name="book" size={12} color={colors.goldLight} />
+            <Text style={[styles.scriptureText, { marginLeft: 4 }]}>{item.scripture} · Read Context</Text>
+          </Pressable>
+        ) : null}
+
+        <View style={styles.hashtagRow}>
+          {item.hashtags?.map((tag, idx) => (
+            <Text key={idx} style={styles.hashtagText}>{tag}</Text>
+          ))}
+        </View>
+
+        {/* Audio Track Row */}
+        <View style={styles.soundRow}>
+          <Icon name="audio" size={12} color="rgba(255, 255, 255, 0.7)" />
+          <Text style={[styles.soundText, { marginLeft: 6 }]} numberOfLines={1}>{item.sound}</Text>
+        </View>
+      </View>
+
+      {/* Right Side Vertical Interaction Rail with Vector Icons */}
+      <View style={styles.rightRail}>
+        {/* Like Button */}
+        <Pressable onPress={onLike} style={styles.railAction}>
+          <View style={[styles.railIconCircle, isLiked && { backgroundColor: colors.rose, borderColor: colors.rose }]}>
+            <Icon name="heart" size={22} color="#FFFFFF" fill={isLiked ? '#FFFFFF' : 'none'} />
+          </View>
+          <Text style={styles.railCount}>{item.likes}</Text>
+        </Pressable>
+
+        {/* Comment Button */}
+        <Pressable onPress={onComment} style={styles.railAction}>
+          <View style={styles.railIconCircle}>
+            <Icon name="chat" size={20} color="#FFFFFF" />
+          </View>
+          <Text style={styles.railCount}>{item.comments?.length || 0}</Text>
+        </Pressable>
+
+        {/* Virtual Gifting Button */}
+        <Pressable onPress={onGift} style={styles.railAction}>
+          <View style={[styles.railIconCircle, { borderColor: colors.goldLight, backgroundColor: 'rgba(245, 158, 11, 0.3)' }]}>
+            <Icon name="gift" size={20} color={colors.goldLight} />
+          </View>
+          <Text style={[styles.railCount, { color: colors.goldLight, fontWeight: '700' }]}>
+            {item.gifts || 0}
+          </Text>
+        </Pressable>
+
+        {/* Share Button */}
+        <Pressable onPress={onShare} style={styles.railAction}>
+          <View style={styles.railIconCircle}>
+            <Icon name="share" size={19} color="#FFFFFF" />
+          </View>
+          <Text style={styles.railCount}>{item.shares}</Text>
+        </Pressable>
+
+        {/* Repost Button */}
+        <Pressable onPress={onRepost} style={styles.railAction}>
+          <View style={styles.railIconCircle}>
+            <Icon name="repost" size={19} color="#FFFFFF" />
+          </View>
+          <Text style={styles.railCount}>{item.reposts || 0}</Text>
+        </Pressable>
+      </View>
+    </Pressable>
+  );
+}
+
 export default function SocialsScreen() {
   const { state, dispatch } = useStore();
   const nav = useNav();
   const [activeTab, setActiveTab] = useState('Recommended'); // 'Following' | 'Recommended'
+  const [activeIndex, setActiveIndex] = useState(0);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [showComments, setShowComments] = useState(false);
   const [showGiftStore, setShowGiftStore] = useState(false);
@@ -97,6 +287,7 @@ export default function SocialsScreen() {
       hashtags: newHashtags.split(' ').map((h) => (h.startsWith('#') ? h : `#${h}`)),
       duration: '0:45',
       sound: `Original Audio · ${state.user.displayName}`,
+      videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
       bg: '#1b382d',
       views: '1',
       likes: 1,
@@ -148,150 +339,37 @@ export default function SocialsScreen() {
 
       {/* Main Full-Screen Vertical Feed List */}
       <FlatList
-        data={videos}
+        data={activeTab === 'Following' ? (videos.filter((v) => state.follows?.includes(v.creator.handle)).length ? videos.filter((v) => state.follows?.includes(v.creator.handle)) : videos) : videos}
         keyExtractor={(item) => item.id}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         onMomentumScrollEnd={(e) => {
-          const index = Math.round(e.nativeEvent.contentOffset.y / (SCREEN_HEIGHT - 110));
+          const index = Math.round(e.nativeEvent.contentOffset.y / (SCREEN_HEIGHT - 105));
+          setActiveIndex(index);
           if (videos[index]) setSelectedVideo(videos[index]);
         }}
-        renderItem={({ item, index }) => {
-          const isLiked = item.liked;
-          const isFollowing = state.follows?.includes(item.creator.handle);
-          const cardBg = VIDEO_THEMES[index % VIDEO_THEMES.length];
-
-          return (
-            <View style={[styles.videoCard, { backgroundColor: cardBg }]}>
-              {/* Simulated Ambient Video Overlay */}
-              <View style={styles.videoPlayerGraphic}>
-                <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name="video" size={30} color="#FFFFFF" />
-                </View>
-                <Text style={styles.ambientCategoryBadge}>{item.category.toUpperCase()}</Text>
-                <Text style={styles.ambientDurationText}>{item.duration}</Text>
-              </View>
-
-              {/* Bottom Information Overlay (Creator & Caption) */}
-              <View style={styles.bottomInfo}>
-                <View style={styles.creatorRow}>
-                  <View style={styles.creatorAvatar}>
-                    <Text style={styles.creatorAvatarText}>{item.creator.avatar}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                      <Text style={styles.creatorName}>{item.creator.name}</Text>
-                      {item.creator.verified ? (
-                        <View style={[styles.verifiedDot, { backgroundColor: colors.forest }]}>
-                          <Icon name="check" size={9} color="#FFFFFF" strokeWidth={3} />
-                        </View>
-                      ) : null}
-                    </View>
-                    <Text style={styles.creatorHandle}>{item.creator.handle} · {item.creator.church}</Text>
-                  </View>
-                  <Pressable
-                    onPress={() => dispatch({ type: 'follow', id: item.creator.handle })}
-                    style={[styles.followBtn, isFollowing && styles.followBtnActive]}
-                  >
-                    <Text style={[styles.followBtnText, isFollowing && { color: colors.fg }]}>
-                      {isFollowing ? 'Following' : 'Follow'}
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <Text style={styles.captionText}>{item.caption}</Text>
-
-                {item.scripture ? (
-                  <Pressable
-                    onPress={() => nav.push('Bible', { bookId: 'JHN', chapter: 3 })}
-                    style={styles.scripturePill}
-                  >
-                    <Icon name="book" size={12} color={colors.goldLight} />
-                    <Text style={[styles.scriptureText, { marginLeft: 4 }]}>{item.scripture} · Read Context</Text>
-                  </Pressable>
-                ) : null}
-
-                <View style={styles.hashtagRow}>
-                  {item.hashtags?.map((tag, idx) => (
-                    <Text key={idx} style={styles.hashtagText}>{tag}</Text>
-                  ))}
-                </View>
-
-                {/* Audio Track Row */}
-                <View style={styles.soundRow}>
-                  <Icon name="audio" size={12} color="rgba(255, 255, 255, 0.7)" />
-                  <Text style={[styles.soundText, { marginLeft: 6 }]} numberOfLines={1}>{item.sound}</Text>
-                </View>
-              </View>
-
-              {/* Right Side Vertical Interaction Rail with Vector Icons */}
-              <View style={styles.rightRail}>
-                {/* Like Button */}
-                <Pressable
-                  onPress={() => dispatch({ type: 'likeVideo', id: item.id })}
-                  style={styles.railAction}
-                >
-                  <View style={[styles.railIconCircle, isLiked && { backgroundColor: colors.rose, borderColor: colors.rose }]}>
-                    <Icon name="heart" size={22} color="#FFFFFF" fill={isLiked ? '#FFFFFF' : 'none'} />
-                  </View>
-                  <Text style={styles.railCount}>{item.likes}</Text>
-                </Pressable>
-
-                {/* Comment Button */}
-                <Pressable
-                  onPress={() => {
-                    setSelectedVideo(item);
-                    setShowComments(true);
-                  }}
-                  style={styles.railAction}
-                >
-                  <View style={styles.railIconCircle}>
-                    <Icon name="chat" size={20} color="#FFFFFF" />
-                  </View>
-                  <Text style={styles.railCount}>{item.comments?.length || 0}</Text>
-                </Pressable>
-
-                {/* Virtual Gifting Button */}
-                <Pressable
-                  onPress={() => {
-                    setSelectedVideo(item);
-                    setShowGiftStore(true);
-                  }}
-                  style={styles.railAction}
-                >
-                  <View style={[styles.railIconCircle, { borderColor: colors.goldLight, backgroundColor: 'rgba(245, 158, 11, 0.3)' }]}>
-                    <Icon name="gift" size={20} color={colors.goldLight} />
-                  </View>
-                  <Text style={[styles.railCount, { color: colors.goldLight, fontWeight: '700' }]}>
-                    {item.gifts || 0}
-                  </Text>
-                </Pressable>
-
-                {/* Share Button */}
-                <Pressable
-                  onPress={() => Alert.alert('Share', `Shared "${item.caption.slice(0, 30)}..." to Christian Social network!`)}
-                  style={styles.railAction}
-                >
-                  <View style={styles.railIconCircle}>
-                    <Icon name="share" size={19} color="#FFFFFF" />
-                  </View>
-                  <Text style={styles.railCount}>{item.shares}</Text>
-                </Pressable>
-
-                {/* Repost Button */}
-                <Pressable
-                  onPress={() => Alert.alert('Repost', 'Reposted to your Christian Socials profile!')}
-                  style={styles.railAction}
-                >
-                  <View style={styles.railIconCircle}>
-                    <Icon name="repost" size={19} color="#FFFFFF" />
-                  </View>
-                  <Text style={styles.railCount}>{item.reposts}</Text>
-                </Pressable>
-              </View>
-            </View>
-          );
-        }}
+        renderItem={({ item, index }) => (
+          <VideoReelItem
+            item={item}
+            index={index}
+            isActive={index === activeIndex}
+            isLiked={item.liked}
+            isFollowing={state.follows?.includes(item.creator.handle)}
+            onLike={() => dispatch({ type: 'likeVideo', id: item.id })}
+            onComment={() => {
+              setSelectedVideo(item);
+              setShowComments(true);
+            }}
+            onGift={() => {
+              setSelectedVideo(item);
+              setShowGiftStore(true);
+            }}
+            onShare={() => Alert.alert('Share', `Shared "${item.caption.slice(0, 30)}..." to Christian Social network!`)}
+            onRepost={() => Alert.alert('Repost', 'Reposted to your Christian Socials profile!')}
+            onFollow={() => dispatch({ type: 'follow', id: item.creator.handle })}
+            onOpenBible={() => nav.push('Bible', { bookId: 'JHN', chapter: 3 })}
+          />
+        )}
       />
 
       {/* Virtual Gifts Store Modal */}
@@ -555,6 +633,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  topCategoryOverlay: {
+    position: 'absolute',
+    top: 55,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    zIndex: 10,
+  },
+  videoScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.28)',
+  },
+  centerPlayBadge: {
+    position: 'absolute',
+    top: '45%',
+    left: '50%',
+    marginLeft: -32,
+    marginTop: -32,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 15,
   },
   ambientCategoryBadge: {
     fontFamily: fonts.sansMedium,
