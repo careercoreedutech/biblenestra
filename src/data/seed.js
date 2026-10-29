@@ -19,10 +19,10 @@ export const USER = {
 };
 
 export const GIFTS = [
-  { id: 'g_rose', name: 'Rose', price: 5, icon: '🌹', desc: 'Affordable everyday appreciation' },
-  { id: 'g_bouquet', name: 'Flower Bouquet', price: 25, icon: '💐', desc: 'A more expressive thank-you gift' },
-  { id: 'g_star', name: 'Golden Star', price: 100, icon: '⭐', desc: 'Premium appreciation gift' },
-  { id: 'g_crown', name: 'Royal Crown', price: 500, icon: '👑', desc: 'High-value creator-support gift' },
+  { id: 'g_rose', name: 'Rose', price: 5, icon: 'heart', desc: 'Affordable everyday appreciation' },
+  { id: 'g_bouquet', name: 'Flower Bouquet', price: 25, icon: 'sparkles', desc: 'A more expressive thank-you gift' },
+  { id: 'g_star', name: 'Golden Star', price: 100, icon: 'star', desc: 'Premium appreciation gift' },
+  { id: 'g_crown', name: 'Royal Crown', price: 500, icon: 'coin', desc: 'High-value creator-support gift' },
 ];
 
 export const VIDEOS = [
@@ -92,7 +92,7 @@ export const VIDEOS = [
   {
     id: 'v4',
     creator: { name: 'David Okafor', handle: '@davidokafor', verified: false, avatar: 'DO', church: 'Lagos Fellowship' },
-    caption: 'When you try to schedule the Holy Spirit but John 3:8 reminds you the wind blows where it wishes 😅',
+    caption: 'When you try to schedule the Holy Spirit but John 3:8 reminds you the wind blows where it wishes.',
     scripture: 'John 3:8',
     category: 'Christian Comedy',
     hashtags: ['#ChristianHumor', '#Relatable', '#HolySpirit', '#FaithLife'],

@@ -104,8 +104,8 @@ export default function HomeScreen() {
         <View style={styles.grid}>
           <Card
             compact
-            color={colors.gold}
-            icon="📖"
+            color={colors.forest}
+            icon="book"
             question="Recent Reading"
             title={CHAPTER_TITLES[`${lp.bookId}:${lp.chapter}`] || refLabel(lp.bookId, lp.chapter)}
             subtitle={refLabel(lp.bookId, lp.chapter)}
@@ -113,8 +113,8 @@ export default function HomeScreen() {
           />
           <Card
             compact
-            color={colors.lavender}
-            icon="✦"
+            color={colors.indigo}
+            icon="sparkles"
             question={`Day ${plan.done + 1} of ${plan.days}`}
             title={plan.name}
             subtitle={refLabel(plan.today.bookId, plan.today.chapter)}

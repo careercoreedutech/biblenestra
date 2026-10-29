@@ -4,6 +4,7 @@ import Svg, { Path } from 'react-native-svg';
 import { Screen, Section, Row, Pill, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider } from '../components/ui';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
+import { Icon } from '../components/Icons';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
@@ -90,9 +91,10 @@ export default function BibleScreen({ params = {} }) {
       subtitle={`${tr} · ${title || 'Scripture'}`}
       menu={() => setPicker('book')}
       right={
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Pressable onPress={() => setAudio(!audio)} hitSlop={10} style={styles.trBadge}>
-            <Text style={[styles.trBadgeText, audio && { color: colors.gold }]}>{audio ? '◼ Pause' : '▷ Audio'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Pressable onPress={() => setAudio(!audio)} hitSlop={10} style={[styles.trBadge, audio && styles.trBadgeActive]}>
+            <Icon name="volume" size={14} color={audio ? '#FFFFFF' : colors.forest} />
+            <Text style={[styles.trBadgeText, audio && { color: '#FFFFFF' }]}>{audio ? 'Pause' : 'Audio'}</Text>
           </Pressable>
           <Pressable onPress={() => setPicker('translation')} hitSlop={12} style={styles.trBadge}>
             <Text style={styles.trBadgeText}>{tr}</Text>
@@ -100,31 +102,39 @@ export default function BibleScreen({ params = {} }) {
         </View>
       }
     >
-      {/* Reader Quick-Toolbar */}
+      {/* Reader Quick-Toolbar with Vector Icons */}
       <View style={styles.toolbar}>
-        <Pressable onPress={() => setPicker('book')} style={styles.toolBtn}>
-          <Text style={styles.toolText}>Books ▾</Text>
-        </Pressable>
-        <Pressable onPress={() => nav.push('Search')} style={styles.toolBtn}>
-          <Text style={styles.toolText}>Search</Text>
-        </Pressable>
-        <Pressable onPress={() => nav.push('Concordance')} style={styles.toolBtn}>
-          <Text style={[styles.toolText, { color: colors.gold }]}>Lexicon ✦</Text>
-        </Pressable>
-        <Pressable onPress={() => setCompare(!compare)} style={[styles.toolBtn, compare && styles.toolBtnActive]}>
-          <Text style={[styles.toolText, compare && { color: colors.gold }]}>Compare</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter } })}
-          style={styles.toolBtn}
-        >
-          <Text style={[styles.toolText, bookmarked && { color: colors.gold }]}>
-            {bookmarked ? 'Saved' : 'Save'}
-          </Text>
-        </Pressable>
-        <Pressable onPress={() => nav.push('Library')} style={styles.toolBtn}>
-          <Text style={styles.toolText}>Library</Text>
-        </Pressable>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}>
+          <Pressable onPress={() => setPicker('book')} style={styles.toolBtn}>
+            <Icon name="book" size={13} color={colors.forest} />
+            <Text style={[styles.toolText, { color: colors.forest }]}>Books</Text>
+          </Pressable>
+          <Pressable onPress={() => nav.push('Search')} style={styles.toolBtn}>
+            <Icon name="search" size={13} color={colors.indigo} />
+            <Text style={styles.toolText}>Search</Text>
+          </Pressable>
+          <Pressable onPress={() => nav.push('Concordance')} style={[styles.toolBtn, { borderColor: colors.goldLight + '60' }]}>
+            <Icon name="sparkles" size={13} color={colors.gold} />
+            <Text style={[styles.toolText, { color: colors.gold }]}>Lexicon</Text>
+          </Pressable>
+          <Pressable onPress={() => setCompare(!compare)} style={[styles.toolBtn, compare && styles.toolBtnActive]}>
+            <Icon name="bible" size={13} color={compare ? '#FFFFFF' : colors.teal} />
+            <Text style={[styles.toolText, compare && { color: '#FFFFFF' }]}>Compare</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter } })}
+            style={[styles.toolBtn, bookmarked && { borderColor: colors.rose + '60', backgroundColor: colors.roseFaint }]}
+          >
+            <Icon name="bookmark" size={13} color={bookmarked ? colors.rose : colors.muted} />
+            <Text style={[styles.toolText, bookmarked && { color: colors.rose }]}>
+              {bookmarked ? 'Saved' : 'Save'}
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => nav.push('Library')} style={styles.toolBtn}>
+            <Icon name="briefcase" size={13} color={colors.lavender} />
+            <Text style={styles.toolText}>Library</Text>
+          </Pressable>
+        </ScrollView>
       </View>
 
       {/* Reader ScrollView */}
@@ -137,13 +147,14 @@ export default function BibleScreen({ params = {} }) {
           <Notice tint={colors.teal} text={`Streaming audio narration for ${refLabel(pos.bookId, pos.chapter)} (${tr}).`} />
         ) : null}
 
-        {/* Chapter Header (Vintage Editorial Aesthetic) */}
+        {/* Chapter Header (Vibrant Modern Editorial) */}
         <View style={styles.chapterHead}>
-          <Text style={styles.decorativeArch}>✦ · ─────────── · ✦</Text>
-          <Text style={styles.eyebrow}>THE BOOK OF {bookName(pos.bookId).toUpperCase()}</Text>
+          <View style={styles.eyebrowPill}>
+            <Text style={styles.eyebrowText}>{bookName(pos.bookId).toUpperCase()}</Text>
+          </View>
           <Text style={styles.chapterLargeNumber}>Chapter {pos.chapter}</Text>
           {title ? <Text style={styles.chTitle}>{title}</Text> : null}
-          <View style={styles.goldDivider} />
+          <View style={styles.accentRule} />
         </View>
 
         {!verses ? (
@@ -162,36 +173,6 @@ export default function BibleScreen({ params = {} }) {
             const notes = noteFor(n);
             const isSel = selected === n;
 
-            if (n === 1) {
-              return (
-                <Pressable
-                  key={n}
-                  onPress={() => {
-                    setSelected(isSel ? null : n);
-                    setPanel(null);
-                  }}
-                  style={[
-                    styles.verseRow,
-                    isSel && styles.verseSel,
-                    h && { backgroundColor: h.color + '22' },
-                    { marginTop: 4, marginBottom: 8 },
-                  ]}
-                >
-                  <View style={styles.dropCapRow}>
-                    <View style={styles.dropCapBox}>
-                      <Text style={styles.dropCapText}>1</Text>
-                    </View>
-                    <Text style={[styles.verseText, { fontSize: state.fontSize, lineHeight: state.fontSize * 1.68, flex: 1 }]}>
-                      <Text style={h ? { color: colors.fg, borderBottomWidth: 1, borderBottomColor: h.color } : null}>
-                        {v}
-                      </Text>
-                      {notes.length ? <Text style={{ color: colors.amber }}> ✎</Text> : null}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            }
-
             return (
               <Pressable
                 key={n}
@@ -206,11 +187,11 @@ export default function BibleScreen({ params = {} }) {
                 ]}
               >
                 <Text style={[styles.verseText, { fontSize: state.fontSize, lineHeight: state.fontSize * 1.68 }]}>
-                  <Text style={[styles.vnum, isSel && { color: colors.gold }]}>{n}  </Text>
+                  <Text style={[styles.vnum, n === 1 ? styles.vnumOne : null, isSel && { color: colors.gold }]}>{n}  </Text>
                   <Text style={h ? { color: colors.fg, borderBottomWidth: 1, borderBottomColor: h.color } : null}>
                     {v}
                   </Text>
-                  {notes.length ? <Text style={{ color: colors.amber }}> ✎</Text> : null}
+                  {notes.length ? <Text style={{ color: colors.amber }}> •</Text> : null}
                 </Text>
               </Pressable>
             );
@@ -326,37 +307,59 @@ export default function BibleScreen({ params = {} }) {
 
             <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 50 }}>
               <Text style={styles.modalSub}>AVAILABLE IN YOUR TRANSLATION ({tr})</Text>
-              {availableChapters().map((c) => (
-                <Row
-                  key={c.bookId + c.chapter}
-                  title={c.title}
-                  subtitle={refLabel(c.bookId, c.chapter)}
-                  onPress={() => {
-                    setPos({ bookId: c.bookId, chapter: c.chapter });
-                    setSelected(null);
-                    setPicker(null);
-                  }}
-                />
-              ))}
+              <View style={{ gap: 10, marginTop: 8 }}>
+                {availableChapters().map((c) => {
+                  const chTitle = CHAPTER_TITLES[`${c.bookId}:${c.chapter}`] || `${bookName(c.bookId)} Chapter ${c.chapter}`;
+                  const isCurrent = c.bookId === pos.bookId && c.chapter === pos.chapter;
+                  return (
+                    <Pressable
+                      key={c.bookId + c.chapter}
+                      style={[styles.availChapterCard, isCurrent && styles.availChapterActive]}
+                      onPress={() => {
+                        setPos({ bookId: c.bookId, chapter: c.chapter });
+                        setSelected(null);
+                        setPicker(null);
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={[styles.availChapterIcon, { backgroundColor: isCurrent ? colors.forest : colors.cardSage }]}>
+                            <Icon name="book" size={14} color={colors.forest} />
+                          </View>
+                          <Text style={[styles.availChapterRef, isCurrent && { color: colors.forest, fontWeight: '700' }]}>
+                            {refLabel(c.bookId, c.chapter)}
+                          </Text>
+                        </View>
+                        {isCurrent ? <Badge label="Reading" tint={colors.forest} /> : null}
+                      </View>
+                      <Text style={styles.availChapterTitle} numberOfLines={1}>{chTitle}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
               <Text style={[styles.modalSub, { marginTop: 24 }]}>ALL BIBLICAL CANON</Text>
               {['OT', 'NT'].map((t) => (
-                <View key={t} style={{ marginTop: 10 }}>
-                  <Text style={styles.testamentLabel}>{t === 'OT' ? 'Old Testament' : 'New Testament'}</Text>
+                <View key={t} style={{ marginTop: 14 }}>
+                  <Text style={styles.testamentLabel}>{t === 'OT' ? 'Old Testament (39 Books)' : 'New Testament (27 Books)'}</Text>
                   <View style={styles.bookGrid}>
-                    {BOOKS.filter((b) => b.testament === t).map((b) => (
-                      <Pill
-                        key={b.id}
-                        small
-                        label={b.name}
-                        active={b.id === pos.bookId}
-                        onPress={() => {
-                          setPos({ bookId: b.id, chapter: 1 });
-                          setSelected(null);
-                          setPicker(null);
-                        }}
-                      />
-                    ))}
+                    {BOOKS.filter((b) => b.testament === t).map((b) => {
+                      const isSel = b.id === pos.bookId;
+                      return (
+                        <Pressable
+                          key={b.id}
+                          style={[styles.bookGridItem, isSel && styles.bookGridItemActive]}
+                          onPress={() => {
+                            setPos({ bookId: b.id, chapter: 1 });
+                            setSelected(null);
+                            setPicker(null);
+                          }}
+                        >
+                          <Text style={[styles.bookGridName, isSel && styles.bookGridNameActive]}>{b.name}</Text>
+                          <Text style={[styles.bookGridChCount, isSel && { color: '#D1FAE5' }]}>{b.chapters} ch</Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
                 </View>
               ))}
@@ -460,14 +463,19 @@ export { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen } from './Bibl
 
 const styles = StyleSheet.create({
   trBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 14,
-    backgroundColor: colors.raised,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+  },
+  trBadgeActive: {
+    backgroundColor: colors.forest,
+    borderColor: colors.forest,
   },
   trBadgeText: {
     fontFamily: fonts.sansMedium,
@@ -476,96 +484,78 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   toolbar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 9,
-    paddingHorizontal: 8,
+    paddingVertical: 8,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   toolBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
-    backgroundColor: colors.raised,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: colors.screen,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   toolBtnActive: {
-    backgroundColor: colors.surfaceRaised,
-    borderWidth: 1,
-    borderColor: colors.gold,
+    backgroundColor: colors.teal,
+    borderColor: colors.teal,
   },
   toolText: {
     fontFamily: fonts.sansMedium,
-    fontSize: 11.5,
-    color: colors.muted,
+    fontSize: 12,
+    color: colors.fg,
+    fontWeight: '600',
   },
   chapterHead: {
     alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 8,
+    marginBottom: 22,
+    marginTop: 6,
   },
-  decorativeArch: {
-    fontFamily: fonts.sans,
-    fontSize: 11,
-    color: colors.gold,
-    letterSpacing: 2,
-    marginBottom: 8,
-    opacity: 0.85,
+  eyebrowPill: {
+    backgroundColor: colors.cardGold,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.gold + '40',
+    marginBottom: 6,
   },
-  eyebrow: {
+  eyebrowText: {
     fontFamily: fonts.sansMedium,
-    fontSize: 10,
-    letterSpacing: 2,
+    fontSize: 10.5,
+    letterSpacing: 1.5,
     color: colors.gold,
     fontWeight: '700',
   },
   chapterLargeNumber: {
     fontFamily: fonts.serifBold,
-    fontSize: 28,
+    fontSize: 30,
     color: colors.fg,
-    marginTop: 4,
+    marginTop: 2,
   },
   chTitle: {
     fontFamily: fonts.serif,
-    fontSize: 14.5,
+    fontSize: 15,
     color: colors.muted,
     fontStyle: 'italic',
     marginTop: 4,
     textAlign: 'center',
   },
-  goldDivider: {
-    width: 36,
-    height: 1.5,
-    backgroundColor: colors.gold,
+  accentRule: {
+    width: 48,
+    height: 3,
+    backgroundColor: colors.forest,
     marginTop: 14,
-    borderRadius: 1,
-    opacity: 0.6,
+    borderRadius: 1.5,
   },
-  dropCapRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  dropCapBox: {
-    width: 40,
-    height: 46,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.gold,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  dropCapText: {
-    fontFamily: fonts.serifBold,
-    fontSize: 26,
+  vnumOne: {
     color: colors.forest,
+    fontWeight: '700',
+    fontSize: 15,
   },
   verseRow: {
     paddingVertical: 8,
@@ -758,6 +748,72 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  availChapterCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 14,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  availChapterActive: {
+    borderColor: colors.forest,
+    backgroundColor: colors.cardSage,
+  },
+  availChapterIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  availChapterRef: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.fg,
+  },
+  availChapterTitle: {
+    fontFamily: fonts.sans,
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 4,
+    marginLeft: 34,
+  },
+  bookGridItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    minWidth: 70,
+  },
+  bookGridItemActive: {
+    backgroundColor: colors.forest,
+    borderColor: colors.forest,
+  },
+  bookGridName: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: colors.fg,
+    fontWeight: '600',
+  },
+  bookGridNameActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  bookGridChCount: {
+    fontFamily: fonts.sans,
+    fontSize: 9.5,
+    color: colors.muted,
+    marginTop: 1,
   },
   compareHead: {
     fontFamily: fonts.sansMedium,

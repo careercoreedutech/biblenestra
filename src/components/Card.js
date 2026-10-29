@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts } from '../theme';
+import { Icon } from './Icons';
 
 export default function Card({ title, subtitle, question, color = colors.gold, onPress, compact, icon, style, right }) {
   return (
@@ -17,9 +18,9 @@ export default function Card({ title, subtitle, question, color = colors.gold, o
         {(question || icon) ? (
           <View style={styles.headerRow}>
             {icon ? (
-              <View style={styles.iconBox}>
+              <View style={[styles.iconBox, { backgroundColor: color + '15' }]}>
                 {typeof icon === 'string' ? (
-                  <Text style={[styles.iconText, { color }]}>{icon}</Text>
+                  <Icon name={icon} color={color} size={18} />
                 ) : (
                   icon
                 )}

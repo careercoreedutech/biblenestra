@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
 import { Screen, Section, Row, Pills, Pill, Button, Tag, Badge, Notice, Input, Empty } from '../components/ui';
+import { Icon } from '../components/Icons';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
@@ -36,14 +37,14 @@ export default function GodModeScreen() {
             title={'Pastoral\nGuidance'}
             subtitle="Comfort, anxiety, and prayerful direction."
             color={colors.gold}
-            icon="🕊"
+            icon="prayer"
             onPress={() => nav.push('Companion')}
           />
           <Card
             title={'Theological\nInquiry'}
             subtitle="What does Scripture teach about..."
             color={colors.lavender}
-            icon="✦"
+            icon="sparkles"
             onPress={() => nav.push('BibleChat', { seed: 'Which passages discuss ' })}
           />
         </View>
@@ -52,14 +53,14 @@ export default function GodModeScreen() {
             title={'Guided\nExegesis'}
             subtitle="Chapter study with contextual AI."
             color={colors.teal}
-            icon="📖"
+            icon="book"
             onPress={() => nav.push('Reading', lp)}
           />
           <Card
             title={'Difficult\nPassages'}
             subtitle="Tensions, history, and apologetics."
             color={colors.amber}
-            icon="⚖"
+            icon="quiz"
             onPress={() => nav.push('BibleChat', { seed: 'Why ' })}
           />
         </View>
@@ -146,25 +147,25 @@ export function ReadingScreen({ params }) {
         {/* 4 Clean Ergonomic Action Tiles */}
         <View style={styles.sheetTiles}>
           <Pressable style={styles.sheetTile} onPress={() => ask('Summarize this chapter simply and clearly')}>
-            <Text style={[styles.tileIcon, { color: colors.teal }]}>✦</Text>
+            <View style={{ marginBottom: 6 }}><Icon name="sparkles" size={18} color={colors.royalIndigo} /></View>
             <Text style={styles.tileTitle}>Summarize</Text>
             <Text style={styles.tileSub}>Key takeaways</Text>
           </Pressable>
 
           <Pressable style={styles.sheetTile} onPress={() => ask("Explain this passage in today's plain language")}>
-            <Text style={[styles.tileIcon, { color: colors.gold }]}>💬</Text>
+            <View style={{ marginBottom: 6 }}><Icon name="chat" size={18} color={colors.amberGold} /></View>
             <Text style={styles.tileTitle}>Plain Language</Text>
             <Text style={styles.tileSub}>Modern words</Text>
           </Pressable>
 
           <Pressable style={styles.sheetTile} onPress={() => ask('What is the deeper theological meaning here?')}>
-            <Text style={[styles.tileIcon, { color: colors.lavender }]}>⚖</Text>
+            <View style={{ marginBottom: 6 }}><Icon name="book" size={18} color={colors.emerald} /></View>
             <Text style={styles.tileTitle}>Deep Meaning</Text>
             <Text style={styles.tileSub}>Historical context</Text>
           </Pressable>
 
           <Pressable style={styles.sheetTile} onPress={() => ask('How do I apply this to my life today?')}>
-            <Text style={[styles.tileIcon, { color: colors.amber }]}>🌱</Text>
+            <View style={{ marginBottom: 6 }}><Icon name="heart" size={18} color={colors.roseCoral} /></View>
             <Text style={styles.tileTitle}>Apply to Life</Text>
             <Text style={styles.tileSub}>Daily practice</Text>
           </Pressable>
@@ -358,7 +359,7 @@ export function CompanionScreen() {
         <View>
           <View style={{ alignItems: 'center', marginTop: 14 }}>
             <View style={styles.chatSparkBadge}>
-              <Text style={{ fontSize: 20, color: colors.teal }}>🕊</Text>
+              <Icon name="prayer" size={22} color={colors.royalIndigo} />
             </View>
             <Text style={styles.h1}>What is on your heart?</Text>
             <Text style={[styles.sub, { maxWidth: 300 }]}>

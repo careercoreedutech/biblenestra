@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
+import { Icon } from '../components/Icons';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
@@ -19,6 +20,15 @@ import { GIFTS } from '../data/seed';
 import { Button, Tag, Badge } from '../components/ui';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+const VIDEO_THEMES = ['#0F172A', '#1E1B4B', '#064E3B', '#3B0764', '#1E293B'];
+
+const GIFT_ICONS = {
+  g_rose: { name: 'sun', color: colors.rose },
+  g_bouquet: { name: 'sparkles', color: colors.forest },
+  g_star: { name: 'star', color: colors.gold },
+  g_crown: { name: 'cross', color: colors.lavender },
+};
 
 export default function SocialsScreen() {
   const { state, dispatch } = useStore();
@@ -131,7 +141,8 @@ export default function SocialsScreen() {
       {/* Gift Celebration Toast */}
       {giftSuccess ? (
         <View style={styles.giftToast}>
-          <Text style={styles.giftToastText}>🎁 {giftSuccess}</Text>
+          <Icon name="gift" size={16} color={colors.gold} />
+          <Text style={styles.giftToastText}>{giftSuccess}</Text>
         </View>
       ) : null}
 
@@ -145,18 +156,18 @@ export default function SocialsScreen() {
           const index = Math.round(e.nativeEvent.contentOffset.y / (SCREEN_HEIGHT - 110));
           if (videos[index]) setSelectedVideo(videos[index]);
         }}
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const isLiked = item.liked;
           const isFollowing = state.follows?.includes(item.creator.handle);
+          const cardBg = VIDEO_THEMES[index % VIDEO_THEMES.length];
 
           return (
-            <View style={[styles.videoCard, { backgroundColor: item.bg || '#14201b' }]}>
+            <View style={[styles.videoCard, { backgroundColor: cardBg }]}>
               {/* Simulated Ambient Video Overlay */}
               <View style={styles.videoPlayerGraphic}>
-                <Svg width={54} height={54} viewBox="0 0 24 24" fill="none">
-                  <Circle cx={12} cy={12} r={10} stroke="rgba(244, 239, 227, 0.25)" strokeWidth={1.5} />
-                  <Path d="M10 8.5l6 3.5-6 3.5V8.5z" fill={colors.gold} />
-                </Svg>
+                <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="video" size={30} color="#FFFFFF" />
+                </View>
                 <Text style={styles.ambientCategoryBadge}>{item.category.toUpperCase()}</Text>
                 <Text style={styles.ambientDurationText}>{item.duration}</Text>
               </View>
@@ -171,8 +182,8 @@ export default function SocialsScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                       <Text style={styles.creatorName}>{item.creator.name}</Text>
                       {item.creator.verified ? (
-                        <View style={styles.verifiedDot}>
-                          <Text style={{ fontSize: 9, color: colors.primaryFg }}>✓</Text>
+                        <View style={[styles.verifiedDot, { backgroundColor: colors.forest }]}>
+                          <Icon name="check" size={9} color="#FFFFFF" strokeWidth={3} />
                         </View>
                       ) : null}
                     </View>
@@ -195,10 +206,8 @@ export default function SocialsScreen() {
                     onPress={() => nav.push('Bible', { bookId: 'JHN', chapter: 3 })}
                     style={styles.scripturePill}
                   >
-                    <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" style={{ marginRight: 4 }}>
-                      <Path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5z" stroke={colors.gold} strokeWidth={2} />
-                    </Svg>
-                    <Text style={styles.scriptureText}>{item.scripture} · Read Context</Text>
+                    <Icon name="book" size={12} color={colors.goldLight} />
+                    <Text style={[styles.scriptureText, { marginLeft: 4 }]}>{item.scripture} · Read Context</Text>
                   </Pressable>
                 ) : null}
 
@@ -210,30 +219,20 @@ export default function SocialsScreen() {
 
                 {/* Audio Track Row */}
                 <View style={styles.soundRow}>
-                  <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" style={{ marginRight: 6 }}>
-                    <Path d="M9 18V5l12-2v13M9 9l12-2" stroke={colors.sage} strokeWidth={1.8} />
-                    <Circle cx={6} cy={18} r={3} stroke={colors.sage} strokeWidth={1.8} />
-                    <Circle cx={18} cy={16} r={3} stroke={colors.sage} strokeWidth={1.8} />
-                  </Svg>
-                  <Text style={styles.soundText} numberOfLines={1}>{item.sound}</Text>
+                  <Icon name="audio" size={12} color="rgba(255, 255, 255, 0.7)" />
+                  <Text style={[styles.soundText, { marginLeft: 6 }]} numberOfLines={1}>{item.sound}</Text>
                 </View>
               </View>
 
-              {/* Right Side Vertical Interaction Rail */}
+              {/* Right Side Vertical Interaction Rail with Vector Icons */}
               <View style={styles.rightRail}>
                 {/* Like Button */}
                 <Pressable
                   onPress={() => dispatch({ type: 'likeVideo', id: item.id })}
                   style={styles.railAction}
                 >
-                  <View style={[styles.railIconCircle, isLiked && { backgroundColor: 'rgba(217, 83, 79, 0.2)' }]}>
-                    <Svg width={22} height={22} viewBox="0 0 24 24" fill={isLiked ? colors.negative : 'none'}>
-                      <Path
-                        d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                        stroke={isLiked ? colors.negative : colors.fg}
-                        strokeWidth={1.8}
-                      />
-                    </Svg>
+                  <View style={[styles.railIconCircle, isLiked && { backgroundColor: colors.rose, borderColor: colors.rose }]}>
+                    <Icon name="heart" size={22} color="#FFFFFF" fill={isLiked ? '#FFFFFF' : 'none'} />
                   </View>
                   <Text style={styles.railCount}>{item.likes}</Text>
                 </Pressable>
@@ -247,18 +246,12 @@ export default function SocialsScreen() {
                   style={styles.railAction}
                 >
                   <View style={styles.railIconCircle}>
-                    <Svg width={21} height={21} viewBox="0 0 24 24" fill="none">
-                      <Path
-                        d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
-                        stroke={colors.fg}
-                        strokeWidth={1.8}
-                      />
-                    </Svg>
+                    <Icon name="chat" size={20} color="#FFFFFF" />
                   </View>
                   <Text style={styles.railCount}>{item.comments?.length || 0}</Text>
                 </Pressable>
 
-                {/* Virtual Gifting Button (Coins/Gifts) */}
+                {/* Virtual Gifting Button */}
                 <Pressable
                   onPress={() => {
                     setSelectedVideo(item);
@@ -266,10 +259,10 @@ export default function SocialsScreen() {
                   }}
                   style={styles.railAction}
                 >
-                  <View style={[styles.railIconCircle, { borderColor: colors.gold, backgroundColor: colors.goldFaint }]}>
-                    <Text style={{ fontSize: 17 }}>🎁</Text>
+                  <View style={[styles.railIconCircle, { borderColor: colors.goldLight, backgroundColor: 'rgba(245, 158, 11, 0.3)' }]}>
+                    <Icon name="gift" size={20} color={colors.goldLight} />
                   </View>
-                  <Text style={[styles.railCount, { color: colors.gold }]}>
+                  <Text style={[styles.railCount, { color: colors.goldLight, fontWeight: '700' }]}>
                     {item.gifts || 0}
                   </Text>
                 </Pressable>
@@ -280,9 +273,7 @@ export default function SocialsScreen() {
                   style={styles.railAction}
                 >
                   <View style={styles.railIconCircle}>
-                    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                      <Path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13" stroke={colors.fg} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                    </Svg>
+                    <Icon name="share" size={19} color="#FFFFFF" />
                   </View>
                   <Text style={styles.railCount}>{item.shares}</Text>
                 </Pressable>
@@ -293,9 +284,7 @@ export default function SocialsScreen() {
                   style={styles.railAction}
                 >
                   <View style={styles.railIconCircle}>
-                    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                      <Path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3" stroke={colors.fg} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                    </Svg>
+                    <Icon name="repost" size={19} color="#FFFFFF" />
                   </View>
                   <Text style={styles.railCount}>{item.reposts}</Text>
                 </Pressable>
@@ -315,27 +304,33 @@ export default function SocialsScreen() {
                 <Text style={styles.sheetSubtitle}>Bless and support Christian creators</Text>
               </View>
               <View style={styles.coinBalanceBadge}>
-                <Text style={{ fontSize: 13, marginRight: 4 }}>🪙</Text>
+                <Icon name="coin" size={16} color={colors.gold} />
                 <Text style={styles.coinBalanceText}>{state.coins} Coins</Text>
               </View>
             </View>
 
-            {/* Gift Options Grid */}
+            {/* Gift Options Grid with Vector Icons */}
             <View style={styles.giftGrid}>
-              {GIFTS.map((g) => (
-                <Pressable
-                  key={g.id}
-                  onPress={() => handleSendGift(g)}
-                  style={styles.giftCard}
-                >
-                  <Text style={styles.giftIconLarge}>{g.icon}</Text>
-                  <Text style={styles.giftNameText}>{g.name}</Text>
-                  <Text style={styles.giftDescText}>{g.desc}</Text>
-                  <View style={styles.giftPricePill}>
-                    <Text style={styles.giftPriceText}>🪙 {g.price} coins</Text>
-                  </View>
-                </Pressable>
-              ))}
+              {GIFTS.map((g) => {
+                const iconMeta = GIFT_ICONS[g.id] || { name: 'sparkles', color: colors.gold };
+                return (
+                  <Pressable
+                    key={g.id}
+                    onPress={() => handleSendGift(g)}
+                    style={styles.giftCard}
+                  >
+                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: iconMeta.color + '18', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}>
+                      <Icon name={iconMeta.name} size={24} color={iconMeta.color} />
+                    </View>
+                    <Text style={styles.giftNameText}>{g.name}</Text>
+                    <Text style={styles.giftDescText}>{g.desc}</Text>
+                    <View style={styles.giftPricePill}>
+                      <Icon name="coin" size={12} color={colors.gold} />
+                      <Text style={styles.giftPriceText}>{g.price} coins</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
             </View>
 
             <View style={styles.refillRow}>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, Image } from 'react-native';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
+import { Icon } from '../components/Icons';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider } from '../components/ui';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
@@ -37,11 +38,11 @@ export default function DiscoverScreen() {
       menu={() => nav.push('Profile')}
       right={
         <Pressable onPress={() => nav.push('Search')} hitSlop={12} style={styles.searchIconBtn}>
-          <Text style={{ color: colors.forest, fontSize: 16, fontWeight: '700' }}>⌕</Text>
+          <Icon name="search" size={16} color={colors.forest} />
         </Pressable>
       }
     >
-      {/* 1. The Epic Story Banner / Daily Refresh Header (PDF Page 1 & 4) */}
+      {/* 1. The Epic Story Banner / Daily Refresh Header */}
       <View style={styles.heroBanner}>
         <View style={styles.heroBannerContent}>
           <View style={styles.heroBadge}>
@@ -66,7 +67,7 @@ export default function DiscoverScreen() {
         </View>
       </View>
 
-      {/* 2. Verse of the Day Card (PDF Page 4) */}
+      {/* 2. Verse of the Day Card */}
       <View style={styles.vodCard}>
         <View style={styles.vodTopRow}>
           <Text style={styles.vodLabel}>VERSE OF THE DAY</Text>
@@ -77,13 +78,16 @@ export default function DiscoverScreen() {
 
         <View style={styles.vodInteractionsRow}>
           <Pressable style={styles.vodMetricBtn} onPress={() => dispatch({ type: 'like', id: 'vod' })}>
-            <Text style={styles.vodMetricText}>♡ 208.4k</Text>
+            <Icon name="heart" size={14} color={colors.rose} />
+            <Text style={styles.vodMetricText}>208.4k</Text>
           </Pressable>
           <Pressable style={styles.vodMetricBtn} onPress={() => nav.push('Feed')}>
-            <Text style={styles.vodMetricText}>💬 169</Text>
+            <Icon name="chat" size={14} color={colors.indigo} />
+            <Text style={styles.vodMetricText}>169</Text>
           </Pressable>
           <Pressable style={styles.vodMetricBtn}>
-            <Text style={styles.vodMetricText}>↗ 56,271</Text>
+            <Icon name="share" size={14} color={colors.muted} />
+            <Text style={styles.vodMetricText}>56.2k</Text>
           </Pressable>
           <Pressable
             style={[styles.vodMetricBtn, { marginLeft: 'auto' }]}
@@ -94,54 +98,62 @@ export default function DiscoverScreen() {
         </View>
       </View>
 
-      {/* 3. "Be Inspired" Horizontal Pastel Cards (PDF Page 1) */}
+      {/* 3. "Be Inspired" Horizontal Pastel Cards with Vector Icons */}
       <Section title="Be Inspired">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
           <Pressable
-            style={[styles.beInspiredCard, { backgroundColor: colors.cardGold, borderColor: colors.gold + '40' }]}
+            style={[styles.beInspiredCard, { backgroundColor: colors.cardGold, borderColor: colors.gold + '50' }]}
             onPress={() => nav.push('Bible', { bookId: vod.bookId, chapter: vod.chapter })}
           >
-            <Text style={styles.beInspiredEmoji}>✨</Text>
+            <View style={[styles.beInspiredIconBox, { backgroundColor: colors.gold + '25' }]}>
+              <Icon name="sparkles" size={20} color={colors.gold} />
+            </View>
             <Text style={styles.beInspiredTitle}>Verse of the Day</Text>
             <Text style={styles.beInspiredSub}>Boost your day</Text>
             <View style={styles.beInspiredArrowBox}>
-              <Text style={[styles.beInspiredArrow, { color: colors.gold }]}>→</Text>
+              <Icon name="arrow-right" size={14} color={colors.gold} />
             </View>
           </Pressable>
 
           <Pressable
-            style={[styles.beInspiredCard, { backgroundColor: colors.cardSage, borderColor: colors.sage + '40' }]}
+            style={[styles.beInspiredCard, { backgroundColor: colors.cardSage, borderColor: colors.forest + '50' }]}
             onPress={() => nav.push('Learn', { tab: 'Devotionals' })}
           >
-            <Text style={styles.beInspiredEmoji}>🌱</Text>
+            <View style={[styles.beInspiredIconBox, { backgroundColor: colors.forest + '25' }]}>
+              <Icon name="book" size={20} color={colors.forest} />
+            </View>
             <Text style={styles.beInspiredTitle}>The Bible Told</Text>
             <Text style={styles.beInspiredSub}>Like an adventure</Text>
             <View style={styles.beInspiredArrowBox}>
-              <Text style={[styles.beInspiredArrow, { color: colors.sage }]}>→</Text>
+              <Icon name="arrow-right" size={14} color={colors.forest} />
             </View>
           </Pressable>
 
           <Pressable
-            style={[styles.beInspiredCard, { backgroundColor: colors.cardRose, borderColor: colors.rose + '40' }]}
+            style={[styles.beInspiredCard, { backgroundColor: colors.cardRose, borderColor: colors.rose + '50' }]}
             onPress={() => nav.push('NewPrayer')}
           >
-            <Text style={styles.beInspiredEmoji}>🕊</Text>
+            <View style={[styles.beInspiredIconBox, { backgroundColor: colors.rose + '25' }]}>
+              <Icon name="prayer" size={20} color={colors.rose} />
+            </View>
             <Text style={styles.beInspiredTitle}>Guided Prayer</Text>
             <Text style={styles.beInspiredSub}>Conversation with God</Text>
             <View style={styles.beInspiredArrowBox}>
-              <Text style={[styles.beInspiredArrow, { color: colors.rose }]}>→</Text>
+              <Icon name="arrow-right" size={14} color={colors.rose} />
             </View>
           </Pressable>
 
           <Pressable
-            style={[styles.beInspiredCard, { backgroundColor: colors.cardLavender, borderColor: colors.lavender + '40' }]}
+            style={[styles.beInspiredCard, { backgroundColor: colors.cardLavender, borderColor: colors.lavender + '50' }]}
             onPress={() => nav.push('SermonStudio')}
           >
-            <Text style={styles.beInspiredEmoji}>🎙</Text>
+            <View style={[styles.beInspiredIconBox, { backgroundColor: colors.lavender + '25' }]}>
+              <Icon name="mic" size={20} color={colors.lavender} />
+            </View>
             <Text style={styles.beInspiredTitle}>Sermon Studio</Text>
             <Text style={styles.beInspiredSub}>Notes & Reflections</Text>
             <View style={styles.beInspiredArrowBox}>
-              <Text style={[styles.beInspiredArrow, { color: colors.lavender }]}>→</Text>
+              <Icon name="arrow-right" size={14} color={colors.lavender} />
             </View>
           </Pressable>
         </ScrollView>
@@ -154,11 +166,11 @@ export default function DiscoverScreen() {
       >
         <View style={styles.activitiesCard}>
           {[
-            { id: 'a1', title: 'Path to Freedom', subtitle: 'Daily Guided Prayer · 3 min', icon: '🙏' },
-            { id: 'a2', title: "Today's Scripture and Word", subtitle: 'Discover wisdom in Matthew 9 · 4 min', icon: '📖' },
-            { id: 'a3', title: 'Scripture Quiz', subtitle: 'Sharpen your Bible knowledge', icon: '✦' },
-            { id: 'a4', title: 'One-Time Action', subtitle: 'Encourage someone in faith today', icon: '🤍' },
-            { id: 'a5', title: 'Daily Reflection', subtitle: "Reconnect with God's love within", icon: '🕊' },
+            { id: 'a1', title: 'Path to Freedom', subtitle: 'Daily Guided Prayer · 3 min', iconName: 'prayer', color: colors.forest },
+            { id: 'a2', title: "Today's Scripture and Word", subtitle: 'Discover wisdom in Matthew 9 · 4 min', iconName: 'book', color: colors.indigo },
+            { id: 'a3', title: 'Scripture Quiz', subtitle: 'Sharpen your Bible knowledge', iconName: 'quiz', color: colors.gold },
+            { id: 'a4', title: 'One-Time Action', subtitle: 'Encourage someone in faith today', iconName: 'heart', color: colors.rose },
+            { id: 'a5', title: 'Daily Reflection', subtitle: "Reconnect with God's love within", iconName: 'sun', color: colors.sky },
           ].map((item) => {
             const isDone = completedActivities.includes(item.id);
             return (
@@ -168,9 +180,7 @@ export default function DiscoverScreen() {
                 onPress={() => toggleActivity(item.id)}
               >
                 <View style={[styles.activityCheckCircle, isDone && styles.activityCheckCircleActive]}>
-                  <Text style={[styles.activityCheckMark, isDone && { color: '#FFFFFF' }]}>
-                    {isDone ? '✓' : ''}
-                  </Text>
+                  {isDone ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={2.5} /> : null}
                 </View>
 
                 <View style={{ flex: 1, minWidth: 0 }}>
@@ -180,13 +190,18 @@ export default function DiscoverScreen() {
                   <Text style={styles.activitySub}>{item.subtitle}</Text>
                 </View>
 
-                <Text style={styles.activityIcon}>{item.icon}</Text>
+                <View style={[styles.activityIconBox, { backgroundColor: item.color + '15' }]}>
+                  <Icon name={item.iconName} size={15} color={item.color} />
+                </View>
               </Pressable>
             );
           })}
 
           <View style={styles.activityFooterRow}>
-            <Text style={styles.countdownTimerText}>⏳ New activities in 06:41:35</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Icon name="calendar" size={13} color={colors.muted} />
+              <Text style={styles.countdownTimerText}>New activities reset daily at midnight</Text>
+            </View>
           </View>
         </View>
       </Section>
@@ -197,28 +212,28 @@ export default function DiscoverScreen() {
           title="What does the Bible say?"
           subtitle="Direct answers from Scripture on peace, purpose & life"
           right="→"
-          left={<Text style={{ fontSize: 18 }}>📖</Text>}
+          left={<View style={[styles.faithIconCircle, { backgroundColor: colors.indigo + '15' }]}><Icon name="book" size={18} color={colors.indigo} /></View>}
           onPress={() => nav.push('Bible', { bookId: 'JHN', chapter: 3 })}
         />
         <Row
           title="What did Jesus say?"
           subtitle="The words, parables, and commands of our Lord"
           right="→"
-          left={<Text style={{ fontSize: 18 }}>✝</Text>}
+          left={<View style={[styles.faithIconCircle, { backgroundColor: colors.forest + '15' }]}><Icon name="cross" size={18} color={colors.forest} /></View>}
           onPress={() => nav.push('Bible', { bookId: 'MAT', chapter: 5 })}
         />
         <Row
           title="Sancti & Patres"
           subtitle="Wisdom, theology, and reflections from the early church"
           right="→"
-          left={<Text style={{ fontSize: 18 }}>📜</Text>}
+          left={<View style={[styles.faithIconCircle, { backgroundColor: colors.gold + '15' }]}><Icon name="bookmark" size={18} color={colors.gold} /></View>}
           onPress={() => nav.push('Learn', { tab: 'Devotionals' })}
         />
         <Row
           title="Biblical Exegesis & Lexicon"
           subtitle="Strong's Greek and Hebrew root word study"
           right="→"
-          left={<Text style={{ fontSize: 18, color: colors.gold }}>✦</Text>}
+          left={<View style={[styles.faithIconCircle, { backgroundColor: colors.lavender + '15' }]}><Icon name="sparkles" size={18} color={colors.lavender} /></View>}
           onPress={() => nav.push('Concordance')}
         />
       </Section>
@@ -239,7 +254,7 @@ export default function DiscoverScreen() {
               style={styles.videoCard}
               onPress={() => nav.push('Socials', { initialVideoId: v.id })}
             >
-              <View style={[styles.videoThumb, { backgroundColor: '#1E2922' }]}>
+              <View style={[styles.videoThumb, { backgroundColor: '#0F172A' }]}>
                 <View style={styles.videoBadge}>
                   <Text style={styles.videoBadgeText}>▶ {v.views}</Text>
                 </View>
@@ -286,9 +301,12 @@ export default function DiscoverScreen() {
                 onPress={() => dispatch({ type: 'pray', id: p.id })}
                 style={[styles.quickPrayBtn, p.prayed && styles.quickPrayBtnOn]}
               >
-                <Text style={[styles.quickPrayBtnText, p.prayed && { color: '#FFFFFF' }]}>
-                  {p.prayed ? 'Praying ✓' : '🙏 Pray'}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Icon name="prayer" size={13} color={p.prayed ? '#FFFFFF' : colors.forest} />
+                  <Text style={[styles.quickPrayBtnText, p.prayed && { color: '#FFFFFF' }]}>
+                    {p.prayed ? 'Praying' : 'Pray'}
+                  </Text>
+                </View>
               </Pressable>
             </View>
           ))}
@@ -332,15 +350,15 @@ export default function DiscoverScreen() {
             title="Communities"
             subtitle="Churches & study circles"
             color={colors.forest}
-            icon="👥"
+            icon="community"
             onPress={() => nav.push('Communities')}
           />
           <Card
             compact
             title="Chat & Groups"
             subtitle={unread ? `${unread} messages waiting` : 'Direct & group messaging'}
-            color={colors.lavender}
-            icon="💬"
+            color={colors.indigo}
+            icon="chat"
             onPress={() => nav.push('ChatList')}
           />
         </View>
@@ -350,15 +368,15 @@ export default function DiscoverScreen() {
             title="Find Believers"
             subtitle="Discover Christian professionals"
             color={colors.gold}
-            icon="🕊"
+            icon="sparkles"
             onPress={() => nav.push('People')}
           />
           <Card
             compact
             title="Live Fellowship"
             subtitle={`${(LIVE || []).filter((l) => l.status === 'live').length} active fellowships`}
-            color={colors.terracotta}
-            icon="●"
+            color={colors.rose}
+            icon="live"
             onPress={() => nav.push('Live')}
           />
         </View>
@@ -370,7 +388,7 @@ export default function DiscoverScreen() {
           {CHANNELS_DATA.map((ch) => (
             <View key={ch.id} style={styles.channelCard}>
               <View style={styles.channelPreview}>
-                <Text style={styles.channelPreviewIcon}>📡</Text>
+                <Icon name="live" size={26} color={colors.indigo} />
                 <View style={styles.channelFollowersBadge}>
                   <Text style={styles.channelFollowersText}>{ch.followers} followers</Text>
                 </View>
@@ -467,24 +485,49 @@ export function GroupScreen({ params }) {
       ) : (
         <View style={{ flex: 1 }}>
           <Pills items={CHANNELS} value={channel} onChange={setChannel} style={{ paddingHorizontal: 18, flexGrow: 0 }} />
-          {pinned.length && channel === 'General' ? <Pressable style={styles.pinned}><Text style={styles.pinnedText}>📌 {pinned[0].text}</Text></Pressable> : null}
+          {pinned.length && channel === 'General' ? <Pressable style={styles.pinned}><Text style={styles.pinnedText}>{pinned[0].text}</Text></Pressable> : null}
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }}>
             {!msgs.length ? <Empty title={`No messages in #${channel} yet`} /> : null}
             {msgs.map((m) => (
               <View key={m.id} style={[styles.msg, m.mine && styles.msgMine]}>
                 {!m.mine ? <Text style={styles.msgFrom}>{m.from}</Text> : null}
                 <Text style={[styles.msgText, m.mine && { color: '#FFFFFF' }]}>{m.text}</Text>
-                {m.passage ? <Pressable onPress={() => nav.push('Bible', m.passage)} style={styles.passageChip}><Text style={styles.passageChipText}>📖 {refLabel(m.passage.bookId, m.passage.chapter)} · Open</Text></Pressable> : null}
-                {m.prayer ? <Pressable style={styles.passageChip}><Text style={styles.passageChipText}>🙏 I'm praying · {m.praying}</Text></Pressable> : null}
-                {m.event ? <Pressable onPress={() => nav.push('Calendar')} style={styles.passageChip}><Text style={styles.passageChipText}>📅 RSVP · Add to calendar</Text></Pressable> : null}
+                {m.passage ? (
+                  <Pressable onPress={() => nav.push('Bible', m.passage)} style={[styles.passageChip, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                    <Icon name="book" size={13} color={colors.royalIndigo} />
+                    <Text style={styles.passageChipText}>{refLabel(m.passage.bookId, m.passage.chapter)} · Open</Text>
+                  </Pressable>
+                ) : null}
+                {m.prayer ? (
+                  <Pressable style={[styles.passageChip, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                    <Icon name="prayer" size={13} color={colors.royalIndigo} />
+                    <Text style={styles.passageChipText}>I'm praying · {m.praying}</Text>
+                  </Pressable>
+                ) : null}
+                {m.event ? (
+                  <Pressable onPress={() => nav.push('Calendar')} style={[styles.passageChip, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                    <Icon name="calendar" size={13} color={colors.royalIndigo} />
+                    <Text style={styles.passageChipText}>RSVP · Add to calendar</Text>
+                  </Pressable>
+                ) : null}
                 <Text style={[styles.msgTime, m.mine && { color: '#D4E2D8' }]}>{m.time}{m.mine ? ' · Delivered' : ''}</Text>
               </View>
             ))}
           </ScrollView>
           <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 6 }}>
-              {['📖 Passage', '🙏 Prayer', '📊 Poll', '📎 File', '🎤 Voice', '📅 Event'].map((a) => (
-                <Pressable key={a} onPress={() => { if (!canPost) return; if (a.startsWith('📖')) dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: 'Let\'s read this together.', passage: state.lastPosition } }); if (a.startsWith('🙏')) nav.push('NewPrayer'); }} style={styles.composerChip}><Text style={styles.composerChipText}>{a}</Text></Pressable>
+              {['Passage', 'Prayer', 'Poll', 'File', 'Voice', 'Event'].map((a) => (
+                <Pressable
+                  key={a}
+                  onPress={() => {
+                    if (!canPost) return;
+                    if (a === 'Passage') dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: 'Let\'s read this together.', passage: state.lastPosition } });
+                    if (a === 'Prayer') nav.push('NewPrayer');
+                  }}
+                  style={styles.composerChip}
+                >
+                  <Text style={styles.composerChipText}>{a}</Text>
+                </Pressable>
               ))}
             </ScrollView>
             {canPost ? <AskBar placeholder={`Message #${channel}`} onSend={(t) => dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: t } })} /> : <Notice text={g.joined === 'requested' ? 'Your request is waiting for approval.' : 'Join this group to post.'} />}
@@ -651,7 +694,7 @@ export function PeopleScreen() {
 
             <Text style={styles.personCardName} numberOfLines={1}>{p.name}</Text>
             <Text style={styles.personCardHeadline} numberOfLines={2}>{p.headline}</Text>
-            <Text style={styles.personCardCountry} numberOfLines={1}>📍 {p.country}</Text>
+            <Text style={styles.personCardCountry} numberOfLines={1}>{p.country}</Text>
 
             <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', justifyContent: 'center', marginVertical: 6 }}>
               {p.verified.slice(0, 1).map((v) => (
@@ -773,7 +816,11 @@ export function LiveScreen({ params = {} }) {
         <ScrollView contentContainerStyle={{ padding: 18 }}>
           <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}><Tag label={l.language} /><Tag label={l.audience} />{l.captions ? <Tag label="Captions" /> : null}<Tag label="Moderated" /></View>
           <Section title="Live Bible study"><Row title="Synchronized passage: Matthew 1" subtitle="Follow the teacher's highlights" right="›" onPress={() => nav.push('Bible', { bookId: 'MAT', chapter: 1 })} /></Section>
-          <Section title="Participate"><Row title="✋ Raise hand" /><Row title="🙏 Send a prayer request" onPress={() => nav.push('NewPrayer')} /><Row title="❓ Ask a moderated question" /></Section>
+          <Section title="Participate">
+            <Row title="Raise hand" />
+            <Row title="Send a prayer request" onPress={() => nav.push('NewPrayer')} />
+            <Row title="Ask a moderated question" />
+          </Section>
         </ScrollView>
         <View style={{ padding: 14 }}><AskBar placeholder="Say something in live fellowship chat..." /></View>
       </Screen>
@@ -802,12 +849,29 @@ export function FeedScreen() {
         <View key={f.id} style={styles.post}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><Text style={styles.cardTitle}>{f.author}</Text><Tag label={f.kind} /></View>
           <Text style={styles.cardBody}>{f.text}</Text>
-          {f.passage ? <Pressable onPress={() => nav.push('Bible', f.passage)}><Text style={{ color: colors.teal, fontSize: 11, marginTop: 6 }}>📖 {refLabel(f.passage.bookId, f.passage.chapter)} · Open</Text></Pressable> : null}
-          <View style={{ flexDirection: 'row', gap: 16, marginTop: 10 }}>
-            <Pressable onPress={() => dispatch({ type: 'like', id: f.id })}><Text style={[styles.cardMeta, f.liked && { color: colors.forest }]}>🙌 {f.likes}</Text></Pressable>
-            <Text style={styles.cardMeta}>💬 {f.comments}</Text>
-            <Text style={styles.cardMeta}>↗ Share</Text>
-            <Text style={styles.cardMeta}>☆ Save</Text>
+          {f.passage ? (
+            <Pressable onPress={() => nav.push('Bible', f.passage)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
+              <Icon name="book" size={12} color={colors.royalIndigo} />
+              <Text style={{ color: colors.royalIndigo, fontSize: 11, fontWeight: '600' }}>{refLabel(f.passage.bookId, f.passage.chapter)} · Open</Text>
+            </Pressable>
+          ) : null}
+          <View style={{ flexDirection: 'row', gap: 16, marginTop: 10, alignItems: 'center' }}>
+            <Pressable onPress={() => dispatch({ type: 'like', id: f.id })} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Icon name="heart" size={14} color={f.liked ? colors.roseCoral : colors.muted} />
+              <Text style={[styles.cardMeta, f.liked && { color: colors.roseCoral }]}>{f.likes}</Text>
+            </Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Icon name="chat" size={14} color={colors.muted} />
+              <Text style={styles.cardMeta}>{f.comments}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Icon name="share" size={14} color={colors.muted} />
+              <Text style={styles.cardMeta}>Share</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Icon name="bookmark" size={14} color={colors.muted} />
+              <Text style={styles.cardMeta}>Save</Text>
+            </View>
             <Text style={[styles.cardMeta, { marginLeft: 'auto' }]}>{f.time}</Text>
           </View>
         </View>
@@ -990,9 +1054,27 @@ const styles = StyleSheet.create({
   beInspiredArrowBox: {
     alignSelf: 'flex-start',
   },
-  beInspiredArrow: {
-    fontSize: 16,
-    fontWeight: '700',
+  beInspiredIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  activityIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  faithIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // "Today's Activities" (PDF Page 4)

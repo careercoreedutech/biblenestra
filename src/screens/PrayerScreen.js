@@ -108,7 +108,7 @@ export function PrayerDetailScreen({ params }) {
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
         <Button
           small
-          label={`🙏 ${p.prayed ? 'Praying' : "I'm praying"} (${p.praying})`}
+          label={`${p.prayed ? 'Praying' : "I'm praying"} (${p.praying})`}
           kind={p.prayed ? 'primary' : 'ghost'}
           onPress={() => dispatch({ type: 'pray', id: p.id })}
         />
@@ -146,7 +146,7 @@ export function PrayerDetailScreen({ params }) {
             <Button
               small
               kind="ghost"
-              label="Mark Answered ★"
+              label="Mark Answered"
               onPress={() => {
                 dispatch({
                   type: 'prayerStatus',

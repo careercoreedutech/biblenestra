@@ -9,74 +9,76 @@ export const fonts = {
 };
 
 export const colors = {
-  // Warm Linen & Vintage Editorial Sanctuary Palette (Matching HelloBible+ & The Gazette)
-  screen: '#FAF7F2',        // Soothing warm linen / fine book paper
-  surface: '#FFFFFF',       // Crisp, elevated card surface
-  raised: '#F4EFE6',        // Soft oatmeal / parchment tint for inputs & chips
-  surfaceRaised: '#EFE8DC', // Elevated parchment containers
-  active: '#ECE4D4',        // Pressed / active tint
+  // Vibrant, High-Contrast Modern Sanctuary Palette (Clean, Colorful & Premium)
+  screen: '#F8FAFC',        // Crisp, bright modern canvas (Slate 50)
+  surface: '#FFFFFF',       // Pure white card surfaces with clean contrast
+  raised: '#F1F5F9',        // Light slate tint for interactive pills & inputs
+  surfaceRaised: '#E2E8F0', // Elevated borders & container fills
+  active: '#E2E8F0',        // Pressed / active tint
 
-  // Hairline borders & rules (1px)
-  border: '#E8E1D5',        // Soft warm stone card borders
-  borderStrong: '#D6CCBC',  // Active/focused borders
-  rule: '#EDE7DC',          // Table and row hairlines
-  tabLine: '#E4DDD0',       // Bottom dock border
+  // Hairline borders & rules
+  border: '#E2E8F0',        // Crisp slate border
+  borderStrong: '#CBD5E1',  // Focused borders
+  rule: '#F1F5F9',          // Divider rules
+  tabLine: '#E2E8F0',       // Bottom dock border
 
-  // Typographic hierarchy (Editorial Ink)
-  fg: '#1C1917',            // Deep editorial ink black
-  muted: '#78716C',         // Warm stone grey (accessible 5:1 contrast)
-  faint: '#A8A29E',         // Subtle captions, timestamps, metadata
-  passage: '#292524',       // Sacred scripture reader ink (warm charcoal)
+  // Typographic hierarchy (High Contrast Crisp Slate)
+  fg: '#0F172A',            // Deep slate black (headings, high-legibility)
+  muted: '#475569',         // Crisp slate grey (clear, non-faded text)
+  faint: '#94A3B8',         // Subtle timestamps, captions
+  passage: '#1E293B',       // Sacred scripture reader ink (rich readable charcoal)
 
   // Brand anchors & Action colors
-  forest: '#1B4D3E',        // Deep sanctuary forest emerald
-  primary: '#1B4D3E',       // Primary action button fill
-  primaryBg: '#1B4D3E',     // Primary action background
+  forest: '#059669',        // Vivid sanctuary emerald
+  primary: '#059669',       // Primary action button fill
+  primaryBg: '#059669',     // Primary action background
   primaryFg: '#FFFFFF',     // Crisp white button label
-  primaryInvertedBg: '#1C1917',
-  primaryInvertedFg: '#FAF7F2',
+  primaryInvertedBg: '#0F172A',
+  primaryInvertedFg: '#F8FAFC',
 
-  // Biblical Gold & Secondary Accents
-  gold: '#B8860B',          // Sacred muted biblical gold
-  goldLight: '#C59B27',     // Bright gold highlight
-  goldMuted: '#8A6D24',     // Subdued gold for verse markers
-  goldFaint: 'rgba(184, 134, 11, 0.12)',
+  // Vivid Rich Spectrum (Colorful Modern UI)
+  indigo: '#4F46E5',        // Electric royal indigo
+  gold: '#D97706',          // Radiant warm amber gold
+  goldLight: '#F59E0B',     // Bright gold highlight
+  goldMuted: '#B45309',     // Subdued gold for verse markers
+  goldFaint: 'rgba(217, 119, 6, 0.12)',
 
-  // Vintage Editorial & Category Tints (From PDF Page 1 & 5)
-  terracotta: '#B85D36',    // Warm vintage rust / terracotta
-  terracottaFaint: 'rgba(184, 93, 54, 0.12)',
-  slate: '#546E7A',         // Slate blue for study references
-  sage: '#3D7055',          // Sage green for growth & devotionals
-  sageFaint: 'rgba(61, 112, 85, 0.12)',
-  teal: '#236E60',          // Exegesis & theology
-  lavender: '#6B5B95',      // Wisdom & church history
-  lavenderFaint: 'rgba(107, 91, 149, 0.12)',
-  rose: '#9C3D62',          // Prayer & devotion
-  roseFaint: 'rgba(156, 61, 98, 0.12)',
-  amber: '#C07818',         // Audio & sermons
+  terracotta: '#EA580C',    // Vibrant burnt tangerine
+  terracottaFaint: 'rgba(234, 88, 12, 0.12)',
+  slate: '#475569',         // Slate blue for study references
+  sage: '#10B981',          // Fresh mint / emerald for growth & devotionals
+  sageFaint: 'rgba(16, 185, 129, 0.14)',
+  teal: '#0D9488',          // Exegesis & theology
+  lavender: '#7C3AED',      // Royal violet & church history
+  lavenderFaint: 'rgba(124, 58, 237, 0.14)',
+  rose: '#E11D48',          // Vibrant rose for prayer & devotion
+  roseFaint: 'rgba(225, 29, 72, 0.14)',
+  amber: '#D97706',         // Audio & sermons
+  sky: '#0284C7',           // Vibrant sky blue
+  skyFaint: 'rgba(2, 132, 199, 0.14)',
 
-  // Soft Pastel Card Tints for "Be Inspired" (PDF Page 1)
-  cardGold: '#FDF8EE',
-  cardSage: '#EEF6F2',
-  cardRose: '#FBF2F4',
-  cardLavender: '#F4F2F9',
-  cardSky: '#EFF6FA',
+  // Rich, Saturated Pastel Card Tints for "Be Inspired" & Badges
+  cardGold: '#FEF3C7',      // Warm golden glow
+  cardSage: '#D1FAE5',      // Fresh energetic emerald
+  cardRose: '#FFE4E6',      // Tender rose
+  cardLavender: '#EDE9FE',  // Regal violet
+  cardSky: '#E0F2FE',       // Pure clear sky
 
   // Status & Notifications
-  positive: '#2E7D52',      // Verified, answered, online
-  positiveFaint: 'rgba(46, 125, 82, 0.12)',
-  warning: '#C67D12',       // Alerts & warnings
-  warningFaint: 'rgba(198, 125, 18, 0.12)',
-  negative: '#C24138',      // Destructive & reports
-  negativeFaint: 'rgba(194, 65, 56, 0.12)',
+  positive: '#10B981',      // Verified, answered, online
+  positiveFaint: 'rgba(16, 185, 129, 0.14)',
+  warning: '#F59E0B',       // Alerts & warnings
+  warningFaint: 'rgba(245, 158, 11, 0.14)',
+  negative: '#EF4444',      // Destructive & reports
+  negativeFaint: 'rgba(239, 68, 68, 0.14)',
 
   // Shadows
-  shadowColor: '#1C1917',
+  shadowColor: '#0F172A',
 
   // Compatibility aliases
-  accent: '#1B4D3E',
-  lineLight: '#EDE7DC',
-  yellow: '#B8860B',
-  glossBorder: '#E8E1D5',
-  subtle: '#78716C',
+  accent: '#059669',
+  lineLight: '#F1F5F9',
+  yellow: '#D97706',
+  glossBorder: '#E2E8F0',
+  subtle: '#475569',
 };

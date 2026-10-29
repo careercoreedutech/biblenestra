@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Screen, Section, Badge, Tag, Button, Row } from '../components/ui';
+import { Icon } from '../components/Icons';
 import { colors, fonts } from '../theme';
 import { useNav } from '../navigation';
 import { useStore } from '../store';
@@ -224,9 +225,12 @@ export default function JobsScreen() {
 
               {/* Footer info: client and proposals */}
               <View style={styles.jobFooter}>
-                <Text style={styles.clientText}>
-                  👤 {item.client.name} · {item.client.church}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Icon name="user" size={13} color={colors.forest} />
+                  <Text style={styles.clientText}>
+                    {item.client.name} · {item.client.church}
+                  </Text>
+                </View>
                 <Text style={styles.proposalsCountText}>
                   {item.proposalsCount} proposals · {item.deadline}
                 </Text>

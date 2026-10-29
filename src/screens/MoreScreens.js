@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider } from '../components/ui';
 import { Toggle } from './PrayerScreen';
+import { Icon } from '../components/Icons';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
@@ -175,7 +176,7 @@ export function SermonStudioScreen() {
           <Text style={styles.cardMeta}>Mic: {rec === 'recording' ? 'live' : 'ready'} · Storage: 4.2 GB free</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             {rec === 'idle' ? <Button small label="● Record" onPress={() => setRec('recording')} /> : null}
-            {rec === 'recording' ? <Button small kind="ghost" label="❚❚ Pause" onPress={() => setRec('paused')} /> : null}
+            {rec === 'recording' ? <Button small kind="ghost" label="Pause" onPress={() => setRec('paused')} /> : null}
             {rec === 'paused' ? <Button small label="▶ Resume" onPress={() => setRec('recording')} /> : null}
             {rec !== 'idle' ? <Button small kind="ghost" label="■ Stop & save draft" onPress={save} /> : null}
             <Button small kind="ghost" label="Import audio" />
@@ -263,7 +264,7 @@ export function CreateScreen({ params = {} }) {
         <View style={{ gap: 10, marginTop: 14 }}>
           <Input placeholder="Study title" value={title} onChangeText={setTitle} />
           <Text style={styles.label}>Blocks</Text>
-          {['📖 Bible passage', '✎ Explanation', '❓ Question', '▶ Video', '🖼 Image', '🎧 Audio', '🙏 Prayer prompt', '📊 Poll', '📝 Assignment'].map((b) => <Row key={b} title={b} right="＋" />)}
+          {['Bible passage', 'Explanation', 'Question', 'Video', 'Image', 'Audio', 'Prayer prompt', 'Poll', 'Assignment'].map((b) => <Row key={b} title={b} right="＋" />)}
           <Notice text="AI-suggested questions stay drafts until you review them." />
         </View>
       ) : null}
@@ -314,20 +315,34 @@ export function ProfileScreen({ params = {} }) {
             </View>
             <Text style={[styles.cardTitle, { fontSize: 20, marginTop: 10 }]}>{u.displayName}</Text>
             <Text style={styles.cardMeta}>{u.headline} · {u.country} · {(u.languages || []).join(', ')}</Text>
-            {u.church?.visible ? <Text style={[styles.cardMeta, { color: colors.teal, marginTop: 4 }]}>⛪ {u.church?.name}</Text> : null}
+            {u.church?.visible ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 }}>
+                <Icon name="church" size={14} color={colors.teal} />
+                <Text style={[styles.cardMeta, { color: colors.teal, marginTop: 0 }]}>{u.church?.name}</Text>
+              </View>
+            ) : null}
 
-            {/* Quick Stats Banner */}
+            {/* Quick Stats Banner with Vector Icons */}
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 14, width: '100%', justifyContent: 'center' }}>
-              <View style={styles.statBox}>
-                <Text style={styles.statValue}>🪙 {state.coins || 0}</Text>
+              <View style={[styles.statBox, { borderColor: colors.gold + '40', backgroundColor: colors.cardGold }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Icon name="coin" size={16} color={colors.gold} />
+                  <Text style={[styles.statValue, { color: colors.gold }]}>{state.coins || 0}</Text>
+                </View>
                 <Text style={styles.statLabel}>Kingdom Coins</Text>
               </View>
-              <View style={styles.statBox}>
-                <Text style={styles.statValue}>{state.bookmarks?.length || 0}</Text>
+              <View style={[styles.statBox, { borderColor: colors.indigo + '40', backgroundColor: colors.cardLavender }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Icon name="bookmark" size={15} color={colors.indigo} />
+                  <Text style={[styles.statValue, { color: colors.indigo }]}>{state.bookmarks?.length || 0}</Text>
+                </View>
                 <Text style={styles.statLabel}>Bookmarks</Text>
               </View>
-              <View style={styles.statBox}>
-                <Text style={styles.statValue}>{state.highlights?.length || 0}</Text>
+              <View style={[styles.statBox, { borderColor: colors.forest + '40', backgroundColor: colors.cardSage }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Icon name="highlight" size={15} color={colors.forest} />
+                  <Text style={[styles.statValue, { color: colors.forest }]}>{state.highlights?.length || 0}</Text>
+                </View>
                 <Text style={styles.statLabel}>Highlights</Text>
               </View>
             </View>
@@ -337,7 +352,12 @@ export function ProfileScreen({ params = {} }) {
             <Row
               title="Virtual Coin Balance"
               subtitle="Use coins to send virtual gifts & support Christian creators"
-              right={`🪙 ${state.coins || 0} Coins`}
+              right={
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Icon name="coin" size={16} color={colors.gold} />
+                  <Text style={{ color: colors.gold, fontWeight: '700', fontSize: 13 }}>{state.coins || 0} Coins</Text>
+                </View>
+              }
               onPress={() => setTab('Wallet & Gifts')}
             />
           </Section>
@@ -357,7 +377,9 @@ export function ProfileScreen({ params = {} }) {
       {tab === 'Wallet & Gifts' ? (
         <View style={{ marginTop: 12 }}>
           <View style={[styles.card, { alignItems: 'center', borderColor: colors.gold, borderWidth: 1.5 }]}>
-            <Text style={{ fontSize: 32 }}>🪙</Text>
+            <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}>
+              <Icon name="coin" size={36} color={colors.gold} />
+            </View>
             <Text style={{ fontFamily: fonts.serifBold, fontSize: 26, color: colors.gold, marginTop: 4 }}>{state.coins || 0} Coins</Text>
             <Text style={styles.cardMeta}>Kingdom Virtual Currency Balance</Text>
             <Text style={[styles.cardBody, { textAlign: 'center', marginTop: 8 }]}>
