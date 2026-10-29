@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Alert,
   Dimensions,
@@ -34,6 +34,7 @@ const GIFT_ICONS = {
 function VideoReelItem({
   item,
   index,
+  itemHeight,
   isActive,
   isLiked,
   isFollowing,
@@ -85,7 +86,14 @@ function VideoReelItem({
   };
 
   return (
-    <Pressable activeOpacity={0.95} onPress={togglePlayback} style={[styles.videoCard, { backgroundColor: cardBg }]}>
+    <Pressable
+      activeOpacity={0.95}
+      onPress={togglePlayback}
+      style={[
+        styles.videoCard,
+        { backgroundColor: cardBg, height: itemHeight || (SCREEN_HEIGHT - 105) }
+      ]}
+    >
       {/* Video Player */}
       {item.videoUrl ? (
         <VideoView
@@ -223,6 +231,7 @@ export default function SocialsScreen() {
   const { state, dispatch } = useStore();
   const nav = useNav();
   const [activeTab, setActiveTab] = useState('Recommended'); // 'Following' | 'Recommended'
+  const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT - 105);
   const [activeIndex, setActiveIndex] = useState(0);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [showComments, setShowComments] = useState(false);
@@ -231,6 +240,22 @@ export default function SocialsScreen() {
   const [giftSuccess, setGiftSuccess] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
+
+  const flatListRef = useRef(null);
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 60,
+  });
+
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems && viewableItems.length > 0) {
+      const active = viewableItems[0];
+      if (active && active.index !== undefined && active.index !== null) {
+        setActiveIndex(active.index);
+        if (active.item) setSelectedVideo(active.item);
+      }
+    }
+  });
 
   // Video publishing state
   const [newTitle, setNewTitle] = useState('');
@@ -304,8 +329,20 @@ export default function SocialsScreen() {
     setNewScripture('');
   };
 
+  const filteredVideos = activeTab === 'Following'
+    ? (videos.filter((v) => state.follows?.includes(v.creator.handle)).length ? videos.filter((v) => state.follows?.includes(v.creator.handle)) : videos)
+    : videos;
+
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        if (h > 100 && Math.abs(h - containerHeight) > 2) {
+          setContainerHeight(h);
+        }
+      }}
+    >
       {/* Top Floating Feed Switcher & Publish Button */}
       <View style={styles.topBar}>
         <View style={styles.tabContainer}>
@@ -337,21 +374,29 @@ export default function SocialsScreen() {
         </View>
       ) : null}
 
-      {/* Main Full-Screen Vertical Feed List */}
+      {/* Main Full-Screen Vertical Snapping Reels Feed */}
       <FlatList
-        data={activeTab === 'Following' ? (videos.filter((v) => state.follows?.includes(v.creator.handle)).length ? videos.filter((v) => state.follows?.includes(v.creator.handle)) : videos) : videos}
+        ref={flatListRef}
+        data={filteredVideos}
         keyExtractor={(item) => item.id}
-        pagingEnabled
         showsVerticalScrollIndicator={false}
-        onMomentumScrollEnd={(e) => {
-          const index = Math.round(e.nativeEvent.contentOffset.y / (SCREEN_HEIGHT - 105));
-          setActiveIndex(index);
-          if (videos[index]) setSelectedVideo(videos[index]);
-        }}
+        snapToInterval={containerHeight}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        disableIntervalMomentum={true}
+        bounces={false}
+        getItemLayout={(data, index) => ({
+          length: containerHeight,
+          offset: containerHeight * index,
+          index,
+        })}
+        viewabilityConfig={viewabilityConfig.current}
+        onViewableItemsChanged={onViewableItemsChanged.current}
         renderItem={({ item, index }) => (
           <VideoReelItem
             item={item}
             index={index}
+            itemHeight={containerHeight}
             isActive={index === activeIndex}
             isLiked={item.liked}
             isFollowing={state.follows?.includes(item.creator.handle)}
