@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Screen, Section, Badge, Tag, Button } from '../components/ui';
 import { colors, fonts } from '../theme';
 import { useNav } from '../navigation';
 import { useStore } from '../store';
-import { CONCORDANCE, searchConcordance } from '../data/bible';
+import { CONCORDANCE, searchConcordance, getStrongExternalUrl } from '../data/bible';
 
 export default function ConcordanceScreen({ params = {} }) {
   const nav = useNav();
@@ -94,6 +94,44 @@ export default function ConcordanceScreen({ params = {} }) {
 
                 <Text style={[styles.sectionLabel, { marginTop: 12 }]}>ORIGIN & ROOT</Text>
                 <Text style={styles.originText}>{selectedWord.origin}</Text>
+
+                {/* External Strong's Lexicon Lookups (from mielke.cc) */}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                  <Pressable
+                    onPress={() => {
+                      const url = getStrongExternalUrl(selectedWord.lang, selectedWord.strong, 'biblehub');
+                      if (url) Linking.openURL(url);
+                    }}
+                    style={{
+                      flex: 1,
+                      backgroundColor: colors.cardSage,
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(30, 81, 40, 0.15)',
+                    }}
+                  >
+                    <Text style={{ color: colors.forest, fontWeight: '700', fontSize: 11 }}>Bible Hub Lexicon ↗</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      const url = getStrongExternalUrl(selectedWord.lang, selectedWord.strong, 'studybible');
+                      if (url) Linking.openURL(url);
+                    }}
+                    style={{
+                      flex: 1,
+                      backgroundColor: colors.cardSage,
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(30, 81, 40, 0.15)',
+                    }}
+                  >
+                    <Text style={{ color: colors.forest, fontWeight: '700', fontSize: 11 }}>Study Bible Strong's ↗</Text>
+                  </Pressable>
+                </View>
               </View>
 
               {/* Verses & Tap-To-Study */}

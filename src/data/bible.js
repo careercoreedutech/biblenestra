@@ -1,8 +1,13 @@
-// Bible content catalog and concordance database.
+import booksMeta from './books_meta.json';
+import chapterPreviews from './chapter_previews.json';
+import kjvBible from './kjv_bible.json';
+
+// Bible content catalog and concordance database extracted from mielke.cc/bible.
+// Complete 66 Books, 1,189 Chapters, 31,102 Verses of the Authorized King James Version.
 // Multilingual support for English, Yoruba, Igbo, Hausa, French, Spanish, Portuguese, Swahili, Arabic.
 
 export const TRANSLATIONS = [
-  { id: 'KJV', name: 'King James Version', lang: 'English', available: true, publisher: 'Public Domain', offline: true },
+  { id: 'KJV', name: 'King James Version', lang: 'English', available: true, publisher: 'Public Domain · mielke.cc', offline: true },
   { id: 'WEB', name: 'World English Bible', lang: 'English', available: true, publisher: 'Public Domain', offline: true },
   { id: 'BBE', name: 'Bible in Basic English', lang: 'English', available: true, publisher: 'Public Domain', offline: true },
   { id: 'ASV', name: 'American Standard Version', lang: 'English', available: true, publisher: 'Public Domain', offline: true },
@@ -16,97 +21,22 @@ export const TRANSLATIONS = [
   { id: 'SVD', name: 'Smith & Van Dyck (Arabic)', lang: 'Arabic', available: true, publisher: 'Public Domain', offline: true },
 ];
 
-export const BOOKS = [
-  { id: 'GEN', name: 'Genesis', testament: 'OT', chapters: 50 },
-  { id: 'EXO', name: 'Exodus', testament: 'OT', chapters: 40 },
-  { id: 'LEV', name: 'Leviticus', testament: 'OT', chapters: 27 },
-  { id: 'NUM', name: 'Numbers', testament: 'OT', chapters: 36 },
-  { id: 'DEU', name: 'Deuteronomy', testament: 'OT', chapters: 34 },
-  { id: 'PSA', name: 'Psalms', testament: 'OT', chapters: 150 },
-  { id: 'PRO', name: 'Proverbs', testament: 'OT', chapters: 31 },
-  { id: 'ISA', name: 'Isaiah', testament: 'OT', chapters: 66 },
-  { id: 'JER', name: 'Jeremiah', testament: 'OT', chapters: 52 },
-  { id: 'MAT', name: 'Matthew', testament: 'NT', chapters: 28 },
-  { id: 'MRK', name: 'Mark', testament: 'NT', chapters: 16 },
-  { id: 'LUK', name: 'Luke', testament: 'NT', chapters: 24 },
-  { id: 'JHN', name: 'John', testament: 'NT', chapters: 21 },
-  { id: 'ACT', name: 'Acts', testament: 'NT', chapters: 28 },
-  { id: 'ROM', name: 'Romans', testament: 'NT', chapters: 16 },
-  { id: '1CO', name: '1 Corinthians', testament: 'NT', chapters: 16 },
-  { id: 'PHP', name: 'Philippians', testament: 'NT', chapters: 4 },
-  { id: 'COL', name: 'Colossians', testament: 'NT', chapters: 4 },
-  { id: 'HEB', name: 'Hebrews', testament: 'NT', chapters: 13 },
-  { id: 'REV', name: 'Revelation', testament: 'NT', chapters: 22 },
-];
+export const BOOKS = booksMeta;
 
 export const CHAPTER_TITLES = {
+  ...chapterPreviews,
   'MAT:1': 'The Genealogy and Birth of Jesus Christ',
   'JHN:3': 'You Must Be Born Again · God So Loved the World',
   'PSA:23': 'The Lord Is My Shepherd · Divine Comfort and Provision',
   'GEN:1': 'The Creation of the Heavens and the Earth',
   'PHP:4': 'Rejoice in the Lord Always · Peace That Surpasses Understanding',
   'ROM:8': 'Life in the Spirit · More Than Conquerors',
+  'REV:22': 'The River of Life · The Alpha and Omega · The Final Revelation',
 };
 
 // Multilingual Scripture database across all requested languages
 const BIBLE_TEXT = {
-  KJV: {
-    'MAT:1': [
-      'The book of the generation of Jesus Christ, the son of David, the son of Abraham.',
-      'Abraham begat Isaac; and Isaac begat Jacob; and Jacob begat Judas and his brethren;',
-      'And Judas begat Phares and Zara of Thamar; and Phares begat Esrom; and Esrom begat Aram;',
-      'And Aram begat Aminadab; and Aminadab begat Naasson; and Naasson begat Salmon;',
-      'And Salmon begat Booz of Rachab; and Booz begat Obed of Ruth; and Obed begat Jesse;',
-      'And Jesse begat David the king; and David the king begat Solomon of her that had been the wife of Urias;',
-      'And Solomon begat Roboam; and Roboam begat Abia; and Abia begat Asa;',
-      'And Asa begat Josaphat; and Josaphat begat Joram; and Joram begat Ozias;',
-      'And Ozias begat Joatham; and Joatham begat Achaz; and Achaz begat Ezekias;',
-      'And Ezekias begat Manasses; and Manasses begat Amon; and Amon begat Josias;',
-      'And Josias begat Jechonias and his brethren, about the time they were carried away to Babylon:',
-      'And after they were brought to Babylon, Jechonias begat Salathiel; and Salathiel begat Zorobabel;',
-      'And Zorobabel begat Abiud; and Abiud begat Eliakim; and Eliakim begat Azor;',
-      'And Azor begat Sadoc; and Sadoc begat Achim; and Achim begat Eliud;',
-      'And Eliud begat Eleazar; and Eleazar begat Matthan; and Matthan begat Jacob;',
-      'And Jacob begat Joseph the husband of Mary, of whom was born Jesus, who is called Christ.',
-      'So all the generations from Abraham to David are fourteen generations; and from David until the carrying away into Babylon are fourteen generations; and from the carrying away into Babylon unto Christ are fourteen generations.',
-      'Now the birth of Jesus Christ was on this wise: When as his mother Mary was espoused to Joseph, before they came together, she was found with child of the Holy Ghost.',
-      'Then Joseph her husband, being a just man, and not willing to make her a publick example, was minded to put her away privily.',
-      'But while he thought on these things, behold, the angel of the Lord appeared unto him in a dream, saying, Joseph, thou son of David, fear not to take unto thee Mary thy wife: for that which is conceived in her is of the Holy Ghost.',
-      'And she shall bring forth a son, and thou shalt call his name JESUS: for he shall save his people from their sins.',
-      'Now all this was done, that it might be fulfilled which was spoken of the Lord by the prophet, saying,',
-      'Behold, a virgin shall be with child, and shall bring forth a son, and they shall call his name Emmanuel, which being interpreted is, God with us.',
-      'Then Joseph being raised from sleep did as the angel of the Lord had bidden him, and took unto him his wife:',
-      'And knew her not till she had brought forth her firstborn son: and he called his name JESUS.',
-    ],
-    'JHN:3': [
-      'There was a man of the Pharisees, named Nicodemus, a ruler of the Jews:',
-      'The same came to Jesus by night, and said unto him, Rabbi, we know that thou art a teacher come from God: for no man can do these miracles that thou doest, except God be with him.',
-      'Jesus answered and said unto him, Verily, verily, I say unto thee, Except a man be born again, he cannot see the kingdom of God.',
-      'Nicodemus saith unto him, How can a man be born when he is old? can he enter the second time into his mother\'s womb, and be born?',
-      'Jesus answered, Verily, verily, I say unto thee, Except a man be born of water and of the Spirit, he cannot enter into the kingdom of God.',
-      'That which is born of the flesh is flesh; and that which is born of the Spirit is spirit.',
-      'Marvel not that I said unto thee, Ye must be born again.',
-      'The wind bloweth where it listeth, and thou hearest the sound thereof, but canst not tell whence it cometh, and whither it goeth: so is every one that is born of the Spirit.',
-      'Nicodemus answered and said unto him, How can these things be?',
-      'Jesus answered and said unto him, Art thou a master of Israel, and knowest not these things?',
-      'Verily, verily, I say unto thee, We speak that we do know, and testify that we have seen; and ye receive not our witness.',
-      'If I have told you earthly things, and ye believe not, how shall ye believe, if I tell you of heavenly things?',
-      'And no man hath ascended up to heaven, but he that came down from heaven, even the Son of man which is in heaven.',
-      'And as Moses lifted up the serpent in the wilderness, even so must the Son of man be lifted up:',
-      'That whosoever believeth in him should not perish, but have eternal life.',
-      'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.',
-      'For God sent not his Son into the world to condemn the world; but that the world through him might be saved.',
-      'He that believeth on him is not condemned: but he that believeth not is condemned already, because he hath not believed in the name of the only begotten Son of God.',
-    ],
-    'PSA:23': [
-      'The LORD is my shepherd; I shall not want.',
-      'He maketh me to lie down in green pastures: he leadeth me beside the still waters.',
-      'He restoreth my soul: he leadeth me in the paths of righteousness for his name\'s sake.',
-      'Yea, though I walk through the valley of the shadow of death, I will fear no evil: for thou art with me; thy rod and thy staff they comfort me.',
-      'Thou preparest a table before me in the presence of mine enemies: thou anointest my head with oil; my cup runneth over.',
-      'Surely goodness and mercy shall follow me all the days of my life: and I will dwell in the house of the LORD for ever.',
-    ],
-  },
+  KJV: kjvBible,
   WEB: {
     'MAT:1': [
       'The book of the genealogy of Jesus Christ, the son of David, the son of Abraham.',
@@ -677,7 +607,60 @@ export function searchConcordance(query) {
 export function getChapter(translation, bookId, chapter) {
   const tr = BIBLE_TEXT[translation] || BIBLE_TEXT.KJV;
   const key = `${bookId}:${chapter}`;
-  return tr[key] || BIBLE_TEXT.KJV[key] || null;
+  if (tr && tr[key] && tr[key].length) return tr[key];
+  if (BIBLE_TEXT.KJV && BIBLE_TEXT.KJV[key]) return BIBLE_TEXT.KJV[key];
+  return null;
+}
+
+export function searchBible(query, translation = 'KJV', scope = 'ALL', limit = 40) {
+  if (!query || !query.trim() || query.trim().length < 2) return [];
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const qClean = query.trim().toLowerCase();
+  const trText = (translation && BIBLE_TEXT[translation]) || BIBLE_TEXT.KJV;
+  const results = [];
+
+  for (const [key, verses] of Object.entries(trText)) {
+    const [bookId, chStr] = key.split(':');
+    const b = BOOKS.find((x) => x.id === bookId);
+    if (!b) continue;
+    if (scope === 'OT' && b.testament !== 'OT') continue;
+    if (scope === 'NT' && b.testament !== 'NT') continue;
+    const chapter = parseInt(chStr, 10);
+
+    for (let i = 0; i < verses.length; i++) {
+      const text = verses[i];
+      if (!text) continue;
+      const lower = text.toLowerCase();
+      const matches = words.every((w) => lower.includes(w));
+      if (matches) {
+        const exact = lower.includes(qClean);
+        results.push({
+          bookId,
+          chapter,
+          verse: i + 1,
+          text,
+          exact,
+        });
+        if (results.length >= limit) return results;
+      }
+    }
+  }
+  return results;
+}
+
+export function getStrongExternalUrl(lexicon, number, server = 'biblehub') {
+  const isGreek = (lexicon && lexicon.toLowerCase().includes('greek')) || (typeof number === 'string' && number.startsWith('G'));
+  const cleanNum = parseInt(String(number).replace(/^[GH]/i, ''), 10);
+  if (isNaN(cleanNum)) return null;
+
+  if (server === 'biblehub') {
+    return isGreek
+      ? `https://biblehub.com/greek/${cleanNum}.htm`
+      : `https://biblehub.com/hebrew/${cleanNum}.htm`;
+  }
+  return isGreek
+    ? `https://studybible.info/strongs/G${cleanNum}`
+    : `https://studybible.info/strongs/H${cleanNum}`;
 }
 
 export function refLabel(bookId, chapter, verse) {
@@ -693,10 +676,19 @@ export function bookName(bookId) {
   return b ? b.name : bookId;
 }
 
-export function availableChapters() {
+export function availableChapters(bookId) {
+  if (bookId) {
+    const b = BOOKS.find((x) => x.id === bookId);
+    if (b) {
+      return Array.from({ length: b.chapters }, (_, i) => ({ bookId, chapter: i + 1 }));
+    }
+  }
   return [
+    { bookId: 'GEN', chapter: 1 },
+    { bookId: 'PSA', chapter: 23 },
     { bookId: 'MAT', chapter: 1 },
     { bookId: 'JHN', chapter: 3 },
-    { bookId: 'PSA', chapter: 23 },
+    { bookId: 'ROM', chapter: 8 },
+    { bookId: 'REV', chapter: 22 },
   ];
 }

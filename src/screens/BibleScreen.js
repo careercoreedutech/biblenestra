@@ -54,12 +54,26 @@ export default function BibleScreen({ params = {} }) {
   const bookmarked = state.bookmarks.some((b) => b.bookId === pos.bookId && b.chapter === pos.chapter && !b.verse);
 
   const go = (delta) => {
-    const chs = availableChapters();
-    const idx = chs.findIndex((c) => c.bookId === pos.bookId && c.chapter === pos.chapter);
-    const next = chs[idx + delta];
-    if (next) {
-      setPos({ bookId: next.bookId, chapter: next.chapter });
+    const curBook = BOOKS.find((b) => b.id === pos.bookId);
+    if (!curBook) return;
+    const nextChapter = pos.chapter + delta;
+    if (nextChapter >= 1 && nextChapter <= curBook.chapters) {
+      setPos({ bookId: pos.bookId, chapter: nextChapter });
       setSelected(null);
+    } else if (nextChapter < 1) {
+      const bookIdx = BOOKS.findIndex((b) => b.id === pos.bookId);
+      if (bookIdx > 0) {
+        const prevBook = BOOKS[bookIdx - 1];
+        setPos({ bookId: prevBook.id, chapter: prevBook.chapters });
+        setSelected(null);
+      }
+    } else if (nextChapter > curBook.chapters) {
+      const bookIdx = BOOKS.findIndex((b) => b.id === pos.bookId);
+      if (bookIdx < BOOKS.length - 1) {
+        const nextBook = BOOKS[bookIdx + 1];
+        setPos({ bookId: nextBook.id, chapter: 1 });
+        setSelected(null);
+      }
     }
   };
 
@@ -306,7 +320,67 @@ export default function BibleScreen({ params = {} }) {
             </View>
 
             <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 50 }}>
-              <Text style={styles.modalSub}>AVAILABLE IN YOUR TRANSLATION ({tr})</Text>
+              {/* Current Book Chapters Fast Picker */}
+              {book ? (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={styles.modalSub}>{`${book.name.toUpperCase()} CHAPTERS (${book.chapters})`}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
+                    {Array.from({ length: book.chapters }, (_, i) => i + 1).map((ch) => {
+                      const isSel = ch === pos.chapter;
+                      return (
+                        <Pressable
+                          key={ch}
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 22,
+                            backgroundColor: isSel ? colors.forest : colors.cardSage,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderWidth: isSel ? 0 : 1,
+                            borderColor: 'rgba(30, 81, 40, 0.15)',
+                          }}
+                          onPress={() => {
+                            setPos({ bookId: pos.bookId, chapter: ch });
+                            setSelected(null);
+                            setPicker(null);
+                          }}
+                        >
+                          <Text style={{ color: isSel ? '#FFF' : colors.forest, fontWeight: '700', fontSize: 14 }}>{ch}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              <Text style={styles.modalSub}>ALL 66 BOOKS OF SCRIPTURE</Text>
+              {['OT', 'NT'].map((t) => (
+                <View key={t} style={{ marginTop: 14 }}>
+                  <Text style={styles.testamentLabel}>{t === 'OT' ? 'Old Testament (39 Books)' : 'New Testament (27 Books)'}</Text>
+                  <View style={styles.bookGrid}>
+                    {BOOKS.filter((b) => b.testament === t).map((b) => {
+                      const isSel = b.id === pos.bookId;
+                      return (
+                        <Pressable
+                          key={b.id}
+                          style={[styles.bookGridItem, isSel && styles.bookGridItemActive]}
+                          onPress={() => {
+                            setPos({ bookId: b.id, chapter: 1 });
+                            setSelected(null);
+                            setPicker(null);
+                          }}
+                        >
+                          <Text style={[styles.bookGridName, isSel && styles.bookGridNameActive]}>{b.name}</Text>
+                          <Text style={[styles.bookGridChCount, isSel && { color: '#D1FAE5' }]}>{b.chapters} ch</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+
+              <Text style={[styles.modalSub, { marginTop: 24 }]}>FEATURED SCRIPTURE PASSAGES</Text>
               <View style={{ gap: 10, marginTop: 8 }}>
                 {availableChapters().map((c) => {
                   const chTitle = CHAPTER_TITLES[`${c.bookId}:${c.chapter}`] || `${bookName(c.bookId)} Chapter ${c.chapter}`;
@@ -337,32 +411,6 @@ export default function BibleScreen({ params = {} }) {
                   );
                 })}
               </View>
-
-              <Text style={[styles.modalSub, { marginTop: 24 }]}>ALL BIBLICAL CANON</Text>
-              {['OT', 'NT'].map((t) => (
-                <View key={t} style={{ marginTop: 14 }}>
-                  <Text style={styles.testamentLabel}>{t === 'OT' ? 'Old Testament (39 Books)' : 'New Testament (27 Books)'}</Text>
-                  <View style={styles.bookGrid}>
-                    {BOOKS.filter((b) => b.testament === t).map((b) => {
-                      const isSel = b.id === pos.bookId;
-                      return (
-                        <Pressable
-                          key={b.id}
-                          style={[styles.bookGridItem, isSel && styles.bookGridItemActive]}
-                          onPress={() => {
-                            setPos({ bookId: b.id, chapter: 1 });
-                            setSelected(null);
-                            setPicker(null);
-                          }}
-                        >
-                          <Text style={[styles.bookGridName, isSel && styles.bookGridNameActive]}>{b.name}</Text>
-                          <Text style={[styles.bookGridChCount, isSel && { color: '#D1FAE5' }]}>{b.chapters} ch</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              ))}
             </ScrollView>
           </View>
         </View>

@@ -1,0 +1,530 @@
+[
+  {
+    "id": "GEN",
+    "name": "Genesis",
+    "slug": "Genesis",
+    "testament": "OT",
+    "chapters": 50,
+    "longTitle": "The First Book of Moses, called Genesis"
+  },
+  {
+    "id": "EXO",
+    "name": "Exodus",
+    "slug": "Exodus",
+    "testament": "OT",
+    "chapters": 40,
+    "longTitle": "The Second Book of Moses, called Exodus"
+  },
+  {
+    "id": "LEV",
+    "name": "Leviticus",
+    "slug": "Leviticus",
+    "testament": "OT",
+    "chapters": 27,
+    "longTitle": "The Third Book of Moses, called Leviticus"
+  },
+  {
+    "id": "NUM",
+    "name": "Numbers",
+    "slug": "Numbers",
+    "testament": "OT",
+    "chapters": 36,
+    "longTitle": "The Fourth Book of Moses, called Numbers"
+  },
+  {
+    "id": "DEU",
+    "name": "Deuteronomy",
+    "slug": "Deuteronomy",
+    "testament": "OT",
+    "chapters": 34,
+    "longTitle": "The Fifth Book of Moses, called Deuteronomy"
+  },
+  {
+    "id": "JOS",
+    "name": "Joshua",
+    "slug": "Joshua",
+    "testament": "OT",
+    "chapters": 24,
+    "longTitle": "The Book of Joshua"
+  },
+  {
+    "id": "JDG",
+    "name": "Judges",
+    "slug": "Judges",
+    "testament": "OT",
+    "chapters": 21,
+    "longTitle": "The Book of Judges"
+  },
+  {
+    "id": "RUT",
+    "name": "Ruth",
+    "slug": "Ruth",
+    "testament": "OT",
+    "chapters": 4,
+    "longTitle": "The Book of Ruth"
+  },
+  {
+    "id": "1SA",
+    "name": "1 Samuel",
+    "slug": "1Samuel",
+    "testament": "OT",
+    "chapters": 31,
+    "longTitle": "The First Book of Samuel"
+  },
+  {
+    "id": "2SA",
+    "name": "2 Samuel",
+    "slug": "2Samuel",
+    "testament": "OT",
+    "chapters": 24,
+    "longTitle": "The Second Book of Samuel"
+  },
+  {
+    "id": "1KI",
+    "name": "1 Kings",
+    "slug": "1Kings",
+    "testament": "OT",
+    "chapters": 22,
+    "longTitle": "The First Book of the Kings"
+  },
+  {
+    "id": "2KI",
+    "name": "2 Kings",
+    "slug": "2Kings",
+    "testament": "OT",
+    "chapters": 25,
+    "longTitle": "The Second Book of the Kings"
+  },
+  {
+    "id": "1CH",
+    "name": "1 Chronicles",
+    "slug": "1Chronicles",
+    "testament": "OT",
+    "chapters": 29,
+    "longTitle": "The First Book of the Chronicles"
+  },
+  {
+    "id": "2CH",
+    "name": "2 Chronicles",
+    "slug": "2Chronicles",
+    "testament": "OT",
+    "chapters": 36,
+    "longTitle": "The Second Book of the Chronicles"
+  },
+  {
+    "id": "EZR",
+    "name": "Ezra",
+    "slug": "Ezra",
+    "testament": "OT",
+    "chapters": 10,
+    "longTitle": "The Book of Ezra"
+  },
+  {
+    "id": "NEH",
+    "name": "Nehemiah",
+    "slug": "Nehemiah",
+    "testament": "OT",
+    "chapters": 13,
+    "longTitle": "The Book of Nehemiah"
+  },
+  {
+    "id": "EST",
+    "name": "Esther",
+    "slug": "Esther",
+    "testament": "OT",
+    "chapters": 10,
+    "longTitle": "The Book of Esther"
+  },
+  {
+    "id": "JOB",
+    "name": "Job",
+    "slug": "Job",
+    "testament": "OT",
+    "chapters": 42,
+    "longTitle": "The Book of Job"
+  },
+  {
+    "id": "PSA",
+    "name": "Psalms",
+    "slug": "Psalms",
+    "testament": "OT",
+    "chapters": 150,
+    "longTitle": "The Book of Psalms"
+  },
+  {
+    "id": "PRO",
+    "name": "Proverbs",
+    "slug": "Proverbs",
+    "testament": "OT",
+    "chapters": 31,
+    "longTitle": "The Proverbs"
+  },
+  {
+    "id": "ECC",
+    "name": "Ecclesiastes",
+    "slug": "Ecclesiastes",
+    "testament": "OT",
+    "chapters": 12,
+    "longTitle": "The Book of Ecclesiastes"
+  },
+  {
+    "id": "SNG",
+    "name": "Song of Solomon",
+    "slug": "SongOfSolomon",
+    "testament": "OT",
+    "chapters": 8,
+    "longTitle": "The Song of Solomon"
+  },
+  {
+    "id": "ISA",
+    "name": "Isaiah",
+    "slug": "Isaiah",
+    "testament": "OT",
+    "chapters": 66,
+    "longTitle": "The Book of the Prophet Isaiah"
+  },
+  {
+    "id": "JER",
+    "name": "Jeremiah",
+    "slug": "Jeremiah",
+    "testament": "OT",
+    "chapters": 52,
+    "longTitle": "The Book of the Prophet Jeremiah"
+  },
+  {
+    "id": "LAM",
+    "name": "Lamentations",
+    "slug": "Lamentations",
+    "testament": "OT",
+    "chapters": 5,
+    "longTitle": "The Lamentations of Jeremiah"
+  },
+  {
+    "id": "EZK",
+    "name": "Ezekiel",
+    "slug": "Ezekiel",
+    "testament": "OT",
+    "chapters": 48,
+    "longTitle": "The Book of the Prophet Ezekiel"
+  },
+  {
+    "id": "DAN",
+    "name": "Daniel",
+    "slug": "Daniel",
+    "testament": "OT",
+    "chapters": 12,
+    "longTitle": "The Book of Daniel"
+  },
+  {
+    "id": "HOS",
+    "name": "Hosea",
+    "slug": "Hosea",
+    "testament": "OT",
+    "chapters": 14,
+    "longTitle": "Hosea"
+  },
+  {
+    "id": "JOL",
+    "name": "Joel",
+    "slug": "Joel",
+    "testament": "OT",
+    "chapters": 3,
+    "longTitle": "Joel"
+  },
+  {
+    "id": "AMO",
+    "name": "Amos",
+    "slug": "Amos",
+    "testament": "OT",
+    "chapters": 9,
+    "longTitle": "Amos"
+  },
+  {
+    "id": "OBD",
+    "name": "Obadiah",
+    "slug": "Obadiah",
+    "testament": "OT",
+    "chapters": 1,
+    "longTitle": "Obadiah"
+  },
+  {
+    "id": "JON",
+    "name": "Jonah",
+    "slug": "Jonah",
+    "testament": "OT",
+    "chapters": 4,
+    "longTitle": "Jonah"
+  },
+  {
+    "id": "MIC",
+    "name": "Micah",
+    "slug": "Micah",
+    "testament": "OT",
+    "chapters": 7,
+    "longTitle": "Micah"
+  },
+  {
+    "id": "NAM",
+    "name": "Nahum",
+    "slug": "Nahum",
+    "testament": "OT",
+    "chapters": 3,
+    "longTitle": "Nahum"
+  },
+  {
+    "id": "HAB",
+    "name": "Habakkuk",
+    "slug": "Habakkuk",
+    "testament": "OT",
+    "chapters": 3,
+    "longTitle": "Habakkuk"
+  },
+  {
+    "id": "ZEP",
+    "name": "Zephaniah",
+    "slug": "Zephaniah",
+    "testament": "OT",
+    "chapters": 3,
+    "longTitle": "Zephaniah"
+  },
+  {
+    "id": "HAG",
+    "name": "Haggai",
+    "slug": "Haggai",
+    "testament": "OT",
+    "chapters": 2,
+    "longTitle": "Haggai"
+  },
+  {
+    "id": "ZEC",
+    "name": "Zechariah",
+    "slug": "Zechariah",
+    "testament": "OT",
+    "chapters": 14,
+    "longTitle": "Zechariah"
+  },
+  {
+    "id": "MAL",
+    "name": "Malachi",
+    "slug": "Malachi",
+    "testament": "OT",
+    "chapters": 4,
+    "longTitle": "Malachi"
+  },
+  {
+    "id": "MAT",
+    "name": "Matthew",
+    "slug": "Matthew",
+    "testament": "NT",
+    "chapters": 28,
+    "longTitle": "The Gospel According to Matthew"
+  },
+  {
+    "id": "MRK",
+    "name": "Mark",
+    "slug": "Mark",
+    "testament": "NT",
+    "chapters": 16,
+    "longTitle": "The Gospel According to Mark"
+  },
+  {
+    "id": "LUK",
+    "name": "Luke",
+    "slug": "Luke",
+    "testament": "NT",
+    "chapters": 24,
+    "longTitle": "The Gospel According to Luke"
+  },
+  {
+    "id": "JHN",
+    "name": "John",
+    "slug": "John",
+    "testament": "NT",
+    "chapters": 21,
+    "longTitle": "The Gospel According to John"
+  },
+  {
+    "id": "ACT",
+    "name": "Acts",
+    "slug": "Acts",
+    "testament": "NT",
+    "chapters": 28,
+    "longTitle": "The Acts of the Apostles"
+  },
+  {
+    "id": "ROM",
+    "name": "Romans",
+    "slug": "Romans",
+    "testament": "NT",
+    "chapters": 16,
+    "longTitle": "The Epistle of Paul the Apostle to the Romans"
+  },
+  {
+    "id": "1CO",
+    "name": "1 Corinthians",
+    "slug": "1Corinthians",
+    "testament": "NT",
+    "chapters": 16,
+    "longTitle": "The First Epistle of Paul the Apostle to the Corinthians"
+  },
+  {
+    "id": "2CO",
+    "name": "2 Corinthians",
+    "slug": "2Corinthians",
+    "testament": "NT",
+    "chapters": 13,
+    "longTitle": "The Second Epistle of Paul the Apostle to the Corinthians"
+  },
+  {
+    "id": "GAL",
+    "name": "Galatians",
+    "slug": "Galatians",
+    "testament": "NT",
+    "chapters": 6,
+    "longTitle": "The Epistle of Paul the Apostle to the Galatians"
+  },
+  {
+    "id": "EPH",
+    "name": "Ephesians",
+    "slug": "Ephesians",
+    "testament": "NT",
+    "chapters": 6,
+    "longTitle": "The Epistle of Paul the Apostle to the Ephesians"
+  },
+  {
+    "id": "PHP",
+    "name": "Philippians",
+    "slug": "Philippians",
+    "testament": "NT",
+    "chapters": 4,
+    "longTitle": "The Epistle of Paul the Apostle to the Philippians"
+  },
+  {
+    "id": "COL",
+    "name": "Colossians",
+    "slug": "Colossians",
+    "testament": "NT",
+    "chapters": 4,
+    "longTitle": "The Epistle of Paul the Apostle to the Colossians"
+  },
+  {
+    "id": "1TH",
+    "name": "1 Thessalonians",
+    "slug": "1Thessalonians",
+    "testament": "NT",
+    "chapters": 5,
+    "longTitle": "The First Epistle of Paul the Apostle to the Thessalonians"
+  },
+  {
+    "id": "2TH",
+    "name": "2 Thessalonians",
+    "slug": "2Thessalonians",
+    "testament": "NT",
+    "chapters": 3,
+    "longTitle": "The Second Epistle of Paul the Apostle to the Thessalonians"
+  },
+  {
+    "id": "1TI",
+    "name": "1 Timothy",
+    "slug": "1Timothy",
+    "testament": "NT",
+    "chapters": 6,
+    "longTitle": "The First Epistle of Paul the Apostle to Timothy"
+  },
+  {
+    "id": "2TI",
+    "name": "2 Timothy",
+    "slug": "2Timothy",
+    "testament": "NT",
+    "chapters": 4,
+    "longTitle": "The Second Epistle of Paul the Apostle to Timothy"
+  },
+  {
+    "id": "TIT",
+    "name": "Titus",
+    "slug": "Titus",
+    "testament": "NT",
+    "chapters": 3,
+    "longTitle": "The Epistle of Paul the Apostle to Titus"
+  },
+  {
+    "id": "PHM",
+    "name": "Philemon",
+    "slug": "Philemon",
+    "testament": "NT",
+    "chapters": 1,
+    "longTitle": "The Epistle of Paul the Apostle to Philemon"
+  },
+  {
+    "id": "HEB",
+    "name": "Hebrews",
+    "slug": "Hebrews",
+    "testament": "NT",
+    "chapters": 13,
+    "longTitle": "The Epistle of Paul the Apostle to the Hebrews"
+  },
+  {
+    "id": "JAS",
+    "name": "James",
+    "slug": "James",
+    "testament": "NT",
+    "chapters": 5,
+    "longTitle": "The General Epistle of James"
+  },
+  {
+    "id": "1PE",
+    "name": "1 Peter",
+    "slug": "1Peter",
+    "testament": "NT",
+    "chapters": 5,
+    "longTitle": "The First Epistle General of Peter"
+  },
+  {
+    "id": "2PE",
+    "name": "2 Peter",
+    "slug": "2Peter",
+    "testament": "NT",
+    "chapters": 3,
+    "longTitle": "The Second Epistle General of Peter"
+  },
+  {
+    "id": "1JN",
+    "name": "1 John",
+    "slug": "1John",
+    "testament": "NT",
+    "chapters": 5,
+    "longTitle": "The First Epistle General of John"
+  },
+  {
+    "id": "2JN",
+    "name": "2 John",
+    "slug": "2John",
+    "testament": "NT",
+    "chapters": 1,
+    "longTitle": "The Second Epistle of John"
+  },
+  {
+    "id": "3JN",
+    "name": "3 John",
+    "slug": "3John",
+    "testament": "NT",
+    "chapters": 1,
+    "longTitle": "The Third Epistle of John"
+  },
+  {
+    "id": "JUD",
+    "name": "Jude",
+    "slug": "Jude",
+    "testament": "NT",
+    "chapters": 1,
+    "longTitle": "The General Epistle of Jude"
+  },
+  {
+    "id": "REV",
+    "name": "Revelation",
+    "slug": "Revelation",
+    "testament": "NT",
+    "chapters": 22,
+    "longTitle": "The Revelation of Saint John the Divine"
+  }
+]
