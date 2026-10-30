@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, Image } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, Image, Modal, TextInput, Alert, ImageBackground } from 'react-native';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
 import { Icon } from '../components/Icons';
@@ -9,6 +9,7 @@ import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS, CHANNELS_DATA } from '../data/seed';
 import { refLabel, VERSE_OF_DAY, getChapter } from '../data/bible';
+import { BIBLE_GAMES, TRIVIA_QUESTIONS, WHO_SAID_IT_QUESTIONS, VERSE_SCRAMBLE_DATA } from '../data/games';
 
 // ---------- Discover Hub (HelloBible+ & Taste Skill Aesthetic) ----------
 export default function DiscoverScreen() {
@@ -28,6 +29,101 @@ export default function DiscoverScreen() {
   const toggleActivity = (id) => {
     setCompletedActivities((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  // Interactive Games State
+  const [showGameModal, setShowGameModal] = useState(false);
+  const [activeGameType, setActiveGameType] = useState('trivia'); // 'trivia' | 'who_said_it' | 'scramble'
+  const [gameQuestions, setGameQuestions] = useState(TRIVIA_QUESTIONS);
+  const [activeQuestionIdx, setActiveQuestionIdx] = useState(0);
+  const [selectedOption, setSelectedOption] = useState(null);
+  const [hasAnswered, setHasAnswered] = useState(false);
+  const [gameScore, setGameScore] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
+
+  const startGame = (type) => {
+    setActiveGameType(type);
+    if (type === 'who_said_it') {
+      setGameQuestions(WHO_SAID_IT_QUESTIONS.map(q => ({
+        ...q,
+        question: q.quote,
+        categoryLabel: 'Scripture Quotes'
+      })));
+    } else {
+      setGameQuestions(TRIVIA_QUESTIONS);
+    }
+    setActiveQuestionIdx(0);
+    setSelectedOption(null);
+    setHasAnswered(false);
+    setGameScore(0);
+    setStreak(0);
+    setGameOver(false);
+    setShowGameModal(true);
+  };
+
+  const handleSelectOption = (idx) => {
+    if (hasAnswered) return;
+    const currentQ = gameQuestions[activeQuestionIdx];
+    setSelectedOption(idx);
+    setHasAnswered(true);
+    if (idx === currentQ.correctIndex) {
+      setGameScore((s) => s + 100);
+      setStreak((s) => s + 1);
+    } else {
+      setStreak(0);
+    }
+  };
+
+  const handleNextQuestion = () => {
+    if (activeQuestionIdx + 1 < gameQuestions.length) {
+      setActiveQuestionIdx((i) => i + 1);
+      setSelectedOption(null);
+      setHasAnswered(false);
+    } else {
+      setGameOver(true);
+    }
+  };
+
+  // Make a Wish State
+  const [showWishModal, setShowWishModal] = useState(false);
+  const [wishText, setWishText] = useState('');
+  const [wishCategory, setWishCategory] = useState('Healing');
+  const [wishes, setWishes] = useState([
+    { id: 'w1', user: 'Hannah S.', text: 'Complete healing for my mother\'s lungs and restoration of peace', category: 'Healing', candles: 142, amen: 89, time: '2h ago' },
+    { id: 'w2', user: 'David O.', text: 'Open doors for full-time Kingdom media ministry opportunity', category: 'Guidance', candles: 98, amen: 65, time: '4h ago' },
+    { id: 'w3', user: 'Grace E.', text: 'Deliverance and divine protection over my family in Chicago', category: 'Family', candles: 230, amen: 184, time: '6h ago' },
+    { id: 'w4', user: 'Pastor Emmanuel', text: 'Spiritual revival among the youth and church community', category: 'Revival', candles: 312, amen: 247, time: '8h ago' },
+  ]);
+  const [litCandleIds, setLitCandleIds] = useState(['w1']);
+
+  const handleAddWish = () => {
+    if (!wishText.trim()) {
+      Alert.alert('Required', 'Please enter your prayer wish or desire.');
+      return;
+    }
+    const newW = {
+      id: 'w_' + Date.now(),
+      user: state.user?.displayName || 'Believer',
+      text: wishText.trim(),
+      category: wishCategory,
+      candles: 1,
+      amen: 1,
+      time: 'Just now',
+    };
+    setWishes([newW, ...wishes]);
+    setLitCandleIds((prev) => [...prev, newW.id]);
+    setWishText('');
+    Alert.alert('Prayer Wish Lit', 'Your prayer wish candle has been lit on the altar before God.');
+  };
+
+  const toggleLightCandle = (id) => {
+    setLitCandleIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+    setWishes((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, candles: w.candles + (litCandleIds.includes(id) ? -1 : 1) } : w))
     );
   };
 
@@ -342,47 +438,124 @@ export default function DiscoverScreen() {
         </View>
       </Section>
 
-      {/* 9. Fellowship & Communities */}
+      {/* 9. Churches & Bible Studies with Rich Photographic Thumbnails & Make a Wish */}
       <Section title="Churches & Bible Studies">
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <Card
-            compact
-            title="Communities"
-            subtitle="Churches & study circles"
-            color={colors.forest}
-            icon="community"
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {/* Card 1: Communities */}
+          <Pressable
+            style={styles.photoCard}
             onPress={() => nav.push('Communities')}
-          />
-          <Card
-            compact
-            title="Chat & Groups"
-            subtitle={unread ? `${unread} messages waiting` : 'Direct & group messaging'}
-            color={colors.indigo}
-            icon="chat"
-            onPress={() => nav.push('ChatList')}
-          />
-        </View>
-        <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
-          <Card
-            compact
-            title="Find Believers"
-            subtitle="Discover Christian professionals"
-            color={colors.gold}
-            icon="sparkles"
+          >
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1543807535-eceef0bc6599?auto=format&fit=crop&w=600&q=80' }}
+              style={styles.photoCardBg}
+            />
+            <View style={styles.photoCardScrim} />
+            <View style={styles.photoCardContent}>
+              <View style={[styles.photoCardBadge, { backgroundColor: colors.forest + 'CC' }]}>
+                <Text style={styles.photoCardBadgeText}>42 ACTIVE</Text>
+              </View>
+              <View>
+                <Text style={styles.photoCardTitle}>Communities</Text>
+                <Text style={styles.photoCardSub}>Churches & study circles</Text>
+              </View>
+            </View>
+          </Pressable>
+
+          {/* Card 2: Make a Wish (Replaced Chat & Groups) */}
+          <Pressable
+            style={styles.photoCard}
+            onPress={() => setShowWishModal(true)}
+          >
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1606293926075-69a00dbfde81?auto=format&fit=crop&w=600&q=80' }}
+              style={styles.photoCardBg}
+            />
+            <View style={[styles.photoCardScrim, { backgroundColor: 'rgba(30, 20, 10, 0.55)' }]} />
+            <View style={styles.photoCardContent}>
+              <View style={[styles.photoCardBadge, { backgroundColor: colors.gold + 'E6' }]}>
+                <Text style={[styles.photoCardBadgeText, { color: '#1B1405' }]}>PRAYER WISH</Text>
+              </View>
+              <View>
+                <Text style={styles.photoCardTitle}>Make a Wish</Text>
+                <Text style={styles.photoCardSub}>Light candle · Faith desires</Text>
+              </View>
+            </View>
+          </Pressable>
+
+          {/* Card 3: Find Believers */}
+          <Pressable
+            style={styles.photoCard}
             onPress={() => nav.push('People')}
-          />
-          <Card
-            compact
-            title="Live Fellowship"
-            subtitle={`${(LIVE || []).filter((l) => l.status === 'live').length} active fellowships`}
-            color={colors.rose}
-            icon="live"
+          >
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=600&q=80' }}
+              style={styles.photoCardBg}
+            />
+            <View style={styles.photoCardScrim} />
+            <View style={styles.photoCardContent}>
+              <View style={[styles.photoCardBadge, { backgroundColor: colors.indigo + 'CC' }]}>
+                <Text style={styles.photoCardBadgeText}>VERIFIED</Text>
+              </View>
+              <View>
+                <Text style={styles.photoCardTitle}>Find Believers</Text>
+                <Text style={styles.photoCardSub}>Christian networking</Text>
+              </View>
+            </View>
+          </Pressable>
+
+          {/* Card 4: Live Fellowship */}
+          <Pressable
+            style={styles.photoCard}
             onPress={() => nav.push('Live')}
-          />
+          >
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=600&q=80' }}
+              style={styles.photoCardBg}
+            />
+            <View style={[styles.photoCardScrim, { backgroundColor: 'rgba(40, 10, 20, 0.55)' }]} />
+            <View style={styles.photoCardContent}>
+              <View style={[styles.photoCardBadge, { backgroundColor: colors.rose + 'E6' }]}>
+                <Text style={styles.photoCardBadgeText}>LIVE NOW</Text>
+              </View>
+              <View>
+                <Text style={styles.photoCardTitle}>Live Fellowship</Text>
+                <Text style={styles.photoCardSub}>{(LIVE || []).filter((l) => l.status === 'live').length} active fellowships</Text>
+              </View>
+            </View>
+          </Pressable>
         </View>
       </Section>
 
-      {/* 10. Channels & Broadcasts */}
+      {/* 10. Interactive Bible Games with 4 Options per Question */}
+      <Section title="Interactive Bible Games">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingVertical: 4 }}>
+          {BIBLE_GAMES.map((game) => (
+            <Pressable
+              key={game.id}
+              style={styles.gameCard}
+              onPress={() => startGame(game.id === 'who_said_it' ? 'who_said_it' : 'trivia')}
+            >
+              <Image source={{ uri: game.thumbnail }} style={styles.gameCardImg} />
+              <View style={styles.gameBadgeBox}>
+                <Text style={styles.gameBadgeText}>{game.badge}</Text>
+              </View>
+              <View style={styles.gameCardContent}>
+                <Text style={styles.gameCardTitle} numberOfLines={1}>{game.title}</Text>
+                <Text style={styles.gameCardSub} numberOfLines={2}>{game.subtitle}</Text>
+                <View style={styles.gameCardMeta}>
+                  <Text style={styles.gameCardPlayers}>{game.players}</Text>
+                  <View style={styles.gameCardBtn}>
+                    <Text style={styles.gameCardBtnText}>Play Challenge →</Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Section>
+
+      {/* 11. Channels & Broadcasts */}
       <Section title="Channels & Broadcasts">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
           {CHANNELS_DATA.map((ch) => (
@@ -411,6 +584,237 @@ export default function DiscoverScreen() {
         onPress={() => nav.push('Create')}
         style={{ marginTop: 24, marginBottom: 36 }}
       />
+
+      {/* Interactive Bible Game Modal (20+ Questions with 4 Choices) */}
+      <Modal visible={showGameModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.gameSheet}>
+            <View style={styles.sheetTopBar}>
+              <View>
+                <Text style={styles.sheetHeaderCategory}>
+                  {gameQuestions[activeQuestionIdx]?.categoryLabel || 'BIBLE TRIVIA'}
+                </Text>
+                <Text style={styles.sheetHeaderProgress}>
+                  Question {activeQuestionIdx + 1} of {gameQuestions.length}
+                </Text>
+              </View>
+              <View style={styles.gameScoreBadges}>
+                <View style={styles.scorePill}>
+                  <Text style={styles.scorePillText}>★ {gameScore} pts</Text>
+                </View>
+                {streak > 1 ? (
+                  <View style={[styles.scorePill, { backgroundColor: colors.gold + '25', borderColor: colors.gold }]}>
+                    <Text style={[styles.scorePillText, { color: colors.gold }]}>{streak}x Streak 🔥</Text>
+                  </View>
+                ) : null}
+                <Pressable onPress={() => setShowGameModal(false)} hitSlop={12} style={{ padding: 4, marginLeft: 8 }}>
+                  <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '700' }}>✕</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+              {!gameOver ? (
+                <>
+                  {/* Question Card */}
+                  <View style={styles.gameQuestionBox}>
+                    <Text style={styles.gameQuestionText}>
+                      {gameQuestions[activeQuestionIdx]?.question}
+                    </Text>
+                  </View>
+
+                  {/* 4 Multi-Choice Options */}
+                  <View style={{ gap: 10, marginTop: 14 }}>
+                    {gameQuestions[activeQuestionIdx]?.options.map((opt, oIdx) => {
+                      const currentQ = gameQuestions[activeQuestionIdx];
+                      const isCorrect = oIdx === currentQ.correctIndex;
+                      const isChosen = selectedOption === oIdx;
+
+                      let optBg = colors.surface;
+                      let optBorder = colors.border;
+                      let optTextColor = colors.fg;
+                      let letterBg = colors.raised;
+                      let letterColor = colors.muted;
+
+                      if (hasAnswered) {
+                        if (isCorrect) {
+                          optBg = colors.forest + '20';
+                          optBorder = colors.forest;
+                          optTextColor = colors.forest;
+                          letterBg = colors.forest;
+                          letterColor = '#FFFFFF';
+                        } else if (isChosen && !isCorrect) {
+                          optBg = colors.rose + '20';
+                          optBorder = colors.rose;
+                          optTextColor = colors.rose;
+                          letterBg = colors.rose;
+                          letterColor = '#FFFFFF';
+                        }
+                      }
+
+                      return (
+                        <Pressable
+                          key={oIdx}
+                          onPress={() => handleSelectOption(oIdx)}
+                          disabled={hasAnswered}
+                          style={[styles.gameOptionBtn, { backgroundColor: optBg, borderColor: optBorder }]}
+                        >
+                          <View style={[styles.gameOptionLetter, { backgroundColor: letterBg }]}>
+                            <Text style={[styles.gameOptionLetterText, { color: letterColor }]}>
+                              {['A', 'B', 'C', 'D'][oIdx]}
+                            </Text>
+                          </View>
+                          <Text style={[styles.gameOptionText, { color: optTextColor }]} numberOfLines={2}>
+                            {opt}
+                          </Text>
+                          {hasAnswered && isCorrect ? (
+                            <Text style={{ color: colors.forest, fontWeight: '700', fontSize: 16 }}>✓</Text>
+                          ) : null}
+                          {hasAnswered && isChosen && !isCorrect ? (
+                            <Text style={{ color: colors.rose, fontWeight: '700', fontSize: 16 }}>✕</Text>
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* Explanation & Scripture Reference */}
+                  {hasAnswered ? (
+                    <View style={styles.gameExplanationBox}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Icon name="sparkles" size={14} color={colors.gold} />
+                        <Text style={styles.gameCitationBadge}>
+                          {gameQuestions[activeQuestionIdx]?.reference}
+                        </Text>
+                      </View>
+                      <Text style={styles.gameExplanationText}>
+                        {gameQuestions[activeQuestionIdx]?.explanation}
+                      </Text>
+
+                      <Pressable style={styles.gameNextBtn} onPress={handleNextQuestion}>
+                        <Text style={styles.gameNextBtnText}>
+                          {activeQuestionIdx + 1 < gameQuestions.length ? 'Next Question →' : 'View Final Score 🏆'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                /* Game Over Summary */
+                <View style={styles.gameOverContainer}>
+                  <Text style={{ fontSize: 44, textAlign: 'center' }}>🏆</Text>
+                  <Text style={styles.gameOverTitle}>Challenge Completed!</Text>
+                  <Text style={styles.gameOverScoreText}>{gameScore} Total Points</Text>
+                  <Text style={styles.gameOverSub}>
+                    You answered {gameQuestions.length} Scripture challenges with steadfast faith.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
+                    <Button
+                      label="Play Again"
+                      onPress={() => startGame(activeGameType)}
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      kind="ghost"
+                      label="Done"
+                      onPress={() => setShowGameModal(false)}
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Make a Wish & Light a Prayer Candle Modal */}
+      <Modal visible={showWishModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.wishSheet}>
+            <View style={styles.sheetTopBar}>
+              <View>
+                <Text style={styles.sheetHeaderCategory}>PRAYER ALTAR</Text>
+                <Text style={styles.sheetHeaderProgress}>Make a Wish & Light a Candle</Text>
+              </View>
+              <Pressable onPress={() => setShowWishModal(false)} hitSlop={12} style={{ padding: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '700' }}>✕</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+              <View style={styles.wishHeroCard}>
+                <Image
+                  source={{ uri: 'https://images.unsplash.com/photo-1606293926075-69a00dbfde81?auto=format&fit=crop&w=600&q=80' }}
+                  style={styles.wishHeroImg}
+                />
+                <View style={styles.wishHeroOverlay} />
+                <View style={styles.wishHeroContent}>
+                  <Text style={styles.wishHeroTitle}>"Ask, and it shall be given you..."</Text>
+                  <Text style={styles.wishHeroSub}>Submit your heartfelt prayer desires before God and invite fellow believers to light a candle of intercession with you.</Text>
+                </View>
+              </View>
+
+              <Text style={styles.inputLabel}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginVertical: 6 }}>
+                {['Healing', 'Guidance', 'Family', 'Financial Miracle', 'Salvation', 'Revival'].map((cat) => (
+                  <Pressable
+                    key={cat}
+                    onPress={() => setWishCategory(cat)}
+                    style={[styles.wishCatChip, wishCategory === cat && styles.wishCatChipActive]}
+                  >
+                    <Text style={[styles.wishCatChipText, wishCategory === cat && { color: colors.gold, fontWeight: '600' }]}>{cat}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.inputLabel}>Your Prayer Wish / Desire</Text>
+              <TextInput
+                placeholder="Pour out what you are believing God for..."
+                placeholderTextColor={colors.faint}
+                value={wishText}
+                onChangeText={setWishText}
+                multiline
+                style={styles.wishInput}
+              />
+
+              <Button
+                label="🕯️ Light Candle & Send Wish to Altar"
+                onPress={handleAddWish}
+                style={{ marginTop: 12 }}
+              />
+
+              {/* Community Wishes Altar */}
+              <View style={{ marginTop: 24 }}>
+                <Text style={styles.wishesSectionTitle}>Believers' Prayer Candles on the Altar</Text>
+                {wishes.map((w) => {
+                  const isLit = litCandleIds.includes(w.id);
+                  return (
+                    <View key={w.id} style={styles.wishItemCard}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={styles.wishItemUser}>{w.user} · {w.category}</Text>
+                        <Text style={styles.wishItemTime}>{w.time}</Text>
+                      </View>
+                      <Text style={styles.wishItemText}>{w.text}</Text>
+                      <View style={styles.wishItemActions}>
+                        <Pressable
+                          onPress={() => toggleLightCandle(w.id)}
+                          style={[styles.candleBtn, isLit && styles.candleBtnActive]}
+                        >
+                          <Text style={[styles.candleBtnText, isLit && { color: colors.gold, fontWeight: '700' }]}>
+                            🕯️ {isLit ? 'Candle Lit' : 'Light Candle'} · {w.candles}
+                          </Text>
+                        </Pressable>
+                        <Text style={styles.wishAmenText}>✦ {w.amen} Amen prayers</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -1227,4 +1631,82 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   video: { height: 200, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', borderRadius: 14, overflow: 'hidden' },
   post: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.rule },
+
+  // Churches & Bible Studies Photographic Cards
+  photoCard: { width: '48.5%', height: 135, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, position: 'relative' },
+  photoCardBg: { ...StyleSheet.absoluteFillObject },
+  photoCardScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10, 15, 20, 0.58)' },
+  photoCardContent: { flex: 1, padding: 11, justifyContent: 'space-between' },
+  photoCardBadge: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
+  photoCardBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
+  photoCardTitle: { color: '#FFFFFF', fontFamily: fonts.serifBold, fontSize: 14.5, fontWeight: '700' },
+  photoCardSub: { color: 'rgba(255,255,255,0.85)', fontFamily: fonts.sans, fontSize: 10.5, marginTop: 2 },
+
+  // Interactive Games
+  gameCard: { width: 225, backgroundColor: colors.surface, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
+  gameCardImg: { width: '100%', height: 110, backgroundColor: colors.raised },
+  gameBadgeBox: { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
+  gameBadgeText: { color: colors.gold, fontSize: 9.5, fontWeight: '700', textTransform: 'uppercase' },
+  gameCardContent: { padding: 12 },
+  gameCardTitle: { fontFamily: fonts.serifBold, fontSize: 14, color: colors.fg },
+  gameCardSub: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 3, height: 32 },
+  gameCardMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
+  gameCardPlayers: { fontFamily: fonts.sans, fontSize: 10, color: colors.muted },
+  gameCardBtn: { backgroundColor: colors.forest, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  gameCardBtnText: { color: '#FFFFFF', fontSize: 10.5, fontWeight: '700' },
+
+  // Modal Overlay & Sheets
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
+  gameSheet: { backgroundColor: colors.screen, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '92%', minHeight: 480 },
+  sheetTopBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
+  sheetHeaderCategory: { fontFamily: fonts.sans, fontSize: 10, fontWeight: '700', color: colors.gold, letterSpacing: 0.8 },
+  sheetHeaderProgress: { fontFamily: fonts.serifBold, fontSize: 15, color: colors.fg, marginTop: 2 },
+  gameScoreBadges: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  scorePill: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  scorePillText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
+
+  gameQuestionBox: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 16, marginTop: 14 },
+  gameQuestionText: { fontFamily: fonts.serif, fontSize: 15, lineHeight: 22, color: colors.fg },
+
+  gameOptionBtn: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1.5, gap: 10 },
+  gameOptionLetter: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  gameOptionLetterText: { fontFamily: fonts.sansMedium, fontSize: 12, fontWeight: '700' },
+  gameOptionText: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 13 },
+
+  gameExplanationBox: { backgroundColor: colors.raised, borderRadius: 12, padding: 14, marginTop: 14, borderWidth: 1, borderColor: colors.border },
+  gameCitationBadge: { fontFamily: fonts.sansMedium, fontSize: 11.5, fontWeight: '700', color: colors.gold },
+  gameExplanationText: { fontFamily: fonts.sans, fontSize: 12, lineHeight: 18, color: colors.fg, marginTop: 6 },
+  gameNextBtn: { backgroundColor: colors.forest, paddingVertical: 11, borderRadius: 10, alignItems: 'center', marginTop: 12 },
+  gameNextBtnText: { color: '#FFFFFF', fontFamily: fonts.sansMedium, fontSize: 13, fontWeight: '700' },
+
+  gameOverContainer: { paddingVertical: 30, alignItems: 'center' },
+  gameOverTitle: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.fg, marginTop: 12 },
+  gameOverScoreText: { fontFamily: fonts.sansMedium, fontSize: 18, color: colors.gold, fontWeight: '700', marginTop: 6 },
+  gameOverSub: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.muted, textAlign: 'center', marginTop: 8, paddingHorizontal: 20 },
+
+  // Make a Wish Sheet
+  wishSheet: { backgroundColor: colors.screen, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '92%', minHeight: 520 },
+  wishHeroCard: { height: 130, borderRadius: 14, overflow: 'hidden', marginVertical: 12, position: 'relative' },
+  wishHeroImg: { ...StyleSheet.absoluteFillObject },
+  wishHeroOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(25, 15, 5, 0.62)' },
+  wishHeroContent: { flex: 1, padding: 14, justifyContent: 'center' },
+  wishHeroTitle: { fontFamily: fonts.serifBold, fontSize: 16, color: '#FFFFFF' },
+  wishHeroSub: { fontFamily: fonts.sans, fontSize: 11, color: 'rgba(255,255,255,0.88)', marginTop: 4, lineHeight: 16 },
+
+  inputLabel: { fontFamily: fonts.sansMedium, fontSize: 11.5, fontWeight: '600', color: colors.fg, marginTop: 10 },
+  wishCatChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  wishCatChipActive: { borderColor: colors.gold, backgroundColor: colors.gold + '15' },
+  wishCatChipText: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted },
+
+  wishInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, minHeight: 70, textAlignVertical: 'top', color: colors.fg, fontSize: 13, marginTop: 6 },
+  wishesSectionTitle: { fontFamily: fonts.serifBold, fontSize: 14, color: colors.fg, marginBottom: 10 },
+  wishItemCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, marginBottom: 10 },
+  wishItemUser: { fontFamily: fonts.sansMedium, fontSize: 11.5, fontWeight: '700', color: colors.gold },
+  wishItemTime: { fontFamily: fonts.sans, fontSize: 10, color: colors.muted },
+  wishItemText: { fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 18, color: colors.fg, marginTop: 4 },
+  wishItemActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
+  candleBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.raised, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
+  candleBtnActive: { borderColor: colors.gold, backgroundColor: colors.gold + '20' },
+  candleBtnText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
+  wishAmenText: { fontFamily: fonts.sans, fontSize: 10.5, color: colors.forest, fontWeight: '600' },
 });

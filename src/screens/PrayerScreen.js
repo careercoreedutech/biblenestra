@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty } from '../components/ui';
 import { colors, fonts } from '../theme';
 import { useStore } from '../store';
@@ -17,6 +18,12 @@ export default function PrayerScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
   const [tab, setTab] = useState('All');
+
+  const prayerPlayer = useVideoPlayer('https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4', (player) => {
+    player.loop = true;
+    player.play();
+    player.muted = true;
+  });
 
   const filtered = state.prayers.filter((p) => {
     if (tab === 'Mine') return p.mine;
@@ -38,6 +45,43 @@ export default function PrayerScreen({ params = {} }) {
         </Pressable>
       }
     >
+      {/* Atmospheric Video Animation Header */}
+      <View style={styles.videoHeroContainer}>
+        <VideoView
+          style={StyleSheet.absoluteFill}
+          player={prayerPlayer}
+          allowsFullscreen={false}
+          allowsPictureInPicture={false}
+          nativeControls={false}
+          contentFit="cover"
+        />
+        <View style={styles.videoHeroOverlay} />
+        <View style={styles.videoHeroContent}>
+          <View style={styles.videoLiveBadge}>
+            <View style={styles.videoPulseDot} />
+            <Text style={styles.videoLiveBadgeText}>LIVE INTERCESSION ALTAR</Text>
+          </View>
+          <Text style={styles.videoHeroTitle}>United in Fervent Prayer</Text>
+          <Text style={styles.videoHeroQuote}>
+            "The effectual fervent prayer of a righteous man availeth much." — James 5:16
+          </Text>
+          <View style={styles.videoStatsRow}>
+            <View style={styles.videoStatItem}>
+              <Text style={styles.videoStatNum}>1,420</Text>
+              <Text style={styles.videoStatLabel}>Praying Now</Text>
+            </View>
+            <View style={styles.videoStatDivider} />
+            <View style={styles.videoStatItem}>
+              <Text style={styles.videoStatNum}>384</Text>
+              <Text style={styles.videoStatLabel}>Answered Prayers</Text>
+            </View>
+            <Pressable style={styles.videoActionBtn} onPress={() => nav.push('NewPrayer')}>
+              <Text style={styles.videoActionBtnText}>＋ Add Prayer</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
       <Pills
         items={['All', 'Mine', 'Church', 'Public', 'Answered']}
         value={tab}
@@ -377,5 +421,115 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     backgroundColor: colors.surface,
+  },
+  addPrayerBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Video Animation Hero
+  videoHeroContainer: {
+    height: 180,
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  videoHeroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(10, 18, 14, 0.62)',
+  },
+  videoHeroContent: {
+    flex: 1,
+    padding: 16,
+    justifyContent: 'space-between',
+  },
+  videoLiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  videoPulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.rose,
+  },
+  videoLiveBadgeText: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sans,
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  videoHeroTitle: {
+    color: '#FFFFFF',
+    fontFamily: fonts.serifBold,
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  videoHeroQuote: {
+    color: 'rgba(255, 255, 255, 0.88)',
+    fontFamily: fonts.serif,
+    fontSize: 11.5,
+    fontStyle: 'italic',
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  videoStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+    paddingTop: 8,
+  },
+  videoStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  videoStatNum: {
+    color: colors.gold,
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  videoStatLabel: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontFamily: fonts.sans,
+    fontSize: 10.5,
+  },
+  videoStatDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  videoActionBtn: {
+    backgroundColor: colors.forest,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  videoActionBtnText: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

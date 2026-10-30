@@ -7,17 +7,30 @@ import kjvBible from './kjv_bible.json';
 // Multilingual support for English, Yoruba, Igbo, Hausa, French, Spanish, Portuguese, Swahili, Arabic.
 
 export const TRANSLATIONS = [
-  { id: 'KJV', name: 'King James Version', lang: 'English', available: true, publisher: 'Public Domain · mielke.cc', offline: true },
+  // YouVersion Top Featured English Translations
+  { id: 'NIV', name: 'New International Version', lang: 'English', available: true, publisher: 'Biblica / YouVersion', offline: true, badge: 'Popular' },
+  { id: 'ESV', name: 'English Standard Version', lang: 'English', available: true, publisher: 'Crossway', offline: true, badge: 'Standard' },
+  { id: 'NLT', name: 'New Living Translation', lang: 'English', available: true, publisher: 'Tyndale House', offline: true, badge: 'Easy Read' },
+  { id: 'KJV', name: 'King James Version', lang: 'English', available: true, publisher: 'Authorized · mielke.cc', offline: true, badge: 'Complete 31k' },
+  { id: 'NKJV', name: 'New King James Version', lang: 'English', available: true, publisher: 'Thomas Nelson', offline: true },
+  { id: 'NASB', name: 'New American Standard Bible', lang: 'English', available: true, publisher: 'Lockman Foundation', offline: true, badge: 'Literal' },
+  { id: 'AMP', name: 'Amplified Bible', lang: 'English', available: true, publisher: 'Lockman Foundation', offline: true },
+  { id: 'CSB', name: 'Christian Standard Bible', lang: 'English', available: true, publisher: 'Holman Bible Pub.', offline: true },
+  { id: 'MSG', name: 'The Message', lang: 'English', available: true, publisher: 'NavPress · Eugene Peterson', offline: true },
   { id: 'WEB', name: 'World English Bible', lang: 'English', available: true, publisher: 'Public Domain', offline: true },
   { id: 'BBE', name: 'Bible in Basic English', lang: 'English', available: true, publisher: 'Public Domain', offline: true },
   { id: 'ASV', name: 'American Standard Version', lang: 'English', available: true, publisher: 'Public Domain', offline: true },
+  
+  // African & Indigenous Languages
   { id: 'YOR', name: 'Bíbélì Mímọ́ (Yoruba)', lang: 'Yoruba', available: true, publisher: 'Bible Society of Nigeria', offline: true },
   { id: 'IGB', name: 'Baịbụl Nsọ (Igbo)', lang: 'Igbo', available: true, publisher: 'Bible Society of Nigeria', offline: true },
   { id: 'HAU', name: 'Littafi Mai Tsarki (Hausa)', lang: 'Hausa', available: true, publisher: 'Bible Society of Nigeria', offline: true },
+  { id: 'SWA', name: 'Biblia Takatifu (Swahili)', lang: 'Swahili', available: true, publisher: 'Bible Society of Kenya & Tanzania', offline: true },
+  
+  // World Languages
   { id: 'LSG', name: 'Louis Segond (French)', lang: 'French', available: true, publisher: 'Public Domain', offline: true },
   { id: 'RVR', name: 'Reina-Valera 1909 (Spanish)', lang: 'Spanish', available: true, publisher: 'Public Domain', offline: true },
   { id: 'ARC', name: 'Almeida Revista (Portuguese)', lang: 'Portuguese', available: true, publisher: 'Public Domain', offline: true },
-  { id: 'SWA', name: 'Biblia Takatifu (Swahili)', lang: 'Swahili', available: true, publisher: 'Public Domain', offline: true },
   { id: 'SVD', name: 'Smith & Van Dyck (Arabic)', lang: 'Arabic', available: true, publisher: 'Public Domain', offline: true },
 ];
 

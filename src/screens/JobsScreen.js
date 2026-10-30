@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Image } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { Screen, Section, Badge, Tag, Button, Row } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { colors, fonts } from '../theme';
@@ -9,8 +10,12 @@ import { useStore } from '../store';
 
 const CATEGORIES = [
   'All',
-  'Software & Web Development',
+  'Entertainment',
+  'Fitness',
+  'E-Commerce',
+  'AI',
   'Graphic Design & Video Editing',
+  'Software & Web Development',
   'Virtual Assistants',
   'Worship Musicians & Producers',
   'Writers, Editors & Translators',
@@ -27,6 +32,12 @@ export default function JobsScreen() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [showPostModal, setShowPostModal] = useState(false);
+
+  const jobsVideoPlayer = useVideoPlayer('https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4', (player) => {
+    player.loop = true;
+    player.play();
+    player.muted = true;
+  });
 
   // Proposal Form State
   const [bidRate, setBidRate] = useState('');
@@ -115,6 +126,123 @@ export default function JobsScreen() {
         </Pressable>
       }
     >
+      {/* Attention-Grabbing Video Animation Banner */}
+      <View style={styles.jobsVideoHero}>
+        <VideoView
+          style={StyleSheet.absoluteFill}
+          player={jobsVideoPlayer}
+          allowsFullscreen={false}
+          allowsPictureInPicture={false}
+          nativeControls={false}
+          contentFit="cover"
+        />
+        <View style={styles.jobsVideoOverlay} />
+        <View style={styles.jobsVideoContent}>
+          <View style={styles.jobsVideoTopRow}>
+            <View style={styles.jobsTrendingBadge}>
+              <View style={styles.jobsLiveDot} />
+              <Text style={styles.jobsTrendingText}>20,732 TOTAL GIGS · TRENDING</Text>
+            </View>
+            <View style={styles.jobsBountyTag}>
+              <Text style={styles.jobsBountyTagText}>HIGH BOUNTIES</Text>
+            </View>
+          </View>
+
+          <Text style={styles.jobsVideoTitle}>Kingdom Creator & Tech Bounties</Text>
+          <Text style={styles.jobsVideoSub}>
+            Work with verified global ministries, Christian creators, and gospel enterprises.
+          </Text>
+
+          <View style={styles.jobsVideoStatsRow}>
+            <Text style={styles.jobsVideoStatItem}>⚡ Fast Escrow Payout</Text>
+            <Text style={styles.jobsVideoStatItem}>🛡️ Verified Believers</Text>
+            <Text style={styles.jobsVideoStatItem}>★ 4.96 Avg Rating</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Featured Creator Bounties (Matching Client Screenshot) */}
+      <View style={{ marginVertical: 10 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={styles.bountySectionTitle}>Featured Creator Bounties</Text>
+          <Text style={styles.bountySectionSub}>From $875.00</Text>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+          {/* Bounty 1: Creators Corner $875.00 */}
+          <View style={styles.bountyCard}>
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=600&q=80' }}
+              style={styles.bountyCardBg}
+            />
+            <View style={styles.bountyCardScrim} />
+            <View style={styles.bountyCardContent}>
+              <View style={styles.bountyPriceBadge}>
+                <Text style={styles.bountyPriceText}>$875.00</Text>
+              </View>
+              <View>
+                <Text style={styles.bountyCardTitle}>CREATORS CORNER</Text>
+                <Text style={styles.bountyRatingText}>★ 4.96 (24 reviews)</Text>
+                <Text style={styles.bountyCardTagline}>Unlock Your Creative Potential</Text>
+                <Text style={styles.bountyCardDesc} numberOfLines={2}>
+                  Produce high-retention sermon reels, gospel shorts & social clips.
+                </Text>
+              </View>
+              <Pressable
+                style={styles.bountyClaimBtn}
+                onPress={() => {
+                  setSelectedJob({
+                    id: 'bounty_875',
+                    title: 'Creators Corner Sermon & Reels Production',
+                    budget: '$875.00',
+                  });
+                  setBidRate('$875.00');
+                  setShowApplyModal(true);
+                }}
+              >
+                <Text style={styles.bountyClaimBtnText}>Apply for Bounty →</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {/* Bounty 2: Global Campaign $1,297.00 */}
+          <View style={styles.bountyCard}>
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=600&q=80' }}
+              style={styles.bountyCardBg}
+            />
+            <View style={styles.bountyCardScrim} />
+            <View style={styles.bountyCardContent}>
+              <View style={[styles.bountyPriceBadge, { backgroundColor: colors.forest }]}>
+                <Text style={styles.bountyPriceText}>$1,297.00</Text>
+              </View>
+              <View>
+                <Text style={styles.bountyCardTitle}>KINGDOM MEDIA LEAD</Text>
+                <Text style={styles.bountyRatingText}>★ 5.0 (38 reviews)</Text>
+                <Text style={styles.bountyCardTagline}>Global Faith Campaign Director</Text>
+                <Text style={styles.bountyCardDesc} numberOfLines={2}>
+                  Direct multi-channel evangelism outreach across YouTube, TikTok & Reels.
+                </Text>
+              </View>
+              <Pressable
+                style={styles.bountyClaimBtn}
+                onPress={() => {
+                  setSelectedJob({
+                    id: 'bounty_1297',
+                    title: 'Kingdom Media Lead Campaign Director',
+                    budget: '$1,297.00',
+                  });
+                  setBidRate('$1,297.00');
+                  setShowApplyModal(true);
+                }}
+              >
+                <Text style={styles.bountyClaimBtnText}>Apply for Bounty →</Text>
+              </Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+
       {/* Search Input */}
       <View style={styles.searchBar}>
         <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" style={{ marginRight: 8 }}>
@@ -666,5 +794,180 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sans,
     fontSize: 11.5,
     color: colors.muted,
+  },
+
+  // Attention-Grabbing Video Hero
+  jobsVideoHero: {
+    height: 175,
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+    marginTop: 6,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  jobsVideoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+  },
+  jobsVideoContent: {
+    flex: 1,
+    padding: 14,
+    justifyContent: 'space-between',
+  },
+  jobsVideoTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  jobsTrendingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  jobsLiveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.gold,
+  },
+  jobsTrendingText: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sans,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  jobsBountyTag: {
+    backgroundColor: colors.forest,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  jobsBountyTagText: {
+    color: '#FFFFFF',
+    fontSize: 8.5,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  jobsVideoTitle: {
+    color: '#FFFFFF',
+    fontFamily: fonts.serifBold,
+    fontSize: 17,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  jobsVideoSub: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  jobsVideoStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.15)',
+    paddingTop: 8,
+  },
+  jobsVideoStatItem: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontFamily: fonts.sansMedium,
+    fontSize: 10,
+  },
+
+  // Featured Creator Bounties
+  bountySectionTitle: {
+    fontFamily: fonts.serifBold,
+    fontSize: 14,
+    color: colors.fg,
+  },
+  bountySectionSub: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: colors.gold,
+    fontWeight: '700',
+  },
+  bountyCard: {
+    width: 250,
+    height: 195,
+    borderRadius: 14,
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  bountyCardBg: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bountyCardScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(10, 15, 25, 0.68)',
+  },
+  bountyCardContent: {
+    flex: 1,
+    padding: 12,
+    justifyContent: 'space-between',
+  },
+  bountyPriceBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.gold,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  bountyPriceText: {
+    color: '#1A1405',
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  bountyCardTitle: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  bountyRatingText: {
+    color: colors.gold,
+    fontFamily: fonts.sans,
+    fontSize: 10,
+    marginTop: 2,
+  },
+  bountyCardTagline: {
+    color: 'rgba(255, 255, 255, 0.95)',
+    fontFamily: fonts.serifBold,
+    fontSize: 11.5,
+    marginTop: 2,
+  },
+  bountyCardDesc: {
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontFamily: fonts.sans,
+    fontSize: 10,
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  bountyClaimBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  bountyClaimBtnText: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

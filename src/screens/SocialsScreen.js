@@ -10,6 +10,7 @@ import {
   Text,
   TextInput,
   View,
+  Image,
 } from 'react-native';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -23,6 +24,49 @@ import { Button, Tag, Badge } from '../components/ui';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const VIDEO_THEMES = ['#0F172A', '#1E1B4B', '#064E3B', '#3B0764', '#1E293B'];
+
+const SAMPLE_VIDEOS = [
+  { id: 'sv1', title: 'Sanctuary Worship & Altar', url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4', duration: '0:45' },
+  { id: 'sv2', title: 'Acoustic Praise Session', url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4', duration: '0:38' },
+];
+
+const SAMPLE_IMAGES = [
+  { id: 'si1', title: 'Believers In Prayer', url: 'https://images.unsplash.com/photo-1543807535-eceef0bc6599?auto=format&fit=crop&w=600&q=80' },
+  { id: 'si2', title: 'Open Scripture Meditation', url: 'https://images.unsplash.com/photo-1507692049790-de58290a4334?auto=format&fit=crop&w=600&q=80' },
+  { id: 'si3', title: 'Altar Candle of Faith', url: 'https://images.unsplash.com/photo-1606293926075-69a00dbfde81?auto=format&fit=crop&w=600&q=80' },
+];
+
+function UploadVideoPreview({ videoUrl }) {
+  const previewPlayer = useVideoPlayer(videoUrl || null, (p) => {
+    p.loop = true;
+    p.play();
+    p.muted = true;
+  });
+
+  return (
+    <View style={styles.modalPreviewBox}>
+      {videoUrl ? (
+        <VideoView
+          style={StyleSheet.absoluteFill}
+          player={previewPlayer}
+          allowsFullscreen={false}
+          allowsPictureInPicture={false}
+          nativeControls={false}
+          contentFit="cover"
+        />
+      ) : (
+        <View style={styles.modalPreviewPlaceholder}>
+          <Icon name="video" size={32} color={colors.gold} />
+          <Text style={styles.modalPreviewPlaceholderText}>Select a video to preview</Text>
+        </View>
+      )}
+      <View style={styles.modalPreviewScrim} pointerEvents="none" />
+      <View style={styles.modalPreviewBadge}>
+        <Text style={styles.modalPreviewBadgeText}>LIVE VIDEO PREVIEW</Text>
+      </View>
+    </View>
+  );
+}
 
 const GIFT_ICONS = {
   g_rose: { name: 'sun', color: colors.rose },
@@ -230,6 +274,7 @@ function VideoReelItem({
 export default function SocialsScreen() {
   const { state, dispatch } = useStore();
   const nav = useNav();
+  const [mainTab, setMainTab] = useState('reels'); // 'reels' | 'guild' | 'creators'
   const [activeTab, setActiveTab] = useState('Recommended'); // 'Following' | 'Recommended'
   const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT - 105);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -257,11 +302,38 @@ export default function SocialsScreen() {
     }
   });
 
-  // Video publishing state
+  // Multi-Media Publishing State
+  const [publishMode, setPublishMode] = useState('upload_videos'); // 'upload_videos' | 'post_video' | 'upload_images' | 'post_content'
   const [newTitle, setNewTitle] = useState('');
   const [newScripture, setNewScripture] = useState('');
   const [newCategory, setNewCategory] = useState('Worship');
   const [newHashtags, setNewHashtags] = useState('#Faith #Grace #Jesus');
+  const [selectedMediaUrl, setSelectedMediaUrl] = useState(SAMPLE_VIDEOS[0].url);
+  const [selectedImageUrl, setSelectedImageUrl] = useState(SAMPLE_IMAGES[0].url);
+  const [textContent, setTextContent] = useState('');
+  const [contentTheme, setContentTheme] = useState('#0F172A');
+
+  // Clip Farm Discord Guild State (Matching Client Screenshot)
+  const [guildChannel, setGuildChannel] = useState('#content-rewards');
+  const [guildInput, setGuildInput] = useState('');
+  const [guildMessages, setGuildMessages] = useState([
+    { id: 'm1', user: 'Shepherds Benjamin', role: 'Guild Founder', time: '09:28 AM', text: 'Welcome creators to Clip Farm! Check out the active $875 and $1,297 content reward campaigns below.' },
+    { id: 'm2', user: 'Grace Adeyemi', role: 'Video Editor', time: '09:34 AM', text: 'Just finished editing 4 sermon reels for the Sunday broadcast! Ready to upload.' },
+    { id: 'm3', user: 'Caleb Motion', role: 'VFX / Motion', time: '09:41 AM', text: 'Amen! The new 4K lower-thirds and kinetic typography templates are now available for all editors.' },
+  ]);
+
+  const handleSendGuildMessage = () => {
+    if (!guildInput.trim()) return;
+    const newM = {
+      id: 'm_' + Date.now(),
+      user: state.user?.displayName || 'Believer Creator',
+      role: 'Content Creator',
+      time: 'Just now',
+      text: guildInput.trim(),
+    };
+    setGuildMessages((prev) => [...prev, newM]);
+    setGuildInput('');
+  };
 
   const videos = state.videos || [];
   const activeVideo = selectedVideo || videos[0];
@@ -296,7 +368,50 @@ export default function SocialsScreen() {
   };
 
   const handlePublish = () => {
-    if (!newTitle.trim()) return;
+    if (publishMode === 'post_content') {
+      if (!textContent.trim()) {
+        Alert.alert('Required', 'Please enter your message.');
+        return;
+      }
+      const newPost = {
+        id: 'v' + Date.now(),
+        creator: {
+          name: state.user.displayName,
+          handle: state.user.username ? `@${state.user.username}` : '@user',
+          verified: true,
+          avatar: state.user.displayName.slice(0, 2).toUpperCase(),
+          church: state.user.church?.name || 'Local Church',
+        },
+        caption: textContent.trim(),
+        scripture: newScripture.trim() || 'Philippians 4:13',
+        category: 'Devotional',
+        hashtags: ['#Faith', '#Devotion'],
+        duration: 'Text Post',
+        sound: `Faith Word · ${state.user.displayName}`,
+        videoUrl: null,
+        bg: contentTheme,
+        views: '1',
+        likes: 1,
+        liked: true,
+        shares: 0,
+        reposts: 0,
+        gifts: 0,
+        comments: [],
+      };
+      dispatch({ type: 'publishVideo', video: newPost });
+      setSelectedVideo(newPost);
+      setShowPublishModal(false);
+      setTextContent('');
+      setMainTab('reels');
+      Alert.alert('Published', 'Your faith post is live in the Socials feed!');
+      return;
+    }
+
+    if (!newTitle.trim()) {
+      Alert.alert('Required', 'Please enter a caption.');
+      return;
+    }
+
     const newVid = {
       id: 'v' + Date.now(),
       creator: {
@@ -312,7 +427,7 @@ export default function SocialsScreen() {
       hashtags: newHashtags.split(' ').map((h) => (h.startsWith('#') ? h : `#${h}`)),
       duration: '0:45',
       sound: `Original Audio · ${state.user.displayName}`,
-      videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+      videoUrl: (publishMode === 'upload_images' ? null : selectedMediaUrl),
       bg: '#1b382d',
       views: '1',
       likes: 1,
@@ -327,6 +442,8 @@ export default function SocialsScreen() {
     setShowPublishModal(false);
     setNewTitle('');
     setNewScripture('');
+    setMainTab('reels');
+    Alert.alert('Success', `${publishMode === 'upload_images' ? 'Image Post' : 'Video Reel'} published to Socials feed!`);
   };
 
   const filteredVideos = activeTab === 'Following'
@@ -343,26 +460,39 @@ export default function SocialsScreen() {
         }
       }}
     >
-      {/* Top Floating Feed Switcher & Publish Button */}
-      <View style={styles.topBar}>
-        <View style={styles.tabContainer}>
-          <Pressable onPress={() => setActiveTab('Following')} style={styles.feedTab}>
-            <Text style={[styles.feedTabText, activeTab === 'Following' && styles.feedTabTextActive]}>
-              Following
-            </Text>
-            {activeTab === 'Following' ? <View style={styles.feedTabUnderline} /> : null}
+      {/* Top Segmented Smart Navigation Bar */}
+      <View style={styles.smartHeader}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.smartNavScroll}>
+          <Pressable
+            onPress={() => setMainTab('reels')}
+            style={[styles.smartNavTab, mainTab === 'reels' && styles.smartNavTabActive]}
+          >
+            <Icon name="video" size={14} color={mainTab === 'reels' ? colors.gold : colors.muted} />
+            <Text style={[styles.smartNavText, mainTab === 'reels' && styles.smartNavTextActive]}>Reels</Text>
           </Pressable>
-          <Text style={styles.tabDivider}>|</Text>
-          <Pressable onPress={() => setActiveTab('Recommended')} style={styles.feedTab}>
-            <Text style={[styles.feedTabText, activeTab === 'Recommended' && styles.feedTabTextActive]}>
-              For You
-            </Text>
-            {activeTab === 'Recommended' ? <View style={styles.feedTabUnderline} /> : null}
+
+          <Pressable
+            onPress={() => setMainTab('guild')}
+            style={[styles.smartNavTab, mainTab === 'guild' && styles.smartNavTabActive]}
+          >
+            <Icon name="community" size={14} color={mainTab === 'guild' ? colors.gold : colors.muted} />
+            <Text style={[styles.smartNavText, mainTab === 'guild' && styles.smartNavTextActive]}>Clip Farm Guild</Text>
+            <View style={styles.guildNavBadge}>
+              <Text style={styles.guildNavBadgeText}>1</Text>
+            </View>
           </Pressable>
-        </View>
+
+          <Pressable
+            onPress={() => setMainTab('creators')}
+            style={[styles.smartNavTab, mainTab === 'creators' && styles.smartNavTabActive]}
+          >
+            <Icon name="sparkles" size={14} color={mainTab === 'creators' ? colors.gold : colors.muted} />
+            <Text style={[styles.smartNavText, mainTab === 'creators' && styles.smartNavTextActive]}>Creators Corner</Text>
+          </Pressable>
+        </ScrollView>
 
         <Pressable onPress={() => setShowPublishModal(true)} style={styles.createBtn}>
-          <Text style={styles.createBtnText}>＋ Create</Text>
+          <Text style={styles.createBtnText}>＋ Upload / Post</Text>
         </Pressable>
       </View>
 
@@ -374,48 +504,496 @@ export default function SocialsScreen() {
         </View>
       ) : null}
 
-      {/* Main Full-Screen Vertical Snapping Reels Feed */}
-      <FlatList
-        ref={flatListRef}
-        data={filteredVideos}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={containerHeight}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        disableIntervalMomentum={true}
-        bounces={false}
-        getItemLayout={(data, index) => ({
-          length: containerHeight,
-          offset: containerHeight * index,
-          index,
-        })}
-        viewabilityConfig={viewabilityConfig.current}
-        onViewableItemsChanged={onViewableItemsChanged.current}
-        renderItem={({ item, index }) => (
-          <VideoReelItem
-            item={item}
-            index={index}
-            itemHeight={containerHeight}
-            isActive={index === activeIndex}
-            isLiked={item.liked}
-            isFollowing={state.follows?.includes(item.creator.handle)}
-            onLike={() => dispatch({ type: 'likeVideo', id: item.id })}
-            onComment={() => {
-              setSelectedVideo(item);
-              setShowComments(true);
-            }}
-            onGift={() => {
-              setSelectedVideo(item);
-              setShowGiftStore(true);
-            }}
-            onShare={() => Alert.alert('Share', `Shared "${item.caption.slice(0, 30)}..." to Christian Social network!`)}
-            onRepost={() => Alert.alert('Repost', 'Reposted to your Christian Socials profile!')}
-            onFollow={() => dispatch({ type: 'follow', id: item.creator.handle })}
-            onOpenBible={() => nav.push('Bible', { bookId: 'JHN', chapter: 3 })}
+      {/* TAB 1: REELS VERTICAL VIDEO FEED */}
+      {mainTab === 'reels' ? (
+        <View style={{ flex: 1 }}>
+          {/* Sub-bar for Following vs For You */}
+          <View style={styles.reelsSubBar}>
+            <Pressable onPress={() => setActiveTab('Following')} style={styles.feedTab}>
+              <Text style={[styles.feedTabText, activeTab === 'Following' && styles.feedTabTextActive]}>
+                Following
+              </Text>
+              {activeTab === 'Following' ? <View style={styles.feedTabUnderline} /> : null}
+            </Pressable>
+            <Text style={styles.tabDivider}>|</Text>
+            <Pressable onPress={() => setActiveTab('Recommended')} style={styles.feedTab}>
+              <Text style={[styles.feedTabText, activeTab === 'Recommended' && styles.feedTabTextActive]}>
+                For You
+              </Text>
+              {activeTab === 'Recommended' ? <View style={styles.feedTabUnderline} /> : null}
+            </Pressable>
+          </View>
+
+          <FlatList
+            ref={flatListRef}
+            data={filteredVideos}
+            keyExtractor={(item) => item.id}
+            showsVerticalScrollIndicator={false}
+            snapToInterval={containerHeight}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            disableIntervalMomentum={true}
+            bounces={false}
+            getItemLayout={(data, index) => ({
+              length: containerHeight,
+              offset: containerHeight * index,
+              index,
+            })}
+            viewabilityConfig={viewabilityConfig.current}
+            onViewableItemsChanged={onViewableItemsChanged.current}
+            renderItem={({ item, index }) => (
+              <VideoReelItem
+                item={item}
+                index={index}
+                itemHeight={containerHeight}
+                isActive={index === activeIndex}
+                isLiked={item.liked}
+                isFollowing={state.follows?.includes(item.creator.handle)}
+                onLike={() => dispatch({ type: 'likeVideo', id: item.id })}
+                onComment={() => {
+                  setSelectedVideo(item);
+                  setShowComments(true);
+                }}
+                onGift={() => {
+                  setSelectedVideo(item);
+                  setShowGiftStore(true);
+                }}
+                onShare={() => Alert.alert('Share', `Shared "${item.caption.slice(0, 30)}..." to Christian Social network!`)}
+                onRepost={() => Alert.alert('Repost', 'Reposted to your Christian Socials profile!')}
+                onFollow={() => dispatch({ type: 'follow', id: item.creator.handle })}
+                onOpenBible={() => nav.push('Bible', { bookId: 'JHN', chapter: 3 })}
+              />
+            )}
           />
-        )}
-      />
+        </View>
+      ) : null}
+
+      {/* TAB 2: CLIP FARM DISCORD GUILD (Matching Client Screenshot) */}
+      {mainTab === 'guild' ? (
+        <View style={styles.guildContainer}>
+          {/* Guild Header matching media_1793370117109_8c40ff13.png */}
+          <View style={styles.guildHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={styles.guildLogoCircle}>
+                <Text style={styles.guildLogoText}>CF</Text>
+              </View>
+              <View>
+                <Text style={styles.guildName}>Clip Farm</Text>
+                <Text style={styles.guildMeta}>★ 4.57 (5,163) · 210 online</Text>
+              </View>
+            </View>
+            <Pressable
+              style={styles.guildCopyBtn}
+              onPress={() => Alert.alert('Copied', 'discord.gg/clipfarm link copied!')}
+            >
+              <Text style={styles.guildCopyBtnText}>Copy link</Text>
+            </Pressable>
+          </View>
+
+          {/* Discord Channels & Chat Split View */}
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+            {/* Channel Category: Support */}
+            <View style={styles.channelCategory}>
+              <Text style={styles.categoryTitle}>SUPPORT ▾</Text>
+              <Pressable
+                onPress={() => setGuildChannel('#ggv-support-chat')}
+                style={[styles.channelItem, guildChannel === '#ggv-support-chat' && styles.channelItemActive]}
+              >
+                <Text style={styles.channelHash}>✉</Text>
+                <Text style={[styles.channelName, guildChannel === '#ggv-support-chat' && styles.channelNameActive]}>ggv's support chat</Text>
+              </Pressable>
+            </View>
+
+            {/* Channel Category: Announcements */}
+            <View style={styles.channelCategory}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={styles.categoryTitle}>ANNOUNCEMENTS ▾</Text>
+                <View style={styles.unreadPill}>
+                  <Text style={styles.unreadPillText}>1</Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={() => setGuildChannel('#announcements')}
+                style={[styles.channelItem, guildChannel === '#announcements' && styles.channelItemActive]}
+              >
+                <Text style={styles.channelHash}>📢</Text>
+                <Text style={[styles.channelName, guildChannel === '#announcements' && styles.channelNameActive]}>Announcements</Text>
+              </Pressable>
+            </View>
+
+            {/* Channel Category: Home */}
+            <View style={styles.channelCategory}>
+              <Text style={styles.categoryTitle}>HOME ▾</Text>
+              <Pressable
+                onPress={() => setGuildChannel('#discord-invite')}
+                style={[styles.channelItem, guildChannel === '#discord-invite' && styles.channelItemActive]}
+              >
+                <Text style={styles.channelHash}>🌐</Text>
+                <Text style={[styles.channelName, guildChannel === '#discord-invite' && styles.channelNameActive]}>discord.gg/clipfarm</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setGuildChannel('#faq')}
+                style={[styles.channelItem, guildChannel === '#faq' && styles.channelItemActive]}
+              >
+                <Text style={styles.channelHash}>❓</Text>
+                <Text style={[styles.channelName, guildChannel === '#faq' && styles.channelNameActive]}>FAQ & Rules</Text>
+              </Pressable>
+            </View>
+
+            {/* Channel Category: Campaigns & Rewards (Matching Screenshot) */}
+            <View style={styles.channelCategory}>
+              <Text style={styles.categoryTitle}>CAMPAIGNS & BOUNTIES ▾</Text>
+              <Pressable
+                onPress={() => setGuildChannel('#campaign-announcements')}
+                style={[styles.channelItem, guildChannel === '#campaign-announcements' && styles.channelItemActive]}
+              >
+                <Text style={styles.channelHash}>🎯</Text>
+                <Text style={[styles.channelName, guildChannel === '#campaign-announcements' && styles.channelNameActive]}>Campaign Announcements</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setGuildChannel('#global-rules')}
+                style={[styles.channelItem, guildChannel === '#global-rules' && styles.channelItemActive]}
+              >
+                <Text style={styles.channelHash}>✓</Text>
+                <Text style={[styles.channelName, guildChannel === '#global-rules' && styles.channelNameActive]}>Global Campaign Rules</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setGuildChannel('#content-rewards')}
+                style={[styles.channelItem, guildChannel === '#content-rewards' && styles.channelItemActive]}
+              >
+                <Text style={styles.channelHash}>💰</Text>
+                <Text style={[styles.channelName, guildChannel === '#content-rewards' && styles.channelNameActive]}>Content Rewards ($875 & $1,297)</Text>
+              </Pressable>
+            </View>
+
+            {/* Interactive Guild Chat Stream */}
+            <View style={styles.guildChatBox}>
+              <View style={styles.guildChatHeader}>
+                <Text style={styles.guildChatTitle}>{guildChannel}</Text>
+                <Text style={styles.guildChatSub}>Live Creator Discord Stream</Text>
+              </View>
+
+              {guildMessages.map((m) => (
+                <View key={m.id} style={styles.guildMessageRow}>
+                  <View style={styles.guildAvatar}>
+                    <Text style={styles.guildAvatarText}>{m.user[0]}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.guildMessageAuthor}>{m.user}</Text>
+                      <View style={styles.guildRoleBadge}>
+                        <Text style={styles.guildRoleText}>{m.role}</Text>
+                      </View>
+                      <Text style={styles.guildMessageTime}>{m.time}</Text>
+                    </View>
+                    <Text style={styles.guildMessageBody}>{m.text}</Text>
+                  </View>
+                </View>
+              ))}
+
+              <View style={styles.guildInputRow}>
+                <TextInput
+                  placeholder={`Message ${guildChannel}...`}
+                  placeholderTextColor={colors.faint}
+                  value={guildInput}
+                  onChangeText={setGuildInput}
+                  style={styles.guildTextInput}
+                />
+                <Button small label="Send" onPress={handleSendGuildMessage} disabled={!guildInput.trim()} />
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      ) : null}
+
+      {/* TAB 3: CREATORS CORNER (Matching Client Screenshot) */}
+      {mainTab === 'creators' ? (
+        <ScrollView style={{ flex: 1, padding: 14 }} contentContainerStyle={{ paddingBottom: 36 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <View>
+              <Text style={styles.cornerMainTitle}>Creators Corner</Text>
+              <Text style={styles.cornerSubtitle}>20,732 total · Trending</Text>
+            </View>
+            <Pressable
+              style={styles.pitchBtn}
+              onPress={() => setShowPublishModal(true)}
+            >
+              <Text style={styles.pitchBtnText}>＋ Submit Work</Text>
+            </Pressable>
+          </View>
+
+          {/* Category Chips matching screenshot */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 16 }}>
+            {['All', 'Entertainment', 'Fitness', 'E-Commerce', 'AI', 'Freelance', 'Ministry Media'].map((cat) => (
+              <View key={cat} style={styles.cornerCatChip}>
+                <Text style={styles.cornerCatChipText}>{cat}</Text>
+              </View>
+            ))}
+          </ScrollView>
+
+          {/* Card 1: Creators Corner $875.00 */}
+          <View style={styles.cornerCard}>
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?auto=format&fit=crop&w=600&q=80' }}
+              style={styles.cornerCardImg}
+            />
+            <View style={styles.cornerPriceBadge}>
+              <Text style={styles.cornerPriceText}>$875.00</Text>
+            </View>
+            <View style={styles.cornerCardBody}>
+              <Text style={styles.cornerCardTitle}>CREATORS CORNER</Text>
+              <Text style={styles.cornerCardRating}>★ 4.96 (24)</Text>
+              <Text style={styles.cornerCardTagline}>Unlock Your Creative Potential</Text>
+              <Text style={styles.cornerCardDesc}>
+                Produce top-tier viral Christian reels, sermon shorts, and gospel media. High escrow rewards for verified editors.
+              </Text>
+              <Button
+                label="Apply for $875.00 Bounty →"
+                onPress={() => {
+                  setNewTitle('Creators Corner Submission');
+                  setShowPublishModal(true);
+                }}
+                style={{ marginTop: 12 }}
+              />
+            </View>
+          </View>
+
+          {/* Card 2: Kingdom Media Lead $1,297.00 */}
+          <View style={[styles.cornerCard, { marginTop: 16 }]}>
+            <Image
+              source={{ uri: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=600&q=80' }}
+              style={styles.cornerCardImg}
+            />
+            <View style={[styles.cornerPriceBadge, { backgroundColor: colors.forest }]}>
+              <Text style={styles.cornerPriceText}>$1,297.00</Text>
+            </View>
+            <View style={styles.cornerCardBody}>
+              <Text style={styles.cornerCardTitle}>GLOBAL CAMPAIGN LEAD</Text>
+              <Text style={styles.cornerCardRating}>★ 5.0 (38)</Text>
+              <Text style={styles.cornerCardTagline}>Direct Multi-Channel Evangelism</Text>
+              <Text style={styles.cornerCardDesc}>
+                Lead video creators and distribute faith content to reach 1M+ views across YouTube, Instagram, and TikTok.
+              </Text>
+              <Button
+                label="Apply for $1,297.00 Bounty →"
+                onPress={() => {
+                  setNewTitle('Global Campaign Submission');
+                  setShowPublishModal(true);
+                }}
+                style={{ marginTop: 12 }}
+              />
+            </View>
+          </View>
+        </ScrollView>
+      ) : null}
+
+      {/* Multi-Media Publishing Suite Modal (Post content, Post video, Upload images, Upload videos) */}
+      <Modal visible={showPublishModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.publishSheet}>
+            <View style={styles.sheetHeader}>
+              <View>
+                <Text style={styles.sheetTitle}>Create & Upload to Socials</Text>
+                <Text style={styles.sheetSubtitle}>Post content, videos & photos with live preview</Text>
+              </View>
+              <Pressable onPress={() => setShowPublishModal(false)} hitSlop={12}>
+                <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '700' }}>✕</Text>
+              </Pressable>
+            </View>
+
+            {/* 4 Mode Selector: Post Content | Post Video | Upload Images | Upload Videos */}
+            <View style={styles.publishModeRow}>
+              {[
+                { id: 'upload_videos', label: 'Upload Videos', icon: 'video' },
+                { id: 'post_video', label: 'Post a Video', icon: 'play' },
+                { id: 'upload_images', label: 'Upload Images', icon: 'sparkles' },
+                { id: 'post_content', label: 'Post a Content', icon: 'edit' },
+              ].map((m) => (
+                <Pressable
+                  key={m.id}
+                  onPress={() => setPublishMode(m.id)}
+                  style={[styles.publishModeTab, publishMode === m.id && styles.publishModeTabActive]}
+                >
+                  <Text style={[styles.publishModeText, publishMode === m.id && styles.publishModeTextActive]}>
+                    {m.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
+              {/* MODE 1 & 2: UPLOAD VIDEOS & POST VIDEO (WITH LIVE VIDEO PREVIEW) */}
+              {publishMode === 'upload_videos' || publishMode === 'post_video' ? (
+                <>
+                  <Text style={styles.label}>Select Video to Upload</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, marginVertical: 6 }}>
+                    {SAMPLE_VIDEOS.map((v) => (
+                      <Pressable
+                        key={v.id}
+                        onPress={() => setSelectedMediaUrl(v.url)}
+                        style={[styles.mediaOptionCard, selectedMediaUrl === v.url && styles.mediaOptionCardActive]}
+                      >
+                        <Icon name="video" size={16} color={selectedMediaUrl === v.url ? colors.gold : colors.muted} />
+                        <Text style={[styles.mediaOptionText, selectedMediaUrl === v.url && { color: colors.gold, fontWeight: '700' }]}>
+                          {v.title}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+
+                  {/* LIVE VIDEO PREVIEW PLAYER (Solves 'Mo place to upload videos here sir') */}
+                  <UploadVideoPreview videoUrl={selectedMediaUrl} />
+
+                  <Text style={styles.label}>Caption & Key Message</Text>
+                  <TextInput
+                    placeholder="What is the Holy Spirit speaking through this video?"
+                    placeholderTextColor={colors.faint}
+                    value={newTitle}
+                    onChangeText={setNewTitle}
+                    multiline
+                    style={[styles.input, { minHeight: 65 }]}
+                  />
+
+                  <Text style={styles.label}>Scripture Reference</Text>
+                  <TextInput
+                    placeholder="e.g. Philippians 4:13"
+                    placeholderTextColor={colors.faint}
+                    value={newScripture}
+                    onChangeText={setNewScripture}
+                    style={styles.input}
+                  />
+
+                  <Text style={styles.label}>Category</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginVertical: 6 }}>
+                    {['Sermons', 'Worship', 'Testimonies', 'Bible Study', 'Evangelism'].map((cat) => (
+                      <Pressable
+                        key={cat}
+                        onPress={() => setNewCategory(cat)}
+                        style={[styles.catChip, newCategory === cat && styles.catChipActive]}
+                      >
+                        <Text style={[styles.catChipText, newCategory === cat && { color: colors.gold, fontWeight: '600' }]}>{cat}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+
+                  <Button
+                    label="✓ Publish Video to Socials Feed"
+                    onPress={handlePublish}
+                    disabled={!newTitle.trim()}
+                    style={{ marginTop: 16 }}
+                  />
+                </>
+              ) : null}
+
+              {/* MODE 3: UPLOAD IMAGES (WITH LIVE PHOTO PREVIEW) */}
+              {publishMode === 'upload_images' ? (
+                <>
+                  <Text style={styles.label}>Select Photo to Upload</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, marginVertical: 6 }}>
+                    {SAMPLE_IMAGES.map((img) => (
+                      <Pressable
+                        key={img.id}
+                        onPress={() => setSelectedImageUrl(img.url)}
+                        style={[styles.mediaOptionCard, selectedImageUrl === img.url && styles.mediaOptionCardActive]}
+                      >
+                        <Icon name="sparkles" size={16} color={selectedImageUrl === img.url ? colors.gold : colors.muted} />
+                        <Text style={[styles.mediaOptionText, selectedImageUrl === img.url && { color: colors.gold, fontWeight: '700' }]}>
+                          {img.title}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+
+                  {/* LIVE IMAGE PREVIEW */}
+                  <View style={styles.imagePreviewBox}>
+                    <Image source={{ uri: selectedImageUrl }} style={styles.imagePreviewImg} />
+                    <View style={styles.modalPreviewBadge}>
+                      <Text style={styles.modalPreviewBadgeText}>PHOTO PREVIEW</Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.label}>Photo Caption</Text>
+                  <TextInput
+                    placeholder="Share the inspiration behind this photo..."
+                    placeholderTextColor={colors.faint}
+                    value={newTitle}
+                    onChangeText={setNewTitle}
+                    multiline
+                    style={[styles.input, { minHeight: 65 }]}
+                  />
+
+                  <Text style={styles.label}>Scripture Reference</Text>
+                  <TextInput
+                    placeholder="e.g. Psalm 23:1"
+                    placeholderTextColor={colors.faint}
+                    value={newScripture}
+                    onChangeText={setNewScripture}
+                    style={styles.input}
+                  />
+
+                  <Button
+                    label="✓ Publish Photo to Socials Feed"
+                    onPress={handlePublish}
+                    disabled={!newTitle.trim()}
+                    style={{ marginTop: 16 }}
+                  />
+                </>
+              ) : null}
+
+              {/* MODE 4: POST A CONTENT (TEXT / DEVOTIONAL) */}
+              {publishMode === 'post_content' ? (
+                <>
+                  <Text style={styles.label}>Card Theme Color</Text>
+                  <View style={{ flexDirection: 'row', gap: 10, marginVertical: 8 }}>
+                    {['#0F172A', '#1E1B4B', '#064E3B', '#3B0764'].map((color) => (
+                      <Pressable
+                        key={color}
+                        onPress={() => setContentTheme(color)}
+                        style={[styles.themePill, { backgroundColor: color }, contentTheme === color && styles.themePillActive]}
+                      />
+                    ))}
+                  </View>
+
+                  <View style={[styles.contentPreviewCard, { backgroundColor: contentTheme }]}>
+                    <Text style={styles.contentPreviewCardText}>
+                      {textContent.trim() || 'Your devotional message or testimony will appear formatted like this in believers’ feeds.'}
+                    </Text>
+                    <Text style={styles.contentPreviewCardRef}>
+                      {newScripture.trim() ? `— ${newScripture}` : '— Scripture'}
+                    </Text>
+                  </View>
+
+                  <Text style={styles.label}>Devotion / Faith Testimony</Text>
+                  <TextInput
+                    placeholder="Share what the Lord has done or a Scripture meditation..."
+                    placeholderTextColor={colors.faint}
+                    value={textContent}
+                    onChangeText={setTextContent}
+                    multiline
+                    style={[styles.input, { minHeight: 90 }]}
+                  />
+
+                  <Text style={styles.label}>Scripture Reference</Text>
+                  <TextInput
+                    placeholder="e.g. Romans 8:28"
+                    placeholderTextColor={colors.faint}
+                    value={newScripture}
+                    onChangeText={setNewScripture}
+                    style={styles.input}
+                  />
+
+                  <Button
+                    label="✓ Publish Faith Post to Feed"
+                    onPress={handlePublish}
+                    disabled={!textContent.trim()}
+                    style={{ marginTop: 16 }}
+                  />
+                </>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Virtual Gifts Store Modal */}
       <Modal visible={showGiftStore} transparent animationType="slide">
@@ -432,7 +1010,6 @@ export default function SocialsScreen() {
               </View>
             </View>
 
-            {/* Gift Options Grid with Vector Icons */}
             <View style={styles.giftGrid}>
               {GIFTS.map((g) => {
                 const iconMeta = GIFT_ICONS[g.id] || { name: 'sparkles', color: colors.gold };
@@ -498,7 +1075,6 @@ export default function SocialsScreen() {
                       <Text style={styles.replyActionText}>Reply</Text>
                     </Pressable>
 
-                    {/* Nested Replies */}
                     {c.replies?.map((r) => (
                       <View key={r.id} style={styles.replyItem}>
                         <Text style={styles.replyAuthor}>{r.from} · <Text style={{ color: colors.faint }}>{r.time}</Text></Text>
@@ -510,7 +1086,6 @@ export default function SocialsScreen() {
               ))}
             </ScrollView>
 
-            {/* Comment Composer */}
             {replyingTo ? (
               <View style={styles.replyingBar}>
                 <Text style={styles.replyingText}>Replying to {replyingTo.from}</Text>
@@ -530,70 +1105,6 @@ export default function SocialsScreen() {
               />
               <Button small label="Post" onPress={handleAddComment} disabled={!commentText.trim()} />
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Video Publishing Modal */}
-      <Modal visible={showPublishModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.publishSheet}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Publish Christian Video</Text>
-              <Pressable onPress={() => setShowPublishModal(false)} hitSlop={12}>
-                <Text style={{ color: colors.muted, fontSize: 16 }}>✕</Text>
-              </Pressable>
-            </View>
-
-            <ScrollView style={{ flex: 1 }}>
-              <Text style={styles.label}>Caption & Key Message</Text>
-              <TextInput
-                placeholder="What is the Holy Spirit speaking through this video?"
-                placeholderTextColor={colors.faint}
-                value={newTitle}
-                onChangeText={setNewTitle}
-                multiline
-                style={[styles.input, { minHeight: 70 }]}
-              />
-
-              <Text style={styles.label}>Scripture Reference</Text>
-              <TextInput
-                placeholder="e.g. Philippians 4:13"
-                placeholderTextColor={colors.faint}
-                value={newScripture}
-                onChangeText={setNewScripture}
-                style={styles.input}
-              />
-
-              <Text style={styles.label}>Category</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginVertical: 6 }}>
-                {['Sermons', 'Worship', 'Testimonies', 'Bible Study', 'Christian Comedy', 'Evangelism'].map((cat) => (
-                  <Pressable
-                    key={cat}
-                    onPress={() => setNewCategory(cat)}
-                    style={[styles.catChip, newCategory === cat && styles.catChipActive]}
-                  >
-                    <Text style={[styles.catChipText, newCategory === cat && { color: colors.gold, fontWeight: '600' }]}>{cat}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.label}>Hashtags</Text>
-              <TextInput
-                placeholder="#Worship #Jesus #Faith"
-                placeholderTextColor={colors.faint}
-                value={newHashtags}
-                onChangeText={setNewHashtags}
-                style={styles.input}
-              />
-
-              <Button
-                label="Publish to Socials Feed"
-                onPress={handlePublish}
-                disabled={!newTitle.trim()}
-                style={{ marginTop: 20 }}
-              />
-            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1129,5 +1640,504 @@ const styles = StyleSheet.create({
     fontFamily: fonts.sans,
     fontSize: 11.5,
     color: colors.muted,
+  },
+
+  // Smart Segmented Top Bar
+  smartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    zIndex: 30,
+  },
+  smartNavScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  smartNavTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  smartNavTabActive: {
+    backgroundColor: 'rgba(217, 119, 6, 0.2)',
+    borderColor: colors.gold,
+  },
+  smartNavText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    color: colors.muted,
+  },
+  smartNavTextActive: {
+    color: colors.gold,
+    fontWeight: '700',
+  },
+  guildNavBadge: {
+    backgroundColor: colors.rose,
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  guildNavBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+
+  reelsSubBar: {
+    position: 'absolute',
+    top: 10,
+    left: 16,
+    zIndex: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(12, 20, 17, 0.75)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+
+  // Discord-style Clip Farm Guild Styles
+  guildContainer: {
+    flex: 1,
+    backgroundColor: '#1E1F22',
+  },
+  guildHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#2B2D31',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1F2023',
+  },
+  guildLogoCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#22C55E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guildLogoText: {
+    color: '#FFFFFF',
+    fontFamily: fonts.serifBold,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  guildName: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  guildMeta: {
+    color: '#94A3B8',
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  guildCopyBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  guildCopyBtnText: {
+    color: '#E2E8F0',
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  channelCategory: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
+  categoryTitle: {
+    color: '#94A3B8',
+    fontFamily: fonts.sansMedium,
+    fontSize: 10.5,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  unreadPill: {
+    backgroundColor: colors.rose,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  unreadPillText: {
+    color: '#FFFFFF',
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+  channelItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginTop: 4,
+  },
+  channelItemActive: {
+    backgroundColor: '#35373C',
+  },
+  channelHash: {
+    color: '#94A3B8',
+    fontSize: 14,
+  },
+  channelName: {
+    color: '#94A3B8',
+    fontFamily: fonts.sans,
+    fontSize: 13,
+  },
+  channelNameActive: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansMedium,
+    fontWeight: '600',
+  },
+
+  guildChatBox: {
+    marginHorizontal: 12,
+    marginTop: 14,
+    backgroundColor: '#2B2D31',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#383A40',
+  },
+  guildChatHeader: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#383A40',
+    paddingBottom: 8,
+    marginBottom: 10,
+  },
+  guildChatTitle: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  guildChatSub: {
+    color: '#94A3B8',
+    fontFamily: fonts.sans,
+    fontSize: 10.5,
+    marginTop: 2,
+  },
+  guildMessageRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  guildAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.forest,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guildAvatarText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  guildMessageAuthor: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  guildRoleBadge: {
+    backgroundColor: 'rgba(217, 119, 6, 0.25)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  guildRoleText: {
+    color: colors.gold,
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  guildMessageTime: {
+    color: '#64748B',
+    fontSize: 9.5,
+  },
+  guildMessageBody: {
+    color: '#E2E8F0',
+    fontFamily: fonts.sans,
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  guildInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#383A40',
+    paddingTop: 8,
+    marginTop: 6,
+  },
+  guildTextInput: {
+    flex: 1,
+    backgroundColor: '#383A40',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    color: '#FFFFFF',
+    fontFamily: fonts.sans,
+    fontSize: 12.5,
+  },
+
+  // Creators Corner Marketplace Styles
+  cornerMainTitle: {
+    fontFamily: fonts.serifBold,
+    fontSize: 18,
+    color: colors.fg,
+  },
+  cornerSubtitle: {
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    color: colors.gold,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  pitchBtn: {
+    backgroundColor: colors.forest,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  pitchBtnText: {
+    color: '#FFFFFF',
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  cornerCatChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cornerCatChipText: {
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    color: colors.muted,
+  },
+  cornerCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cornerCardImg: {
+    width: '100%',
+    height: 140,
+    backgroundColor: colors.raised,
+  },
+  cornerPriceBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: colors.gold,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  cornerPriceText: {
+    color: '#1A1405',
+    fontFamily: fonts.sansMedium,
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  cornerCardBody: {
+    padding: 14,
+  },
+  cornerCardTitle: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.fg,
+    letterSpacing: 0.5,
+  },
+  cornerCardRating: {
+    color: colors.gold,
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  cornerCardTagline: {
+    fontFamily: fonts.serifBold,
+    fontSize: 13,
+    color: colors.fg,
+    marginTop: 4,
+  },
+  cornerCardDesc: {
+    fontFamily: fonts.sans,
+    fontSize: 11.5,
+    color: colors.muted,
+    marginTop: 4,
+    lineHeight: 16,
+  },
+
+  // Multi-Media Publish Modal Styles
+  publishModeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginVertical: 10,
+    backgroundColor: colors.raised,
+    padding: 4,
+    borderRadius: 10,
+  },
+  publishModeTab: {
+    flex: 1,
+    paddingVertical: 7,
+    alignItems: 'center',
+    borderRadius: 7,
+  },
+  publishModeTabActive: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  publishModeText: {
+    fontFamily: fonts.sans,
+    fontSize: 10.5,
+    color: colors.muted,
+  },
+  publishModeTextActive: {
+    fontFamily: fonts.sansMedium,
+    fontWeight: '700',
+    color: colors.fg,
+  },
+
+  modalPreviewBox: {
+    height: 150,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#0F172A',
+  },
+  modalPreviewPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalPreviewPlaceholderText: {
+    color: colors.muted,
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    marginTop: 6,
+  },
+  modalPreviewScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+  },
+  modalPreviewBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  modalPreviewBadgeText: {
+    color: colors.gold,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+
+  mediaOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: colors.raised,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  mediaOptionCardActive: {
+    borderColor: colors.gold,
+    backgroundColor: colors.surface,
+  },
+  mediaOptionText: {
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    color: colors.muted,
+  },
+
+  imagePreviewBox: {
+    height: 150,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  imagePreviewImg: {
+    width: '100%',
+    height: '100%',
+  },
+
+  themePill: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  themePillActive: {
+    borderColor: colors.gold,
+  },
+  contentPreviewCard: {
+    padding: 16,
+    borderRadius: 12,
+    marginVertical: 10,
+    minHeight: 110,
+    justifyContent: 'center',
+  },
+  contentPreviewCardText: {
+    color: '#FFFFFF',
+    fontFamily: fonts.serif,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  contentPreviewCardRef: {
+    color: colors.gold,
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 8,
   },
 });
