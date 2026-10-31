@@ -12,7 +12,7 @@ import {
   View,
   Image,
 } from 'react-native';
-import Svg, { Path, Circle, Rect } from 'react-native-svg';
+import Svg, { Path, Circle, Rect, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Icon } from '../components/Icons';
 import { colors, fonts } from '../theme';
@@ -150,16 +150,42 @@ function VideoReelItem({
         />
       ) : (
         <View style={styles.videoPlayerGraphic}>
-          <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="video" size={30} color="#FFFFFF" />
+          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="video" size={32} color="#FFFFFF" />
           </View>
           <Text style={styles.ambientCategoryBadge}>{item.category.toUpperCase()}</Text>
           <Text style={styles.ambientDurationText}>{item.duration}</Text>
         </View>
       )}
 
-      {/* Scrim Overlay for high-contrast typography */}
-      <View style={styles.videoScrim} pointerEvents="none" />
+      {/* Top Gradient for header clarity */}
+      <View style={styles.topGradientScrim} pointerEvents="none">
+        <Svg width="100%" height={120} style={StyleSheet.absoluteFill}>
+          <Defs>
+            <LinearGradient id={`topGrad_${index}`} x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#000000" stopOpacity="0.75" />
+              <Stop offset="60%" stopColor="#000000" stopOpacity="0.25" />
+              <Stop offset="100%" stopColor="#000000" stopOpacity="0" />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill={`url(#topGrad_${index})`} />
+        </Svg>
+      </View>
+
+      {/* Deep Bottom Gradient for crystal-clear readability */}
+      <View style={styles.bottomGradientScrim} pointerEvents="none">
+        <Svg width="100%" height={340} style={StyleSheet.absoluteFill}>
+          <Defs>
+            <LinearGradient id={`bottomGrad_${index}`} x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#000000" stopOpacity="0" />
+              <Stop offset="35%" stopColor="#000000" stopOpacity="0.35" />
+              <Stop offset="75%" stopColor="#000000" stopOpacity="0.8" />
+              <Stop offset="100%" stopColor="#000000" stopOpacity="0.95" />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill={`url(#bottomGrad_${index})`} />
+        </Svg>
+      </View>
 
       {/* Tap Feedback Badge */}
       {showPlayIcon ? (
@@ -168,67 +194,75 @@ function VideoReelItem({
         </View>
       ) : null}
 
-      {/* Top Category Badge */}
-      <View style={styles.topCategoryOverlay} pointerEvents="none">
-        <Text style={styles.ambientCategoryBadge}>{item.category.toUpperCase()}</Text>
-        <Text style={styles.ambientDurationText}>{item.duration}</Text>
-      </View>
-
-      {/* Bottom Information Overlay (Creator & Caption) */}
-      <View style={styles.bottomInfo}>
+      {/* Bottom Information Overlay (Creator & Caption) - PINNED TO BOTTOM */}
+      <View style={styles.bottomInfo} pointerEvents="box-none">
+        {/* Creator Row */}
         <View style={styles.creatorRow}>
           <View style={styles.creatorAvatar}>
             <Text style={styles.creatorAvatarText}>{item.creator.avatar}</Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              <Text style={styles.creatorName}>{item.creator.name}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.creatorName} numberOfLines={1}>{item.creator.name}</Text>
               {item.creator.verified ? (
-                <View style={[styles.verifiedDot, { backgroundColor: colors.forest }]}>
+                <View style={styles.verifiedDot}>
                   <Icon name="check" size={9} color="#FFFFFF" strokeWidth={3} />
                 </View>
               ) : null}
+              <View style={styles.categoryBadgePill}>
+                <Text style={styles.categoryBadgeText}>{item.category.toUpperCase()}</Text>
+              </View>
             </View>
-            <Text style={styles.creatorHandle}>{item.creator.handle} · {item.creator.church}</Text>
+            <Text style={styles.creatorHandle} numberOfLines={1}>
+              {item.creator.handle} · {item.creator.church}
+            </Text>
           </View>
+
           <Pressable
             onPress={onFollow}
             style={[styles.followBtn, isFollowing && styles.followBtnActive]}
           >
-            <Text style={[styles.followBtnText, isFollowing && { color: colors.fg }]}>
-              {isFollowing ? 'Following' : 'Follow'}
+            <Text style={[styles.followBtnText, isFollowing && styles.followBtnTextActive]}>
+              {isFollowing ? 'Following' : '+ Follow'}
             </Text>
           </Pressable>
         </View>
 
-        <Text style={styles.captionText}>{item.caption}</Text>
+        {/* Caption */}
+        <Text style={styles.captionText} numberOfLines={3}>
+          {item.caption}
+        </Text>
 
+        {/* Scripture Context Pill */}
         {item.scripture ? (
           <Pressable onPress={onOpenBible} style={styles.scripturePill}>
-            <Icon name="book" size={12} color={colors.goldLight} />
-            <Text style={[styles.scriptureText, { marginLeft: 4 }]}>{item.scripture} · Read Context</Text>
+            <Icon name="book" size={13} color="#FBBF24" />
+            <Text style={styles.scriptureText}>{item.scripture} · Read Context ›</Text>
           </Pressable>
         ) : null}
 
-        <View style={styles.hashtagRow}>
-          {item.hashtags?.map((tag, idx) => (
-            <Text key={idx} style={styles.hashtagText}>{tag}</Text>
-          ))}
-        </View>
+        {/* Hashtags */}
+        {item.hashtags?.length ? (
+          <View style={styles.hashtagRow}>
+            {item.hashtags.map((tag, idx) => (
+              <Text key={idx} style={styles.hashtagText}>{tag}</Text>
+            ))}
+          </View>
+        ) : null}
 
-        {/* Audio Track Row */}
+        {/* Audio Track Ticker */}
         <View style={styles.soundRow}>
-          <Icon name="audio" size={12} color="rgba(255, 255, 255, 0.7)" />
-          <Text style={[styles.soundText, { marginLeft: 6 }]} numberOfLines={1}>{item.sound}</Text>
+          <Icon name="audio" size={12} color="rgba(255, 255, 255, 0.85)" />
+          <Text style={styles.soundText} numberOfLines={1}>{item.sound}</Text>
         </View>
       </View>
 
-      {/* Right Side Vertical Interaction Rail with Vector Icons */}
-      <View style={styles.rightRail}>
+      {/* Right Side Vertical Interaction Rail - PINNED TO BOTTOM RIGHT */}
+      <View style={styles.rightRail} pointerEvents="box-none">
         {/* Like Button */}
         <Pressable onPress={onLike} style={styles.railAction}>
-          <View style={[styles.railIconCircle, isLiked && { backgroundColor: colors.rose, borderColor: colors.rose }]}>
-            <Icon name="heart" size={22} color="#FFFFFF" fill={isLiked ? '#FFFFFF' : 'none'} />
+          <View style={[styles.railIconCircle, isLiked && styles.railIconCircleLiked]}>
+            <Icon name="heart" size={22} color={isLiked ? '#F43F5E' : '#FFFFFF'} fill={isLiked ? '#F43F5E' : 'none'} />
           </View>
           <Text style={styles.railCount}>{item.likes}</Text>
         </Pressable>
@@ -238,16 +272,16 @@ function VideoReelItem({
           <View style={styles.railIconCircle}>
             <Icon name="chat" size={20} color="#FFFFFF" />
           </View>
-          <Text style={styles.railCount}>{item.comments?.length || 0}</Text>
+          <Text style={styles.railCount}>{item.comments?.length || 2}</Text>
         </Pressable>
 
         {/* Virtual Gifting Button */}
         <Pressable onPress={onGift} style={styles.railAction}>
-          <View style={[styles.railIconCircle, { borderColor: colors.goldLight, backgroundColor: 'rgba(245, 158, 11, 0.3)' }]}>
-            <Icon name="gift" size={20} color={colors.goldLight} />
+          <View style={[styles.railIconCircle, styles.railIconCircleGift]}>
+            <Icon name="gift" size={20} color="#FBBF24" />
           </View>
-          <Text style={[styles.railCount, { color: colors.goldLight, fontWeight: '700' }]}>
-            {item.gifts || 0}
+          <Text style={[styles.railCount, { color: '#FDE68A' }]}>
+            {item.gifts || 42}
           </Text>
         </Pressable>
 
@@ -256,16 +290,23 @@ function VideoReelItem({
           <View style={styles.railIconCircle}>
             <Icon name="share" size={19} color="#FFFFFF" />
           </View>
-          <Text style={styles.railCount}>{item.shares}</Text>
+          <Text style={styles.railCount}>{item.shares || 312}</Text>
         </Pressable>
 
         {/* Repost Button */}
         <Pressable onPress={onRepost} style={styles.railAction}>
           <View style={styles.railIconCircle}>
-            <Icon name="repost" size={19} color="#FFFFFF" />
+            <Icon name="swap" size={18} color="#FFFFFF" />
           </View>
           <Text style={styles.railCount}>{item.reposts || 0}</Text>
         </Pressable>
+
+        {/* Rotating Music Disc (TikTok / Reels Signature UI) */}
+        <View style={styles.musicDiscBox}>
+          <View style={styles.musicDiscInner}>
+            <Text style={styles.musicDiscText}>{item.creator.avatar}</Text>
+          </View>
+        </View>
       </View>
     </Pressable>
   );
@@ -462,12 +503,12 @@ export default function SocialsScreen() {
     >
       {/* Top Segmented Smart Navigation Bar */}
       <View style={styles.smartHeader}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.smartNavScroll}>
+        <View style={styles.smartNavPillGroup}>
           <Pressable
             onPress={() => setMainTab('reels')}
             style={[styles.smartNavTab, mainTab === 'reels' && styles.smartNavTabActive]}
           >
-            <Icon name="video" size={14} color={mainTab === 'reels' ? colors.gold : colors.muted} />
+            <Icon name="video" size={13} color={mainTab === 'reels' ? '#FBBF24' : '#94A3B8'} />
             <Text style={[styles.smartNavText, mainTab === 'reels' && styles.smartNavTextActive]}>Reels</Text>
           </Pressable>
 
@@ -475,8 +516,8 @@ export default function SocialsScreen() {
             onPress={() => setMainTab('guild')}
             style={[styles.smartNavTab, mainTab === 'guild' && styles.smartNavTabActive]}
           >
-            <Icon name="community" size={14} color={mainTab === 'guild' ? colors.gold : colors.muted} />
-            <Text style={[styles.smartNavText, mainTab === 'guild' && styles.smartNavTextActive]}>Clip Farm Guild</Text>
+            <Icon name="community" size={13} color={mainTab === 'guild' ? '#FBBF24' : '#94A3B8'} />
+            <Text style={[styles.smartNavText, mainTab === 'guild' && styles.smartNavTextActive]}>Guild</Text>
             <View style={styles.guildNavBadge}>
               <Text style={styles.guildNavBadgeText}>1</Text>
             </View>
@@ -486,13 +527,13 @@ export default function SocialsScreen() {
             onPress={() => setMainTab('creators')}
             style={[styles.smartNavTab, mainTab === 'creators' && styles.smartNavTabActive]}
           >
-            <Icon name="sparkles" size={14} color={mainTab === 'creators' ? colors.gold : colors.muted} />
-            <Text style={[styles.smartNavText, mainTab === 'creators' && styles.smartNavTextActive]}>Creators Corner</Text>
+            <Icon name="sparkles" size={13} color={mainTab === 'creators' ? '#FBBF24' : '#94A3B8'} />
+            <Text style={[styles.smartNavText, mainTab === 'creators' && styles.smartNavTextActive]}>Creators</Text>
           </Pressable>
-        </ScrollView>
+        </View>
 
         <Pressable onPress={() => setShowPublishModal(true)} style={styles.createBtn}>
-          <Text style={styles.createBtnText}>＋ Upload / Post</Text>
+          <Text style={styles.createBtnText}>＋ Create</Text>
         </Pressable>
       </View>
 
@@ -507,21 +548,23 @@ export default function SocialsScreen() {
       {/* TAB 1: REELS VERTICAL VIDEO FEED */}
       {mainTab === 'reels' ? (
         <View style={{ flex: 1 }}>
-          {/* Sub-bar for Following vs For You */}
-          <View style={styles.reelsSubBar}>
-            <Pressable onPress={() => setActiveTab('Following')} style={styles.feedTab}>
-              <Text style={[styles.feedTabText, activeTab === 'Following' && styles.feedTabTextActive]}>
-                Following
-              </Text>
-              {activeTab === 'Following' ? <View style={styles.feedTabUnderline} /> : null}
-            </Pressable>
-            <Text style={styles.tabDivider}>|</Text>
-            <Pressable onPress={() => setActiveTab('Recommended')} style={styles.feedTab}>
-              <Text style={[styles.feedTabText, activeTab === 'Recommended' && styles.feedTabTextActive]}>
-                For You
-              </Text>
-              {activeTab === 'Recommended' ? <View style={styles.feedTabUnderline} /> : null}
-            </Pressable>
+          {/* Sub-bar for Following vs For You - CENTERED & HIGH CONTRAST */}
+          <View style={styles.reelsSubBar} pointerEvents="box-none">
+            <View style={styles.reelsSubBarCapsule}>
+              <Pressable onPress={() => setActiveTab('Following')} style={styles.feedTab}>
+                <Text style={[styles.feedTabText, activeTab === 'Following' && styles.feedTabTextActive]}>
+                  Following
+                </Text>
+                {activeTab === 'Following' ? <View style={styles.feedTabUnderline} /> : null}
+              </Pressable>
+              <Text style={styles.tabDivider}>|</Text>
+              <Pressable onPress={() => setActiveTab('Recommended')} style={styles.feedTab}>
+                <Text style={[styles.feedTabText, activeTab === 'Recommended' && styles.feedTabTextActive]}>
+                  For You
+                </Text>
+                {activeTab === 'Recommended' ? <View style={styles.feedTabUnderline} /> : null}
+              </Pressable>
+            </View>
           </View>
 
           <FlatList
@@ -1184,24 +1227,31 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
+  topGradientScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120,
+    zIndex: 2,
+  },
+  bottomGradientScrim: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 360,
+    zIndex: 2,
+  },
   videoPlayerGraphic: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  topCategoryOverlay: {
-    position: 'absolute',
-    top: 55,
-    left: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    zIndex: 10,
-  },
   videoScrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.28)',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
   centerPlayBadge: {
     position: 'absolute',
@@ -1236,9 +1286,26 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
   bottomInfo: {
-    paddingHorizontal: 16,
-    paddingBottom: 22,
-    width: SCREEN_WIDTH - 76,
+    position: 'absolute',
+    bottom: 20,
+    left: 14,
+    right: 76,
+    zIndex: 10,
+  },
+  categoryBadgePill: {
+    backgroundColor: 'rgba(245, 158, 11, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    paddingHorizontal: 7,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+  },
+  categoryBadgeText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#FBBF24',
+    letterSpacing: 0.8,
   },
   creatorRow: {
     flexDirection: 'row',
@@ -1247,128 +1314,186 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   creatorAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.surface,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.forest,
     borderWidth: 1.5,
-    borderColor: colors.gold,
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 3,
   },
   creatorAvatarText: {
     fontFamily: fonts.sansMedium,
     fontSize: 13,
     fontWeight: '700',
-    color: colors.fg,
+    color: '#FFFFFF',
   },
   creatorName: {
     fontFamily: fonts.sansMedium,
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.fg,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   verifiedDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: colors.forest,
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
+    backgroundColor: '#10B981',
     alignItems: 'center',
     justifyContent: 'center',
   },
   creatorHandle: {
     fontFamily: fonts.sans,
-    fontSize: 11,
-    color: colors.muted,
+    fontSize: 11.5,
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 1,
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   followBtn: {
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderWidth: 1,
-    borderColor: colors.borderStrong,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
   },
   followBtnActive: {
-    backgroundColor: colors.raised,
-    borderColor: colors.border,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: '#10B981',
   },
   followBtnText: {
-    fontFamily: fonts.sans,
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.gold,
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  followBtnTextActive: {
+    color: '#10B981',
   },
   captionText: {
     fontFamily: fonts.sans,
     fontSize: 13.5,
-    color: colors.fg,
-    lineHeight: 19,
-    marginBottom: 6,
+    color: '#FFFFFF',
+    lineHeight: 19.5,
+    marginBottom: 8,
+    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   scripturePill: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(20, 32, 27, 0.85)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    marginBottom: 6,
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    marginBottom: 8,
   },
   scriptureText: {
     fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    color: colors.gold,
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#FBBF24',
+    marginLeft: 5,
   },
   hashtagRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   hashtagText: {
-    fontFamily: fonts.sans,
+    fontFamily: fonts.sansMedium,
     fontSize: 11.5,
-    color: colors.sage,
+    color: '#34D399',
+    fontWeight: '600',
   },
   soundRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
   },
   soundText: {
     fontFamily: fonts.sans,
-    fontSize: 11,
-    color: colors.muted,
+    fontSize: 11.5,
+    color: 'rgba(255, 255, 255, 0.9)',
   },
   rightRail: {
     position: 'absolute',
     right: 12,
-    bottom: 24,
+    bottom: 20,
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
+    zIndex: 12,
   },
   railAction: {
     alignItems: 'center',
   },
   railIconCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(20, 32, 27, 0.85)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 3,
   },
+  railIconCircleLiked: {
+    backgroundColor: 'rgba(244, 63, 94, 0.3)',
+    borderColor: '#F43F5E',
+  },
+  railIconCircleGift: {
+    backgroundColor: 'rgba(245, 158, 11, 0.3)',
+    borderColor: '#FBBF24',
+  },
   railCount: {
-    fontFamily: fonts.sans,
-    fontSize: 10.5,
-    color: colors.fg,
-    fontWeight: '600',
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  musicDiscBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#0F172A',
+    borderWidth: 2,
+    borderColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  musicDiscInner: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#047857',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  musicDiscText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   giftToast: {
     position: 'absolute',
@@ -1648,43 +1773,43 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    paddingVertical: 8,
+    backgroundColor: '#0A0F1D',
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
     zIndex: 30,
   },
-  smartNavScroll: {
+  smartNavPillGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   smartNavTab: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderWidth: 1,
     borderColor: 'transparent',
   },
   smartNavTabActive: {
     backgroundColor: 'rgba(217, 119, 6, 0.2)',
-    borderColor: colors.gold,
+    borderColor: '#F59E0B',
   },
   smartNavText: {
     fontFamily: fonts.sansMedium,
     fontSize: 12,
-    color: colors.muted,
+    color: '#94A3B8',
   },
   smartNavTextActive: {
-    color: colors.gold,
+    color: '#FBBF24',
     fontWeight: '700',
   },
   guildNavBadge: {
-    backgroundColor: colors.rose,
+    backgroundColor: '#F43F5E',
     borderRadius: 8,
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -1694,20 +1819,65 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
   },
-
+  createBtn: {
+    backgroundColor: '#059669',
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  createBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
   reelsSubBar: {
     position: 'absolute',
-    top: 10,
-    left: 16,
+    top: 12,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
     zIndex: 20,
+  },
+  reelsSubBarCapsule: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(12, 20, 17, 0.75)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    gap: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    paddingHorizontal: 16,
+    paddingVertical: 5,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  feedTab: {
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  feedTabText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.65)',
+  },
+  feedTabTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  feedTabUnderline: {
+    width: 14,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: '#10B981',
+    marginTop: 2,
+  },
+  tabDivider: {
+    color: 'rgba(255, 255, 255, 0.25)',
+    fontSize: 12,
+    marginHorizontal: 4,
   },
 
   // Discord-style Clip Farm Guild Styles
