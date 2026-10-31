@@ -11,45 +11,45 @@ const TAB_COLORS = {
 };
 
 const icons = {
-  Bible: (active) => (
+  Bible: (active, isDark) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Path
         d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5z"
-        stroke={active ? colors.forest : colors.faint}
+        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={active ? 2.2 : 1.7}
       />
       <Path
         d="M6.5 2H20v4H6.5A2.5 2.5 0 0 0 4 8.5"
-        stroke={active ? colors.forest : colors.faint}
+        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={active ? 2.2 : 1.7}
       />
       <Path
         d="M12 7v7M9.5 9.5h5"
-        stroke={active ? colors.gold : colors.faint}
+        stroke={active ? colors.gold : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={2}
         strokeLinecap="round"
       />
     </Svg>
   ),
-  Discover: (active) => (
+  Discover: (active, isDark) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Circle
         cx={12}
         cy={12}
         r={9}
-        stroke={active ? colors.forest : colors.faint}
+        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={active ? 2.2 : 1.7}
       />
       <Path
         d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"
-        fill={active ? colors.forest : 'none'}
-        stroke={active ? colors.forest : colors.faint}
+        fill={active ? (isDark ? '#10B981' : colors.forest) : 'none'}
+        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={active ? 2 : 1.7}
         strokeLinejoin="round"
       />
     </Svg>
   ),
-  Socials: (active) => (
+  Socials: (active, isDark) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Rect
         x={3}
@@ -57,34 +57,34 @@ const icons = {
         width={18}
         height={18}
         rx={5}
-        stroke={active ? colors.forest : colors.faint}
+        stroke={active ? '#10B981' : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={active ? 2.2 : 1.7}
       />
       <Path
         d="M10 8.5l6 3.5-6 3.5V8.5z"
-        fill={active ? colors.forest : colors.faint}
-        stroke={active ? colors.forest : colors.faint}
+        fill={active ? '#10B981' : (isDark ? '#64748B' : colors.faint)}
+        stroke={active ? '#10B981' : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={1.8}
         strokeLinejoin="round"
       />
     </Svg>
   ),
-  Chats: (active) => (
+  Chats: (active, isDark) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Path
         d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
         fill={active ? colors.sageFaint : 'none'}
-        stroke={active ? colors.forest : colors.faint}
+        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={active ? 2.2 : 1.7}
         strokeLinejoin="round"
       />
     </Svg>
   ),
-  Profile: (active) => (
+  Profile: (active, isDark) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Path
         d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
-        stroke={active ? colors.forest : colors.faint}
+        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={active ? 2.2 : 1.7}
         strokeLinecap="round"
       />
@@ -93,7 +93,7 @@ const icons = {
         cy={7}
         r={4}
         fill={active ? colors.sageFaint : 'none'}
-        stroke={active ? colors.forest : colors.faint}
+        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
         strokeWidth={active ? 2.2 : 1.7}
       />
     </Svg>
@@ -103,12 +103,16 @@ const icons = {
 export const TABS = ['Bible', 'Discover', 'Socials', 'Profile'];
 
 export default function TabBar({ active, onChange }) {
+  const isDark = active === 'Socials';
+  const dockBg = isDark ? '#000000' : '#FFFFFF';
+  const dockBorder = isDark ? 'rgba(255, 255, 255, 0.12)' : colors.tabLine;
+
   return (
-    <View style={styles.dock}>
+    <View style={[styles.dock, { backgroundColor: dockBg, borderTopColor: dockBorder }]}>
       {TABS.map((name) => {
         const isActive = name === active;
-        const activeColor = TAB_COLORS[name] || colors.forest;
-        const labelColor = isActive ? activeColor : colors.muted;
+        const activeColor = isDark ? (isActive ? '#10B981' : '#64748B') : (TAB_COLORS[name] || colors.forest);
+        const labelColor = isActive ? (isDark ? '#10B981' : activeColor) : (isDark ? '#64748B' : colors.muted);
 
         return (
           <Pressable
@@ -120,14 +124,14 @@ export default function TabBar({ active, onChange }) {
             onPress={() => onChange(name)}
           >
             <View style={styles.iconContainer}>
-              {icons[name](isActive)}
+              {icons[name](isActive, isDark)}
             </View>
 
             <Text
               style={[
                 styles.label,
                 { color: labelColor },
-                isActive && [styles.activeLabel, { color: activeColor }],
+                isActive && [styles.activeLabel, { color: isDark ? '#10B981' : activeColor }],
               ]}
               numberOfLines={1}
             >
@@ -135,7 +139,7 @@ export default function TabBar({ active, onChange }) {
             </Text>
 
             {isActive ? (
-              <View style={[styles.activePill, { backgroundColor: activeColor }]} />
+              <View style={[styles.activePill, { backgroundColor: isDark ? '#10B981' : activeColor }]} />
             ) : (
               <View style={styles.inactivePlaceholder} />
             )}

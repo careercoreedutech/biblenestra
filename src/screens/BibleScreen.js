@@ -202,9 +202,13 @@ export default function BibleScreen({ params = {} }) {
                 ]}
               >
                 <Text style={[styles.verseText, { fontSize: state.fontSize, lineHeight: state.fontSize * 1.68 }]}>
-                  <Text style={[styles.vnum, n === 1 ? styles.vnumOne : null, isSel && { color: colors.gold }]}>{n}  </Text>
+                  {n === 1 ? (
+                    <Text style={styles.dropCapLetter}>{v.charAt(0)}</Text>
+                  ) : (
+                    <Text style={[styles.vnum, isSel && { color: colors.gold }]}>{n}  </Text>
+                  )}
                   <Text style={h ? { color: colors.fg, borderBottomWidth: 1, borderBottomColor: h.color } : null}>
-                    {v}
+                    {n === 1 ? v.slice(1) : v}
                   </Text>
                   {notes.length ? <Text style={{ color: colors.amber }}> •</Text> : null}
                 </Text>
@@ -212,6 +216,20 @@ export default function BibleScreen({ params = {} }) {
             );
           })
         )}
+
+        {/* Floating Ambient Audio Bar */}
+        <View style={styles.floatingAudioBar}>
+          <Pressable onPress={() => setAudio(!audio)} style={styles.audioPlayBtn}>
+            <Icon name={audio ? 'volume' : 'play'} size={14} color="#0F172A" />
+          </Pressable>
+          <View style={{ flex: 1, minWidth: 0, paddingHorizontal: 10 }}>
+            <Text style={styles.audioTitleText} numberOfLines={1}>{bookName(pos.bookId)} {pos.chapter} · Narration</Text>
+            <Text style={styles.audioSubText}>Fr. Thomas · 0:45 / 3:12 · {tr}</Text>
+          </View>
+          <View style={styles.audioSpeedBadge}>
+            <Text style={styles.audioSpeedText}>1.0x</Text>
+          </View>
+        </View>
 
         {/* Previous / Next Chapter Ergonomic Floating Buttons */}
         <View style={styles.pager}>
@@ -513,7 +531,59 @@ export { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen } from './Bibl
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FAF8F5',
+  },
+  dropCapLetter: {
+    fontFamily: fonts.serifBold,
+    fontSize: 32,
+    lineHeight: 36,
+    color: '#D97706',
+    fontWeight: '900',
+  },
+  floatingAudioBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F172A',
+    borderRadius: 18,
+    padding: 10,
+    marginTop: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  audioPlayBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F59E0B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  audioTitleText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  audioSubText: {
+    fontFamily: fonts.sans,
+    fontSize: 10.5,
+    color: '#FDE68A',
+    marginTop: 1,
+  },
+  audioSpeedBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  audioSpeedText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   modernTopBar: {
     flexDirection: 'row',

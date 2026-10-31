@@ -129,302 +129,280 @@ export default function DiscoverScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Sleek Discover Sticky Header matching HTML Preview */}
+      {/* Sleek Discover Sticky Header with Sanctuary Gold Accents */}
       <View style={styles.discoverTopBar}>
         <View style={styles.discoverHeaderRow}>
-          <Text style={styles.discoverTitle}>Discover</Text>
+          <View>
+            <Text style={styles.discoverEyebrow}>TUESDAY · SACRED LITURGY</Text>
+            <Text style={styles.discoverTitle}>Sanctuary Discover</Text>
+          </View>
           <View style={styles.coinBadgePill}>
-            <Icon name="coin" size={14} color="#B45309" />
-            <Text style={styles.coinBadgeText}>{state.coins || 350}</Text>
+            <Text style={styles.coinBadgeIcon}>✦</Text>
+            <Text style={styles.coinBadgeText}>{state.coins || 350} Coins</Text>
           </View>
         </View>
 
         <Pressable onPress={() => nav.push('Search')} style={styles.discoverSearchBox}>
-          <Icon name="search" size={15} color="#94A3B8" />
-          <Text style={styles.discoverSearchPlaceholder}>Search scripture, plans, communities...</Text>
+          <Icon name="search" size={15} color="#B45309" />
+          <Text style={styles.discoverSearchPlaceholder}>Search 31,102 verses, devotionals, prayers...</Text>
         </Pressable>
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 80 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* 1. Verse of the Day Card (Rich Indigo Gradient & Amber Accents) */}
-        <View style={styles.vodCard}>
-          <View style={styles.vodTopRow}>
-            <View style={styles.vodBadge}>
-              <Text style={styles.vodBadgeText}>VERSE OF THE DAY</Text>
+        {/* 1. Illuminated Verse of the Day Hero Card with Photographic Dawn Background */}
+        <View style={styles.vodCardMaster}>
+          <ImageBackground
+            source={{ uri: 'https://images.unsplash.com/photo-1507692049790-de58290a4334?auto=format&fit=crop&w=800&q=80' }}
+            style={styles.vodImageBg}
+            imageStyle={{ borderRadius: 24 }}
+          >
+            <View style={styles.vodDarkScrim} />
+            <View style={styles.vodCardInner}>
+              <View style={styles.vodTopRow}>
+                <View style={styles.vodBadgePill}>
+                  <Text style={styles.vodBadgeIcon}>✦</Text>
+                  <Text style={styles.vodBadgeText}>VERSE OF THE DAY</Text>
+                </View>
+                <Text style={styles.vodRefText}>Jeremiah 29:11 · {state.translation}</Text>
+              </View>
+
+              <Text style={styles.vodQuoteText}>
+                “For I know the plans that I have for you,” says the LORD, “plans for peace, and not for evil, to give you hope and a future.”
+              </Text>
+
+              {/* Action Buttons Row */}
+              <View style={styles.vodActionRow}>
+                <Pressable
+                  style={styles.vodActionBtn}
+                  onPress={() => Alert.alert('Audio Liturgy', 'Playing Jeremiah 29:11 with Fr. Thomas narration & harp reflection.')}
+                >
+                  <Icon name="play" size={13} color="#FBBF24" />
+                  <Text style={styles.vodActionBtnText}>Listen</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.vodActionBtn, styles.vodActionBtnPrimary]}
+                  onPress={() => setShowWishModal(true)}
+                >
+                  <Icon name="prayer" size={13} color="#0F172A" />
+                  <Text style={[styles.vodActionBtnText, { color: '#0F172A', fontWeight: '800' }]}>Pray This</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.vodActionBtnSquare}
+                  onPress={() => nav.push('Bible', { bookId: 'JER', chapter: 29, verse: 11 })}
+                >
+                  <Icon name="book" size={14} color="#FFFFFF" />
+                </Pressable>
+              </View>
             </View>
-            <Text style={styles.vodRefText}>Jeremiah 29:11 · {state.translation}</Text>
-          </View>
-
-          <Text style={styles.vodQuote}>
-            "For I know the plans that I have for you," says the LORD, "plans for peace, and not for evil, to give you hope and a future."
-          </Text>
-
-          <View style={styles.vodInteractionsRow}>
-            <Pressable style={styles.vodMetricBtn} onPress={() => dispatch({ type: 'like', id: 'vod' })}>
-              <Icon name="heart" size={14} color="#F43F5E" />
-              <Text style={styles.vodMetricText}>1.4k</Text>
-            </Pressable>
-            <Pressable style={styles.vodMetricBtn} onPress={() => nav.push('Feed')}>
-              <Icon name="chat" size={14} color="#38BDF8" />
-              <Text style={styles.vodMetricText}>320</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.vodMetricBtn, { marginLeft: 'auto' }]}
-              onPress={() => nav.push('Bible', { bookId: 'JER', chapter: 29, verse: 11 })}
-            >
-              <Icon name="share" size={14} color="#34D399" />
-              <Text style={[styles.vodMetricText, { color: '#34D399', fontWeight: '700' }]}>Share</Text>
-            </Pressable>
-          </View>
+          </ImageBackground>
         </View>
 
-      {/* 3. "Be Inspired" Horizontal Pastel Cards with Vector Icons */}
-      <Section title="Be Inspired">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
-          <Pressable
-            style={[styles.beInspiredCard, { backgroundColor: colors.cardGold, borderColor: colors.gold + '50' }]}
-            onPress={() => nav.push('Bible', { bookId: vod.bookId, chapter: vod.chapter })}
-          >
-            <View style={[styles.beInspiredIconBox, { backgroundColor: colors.gold + '25' }]}>
-              <Icon name="sparkles" size={20} color={colors.gold} />
+        {/* 2. The Living Altar & Make a Wish (Global Prayer Candle Wall) */}
+        <View style={styles.altarSection}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.sectionHeaderTitle}>🕯️ The Living Altar & Prayer Wall</Text>
+              <Text style={styles.sectionHeaderSub}>1,428 believers currently praying across 42 nations</Text>
             </View>
-            <Text style={styles.beInspiredTitle}>Verse of the Day</Text>
-            <Text style={styles.beInspiredSub}>Boost your day</Text>
-            <View style={styles.beInspiredArrowBox}>
-              <Icon name="arrow-right" size={14} color={colors.gold} />
-            </View>
-          </Pressable>
+            <Pressable onPress={() => setShowWishModal(true)} style={styles.lightCandleHeaderBtn}>
+              <Text style={styles.lightCandleHeaderBtnText}>＋ Light Candle</Text>
+            </Pressable>
+          </View>
 
-          <Pressable
-            style={[styles.beInspiredCard, { backgroundColor: colors.cardSage, borderColor: colors.forest + '50' }]}
-            onPress={() => nav.push('Learn', { tab: 'Devotionals' })}
-          >
-            <View style={[styles.beInspiredIconBox, { backgroundColor: colors.forest + '25' }]}>
-              <Icon name="book" size={20} color={colors.forest} />
-            </View>
-            <Text style={styles.beInspiredTitle}>The Bible Told</Text>
-            <Text style={styles.beInspiredSub}>Like an adventure</Text>
-            <View style={styles.beInspiredArrowBox}>
-              <Icon name="arrow-right" size={14} color={colors.forest} />
-            </View>
-          </Pressable>
-
-          <Pressable
-            style={[styles.beInspiredCard, { backgroundColor: colors.cardRose, borderColor: colors.rose + '50' }]}
-            onPress={() => nav.push('NewPrayer')}
-          >
-            <View style={[styles.beInspiredIconBox, { backgroundColor: colors.rose + '25' }]}>
-              <Icon name="prayer" size={20} color={colors.rose} />
-            </View>
-            <Text style={styles.beInspiredTitle}>Guided Prayer</Text>
-            <Text style={styles.beInspiredSub}>Conversation with God</Text>
-            <View style={styles.beInspiredArrowBox}>
-              <Icon name="arrow-right" size={14} color={colors.rose} />
-            </View>
-          </Pressable>
-
-          <Pressable
-            style={[styles.beInspiredCard, { backgroundColor: colors.cardLavender, borderColor: colors.lavender + '50' }]}
-            onPress={() => nav.push('SermonStudio')}
-          >
-            <View style={[styles.beInspiredIconBox, { backgroundColor: colors.lavender + '25' }]}>
-              <Icon name="mic" size={20} color={colors.lavender} />
-            </View>
-            <Text style={styles.beInspiredTitle}>Sermon Studio</Text>
-            <Text style={styles.beInspiredSub}>Notes & Reflections</Text>
-            <View style={styles.beInspiredArrowBox}>
-              <Icon name="arrow-right" size={14} color={colors.lavender} />
-            </View>
-          </Pressable>
-        </ScrollView>
-      </Section>
-
-      {/* 4. "Today's Activities" Spiritual Progress Checklist (PDF Page 4) */}
-      <Section
-        title="Today's Activities"
-        right={<Text style={{ color: colors.muted, fontSize: 11 }}>Day 1 of your plan</Text>}
-      >
-        <View style={styles.activitiesCard}>
-          {[
-            { id: 'a1', title: 'Path to Freedom', subtitle: 'Daily Guided Prayer · 3 min', iconName: 'prayer', color: colors.forest },
-            { id: 'a2', title: "Today's Scripture and Word", subtitle: 'Discover wisdom in Matthew 9 · 4 min', iconName: 'book', color: colors.indigo },
-            { id: 'a3', title: 'Scripture Quiz', subtitle: 'Sharpen your Bible knowledge', iconName: 'quiz', color: colors.gold },
-            { id: 'a4', title: 'One-Time Action', subtitle: 'Encourage someone in faith today', iconName: 'heart', color: colors.rose },
-            { id: 'a5', title: 'Daily Reflection', subtitle: "Reconnect with God's love within", iconName: 'sun', color: colors.sky },
-          ].map((item) => {
-            const isDone = completedActivities.includes(item.id);
-            return (
-              <Pressable
-                key={item.id}
-                style={styles.activityRow}
-                onPress={() => toggleActivity(item.id)}
-              >
-                <View style={[styles.activityCheckCircle, isDone && styles.activityCheckCircleActive]}>
-                  {isDone ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={2.5} /> : null}
+          {/* Interactive Altar Card with Ambient Candle Art */}
+          <Pressable onPress={() => setShowWishModal(true)} style={styles.altarHeroCard}>
+            <ImageBackground
+              source={{ uri: 'https://images.unsplash.com/photo-1606293926075-69a00dbfde81?auto=format&fit=crop&w=800&q=80' }}
+              style={styles.altarHeroBg}
+              imageStyle={{ borderRadius: 20 }}
+            >
+              <View style={styles.altarHeroScrim} />
+              <View style={styles.altarHeroContent}>
+                <View style={styles.altarHeroTopPill}>
+                  <View style={styles.pulseDot} />
+                  <Text style={styles.altarHeroPillText}>SACRED ALTAR</Text>
                 </View>
 
+                <View style={styles.altarHeroBottomRow}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <Text style={styles.altarHeroTitle}>Send a Heart Desire to Heaven</Text>
+                    <Text style={styles.altarHeroSub}>Light a candle and receive community intercession</Text>
+                  </View>
+                  <View style={styles.makeWishActionBtn}>
+                    <Text style={styles.makeWishActionText}>Make a Wish ›</Text>
+                  </View>
+                </View>
+              </View>
+            </ImageBackground>
+          </Pressable>
+
+          {/* Community Prayer Wishes Horizontal Stream */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
+            {wishes.map((w) => {
+              const isLit = litCandleIds.includes(w.id);
+              return (
+                <View key={w.id} style={styles.wishStreamCard}>
+                  <View>
+                    <View style={styles.wishCardHeader}>
+                      <Text style={styles.wishCardUser}>{w.user}</Text>
+                      <View style={styles.wishCategoryBadge}>
+                        <Text style={styles.wishCategoryText}>{w.category.toUpperCase()}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.wishCardBody} numberOfLines={3}>
+                      “{w.text}”
+                    </Text>
+                  </View>
+
+                  <View style={styles.wishCardFooter}>
+                    <Text style={styles.wishCandleCount}>{w.candles} Candles</Text>
+                    <Pressable onPress={() => toggleLightCandle(w.id)} style={styles.wishAmenBtn}>
+                      <Text style={[styles.wishAmenBtnText, isLit && { color: colors.gold, fontWeight: '800' }]}>
+                        {isLit ? '🔥 Amen' : '🕯️ Amen'} ({w.amen})
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* 3. Sacred Audio Devotionals & Liturgy */}
+        <View style={styles.devotionalSection}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.sectionHeaderTitle}>Sacred Audio Devotionals</Text>
+              <Text style={styles.sectionHeaderSub}>Immersive scripture listening & guided silence</Text>
+            </View>
+            <Pressable onPress={() => nav.push('Learn', { tab: 'Devotionals' })}>
+              <Text style={styles.sectionActionText}>Explore ›</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
+            {[
+              { id: 'dev1', title: 'Walking in Grace', sub: 'Psalms 23 · Ambient Chants', time: '12 MIN', img: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=600&q=80' },
+              { id: 'dev2', title: 'The Armor of Light', sub: 'Ephesians 6 · Morning Strength', time: '8 MIN', img: 'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?auto=format&fit=crop&w=600&q=80' },
+              { id: 'dev3', title: 'Midnight Peace & Vigil', sub: 'Proverbs 3 · Night Liturgy', time: '15 MIN', img: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80' },
+            ].map((dev) => (
+              <Pressable
+                key={dev.id}
+                style={styles.devotionalAlbumCard}
+                onPress={() => Alert.alert('Playing Devotional', `Streaming ${dev.title} (${dev.sub})`)}
+              >
+                <Image source={{ uri: dev.img }} style={styles.devotionalAlbumThumb} />
+                <View style={styles.devotionalTimeBadge}>
+                  <Text style={styles.devotionalTimeText}>{dev.time}</Text>
+                </View>
+                <View style={styles.devotionalPlayBubble}>
+                  <Icon name="play" size={14} color="#FFFFFF" />
+                </View>
+                <View style={styles.devotionalInfoBox}>
+                  <Text style={styles.devotionalTitle} numberOfLines={1}>{dev.title}</Text>
+                  <Text style={styles.devotionalSub} numberOfLines={1}>{dev.sub}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* 4. Interactive Bible Games Arena (With Multi-Option Engine) */}
+        <View style={styles.gamesSection}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.sectionHeaderTitle}>⚔️ Interactive Bible Games & Quizzes</Text>
+              <Text style={styles.sectionHeaderSub}>Multi-option challenges, streak multipliers & coin prizes</Text>
+            </View>
+            <Pressable onPress={() => startGame('trivia')} style={styles.playNowHeaderBtn}>
+              <Text style={styles.playNowHeaderBtnText}>Play Now</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingVertical: 4 }}>
+            {BIBLE_GAMES.map((game) => (
+              <Pressable
+                key={game.id}
+                style={styles.gameCardElevated}
+                onPress={() => startGame(game.id === 'who_said_it' ? 'who_said_it' : 'trivia')}
+              >
+                <Image source={{ uri: game.thumbnail }} style={styles.gameCardImg} />
+                <View style={styles.gameBadgeBox}>
+                  <Text style={styles.gameBadgeText}>{game.badge}</Text>
+                </View>
+                <View style={styles.gameCardContent}>
+                  <Text style={styles.gameCardTitle} numberOfLines={1}>{game.title}</Text>
+                  <Text style={styles.gameCardSub} numberOfLines={2}>{game.subtitle}</Text>
+                  <View style={styles.gameCardMeta}>
+                    <Text style={styles.gameCardPlayers}>{game.players}</Text>
+                    <View style={styles.gameCardBtn}>
+                      <Text style={styles.gameCardBtnText}>Play →</Text>
+                    </View>
+                  </View>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* 5. Kingdom Calling & Christian Careers (With Video Hero Teaser) */}
+        <View style={styles.jobsSection}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.sectionHeaderTitle}>💼 Kingdom Calling & Christian Careers</Text>
+              <Text style={styles.sectionHeaderSub}>Churches, ministries & faith-tech startups hiring</Text>
+            </View>
+            <Pressable onPress={() => nav.push('Jobs')}>
+              <Text style={styles.sectionActionText}>Marketplace ›</Text>
+            </Pressable>
+          </View>
+
+          {/* Attention Video Teaser Card */}
+          <Pressable onPress={() => nav.push('Jobs')} style={styles.jobsHeroTeaser}>
+            <ImageBackground
+              source={{ uri: 'https://images.unsplash.com/photo-1519791883288-dc8bd696e667?auto=format&fit=crop&w=800&q=80' }}
+              style={styles.jobsHeroBg}
+              imageStyle={{ borderRadius: 18 }}
+            >
+              <View style={styles.jobsHeroScrim} />
+              <View style={styles.jobsHeroContent}>
+                <View style={styles.jobsHeroBadge}>
+                  <Text style={styles.jobsHeroBadgeText}>KINGDOM OPPORTUNITY</Text>
+                </View>
+                <Text style={styles.jobsHeroTitle}>Step Into Your Divine Calling</Text>
+                <Text style={styles.jobsHeroSub}>Connect with ministries, worship positions & tech opportunities</Text>
+              </View>
+            </ImageBackground>
+          </Pressable>
+
+          {/* Featured Roles */}
+          <View style={{ gap: 8, marginTop: 10 }}>
+            {featuredJobs.map((j) => (
+              <Pressable key={j.id} style={styles.jobItemCard} onPress={() => nav.push('Jobs')}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[styles.activityTitle, isDone && styles.activityTitleDone]}>
-                    {item.title}
-                  </Text>
-                  <Text style={styles.activitySub}>{item.subtitle}</Text>
-                </View>
-
-                <View style={[styles.activityIconBox, { backgroundColor: item.color + '15' }]}>
-                  <Icon name={item.iconName} size={15} color={item.color} />
-                </View>
-              </Pressable>
-            );
-          })}
-
-          <View style={styles.activityFooterRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Icon name="calendar" size={13} color={colors.muted} />
-              <Text style={styles.countdownTimerText}>New activities reset daily at midnight</Text>
-            </View>
-          </View>
-        </View>
-      </Section>
-
-      {/* 5. "Deepen Your Faith" Guide (PDF Page 1) */}
-      <Section title="Deepen Your Faith">
-        <Row
-          title="What does the Bible say?"
-          subtitle="Direct answers from Scripture on peace, purpose & life"
-          right="→"
-          left={<View style={[styles.faithIconCircle, { backgroundColor: colors.indigo + '15' }]}><Icon name="book" size={18} color={colors.indigo} /></View>}
-          onPress={() => nav.push('Bible', { bookId: 'JHN', chapter: 3 })}
-        />
-        <Row
-          title="What did Jesus say?"
-          subtitle="The words, parables, and commands of our Lord"
-          right="→"
-          left={<View style={[styles.faithIconCircle, { backgroundColor: colors.forest + '15' }]}><Icon name="cross" size={18} color={colors.forest} /></View>}
-          onPress={() => nav.push('Bible', { bookId: 'MAT', chapter: 5 })}
-        />
-        <Row
-          title="Sancti & Patres"
-          subtitle="Wisdom, theology, and reflections from the early church"
-          right="→"
-          left={<View style={[styles.faithIconCircle, { backgroundColor: colors.gold + '15' }]}><Icon name="bookmark" size={18} color={colors.gold} /></View>}
-          onPress={() => nav.push('Learn', { tab: 'Devotionals' })}
-        />
-        <Row
-          title="Biblical Exegesis & Lexicon"
-          subtitle="Strong's Greek and Hebrew root word study"
-          right="→"
-          left={<View style={[styles.faithIconCircle, { backgroundColor: colors.lavender + '15' }]}><Icon name="sparkles" size={18} color={colors.lavender} /></View>}
-          onPress={() => nav.push('Concordance')}
-        />
-      </Section>
-
-      {/* 6. Trending Christian Socials (Short Videos Preview) */}
-      <Section
-        title="Trending on Socials"
-        right={
-          <Pressable onPress={() => nav.push('Socials')}>
-            <Text style={styles.sectionActionText}>Watch All ›</Text>
-          </Pressable>
-        }
-      >
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
-          {featuredVideos.map((v) => (
-            <Pressable
-              key={v.id}
-              style={styles.videoCard}
-              onPress={() => nav.push('Socials', { initialVideoId: v.id })}
-            >
-              <View style={[styles.videoThumb, { backgroundColor: '#0F172A' }]}>
-                <View style={styles.videoBadge}>
-                  <Text style={styles.videoBadgeText}>▶ {v.views}</Text>
-                </View>
-                <View style={{ position: 'absolute', bottom: 10, left: 10, right: 10 }}>
-                  <Text style={styles.videoCreatorName} numberOfLines={1}>{v.creator?.name || 'Creator'}</Text>
-                  <Text style={styles.videoCaptionPreview} numberOfLines={2}>{v.caption}</Text>
-                </View>
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </Section>
-
-      {/* 7. Prayer Wall & Intercession (Page 6 Relocation) */}
-      <Section
-        title="Prayer Wall & Intercession"
-        right={
-          <Pressable onPress={() => nav.push('PrayerWall')}>
-            <Text style={styles.sectionActionText}>View Wall ›</Text>
-          </Pressable>
-        }
-      >
-        <View style={styles.prayerHubCard}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <View>
-              <Text style={styles.prayerHubTitle}>Spiritual Intercession</Text>
-              <Text style={styles.prayerHubSub}>Lift your brothers and sisters in prayer right now</Text>
-            </View>
-            <Pressable
-              onPress={() => nav.push('NewPrayer')}
-              style={styles.submitPrayerSmallBtn}
-            >
-              <Text style={styles.submitPrayerSmallBtnText}>＋ Pray Request</Text>
-            </Pressable>
-          </View>
-
-          {recentPrayers.map((p) => (
-            <View key={p.id} style={styles.prayerItemRow}>
-              <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
-                <Text style={styles.prayerItemTitle} numberOfLines={1}>{p.title}</Text>
-                <Text style={styles.prayerItemSub} numberOfLines={1}>{p.author} · {p.audience} · {p.praying} praying</Text>
-              </View>
-              <Pressable
-                onPress={() => dispatch({ type: 'pray', id: p.id })}
-                style={[styles.quickPrayBtn, p.prayed && styles.quickPrayBtnOn]}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  <Icon name="prayer" size={13} color={p.prayed ? '#FFFFFF' : colors.forest} />
-                  <Text style={[styles.quickPrayBtnText, p.prayed && { color: '#FFFFFF' }]}>
-                    {p.prayed ? 'Praying' : 'Pray'}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.jobItemTitle} numberOfLines={1}>{j.title}</Text>
+                    <View style={styles.jobKindBadge}>
+                      <Text style={styles.jobKindBadgeText}>{j.kind.toUpperCase()}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.jobItemMeta} numberOfLines={1}>
+                    {j.client?.name || j.postedBy || 'Church Ministry'} · {j.budget}
                   </Text>
                 </View>
+                <View style={styles.applySmallBtn}>
+                  <Text style={styles.applySmallBtnText}>Apply</Text>
+                </View>
               </Pressable>
-            </View>
-          ))}
-        </View>
-      </Section>
-
-      {/* 8. Christian Jobs & Tasks Marketplace */}
-      <Section
-        title="Christian Jobs & Tasks"
-        right={
-          <Pressable onPress={() => nav.push('Jobs')}>
-            <Text style={styles.sectionActionText}>Marketplace ›</Text>
-          </Pressable>
-        }
-      >
-        <View style={styles.jobsCard}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <View>
-              <Text style={styles.jobHeading}>Kingdom Work & Opportunities</Text>
-              <Text style={styles.jobSub}>Hire verified believers, find gigs, and serve churches</Text>
-            </View>
-            <Button small label="Browse Gigs" onPress={() => nav.push('Jobs')} />
+            ))}
           </View>
-          {featuredJobs.map((j) => (
-            <Pressable key={j.id} style={styles.jobItem} onPress={() => nav.push('Jobs')}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.jobItemTitle}>{j.title}</Text>
-                <Text style={styles.jobItemMeta}>{j.client?.name || j.postedBy || 'Church Ministry'} · {j.category} · {j.budget}</Text>
-              </View>
-              <Tag label={j.kind} tint={colors.forest} />
-            </Pressable>
-          ))}
         </View>
-      </Section>
 
       {/* 9. Churches & Bible Studies with Rich Photographic Thumbnails & Make a Wish */}
       <Section title="Churches & Bible Studies">
@@ -1493,7 +1471,496 @@ const styles = StyleSheet.create({
     color: '#CBD5E1',
   },
 
-  // "Be Inspired" Cards (PDF Page 1)
+  // Elevated Sanctuary Hero & Altar Styling
+  discoverEyebrow: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#B45309',
+    letterSpacing: 1.2,
+    marginBottom: 2,
+  },
+  coinBadgeIcon: {
+    color: '#D97706',
+    fontSize: 12,
+  },
+  vodCardMaster: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 4,
+    marginBottom: 18,
+  },
+  vodImageBg: {
+    width: '100%',
+    minHeight: 220,
+    justifyContent: 'space-between',
+  },
+  vodDarkScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(11, 17, 32, 0.72)',
+    borderRadius: 24,
+  },
+  vodCardInner: {
+    padding: 18,
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  vodBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(245, 158, 11, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  vodBadgeIcon: {
+    color: '#FDE68A',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  vodQuoteText: {
+    fontFamily: fonts.serif,
+    fontSize: 15.5,
+    lineHeight: 23,
+    color: '#FFFFFF',
+    fontStyle: 'italic',
+    marginVertical: 12,
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  vodActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.18)',
+  },
+  vodActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  vodActionBtnPrimary: {
+    backgroundColor: '#F59E0B',
+    borderColor: '#FBBF24',
+  },
+  vodActionBtnSquare: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vodActionBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  // Altar Section
+  altarSection: {
+    marginBottom: 20,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionHeaderTitle: {
+    fontFamily: fonts.serifBold,
+    fontSize: 15,
+    color: colors.fg,
+    letterSpacing: 0.2,
+  },
+  sectionHeaderSub: {
+    fontFamily: fonts.sans,
+    fontSize: 11,
+    color: colors.muted,
+    marginTop: 1,
+  },
+  lightCandleHeaderBtn: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  lightCandleHeaderBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  altarHeroCard: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    height: 140,
+    marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  altarHeroBg: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'space-between',
+  },
+  altarHeroScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    borderRadius: 20,
+  },
+  altarHeroContent: {
+    padding: 14,
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  altarHeroTopPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#D97706',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 10,
+  },
+  pulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+  },
+  altarHeroPillText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+  },
+  altarHeroBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  altarHeroTitle: {
+    fontFamily: fonts.serifBold,
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  altarHeroSub: {
+    fontFamily: fonts.sans,
+    fontSize: 10.5,
+    color: '#FEF3C7',
+    marginTop: 2,
+  },
+  makeWishActionBtn: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  makeWishActionText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+
+  // Wish Stream
+  wishStreamCard: {
+    width: 250,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 16,
+    padding: 12,
+    justifyContent: 'space-between',
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  wishCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  wishCardUser: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.fg,
+  },
+  wishCategoryBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  wishCategoryText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  wishCardBody: {
+    fontFamily: fonts.serif,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#334155',
+    fontStyle: 'italic',
+  },
+  wishCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  wishCandleCount: {
+    fontFamily: fonts.sans,
+    fontSize: 10.5,
+    color: '#94A3B8',
+  },
+  wishAmenBtn: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+  },
+  wishAmenBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.forest,
+  },
+
+  // Audio Devotionals Section
+  devotionalSection: {
+    marginBottom: 20,
+  },
+  devotionalAlbumCard: {
+    width: 170,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  devotionalAlbumThumb: {
+    width: '100%',
+    height: 105,
+    backgroundColor: '#0F172A',
+  },
+  devotionalTimeBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  devotionalTimeText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FDE68A',
+  },
+  devotionalPlayBubble: {
+    position: 'absolute',
+    top: 68,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.forest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  devotionalInfoBox: {
+    padding: 10,
+  },
+  devotionalTitle: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.fg,
+  },
+  devotionalSub: {
+    fontFamily: fonts.sans,
+    fontSize: 10,
+    color: colors.muted,
+    marginTop: 2,
+  },
+
+  // Games Section
+  gamesSection: {
+    marginBottom: 20,
+  },
+  playNowHeaderBtn: {
+    backgroundColor: colors.cardSage,
+    borderWidth: 1,
+    borderColor: colors.forest + '50',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  playNowHeaderBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.forest,
+  },
+  gameCardElevated: {
+    width: 200,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+
+  // Jobs Section
+  jobsSection: {
+    marginBottom: 20,
+  },
+  jobsHeroTeaser: {
+    height: 120,
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginBottom: 8,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  jobsHeroBg: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'space-between',
+  },
+  jobsHeroScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(6, 78, 59, 0.72)',
+    borderRadius: 18,
+  },
+  jobsHeroContent: {
+    padding: 12,
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  jobsHeroBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#10B981',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  jobsHeroBadgeText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: '#064E3B',
+    letterSpacing: 0.8,
+  },
+  jobsHeroTitle: {
+    fontFamily: fonts.serifBold,
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  jobsHeroSub: {
+    fontFamily: fonts.sans,
+    fontSize: 10,
+    color: '#D1FAE5',
+    marginTop: 2,
+  },
+  jobItemCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    borderRadius: 14,
+    shadowColor: colors.shadowColor,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  jobKindBadge: {
+    backgroundColor: colors.cardSage,
+    borderWidth: 1,
+    borderColor: colors.forest + '30',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  jobKindBadgeText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: colors.forest,
+  },
+  applySmallBtn: {
+    backgroundColor: colors.forest,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  applySmallBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
   beInspiredCard: {
     width: 140,
     height: 140,

@@ -78,11 +78,15 @@ function Root() {
     const Comp = ROUTES[top.name];
     screen = Comp ? <Comp key={top.key} params={top.params} /> : <Tab key={tab} />;
   }
+  const isSocials = tab === 'Socials' && !top;
   return (
-    <View style={{ flex: 1 }}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>{screen}</KeyboardAvoidingView>
-      {!top ? <TabBar active={tab} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
-    </View>
+    <SafeAreaView style={[styles.safe, isSocials && { backgroundColor: '#000000' }]} edges={isSocials ? ['top'] : ['top', 'bottom']}>
+      <StatusBar style={isSocials ? 'light' : 'dark'} />
+      <View style={{ flex: 1, backgroundColor: isSocials ? '#000000' : colors.screen }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>{screen}</KeyboardAvoidingView>
+        {!top ? <TabBar active={tab} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -92,10 +96,7 @@ export default function App() {
       <ErrorBoundary>
         <StoreProvider>
           <NavProvider>
-            <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-              <StatusBar style="dark" />
-              <Root />
-            </SafeAreaView>
+            <Root />
           </NavProvider>
         </StoreProvider>
       </ErrorBoundary>
