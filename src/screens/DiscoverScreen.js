@@ -128,71 +128,59 @@ export default function DiscoverScreen() {
   };
 
   return (
-    <Screen
-      title="BibleNestra"
-      subtitle="Understand God's Word · Fellowship · Grow"
-      menu={() => nav.push('Profile')}
-      right={
-        <Pressable onPress={() => nav.push('Search')} hitSlop={12} style={styles.searchIconBtn}>
-          <Icon name="search" size={16} color={colors.forest} />
+    <View style={styles.container}>
+      {/* Sleek Discover Sticky Header matching HTML Preview */}
+      <View style={styles.discoverTopBar}>
+        <View style={styles.discoverHeaderRow}>
+          <Text style={styles.discoverTitle}>Discover</Text>
+          <View style={styles.coinBadgePill}>
+            <Icon name="coin" size={14} color="#B45309" />
+            <Text style={styles.coinBadgeText}>{state.coins || 350}</Text>
+          </View>
+        </View>
+
+        <Pressable onPress={() => nav.push('Search')} style={styles.discoverSearchBox}>
+          <Icon name="search" size={15} color="#94A3B8" />
+          <Text style={styles.discoverSearchPlaceholder}>Search scripture, plans, communities...</Text>
         </Pressable>
-      }
-    >
-      {/* 1. The Epic Story Banner / Daily Refresh Header */}
-      <View style={styles.heroBanner}>
-        <View style={styles.heroBannerContent}>
-          <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeText}>DAILY REFRESH</Text>
-          </View>
-          <Text style={styles.heroTitle}>The Epic Story of the Bible</Text>
-          <Text style={styles.heroSub}>Understand Scripture, reflect with believers, and walk in grace.</Text>
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-            <Pressable
-              style={styles.heroPrimaryBtn}
-              onPress={() => nav.push('Bible', { bookId: vod.bookId, chapter: vod.chapter, verse: vod.verse })}
-            >
-              <Text style={styles.heroPrimaryBtnText}>Read Now →</Text>
-            </Pressable>
-            <Pressable
-              style={styles.heroSecondaryBtn}
-              onPress={() => nav.push('Learn')}
-            >
-              <Text style={styles.heroSecondaryBtnText}>Study Plans</Text>
-            </Pressable>
-          </View>
-        </View>
       </View>
 
-      {/* 2. Verse of the Day Card */}
-      <View style={styles.vodCard}>
-        <View style={styles.vodTopRow}>
-          <Text style={styles.vodLabel}>VERSE OF THE DAY</Text>
-          <Text style={styles.vodRefText}>Matthew 9:37-38 · {state.translation}</Text>
-        </View>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 1. Verse of the Day Card (Rich Indigo Gradient & Amber Accents) */}
+        <View style={styles.vodCard}>
+          <View style={styles.vodTopRow}>
+            <View style={styles.vodBadge}>
+              <Text style={styles.vodBadgeText}>VERSE OF THE DAY</Text>
+            </View>
+            <Text style={styles.vodRefText}>Jeremiah 29:11 · {state.translation}</Text>
+          </View>
 
-        <Text style={styles.vodQuote}>"{vodText}"</Text>
+          <Text style={styles.vodQuote}>
+            "For I know the plans that I have for you," says the LORD, "plans for peace, and not for evil, to give you hope and a future."
+          </Text>
 
-        <View style={styles.vodInteractionsRow}>
-          <Pressable style={styles.vodMetricBtn} onPress={() => dispatch({ type: 'like', id: 'vod' })}>
-            <Icon name="heart" size={14} color={colors.rose} />
-            <Text style={styles.vodMetricText}>208.4k</Text>
-          </Pressable>
-          <Pressable style={styles.vodMetricBtn} onPress={() => nav.push('Feed')}>
-            <Icon name="chat" size={14} color={colors.indigo} />
-            <Text style={styles.vodMetricText}>169</Text>
-          </Pressable>
-          <Pressable style={styles.vodMetricBtn}>
-            <Icon name="share" size={14} color={colors.muted} />
-            <Text style={styles.vodMetricText}>56.2k</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.vodMetricBtn, { marginLeft: 'auto' }]}
-            onPress={() => nav.push('Bible', { bookId: 'MAT', chapter: 9, verse: 37 })}
-          >
-            <Text style={[styles.vodMetricText, { color: colors.forest, fontWeight: '700' }]}>Expand ›</Text>
-          </Pressable>
+          <View style={styles.vodInteractionsRow}>
+            <Pressable style={styles.vodMetricBtn} onPress={() => dispatch({ type: 'like', id: 'vod' })}>
+              <Icon name="heart" size={14} color="#F43F5E" />
+              <Text style={styles.vodMetricText}>1.4k</Text>
+            </Pressable>
+            <Pressable style={styles.vodMetricBtn} onPress={() => nav.push('Feed')}>
+              <Icon name="chat" size={14} color="#38BDF8" />
+              <Text style={styles.vodMetricText}>320</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.vodMetricBtn, { marginLeft: 'auto' }]}
+              onPress={() => nav.push('Bible', { bookId: 'JER', chapter: 29, verse: 11 })}
+            >
+              <Icon name="share" size={14} color="#34D399" />
+              <Text style={[styles.vodMetricText, { color: '#34D399', fontWeight: '700' }]}>Share</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
 
       {/* 3. "Be Inspired" Horizontal Pastel Cards with Vector Icons */}
       <Section title="Be Inspired">
@@ -815,7 +803,8 @@ export default function DiscoverScreen() {
           </View>
         </View>
       </Modal>
-    </Screen>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1285,6 +1274,62 @@ export function FeedScreen() {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  discoverTopBar: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+  },
+  discoverHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  discoverTitle: {
+    fontFamily: fonts.serifBold,
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.5,
+  },
+  coinBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+  },
+  coinBadgeText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#92400E',
+  },
+  discoverSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  discoverSearchPlaceholder: {
+    fontFamily: fonts.sans,
+    fontSize: 12.5,
+    color: '#94A3B8',
+  },
   searchIconBtn: {
     width: 34,
     height: 34,
@@ -1374,19 +1419,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Verse of the Day Card (PDF Page 4)
+  // Verse of the Day Card (Rich Indigo Gradient & Amber Accents matching HTML Preview)
   vodCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
+    backgroundColor: '#1E1B4B',
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#312E81',
     padding: 18,
-    marginBottom: 12,
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
   },
   vodTopRow: {
     flexDirection: 'row',
@@ -1394,23 +1439,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  vodBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  vodBadgeText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#FBBF24',
+    letterSpacing: 1,
+  },
   vodLabel: {
     fontFamily: fonts.sansMedium,
     fontSize: 10,
     fontWeight: '700',
-    color: colors.gold,
+    color: '#FBBF24',
     letterSpacing: 1.2,
   },
   vodRefText: {
     fontFamily: fonts.sansMedium,
     fontSize: 11,
-    color: colors.muted,
+    color: '#94A3B8',
   },
   vodQuote: {
     fontFamily: fonts.serif,
-    fontSize: 15,
-    lineHeight: 23,
-    color: colors.fg,
+    fontSize: 14.5,
+    lineHeight: 22,
+    color: '#F1F5F9',
     fontStyle: 'italic',
   },
   vodInteractionsRow: {
@@ -1420,16 +1480,17 @@ const styles = StyleSheet.create({
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   vodMetricBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
   },
   vodMetricText: {
     fontFamily: fonts.sans,
     fontSize: 12,
-    color: colors.muted,
+    color: '#CBD5E1',
   },
 
   // "Be Inspired" Cards (PDF Page 1)

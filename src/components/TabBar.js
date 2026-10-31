@@ -7,7 +7,6 @@ const TAB_COLORS = {
   Bible: colors.forest,
   Discover: colors.indigo,
   Socials: colors.rose,
-  Chats: colors.sky,
   Profile: colors.gold,
 };
 
@@ -101,7 +100,7 @@ const icons = {
   ),
 };
 
-export const TABS = ['Bible', 'Discover', 'Socials', 'Chats', 'Profile'];
+export const TABS = ['Bible', 'Discover', 'Socials', 'Profile'];
 
 export default function TabBar({ active, onChange }) {
   return (

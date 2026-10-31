@@ -98,77 +98,78 @@ export default function BibleScreen({ params = {} }) {
   };
 
   return (
-    <Screen
-      scroll={false}
-      padded={false}
-      title={`${bookName(pos.bookId)} ${pos.chapter} ▾`}
-      subtitle={`${tr} · ${title || 'Scripture'}`}
-      menu={() => setPicker('book')}
-      right={
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Pressable onPress={() => setAudio(!audio)} hitSlop={10} style={[styles.trBadge, audio && styles.trBadgeActive]}>
-            <Icon name="volume" size={14} color={audio ? '#FFFFFF' : colors.forest} />
-            <Text style={[styles.trBadgeText, audio && { color: '#FFFFFF' }]}>{audio ? 'Pause' : 'Audio'}</Text>
+    <View style={styles.container}>
+      {/* Sticky App Header matching HTML Preview */}
+      <View style={styles.modernTopBar}>
+        <Pressable onPress={() => setPicker('book')} style={styles.modernBookBtn}>
+          <Text style={styles.modernBookBtnText}>{bookName(pos.bookId)} {pos.chapter}</Text>
+          <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+            <Path d="M19 9l-7 7-7-7" stroke="#64748B" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </Pressable>
+
+        <View style={styles.modernRightActions}>
+          <Pressable onPress={() => setPicker('translation')} style={styles.modernTrBadge}>
+            <Text style={styles.modernTrBadgeText}>{tr}</Text>
           </Pressable>
-          <Pressable onPress={() => setPicker('translation')} hitSlop={12} style={styles.trBadge}>
-            <Text style={styles.trBadgeText}>{tr}</Text>
+          <Pressable onPress={() => nav.push('Search')} hitSlop={10} style={styles.modernIconBtn}>
+            <Icon name="search" size={17} color="#475569" />
+          </Pressable>
+          <Pressable onPress={() => setAudio(!audio)} hitSlop={10} style={[styles.modernIconBtn, audio && styles.modernIconBtnActive]}>
+            <Icon name="volume" size={17} color={audio ? '#047857' : '#475569'} />
           </Pressable>
         </View>
-      }
-    >
-      {/* Reader Quick-Toolbar with Vector Icons */}
-      <View style={styles.toolbar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}>
-          <Pressable onPress={() => setPicker('book')} style={styles.toolBtn}>
-            <Icon name="book" size={13} color={colors.forest} />
-            <Text style={[styles.toolText, { color: colors.forest }]}>Books</Text>
-          </Pressable>
-          <Pressable onPress={() => nav.push('Search')} style={styles.toolBtn}>
-            <Icon name="search" size={13} color={colors.indigo} />
-            <Text style={styles.toolText}>Search</Text>
-          </Pressable>
-          <Pressable onPress={() => nav.push('Concordance')} style={[styles.toolBtn, { borderColor: colors.goldLight + '60' }]}>
-            <Icon name="sparkles" size={13} color={colors.gold} />
-            <Text style={[styles.toolText, { color: colors.gold }]}>Lexicon</Text>
-          </Pressable>
-          <Pressable onPress={() => setCompare(!compare)} style={[styles.toolBtn, compare && styles.toolBtnActive]}>
-            <Icon name="bible" size={13} color={compare ? '#FFFFFF' : colors.teal} />
-            <Text style={[styles.toolText, compare && { color: '#FFFFFF' }]}>Compare</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter } })}
-            style={[styles.toolBtn, bookmarked && { borderColor: colors.rose + '60', backgroundColor: colors.roseFaint }]}
-          >
-            <Icon name="bookmark" size={13} color={bookmarked ? colors.rose : colors.muted} />
-            <Text style={[styles.toolText, bookmarked && { color: colors.rose }]}>
-              {bookmarked ? 'Saved' : 'Save'}
-            </Text>
-          </Pressable>
-          <Pressable onPress={() => nav.push('Library')} style={styles.toolBtn}>
-            <Icon name="briefcase" size={13} color={colors.lavender} />
-            <Text style={styles.toolText}>Library</Text>
-          </Pressable>
-        </ScrollView>
+      </View>
+
+      {/* Sleek Vector Action Bar matching HTML Preview */}
+      <View style={styles.modernActionBar}>
+        <Pressable onPress={() => setPicker('book')} style={[styles.modernActionPill, styles.modernActionPillActive]}>
+          <Icon name="book" size={13} color="#047857" />
+          <Text style={[styles.modernActionPillText, { color: '#047857', fontWeight: '700' }]}>Books</Text>
+        </Pressable>
+        <Pressable onPress={() => nav.push('Search')} style={styles.modernActionPill}>
+          <Icon name="search" size={13} color="#475569" />
+          <Text style={styles.modernActionPillText}>Search</Text>
+        </Pressable>
+        <Pressable onPress={() => nav.push('Concordance')} style={styles.modernActionPill}>
+          <Icon name="sparkles" size={13} color="#475569" />
+          <Text style={styles.modernActionPillText}>Lexicon</Text>
+        </Pressable>
+        <Pressable onPress={() => setCompare(!compare)} style={[styles.modernActionPill, compare && styles.modernActionPillActive]}>
+          <Icon name="bible" size={13} color={compare ? '#047857' : '#475569'} />
+          <Text style={[styles.modernActionPillText, compare && { color: '#047857', fontWeight: '700' }]}>Compare</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter } })}
+          style={[styles.modernActionPill, bookmarked && { backgroundColor: '#FDF2F8', borderColor: '#F472B6' }]}
+        >
+          <Icon name="bookmark" size={13} color={bookmarked ? '#EC4899' : '#475569'} />
+          <Text style={[styles.modernActionPillText, bookmarked && { color: '#EC4899', fontWeight: '700' }]}>
+            {bookmarked ? 'Saved' : 'Save'}
+          </Text>
+        </Pressable>
       </View>
 
       {/* Reader ScrollView */}
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 22, paddingTop: 18, paddingBottom: selected ? 190 : 100 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: selected ? 190 : 100 }}
         showsVerticalScrollIndicator={false}
       >
         {audio ? (
           <Notice tint={colors.teal} text={`Streaming audio narration for ${refLabel(pos.bookId, pos.chapter)} (${tr}).`} />
         ) : null}
 
-        {/* Chapter Header (Vibrant Modern Editorial) */}
-        <View style={styles.chapterHead}>
-          <View style={styles.eyebrowPill}>
-            <Text style={styles.eyebrowText}>{bookName(pos.bookId).toUpperCase()}</Text>
+        {/* Chapter Header (Vibrant Modern Editorial matching HTML preview) */}
+        <View style={styles.previewChapterHead}>
+          <View style={styles.previewEyebrowPill}>
+            <Text style={styles.previewEyebrowText}>
+              {title ? title.toUpperCase() : `THE HOLY SCRIPTURE · ${bookName(pos.bookId).toUpperCase()}`}
+            </Text>
           </View>
-          <Text style={styles.chapterLargeNumber}>Chapter {pos.chapter}</Text>
-          {title ? <Text style={styles.chTitle}>{title}</Text> : null}
-          <View style={styles.accentRule} />
+          <Text style={styles.previewBookTitle}>{bookName(pos.bookId)}</Text>
+          <Text style={styles.previewChapterNumber}>{pos.chapter}</Text>
+          <View style={styles.previewAccentBar} />
         </View>
 
         {!verses ? (
@@ -475,7 +476,7 @@ export default function BibleScreen({ params = {} }) {
           </View>
         </View>
       </Modal>
-    </Screen>
+    </View>
   );
 }
 
@@ -510,6 +511,135 @@ function CompareView({ pos, base, others, onPick }) {
 export { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen } from './BibleScreen_helpers';
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  modernTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  modernBookBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  modernBookBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  modernRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  modernTrBadge: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  modernTrBadgeText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#047857',
+  },
+  modernIconBtn: {
+    padding: 6,
+    borderRadius: 18,
+    backgroundColor: 'transparent',
+  },
+  modernIconBtnActive: {
+    backgroundColor: '#ECFDF5',
+  },
+  modernActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  modernActionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  modernActionPillActive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  modernActionPillText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    fontWeight: '500',
+    color: '#334155',
+  },
+  previewChapterHead: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    marginBottom: 16,
+  },
+  previewEyebrowPill: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 14,
+    marginBottom: 6,
+  },
+  previewEyebrowText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: '#047857',
+  },
+  previewBookTitle: {
+    fontFamily: fonts.serifBold,
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.5,
+  },
+  previewChapterNumber: {
+    fontFamily: fonts.serifBold,
+    fontSize: 38,
+    fontWeight: '800',
+    color: '#047857',
+    marginVertical: 2,
+  },
+  previewAccentBar: {
+    width: 36,
+    height: 4,
+    backgroundColor: '#F59E0B',
+    borderRadius: 2,
+    marginTop: 6,
+  },
   trBadge: {
     flexDirection: 'row',
     alignItems: 'center',

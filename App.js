@@ -62,7 +62,6 @@ const TABS = {
   Bible: BibleScreen,
   Discover: DiscoverScreen,
   Socials: SocialsScreen,
-  Chats: ChatListScreen,
   Profile: ProfileScreen,
 };
 
