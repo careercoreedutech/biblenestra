@@ -501,42 +501,6 @@ export default function SocialsScreen() {
         }
       }}
     >
-      {/* Top Segmented Smart Navigation Bar */}
-      <View style={styles.smartHeader}>
-        <View style={styles.smartNavPillGroup}>
-          <Pressable
-            onPress={() => setMainTab('reels')}
-            style={[styles.smartNavTab, mainTab === 'reels' && styles.smartNavTabActive]}
-          >
-            <Icon name="video" size={13} color={mainTab === 'reels' ? '#FBBF24' : '#94A3B8'} />
-            <Text style={[styles.smartNavText, mainTab === 'reels' && styles.smartNavTextActive]}>Reels</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => setMainTab('guild')}
-            style={[styles.smartNavTab, mainTab === 'guild' && styles.smartNavTabActive]}
-          >
-            <Icon name="community" size={13} color={mainTab === 'guild' ? '#FBBF24' : '#94A3B8'} />
-            <Text style={[styles.smartNavText, mainTab === 'guild' && styles.smartNavTextActive]}>Guild</Text>
-            <View style={styles.guildNavBadge}>
-              <Text style={styles.guildNavBadgeText}>1</Text>
-            </View>
-          </Pressable>
-
-          <Pressable
-            onPress={() => setMainTab('creators')}
-            style={[styles.smartNavTab, mainTab === 'creators' && styles.smartNavTabActive]}
-          >
-            <Icon name="sparkles" size={13} color={mainTab === 'creators' ? '#FBBF24' : '#94A3B8'} />
-            <Text style={[styles.smartNavText, mainTab === 'creators' && styles.smartNavTextActive]}>Creators</Text>
-          </Pressable>
-        </View>
-
-        <Pressable onPress={() => setShowPublishModal(true)} style={styles.createBtn}>
-          <Text style={styles.createBtnText}>＋ Create</Text>
-        </Pressable>
-      </View>
-
       {/* Gift Celebration Toast */}
       {giftSuccess ? (
         <View style={styles.giftToast}>
@@ -545,11 +509,21 @@ export default function SocialsScreen() {
         </View>
       ) : null}
 
-      {/* TAB 1: REELS VERTICAL VIDEO FEED */}
+      {/* TAB 1: REELS VERTICAL VIDEO FEED (Edge-to-Edge Full Screen) */}
       {mainTab === 'reels' ? (
-        <View style={{ flex: 1 }}>
-          {/* Sub-bar for Following vs For You - CENTERED & HIGH CONTRAST */}
-          <View style={styles.reelsSubBar} pointerEvents="box-none">
+        <View style={{ flex: 1, position: 'relative' }}>
+          {/* Floating Edge-to-Edge Glass Top Bar (Pure Minimalist Mobile Experience) */}
+          <View style={styles.floatingTopBar} pointerEvents="box-none">
+            {/* Left: Guild Shortcut Pill */}
+            <Pressable onPress={() => setMainTab('guild')} style={styles.floatingGuildPill}>
+              <View style={styles.onlineDot} />
+              <Text style={styles.floatingGuildText}>Guild</Text>
+              <View style={styles.guildNavBadge}>
+                <Text style={styles.guildNavBadgeText}>1</Text>
+              </View>
+            </Pressable>
+
+            {/* Center: Minimalist Following | For You */}
             <View style={styles.reelsSubBarCapsule}>
               <Pressable onPress={() => setActiveTab('Following')} style={styles.feedTab}>
                 <Text style={[styles.feedTabText, activeTab === 'Following' && styles.feedTabTextActive]}>
@@ -563,6 +537,16 @@ export default function SocialsScreen() {
                   For You
                 </Text>
                 {activeTab === 'Recommended' ? <View style={styles.feedTabUnderline} /> : null}
+              </Pressable>
+            </View>
+
+            {/* Right: Creators & Post Actions */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Pressable onPress={() => setMainTab('creators')} style={styles.floatingCornerBtn}>
+                <Icon name="sparkles" size={14} color="#FBBF24" />
+              </Pressable>
+              <Pressable onPress={() => setShowPublishModal(true)} style={styles.floatingCreateBtn}>
+                <Text style={styles.floatingCreateText}>＋ Post</Text>
               </Pressable>
             </View>
           </View>
@@ -616,7 +600,13 @@ export default function SocialsScreen() {
         <View style={styles.guildContainer}>
           {/* Guild Header matching media_1793370117109_8c40ff13.png */}
           <View style={styles.guildHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Pressable
+                onPress={() => setMainTab('reels')}
+                style={styles.backToReelsBtn}
+              >
+                <Text style={styles.backToReelsText}>‹ Reels</Text>
+              </Pressable>
               <View style={styles.guildLogoCircle}>
                 <Text style={styles.guildLogoText}>CF</Text>
               </View>
@@ -753,9 +743,17 @@ export default function SocialsScreen() {
       {mainTab === 'creators' ? (
         <ScrollView style={{ flex: 1, padding: 14 }} contentContainerStyle={{ paddingBottom: 36 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <View>
-              <Text style={styles.cornerMainTitle}>Creators Corner</Text>
-              <Text style={styles.cornerSubtitle}>20,732 total · Trending</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Pressable
+                onPress={() => setMainTab('reels')}
+                style={styles.backToReelsBtn}
+              >
+                <Text style={styles.backToReelsText}>‹ Reels</Text>
+              </Pressable>
+              <View>
+                <Text style={styles.cornerMainTitle}>Creators Corner</Text>
+                <Text style={styles.cornerSubtitle}>20,732 total · Trending</Text>
+              </View>
             </View>
             <Pressable
               style={styles.pitchBtn}
@@ -1767,46 +1765,77 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
 
-  // Smart Segmented Top Bar
-  smartHeader: {
+  // Edge-to-Edge Floating Top Navigation Bar (Pure Mobile Reels Experience)
+  floatingTopBar: {
+    position: 'absolute',
+    top: 10,
+    left: 12,
+    right: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#0A0F1D',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
     zIndex: 30,
   },
-  smartNavPillGroup: {
+  floatingGuildPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-  },
-  smartNavTab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
   },
-  smartNavTabActive: {
-    backgroundColor: 'rgba(217, 119, 6, 0.2)',
-    borderColor: '#F59E0B',
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    marginRight: 5,
   },
-  smartNavText: {
+  floatingGuildText: {
     fontFamily: fonts.sansMedium,
     fontSize: 12,
-    color: '#94A3B8',
-  },
-  smartNavTextActive: {
-    color: '#FBBF24',
     fontWeight: '700',
+    color: '#FFFFFF',
+    marginRight: 4,
+  },
+  floatingCornerBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingCreateBtn: {
+    backgroundColor: '#059669',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+  },
+  floatingCreateText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  backToReelsBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    marginRight: 6,
+  },
+  backToReelsText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   guildNavBadge: {
     backgroundColor: '#F43F5E',
@@ -1818,29 +1847,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '800',
-  },
-  createBtn: {
-    backgroundColor: '#059669',
-    paddingHorizontal: 13,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#10B981',
-  },
-  createBtnText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  reelsSubBar: {
-    position: 'absolute',
-    top: 12,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 20,
   },
   reelsSubBarCapsule: {
     flexDirection: 'row',
