@@ -5,9 +5,9 @@ import { colors, fonts } from '../theme';
 
 const TAB_COLORS = {
   Bible: colors.forest,
-  Discover: colors.indigo,
-  Socials: colors.rose,
-  Profile: colors.gold,
+  Discover: colors.forest,
+  Socials: colors.forest,
+  Profile: colors.forest,
 };
 
 const icons = {
@@ -37,13 +37,13 @@ const icons = {
         cx={12}
         cy={12}
         r={9}
-        stroke={active ? colors.indigo : colors.faint}
+        stroke={active ? colors.forest : colors.faint}
         strokeWidth={active ? 2.2 : 1.7}
       />
       <Path
         d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"
-        fill={active ? colors.indigo : 'none'}
-        stroke={active ? colors.indigo : colors.faint}
+        fill={active ? colors.forest : 'none'}
+        stroke={active ? colors.forest : colors.faint}
         strokeWidth={active ? 2 : 1.7}
         strokeLinejoin="round"
       />
@@ -57,13 +57,13 @@ const icons = {
         width={18}
         height={18}
         rx={5}
-        stroke={active ? colors.rose : colors.faint}
+        stroke={active ? colors.forest : colors.faint}
         strokeWidth={active ? 2.2 : 1.7}
       />
       <Path
         d="M10 8.5l6 3.5-6 3.5V8.5z"
-        fill={active ? colors.rose : colors.faint}
-        stroke={active ? colors.rose : colors.faint}
+        fill={active ? colors.forest : colors.faint}
+        stroke={active ? colors.forest : colors.faint}
         strokeWidth={1.8}
         strokeLinejoin="round"
       />
@@ -73,8 +73,8 @@ const icons = {
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Path
         d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
-        fill={active ? colors.skyFaint : 'none'}
-        stroke={active ? colors.sky : colors.faint}
+        fill={active ? colors.sageFaint : 'none'}
+        stroke={active ? colors.forest : colors.faint}
         strokeWidth={active ? 2.2 : 1.7}
         strokeLinejoin="round"
       />
@@ -84,7 +84,7 @@ const icons = {
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Path
         d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
-        stroke={active ? colors.gold : colors.faint}
+        stroke={active ? colors.forest : colors.faint}
         strokeWidth={active ? 2.2 : 1.7}
         strokeLinecap="round"
       />
@@ -92,8 +92,8 @@ const icons = {
         cx={12}
         cy={7}
         r={4}
-        fill={active ? colors.goldFaint : 'none'}
-        stroke={active ? colors.gold : colors.faint}
+        fill={active ? colors.sageFaint : 'none'}
+        stroke={active ? colors.forest : colors.faint}
         strokeWidth={active ? 2.2 : 1.7}
       />
     </Svg>
