@@ -1,36 +1,60 @@
-import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, Image, Modal, TextInput, Alert, ImageBackground } from 'react-native';
-import Card from '../components/Card';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, Image, TextInput, ImageBackground, Share, Platform } from 'react-native';
+import { PressScale, FadeInUp, ScaleIn, Pop, Burst, Pulse, LiveRing, AnimatedNumber, AnimatedBar, AnimatedModal } from '../components/Motion';
 import AskBar from '../components/AskBar';
 import { Icon } from '../components/Icons';
-import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider } from '../components/ui';
-import { colors, fonts } from '../theme';
+import Svg, { Path, Circle } from 'react-native-svg';
+import { Screen, Section, Row, Pills, Button, Tag, Badge, Notice, Empty, alpha, NightGlow } from '../components/ui';
+import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS, CHANNELS_DATA } from '../data/seed';
-import { refLabel, VERSE_OF_DAY, getChapter } from '../data/bible';
+import { refLabel, BOOKS } from '../data/bible';
+import { useToast, haptic } from '../components/Toast';
+import { useNarration } from '../audio/Narration';
 import { BIBLE_GAMES, TRIVIA_QUESTIONS, WHO_SAID_IT_QUESTIONS, VERSE_SCRAMBLE_DATA } from '../data/games';
 
-// ---------- Discover Hub (HelloBible+ & Taste Skill Aesthetic) ----------
+// ---------- Discover Hub (Sanctuary Paper) ----------
+const DEVOTIONALS_AUDIO = [
+  { id: 'dev1', title: 'Walking in Grace', sub: 'Psalm 23 · Ambient reading', time: '12 MIN', passage: { bookId: 'PSA', chapter: 23 }, img: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=600&q=80' },
+  { id: 'dev2', title: 'The Armor of Light', sub: 'Ephesians 6 · Morning strength', time: '8 MIN', passage: { bookId: 'EPH', chapter: 6 }, img: 'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?auto=format&fit=crop&w=600&q=80' },
+  { id: 'dev3', title: 'Midnight Peace & Vigil', sub: 'Proverbs 3 · Night liturgy', time: '15 MIN', passage: { bookId: 'PRO', chapter: 3 }, img: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80' },
+];
+
+// Verse-scramble rounds as multiple choice: pick the correctly ordered words.
+function scrambleQuestions() {
+  const rot = (arr, n) => arr.slice(n).concat(arr.slice(0, n));
+  const swap = (arr, i, j) => { const a = arr.slice(); [a[i], a[j]] = [a[j], a[i]]; return a; };
+  return VERSE_SCRAMBLE_DATA.map((v, idx) => {
+    const right = v.correctOrder.join(' ');
+    const decoys = [swap(v.correctOrder, 1, 3), rot(v.correctOrder, 3), swap(swap(v.correctOrder, 0, 2), 4, 6)].map((a) => a.join(' ')).filter((d) => d !== right);
+    const correctIndex = (idx * 3 + 1) % 4;
+    const options = decoys.slice(0, 3);
+    options.splice(correctIndex, 0, right);
+    return {
+      id: v.id,
+      categoryLabel: 'Scripture scramble',
+      question: `Unscramble ${v.reference}:  ${v.scrambledWords.join(' · ')}`,
+      options,
+      correctIndex,
+      reference: v.reference,
+      explanation: v.verseText,
+    };
+  });
+}
+
+const WISH_CATEGORIES = ['Healing', 'Guidance', 'Family', 'Financial Miracle', 'Salvation', 'Revival'];
+
 export default function DiscoverScreen() {
   const nav = useNav();
+  const toast = useToast();
+  const nar = useNarration();
   const { state, dispatch } = useStore();
-  const unread = (state.chats || []).reduce((n, c) => n + (c.unread || 0), 0) + ((state.requests || []).length);
-  const recentPrayers = (state.prayers || []).slice(0, 3);
-  const featuredVideos = (state.videos || []).slice(0, 4);
   const featuredJobs = (state.jobs || []).slice(0, 3);
-
-  // Verse of the Day (PDF Page 4)
-  const vod = VERSE_OF_DAY || { bookId: 'MAT', chapter: 9, verse: 37 };
-  const vodText = 'Then he said to his disciples, "The harvest is plentiful but the workers are few. Ask the Lord of the harvest, therefore, to send out workers into his harvest field."';
-
-  // Activities Checklist state (PDF Page 4)
-  const [completedActivities, setCompletedActivities] = useState(['a1', 'a2']);
-  const toggleActivity = (id) => {
-    setCompletedActivities((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
+  const wishes = state.wishes || [];
+  const joinedChannels = state.joinedChannels || [];
+  const candlesBurning = wishes.reduce((n, w) => n + (w.candles || 0), 0);
+  const liveCount = (LIVE || []).filter((l) => l.status === 'live').length;
 
   // Interactive Games State
   const [showGameModal, setShowGameModal] = useState(false);
@@ -40,8 +64,12 @@ export default function DiscoverScreen() {
   const [selectedOption, setSelectedOption] = useState(null);
   const [hasAnswered, setHasAnswered] = useState(false);
   const [gameScore, setGameScore] = useState(0);
+  const [correctCount, setCorrectCount] = useState(0);
   const [streak, setStreak] = useState(0);
   const [gameOver, setGameOver] = useState(false);
+  const [coinsEarned, setCoinsEarned] = useState(0);
+
+  const gameTypeFor = (id) => (id === 'who_said_it' ? 'who_said_it' : id === 'verse_scramble' ? 'scramble' : 'trivia');
 
   const startGame = (type) => {
     setActiveGameType(type);
@@ -51,6 +79,8 @@ export default function DiscoverScreen() {
         question: q.quote,
         categoryLabel: 'Scripture Quotes'
       })));
+    } else if (type === 'scramble') {
+      setGameQuestions(scrambleQuestions());
     } else {
       setGameQuestions(TRIVIA_QUESTIONS);
     }
@@ -58,8 +88,10 @@ export default function DiscoverScreen() {
     setSelectedOption(null);
     setHasAnswered(false);
     setGameScore(0);
+    setCorrectCount(0);
     setStreak(0);
     setGameOver(false);
+    setCoinsEarned(0);
     setShowGameModal(true);
   };
 
@@ -69,10 +101,14 @@ export default function DiscoverScreen() {
     setSelectedOption(idx);
     setHasAnswered(true);
     if (idx === currentQ.correctIndex) {
-      setGameScore((s) => s + 100);
+      // Streak multiplier: each consecutive correct answer adds 25 bonus points (max +100).
+      setGameScore((s) => s + 100 + Math.min(streak, 4) * 25);
+      setCorrectCount((c) => c + 1);
       setStreak((s) => s + 1);
+      haptic('success');
     } else {
       setStreak(0);
+      haptic('warning');
     }
   };
 
@@ -82,425 +118,250 @@ export default function DiscoverScreen() {
       setSelectedOption(null);
       setHasAnswered(false);
     } else {
+      // Coin prize: 5 coins per correct answer, credited to the wallet once per round.
+      const prize = correctCount * 5;
+      setCoinsEarned(prize);
       setGameOver(true);
+      if (prize > 0) {
+        dispatch({ type: 'buyCoins', amount: prize });
+        toast.show(`+${prize} coins added to your wallet`, { icon: 'coin', haptic: 'success' });
+      }
     }
   };
 
-  // Make a Wish State
+  // Make a Wish — persisted through the store (state.wishes)
   const [showWishModal, setShowWishModal] = useState(false);
   const [wishText, setWishText] = useState('');
   const [wishCategory, setWishCategory] = useState('Healing');
-  const [wishes, setWishes] = useState([
-    { id: 'w1', user: 'Hannah S.', text: 'Complete healing for my mother\'s lungs and restoration of peace', category: 'Healing', candles: 142, amen: 89, time: '2h ago' },
-    { id: 'w2', user: 'David O.', text: 'Open doors for full-time Kingdom media ministry opportunity', category: 'Guidance', candles: 98, amen: 65, time: '4h ago' },
-    { id: 'w3', user: 'Grace E.', text: 'Deliverance and divine protection over my family in Chicago', category: 'Family', candles: 230, amen: 184, time: '6h ago' },
-    { id: 'w4', user: 'Pastor Emmanuel', text: 'Spiritual revival among the youth and church community', category: 'Revival', candles: 312, amen: 247, time: '8h ago' },
-  ]);
-  const [litCandleIds, setLitCandleIds] = useState(['w1']);
+  const [wishBurst, setWishBurst] = useState(0);
 
   const handleAddWish = () => {
-    if (!wishText.trim()) {
-      Alert.alert('Required', 'Please enter your prayer wish or desire.');
+    const body = wishText.trim();
+    if (!body) {
+      toast.show('Write your prayer wish first', { tone: 'error' });
       return;
     }
-    const newW = {
-      id: 'w_' + Date.now(),
-      user: state.user?.displayName || 'Believer',
-      text: wishText.trim(),
-      category: wishCategory,
-      candles: 1,
-      amen: 1,
-      time: 'Just now',
-    };
-    setWishes([newW, ...wishes]);
-    setLitCandleIds((prev) => [...prev, newW.id]);
+    const title = body.length > 48 ? body.slice(0, 46).trim() + '…' : body;
+    dispatch({ type: 'addWish', w: { title, body, category: wishCategory, visibility: 'Public', responses: ['Prayer'], candles: 1, lit: true } });
     setWishText('');
-    Alert.alert('Prayer Wish Lit', 'Your prayer wish candle has been lit on the altar before God.');
+    setWishBurst((n) => n + 1);
+    toast.show('Your candle is lit on the altar', { icon: 'flame', haptic: 'success', action: { label: 'View all', onPress: () => { setShowWishModal(false); nav.push('Wishes'); } } });
   };
 
-  const toggleLightCandle = (id) => {
-    setLitCandleIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-    setWishes((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, candles: w.candles + (litCandleIds.includes(id) ? -1 : 1) } : w))
-    );
+  const toggleLightCandle = (w) => {
+    dispatch({ type: 'lightCandle', id: w.id });
+    toast.show(w.lit ? 'Candle put out' : `Candle lit for ${w.author}`, { icon: 'flame', haptic: w.lit ? 'light' : 'success' });
   };
+
+  const toggleAmen = (w) => {
+    dispatch({ type: 'amenWish', id: w.id });
+    toast.show(w.amened ? 'Amen removed' : `You prayed Amen with ${w.author}`, { icon: 'prayer', haptic: w.amened ? 'light' : 'success' });
+  };
+
+  const playDevotional = (dev) => {
+    const { bookId, chapter } = dev.passage;
+    nar.playChapter(bookId, chapter, { translation: 'KJV' });
+    toast.show(`Playing ${dev.title} · ${refLabel(bookId, chapter)}`, { icon: 'audio', action: { label: 'Read', onPress: () => nav.push('Bible', { bookId, chapter }) } });
+  };
+
+  const toggleChannel = (ch) => {
+    const on = joinedChannels.includes(ch.id);
+    dispatch({ type: 'joinChannel', id: ch.id });
+    toast.show(on ? `Left ${ch.name}` : `Joined ${ch.name}`, { icon: on ? 'x' : 'check', haptic: on ? 'light' : 'success' });
+  };
+  const [channelPreview, setChannelPreview] = useState(null);
+  // Keep the last channel rendered while the sheet animates out.
+  const lastChannel = useRef(null);
+  if (channelPreview) lastChannel.current = channelPreview;
+  const shownChannel = channelPreview || lastChannel.current;
+
+  const dateEyebrow = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const currentQ = gameQuestions[activeQuestionIdx];
+  const progressPct = gameQuestions.length ? ((activeQuestionIdx + (hasAnswered ? 1 : 0)) / gameQuestions.length) * 100 : 0;
 
   return (
     <View style={styles.container}>
-      {/* Sleek Discover Sticky Header with Sanctuary Gold Accents */}
+      {/* Header: eyebrow date, serif title, coin chip, search */}
       <View style={styles.discoverTopBar}>
         <View style={styles.discoverHeaderRow}>
-          <View>
-            <Text style={styles.discoverEyebrow}>TUESDAY · SACRED LITURGY</Text>
-            <Text style={styles.discoverTitle}>Sanctuary Discover</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.discoverEyebrow} numberOfLines={1}>{dateEyebrow}</Text>
+            <Text style={styles.discoverTitle}>Discover</Text>
           </View>
-          <View style={styles.coinBadgePill}>
-            <Text style={styles.coinBadgeIcon}>✦</Text>
-            <Text style={styles.coinBadgeText}>{state.coins || 350} Coins</Text>
-          </View>
+          <ScaleIn delay={120}>
+            <PressScale
+              onPress={() => nav.push('Profile', { tab: 'Wallet & Gifts' })}
+              accessibilityRole="button"
+              accessibilityLabel={`Wallet: ${state.coins ?? 0} coins`}
+              scaleTo={0.93}
+              style={styles.coinChip}
+            >
+              <Pop trigger={state.coins} style={styles.coinChipIcon}>
+                <Icon name="coin" size={13} color={colors.gold} strokeWidth={2.2} />
+              </Pop>
+              <AnimatedNumber value={state.coins ?? 0} style={styles.coinChipText} />
+              <Text style={styles.coinChipLabel}>coins</Text>
+            </PressScale>
+          </ScaleIn>
         </View>
 
-        <Pressable onPress={() => nav.push('Search')} style={styles.discoverSearchBox}>
-          <Icon name="search" size={15} color="#B45309" />
-          <Text style={styles.discoverSearchPlaceholder}>Search 31,102 verses, devotionals, prayers...</Text>
-        </Pressable>
+        <PressScale onPress={() => nav.push('Search')} scaleTo={0.985} accessibilityRole="button" accessibilityLabel="Search" style={styles.discoverSearchBox}>
+          <Icon name="search" size={16} color={colors.muted} />
+          <Text style={styles.discoverSearchPlaceholder} numberOfLines={1}>Search 31,102 verses, devotionals, prayers…</Text>
+        </PressScale>
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: 80 }}
+        contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 96 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* 1. Illuminated Verse of the Day Hero Card with Photographic Dawn Background */}
-        <View style={styles.vodCardMaster}>
-          <ImageBackground
-            source={{ uri: 'https://images.unsplash.com/photo-1507692049790-de58290a4334?auto=format&fit=crop&w=800&q=80' }}
-            style={styles.vodImageBg}
-            imageStyle={{ borderRadius: 24 }}
-          >
-            <View style={styles.vodDarkScrim} />
-            <View style={styles.vodCardInner}>
-              <View style={styles.vodTopRow}>
-                <View style={styles.vodBadgePill}>
-                  <Text style={styles.vodBadgeIcon}>✦</Text>
-                  <Text style={styles.vodBadgeText}>VERSE OF THE DAY</Text>
+        {/* Quick access to the app's main spaces */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -18, marginBottom: 0 }} contentContainerStyle={{ paddingHorizontal: 18, gap: 6 }}>
+          {[
+            { label: 'Prayer', icon: 'prayer', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('PrayerWall') },
+            { label: 'Chats', icon: 'chat', tint: colors.primary, bg: colors.cardIndigo, go: () => nav.push('ChatList') },
+            { label: 'Learn', icon: 'book', tint: colors.sage, bg: colors.cardSage, go: () => nav.push('Learn') },
+            { label: 'Ask AI', icon: 'sparkles', tint: colors.gold, bg: colors.cardGold, go: () => nav.push('BibleChat') },
+            { label: 'Calendar', icon: 'calendar', tint: colors.sky, bg: colors.cardSky, go: () => nav.push('Calendar') },
+            { label: 'Library', icon: 'bookmark', tint: colors.lavender, bg: colors.cardLavender, go: () => nav.push('Library') },
+            { label: 'Jobs', icon: 'briefcase', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('Jobs') },
+            { label: 'Care', icon: 'heart', tint: colors.teal, bg: colors.cardSage, go: () => nav.push('Care') },
+          ].map((q, i) => (
+            <FadeInUp key={q.label} index={i} distance={10} stagger={40}>
+              <PressScale onPress={q.go} scaleTo={0.93} accessibilityRole="button" accessibilityLabel={q.label} style={styles.quickItem}>
+                <View style={[styles.quickIcon, { backgroundColor: q.bg }]}>
+                  <Icon name={q.icon} size={22} color={q.tint} />
                 </View>
-                <Text style={styles.vodRefText}>Jeremiah 29:11 · {state.translation}</Text>
+                <Text style={styles.quickLabel} numberOfLines={1}>{q.label}</Text>
+              </PressScale>
+            </FadeInUp>
+          ))}
+        </ScrollView>
+
+        {/* 2. The Living Altar & Prayer Wall */}
+        <FadeInUp index={2}>
+        <SectionHead
+          eyebrow="The Living Altar"
+          title="Prayer Wall"
+          sub={`${wishes.length} wishes on the altar · ${candlesBurning.toLocaleString()} candles burning`}
+          action="See all"
+          onAction={() => nav.push('Wishes')}
+        />
+        <PressScale onPress={() => setShowWishModal(true)} scaleTo={0.98} accessibilityRole="button" style={styles.altarHeroCard}>
+          <ImageBackground
+            source={{ uri: 'https://images.unsplash.com/photo-1533000759938-aa0ba70beceb?auto=format&fit=crop&w=800&q=80' }}
+            style={styles.altarHeroBg}
+            imageStyle={{ borderRadius: 18 }}
+          >
+            <View style={styles.altarHeroScrim} />
+            <View style={styles.altarHeroContent}>
+              <View style={styles.altarHeroTopPill}>
+                <Pulse min={0.75} max={1.25} duration={1100}>
+                  <View style={styles.pulseDot} />
+                </Pulse>
+                <Text style={styles.altarHeroPillText}>Sacred altar</Text>
               </View>
 
-              <Text style={styles.vodQuoteText}>
-                “For I know the plans that I have for you,” says the LORD, “plans for peace, and not for evil, to give you hope and a future.”
-              </Text>
-
-              {/* Action Buttons Row */}
-              <View style={styles.vodActionRow}>
-                <Pressable
-                  style={styles.vodActionBtn}
-                  onPress={() => Alert.alert('Audio Liturgy', 'Playing Jeremiah 29:11 with Fr. Thomas narration & harp reflection.')}
-                >
-                  <Icon name="play" size={13} color="#FBBF24" />
-                  <Text style={styles.vodActionBtnText}>Listen</Text>
-                </Pressable>
-
-                <Pressable
-                  style={[styles.vodActionBtn, styles.vodActionBtnPrimary]}
-                  onPress={() => setShowWishModal(true)}
-                >
-                  <Icon name="prayer" size={13} color="#0F172A" />
-                  <Text style={[styles.vodActionBtnText, { color: '#0F172A', fontWeight: '800' }]}>Pray This</Text>
-                </Pressable>
-
-                <Pressable
-                  style={styles.vodActionBtnSquare}
-                  onPress={() => nav.push('Bible', { bookId: 'JER', chapter: 29, verse: 11 })}
-                >
-                  <Icon name="book" size={14} color="#FFFFFF" />
-                </Pressable>
+              <View style={styles.altarHeroBottomRow}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={styles.altarHeroTitle}>Send a heart desire to heaven</Text>
+                  <Text style={styles.altarHeroSub}>Light a candle and receive community intercession</Text>
+                </View>
+                <View style={styles.makeWishActionBtn}>
+                  <Text style={styles.makeWishActionText}>Make a Wish</Text>
+                  <Icon name="chevron-right" size={13} color={colors.night} strokeWidth={2.4} />
+                </View>
               </View>
             </View>
           </ImageBackground>
-        </View>
+        </PressScale>
+        </FadeInUp>
 
-        {/* 2. The Living Altar & Make a Wish (Global Prayer Candle Wall) */}
-        <View style={styles.altarSection}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.sectionHeaderTitle}>🕯️ The Living Altar & Prayer Wall</Text>
-              <Text style={styles.sectionHeaderSub}>1,428 believers currently praying across 42 nations</Text>
-            </View>
-            <Pressable onPress={() => setShowWishModal(true)} style={styles.lightCandleHeaderBtn}>
-              <Text style={styles.lightCandleHeaderBtnText}>＋ Light Candle</Text>
-            </Pressable>
-          </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.bleed}
+          contentContainerStyle={styles.hScroll}
+        >
+          {wishes.slice(0, 8).map((w, i) => (
+            <FadeInUp key={w.id} index={3 + i} distance={10} style={styles.wishStreamCard}>
+              <PressScale onPress={() => nav.push('Wishes')} scaleTo={0.98}>
+                <View style={styles.wishCardHeader}>
+                  <Avatar name={w.author} size={30} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.wishCardUser} numberOfLines={1}>{w.mine ? 'You' : w.author}</Text>
+                    <Text style={styles.wishCardTime}>{w.time}</Text>
+                  </View>
+                  <Badge label={w.category} tint={categoryTint(w.category)} />
+                </View>
+                <Text style={styles.wishCardBody} numberOfLines={3}>“{w.body || w.title}”</Text>
+              </PressScale>
 
-          {/* Interactive Altar Card with Ambient Candle Art */}
-          <Pressable onPress={() => setShowWishModal(true)} style={styles.altarHeroCard}>
-            <ImageBackground
-              source={{ uri: 'https://images.unsplash.com/photo-1606293926075-69a00dbfde81?auto=format&fit=crop&w=800&q=80' }}
-              style={styles.altarHeroBg}
-              imageStyle={{ borderRadius: 20 }}
+              <View style={styles.wishCardFooter}>
+                <CandleButton w={w} onPress={() => toggleLightCandle(w)} offColor={colors.muted} />
+                <AmenButton w={w} onPress={() => toggleAmen(w)} offColor={colors.muted} />
+              </View>
+            </FadeInUp>
+          ))}
+        </ScrollView>
+
+        {/* 3. Sacred Audio Devotionals */}
+        <FadeInUp index={4}>
+        <SectionHead
+          eyebrow="Listen"
+          title="Sacred Audio Devotionals"
+          sub="Immersive scripture listening & guided silence"
+          action="Explore"
+          onAction={() => nav.push('Learn', { tab: 'Devotionals' })}
+        />
+        </FadeInUp>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bleed} contentContainerStyle={styles.hScroll}>
+          {DEVOTIONALS_AUDIO.map((dev, i) => (
+            <FadeInUp key={dev.id} index={5 + i} distance={10}>
+            <PressScale
+              scaleTo={0.97}
+              style={styles.devCard}
+              onPress={() => playDevotional(dev)}
+              accessibilityLabel={`Play ${dev.title}`}
             >
-              <View style={styles.altarHeroScrim} />
-              <View style={styles.altarHeroContent}>
-                <View style={styles.altarHeroTopPill}>
-                  <View style={styles.pulseDot} />
-                  <Text style={styles.altarHeroPillText}>SACRED ALTAR</Text>
-                </View>
-
-                <View style={styles.altarHeroBottomRow}>
-                  <View style={{ flex: 1, paddingRight: 10 }}>
-                    <Text style={styles.altarHeroTitle}>Send a Heart Desire to Heaven</Text>
-                    <Text style={styles.altarHeroSub}>Light a candle and receive community intercession</Text>
-                  </View>
-                  <View style={styles.makeWishActionBtn}>
-                    <Text style={styles.makeWishActionText}>Make a Wish ›</Text>
-                  </View>
-                </View>
-              </View>
-            </ImageBackground>
-          </Pressable>
-
-          {/* Community Prayer Wishes Horizontal Stream */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
-            {wishes.map((w) => {
-              const isLit = litCandleIds.includes(w.id);
-              return (
-                <View key={w.id} style={styles.wishStreamCard}>
-                  <View>
-                    <View style={styles.wishCardHeader}>
-                      <Text style={styles.wishCardUser}>{w.user}</Text>
-                      <View style={styles.wishCategoryBadge}>
-                        <Text style={styles.wishCategoryText}>{w.category.toUpperCase()}</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.wishCardBody} numberOfLines={3}>
-                      “{w.text}”
-                    </Text>
-                  </View>
-
-                  <View style={styles.wishCardFooter}>
-                    <Text style={styles.wishCandleCount}>{w.candles} Candles</Text>
-                    <Pressable onPress={() => toggleLightCandle(w.id)} style={styles.wishAmenBtn}>
-                      <Text style={[styles.wishAmenBtnText, isLit && { color: colors.gold, fontWeight: '800' }]}>
-                        {isLit ? '🔥 Amen' : '🕯️ Amen'} ({w.amen})
-                      </Text>
-                    </Pressable>
-                  </View>
-                </View>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* 3. Sacred Audio Devotionals & Liturgy */}
-        <View style={styles.devotionalSection}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.sectionHeaderTitle}>Sacred Audio Devotionals</Text>
-              <Text style={styles.sectionHeaderSub}>Immersive scripture listening & guided silence</Text>
-            </View>
-            <Pressable onPress={() => nav.push('Learn', { tab: 'Devotionals' })}>
-              <Text style={styles.sectionActionText}>Explore ›</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
-            {[
-              { id: 'dev1', title: 'Walking in Grace', sub: 'Psalms 23 · Ambient Chants', time: '12 MIN', img: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=600&q=80' },
-              { id: 'dev2', title: 'The Armor of Light', sub: 'Ephesians 6 · Morning Strength', time: '8 MIN', img: 'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?auto=format&fit=crop&w=600&q=80' },
-              { id: 'dev3', title: 'Midnight Peace & Vigil', sub: 'Proverbs 3 · Night Liturgy', time: '15 MIN', img: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80' },
-            ].map((dev) => (
-              <Pressable
-                key={dev.id}
-                style={styles.devotionalAlbumCard}
-                onPress={() => Alert.alert('Playing Devotional', `Streaming ${dev.title} (${dev.sub})`)}
-              >
-                <Image source={{ uri: dev.img }} style={styles.devotionalAlbumThumb} />
-                <View style={styles.devotionalTimeBadge}>
-                  <Text style={styles.devotionalTimeText}>{dev.time}</Text>
-                </View>
-                <View style={styles.devotionalPlayBubble}>
-                  <Icon name="play" size={14} color="#FFFFFF" />
-                </View>
-                <View style={styles.devotionalInfoBox}>
-                  <Text style={styles.devotionalTitle} numberOfLines={1}>{dev.title}</Text>
-                  <Text style={styles.devotionalSub} numberOfLines={1}>{dev.sub}</Text>
-                </View>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* 4. Interactive Bible Games Arena (With Multi-Option Engine) */}
-        <View style={styles.gamesSection}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.sectionHeaderTitle}>⚔️ Interactive Bible Games & Quizzes</Text>
-              <Text style={styles.sectionHeaderSub}>Multi-option challenges, streak multipliers & coin prizes</Text>
-            </View>
-            <Pressable onPress={() => startGame('trivia')} style={styles.playNowHeaderBtn}>
-              <Text style={styles.playNowHeaderBtnText}>Play Now</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingVertical: 4 }}>
-            {BIBLE_GAMES.map((game) => (
-              <Pressable
-                key={game.id}
-                style={styles.gameCardElevated}
-                onPress={() => startGame(game.id === 'who_said_it' ? 'who_said_it' : 'trivia')}
-              >
-                <Image source={{ uri: game.thumbnail }} style={styles.gameCardImg} />
-                <View style={styles.gameBadgeBox}>
-                  <Text style={styles.gameBadgeText}>{game.badge}</Text>
-                </View>
-                <View style={styles.gameCardContent}>
-                  <Text style={styles.gameCardTitle} numberOfLines={1}>{game.title}</Text>
-                  <Text style={styles.gameCardSub} numberOfLines={2}>{game.subtitle}</Text>
-                  <View style={styles.gameCardMeta}>
-                    <Text style={styles.gameCardPlayers}>{game.players}</Text>
-                    <View style={styles.gameCardBtn}>
-                      <Text style={styles.gameCardBtnText}>Play →</Text>
-                    </View>
-                  </View>
-                </View>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* 5. Kingdom Calling & Christian Careers (With Video Hero Teaser) */}
-        <View style={styles.jobsSection}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.sectionHeaderTitle}>💼 Kingdom Calling & Christian Careers</Text>
-              <Text style={styles.sectionHeaderSub}>Churches, ministries & faith-tech startups hiring</Text>
-            </View>
-            <Pressable onPress={() => nav.push('Jobs')}>
-              <Text style={styles.sectionActionText}>Marketplace ›</Text>
-            </Pressable>
-          </View>
-
-          {/* Attention Video Teaser Card */}
-          <Pressable onPress={() => nav.push('Jobs')} style={styles.jobsHeroTeaser}>
-            <ImageBackground
-              source={{ uri: 'https://images.unsplash.com/photo-1519791883288-dc8bd696e667?auto=format&fit=crop&w=800&q=80' }}
-              style={styles.jobsHeroBg}
-              imageStyle={{ borderRadius: 18 }}
-            >
-              <View style={styles.jobsHeroScrim} />
-              <View style={styles.jobsHeroContent}>
-                <View style={styles.jobsHeroBadge}>
-                  <Text style={styles.jobsHeroBadgeText}>KINGDOM OPPORTUNITY</Text>
-                </View>
-                <Text style={styles.jobsHeroTitle}>Step Into Your Divine Calling</Text>
-                <Text style={styles.jobsHeroSub}>Connect with ministries, worship positions & tech opportunities</Text>
-              </View>
-            </ImageBackground>
-          </Pressable>
-
-          {/* Featured Roles */}
-          <View style={{ gap: 8, marginTop: 10 }}>
-            {featuredJobs.map((j) => (
-              <Pressable key={j.id} style={styles.jobItemCard} onPress={() => nav.push('Jobs')}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.jobItemTitle} numberOfLines={1}>{j.title}</Text>
-                    <View style={styles.jobKindBadge}>
-                      <Text style={styles.jobKindBadgeText}>{j.kind.toUpperCase()}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.jobItemMeta} numberOfLines={1}>
-                    {j.client?.name || j.postedBy || 'Church Ministry'} · {j.budget}
-                  </Text>
-                </View>
-                <View style={styles.applySmallBtn}>
-                  <Text style={styles.applySmallBtnText}>Apply</Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-      {/* 9. Churches & Bible Studies with Rich Photographic Thumbnails & Make a Wish */}
-      <Section title="Churches & Bible Studies">
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          {/* Card 1: Communities */}
-          <Pressable
-            style={styles.photoCard}
-            onPress={() => nav.push('Communities')}
-          >
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1543807535-eceef0bc6599?auto=format&fit=crop&w=600&q=80' }}
-              style={styles.photoCardBg}
-            />
-            <View style={styles.photoCardScrim} />
-            <View style={styles.photoCardContent}>
-              <View style={[styles.photoCardBadge, { backgroundColor: colors.forest + 'CC' }]}>
-                <Text style={styles.photoCardBadgeText}>42 ACTIVE</Text>
-              </View>
               <View>
-                <Text style={styles.photoCardTitle}>Communities</Text>
-                <Text style={styles.photoCardSub}>Churches & study circles</Text>
+                <Image source={{ uri: dev.img }} style={styles.devThumb} />
+                <View style={styles.devTimeBadge}>
+                  <Icon name="audio" size={10} color={colors.nightFg} />
+                  <Text style={styles.devTimeText}>{dev.time}</Text>
+                </View>
+                <View style={styles.devPlayBubble}>
+                  <Icon name="play" size={15} color="#FFFFFF" />
+                </View>
               </View>
-            </View>
-          </Pressable>
+              <View style={styles.devInfo}>
+                <Text style={styles.devTitle} numberOfLines={1}>{dev.title}</Text>
+                <Text style={styles.devSub} numberOfLines={1}>{dev.sub}</Text>
+              </View>
+            </PressScale>
+            </FadeInUp>
+          ))}
+        </ScrollView>
 
-          {/* Card 2: Make a Wish (Replaced Chat & Groups) */}
-          <Pressable
-            style={styles.photoCard}
-            onPress={() => setShowWishModal(true)}
-          >
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1606293926075-69a00dbfde81?auto=format&fit=crop&w=600&q=80' }}
-              style={styles.photoCardBg}
-            />
-            <View style={[styles.photoCardScrim, { backgroundColor: 'rgba(30, 20, 10, 0.55)' }]} />
-            <View style={styles.photoCardContent}>
-              <View style={[styles.photoCardBadge, { backgroundColor: colors.gold + 'E6' }]}>
-                <Text style={[styles.photoCardBadgeText, { color: '#1B1405' }]}>PRAYER WISH</Text>
-              </View>
-              <View>
-                <Text style={styles.photoCardTitle}>Make a Wish</Text>
-                <Text style={styles.photoCardSub}>Light candle · Faith desires</Text>
-              </View>
-            </View>
-          </Pressable>
+        {/* 4. Interactive Bible Games & Quizzes */}
+        <SectionHead
+          eyebrow="Play & learn"
+          title="Bible Games & Quizzes"
+          sub="Multi-option challenges, streak multipliers & coin prizes"
+          action="Play now"
+          onAction={() => startGame('trivia')}
+        />
 
-          {/* Card 3: Find Believers */}
-          <Pressable
-            style={styles.photoCard}
-            onPress={() => nav.push('People')}
-          >
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=600&q=80' }}
-              style={styles.photoCardBg}
-            />
-            <View style={styles.photoCardScrim} />
-            <View style={styles.photoCardContent}>
-              <View style={[styles.photoCardBadge, { backgroundColor: colors.indigo + 'CC' }]}>
-                <Text style={styles.photoCardBadgeText}>VERIFIED</Text>
-              </View>
-              <View>
-                <Text style={styles.photoCardTitle}>Find Believers</Text>
-                <Text style={styles.photoCardSub}>Christian networking</Text>
-              </View>
-            </View>
-          </Pressable>
-
-          {/* Card 4: Live Fellowship */}
-          <Pressable
-            style={styles.photoCard}
-            onPress={() => nav.push('Live')}
-          >
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=600&q=80' }}
-              style={styles.photoCardBg}
-            />
-            <View style={[styles.photoCardScrim, { backgroundColor: 'rgba(40, 10, 20, 0.55)' }]} />
-            <View style={styles.photoCardContent}>
-              <View style={[styles.photoCardBadge, { backgroundColor: colors.rose + 'E6' }]}>
-                <Text style={styles.photoCardBadgeText}>LIVE NOW</Text>
-              </View>
-              <View>
-                <Text style={styles.photoCardTitle}>Live Fellowship</Text>
-                <Text style={styles.photoCardSub}>{(LIVE || []).filter((l) => l.status === 'live').length} active fellowships</Text>
-              </View>
-            </View>
-          </Pressable>
-        </View>
-      </Section>
-
-      {/* 10. Interactive Bible Games with 4 Options per Question */}
-      <Section title="Interactive Bible Games">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingVertical: 4 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bleed} contentContainerStyle={styles.hScroll}>
           {BIBLE_GAMES.map((game) => (
-            <Pressable
+            <PressScale
               key={game.id}
+              scaleTo={0.97}
               style={styles.gameCard}
-              onPress={() => startGame(game.id === 'who_said_it' ? 'who_said_it' : 'trivia')}
+              onPress={() => startGame(gameTypeFor(game.id))}
+              accessibilityLabel={`Play ${game.title}`}
             >
               <Image source={{ uri: game.thumbnail }} style={styles.gameCardImg} />
               <View style={styles.gameBadgeBox}>
@@ -510,89 +371,222 @@ export default function DiscoverScreen() {
                 <Text style={styles.gameCardTitle} numberOfLines={1}>{game.title}</Text>
                 <Text style={styles.gameCardSub} numberOfLines={2}>{game.subtitle}</Text>
                 <View style={styles.gameCardMeta}>
-                  <Text style={styles.gameCardPlayers}>{game.players}</Text>
+                  <View style={styles.inlineMeta}>
+                    <Icon name="users" size={12} color={colors.faint} />
+                    <Text style={styles.gameCardPlayers}>{game.players}</Text>
+                  </View>
                   <View style={styles.gameCardBtn}>
-                    <Text style={styles.gameCardBtnText}>Play Challenge →</Text>
+                    <Text style={styles.gameCardBtnText}>Play</Text>
+                    <Icon name="arrow-right" size={11} color="#FFFFFF" strokeWidth={2.6} />
                   </View>
                 </View>
+              </View>
+            </PressScale>
+          ))}
+        </ScrollView>
+
+        {/* 5. Kingdom Calling & Christian Careers */}
+        <SectionHead
+          eyebrow="Kingdom calling"
+          title="Christian Careers"
+          sub="Churches, ministries & faith-tech startups hiring"
+          action="Marketplace"
+          onAction={() => nav.push('Jobs')}
+        />
+
+        <PressScale onPress={() => nav.push('Jobs')} scaleTo={0.98} accessibilityRole="button" style={styles.jobsHeroTeaser}>
+          <ImageBackground
+            source={{ uri: 'https://images.unsplash.com/photo-1519791883288-dc8bd696e667?auto=format&fit=crop&w=800&q=80' }}
+            style={styles.jobsHeroBg}
+            imageStyle={{ borderRadius: 18 }}
+          >
+            <View style={styles.jobsHeroScrim} />
+            <View style={styles.jobsHeroContent}>
+              <Text style={styles.jobsHeroEyebrow}>✦  Kingdom opportunity</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.jobsHeroTitle}>Step into your divine calling</Text>
+                  <Text style={styles.jobsHeroSub}>Connect with ministries, worship positions & tech opportunities</Text>
+                </View>
+                <View style={styles.jobsHeroArrow}>
+                  <Icon name="arrow-right" size={16} color={colors.night} strokeWidth={2.4} />
+                </View>
+              </View>
+            </View>
+          </ImageBackground>
+        </PressScale>
+
+        <View style={[styles.groupCard, { marginTop: 12 }]}>
+          {featuredJobs.map((j, i) => (
+            <Pressable
+              key={j.id}
+              style={({ pressed }) => [styles.jobRow, i > 0 && styles.groupDivider, pressed && styles.pressedFill]}
+              onPress={() => nav.push('Jobs', { id: j.id })}
+              accessibilityLabel={`View ${j.title}`}
+            >
+              <View style={[styles.iconTile, { backgroundColor: j.kind === 'job' ? colors.primarySoft : colors.cardSage }]}>
+                <Icon name="briefcase" size={17} color={j.kind === 'job' ? colors.primary : colors.sage} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.jobItemTitle} numberOfLines={1}>{j.title}</Text>
+                <Text style={styles.jobItemMeta} numberOfLines={1}>
+                  <Text style={[styles.jobKindText, { color: j.kind === 'job' ? colors.primary : colors.sage }]}>{j.kind.toUpperCase()}</Text>
+                  {'  ·  '}{j.client?.name || j.postedBy || 'Church Ministry'} · {j.budget}
+                </Text>
+              </View>
+              {(state.proposals || []).some((pp) => pp.jobId === j.id) ? (
+                <View style={[styles.applySmallBtn, { backgroundColor: colors.cardSage }]}>
+                  <Text style={[styles.applySmallBtnText, { color: colors.sage }]}>Applied</Text>
+                </View>
+              ) : (
+                <View style={styles.applySmallBtn}>
+                  <Text style={styles.applySmallBtnText}>View</Text>
+                </View>
+              )}
+            </Pressable>
+          ))}
+        </View>
+
+        {/* 6. Churches & Bible Studies */}
+        <SectionHead eyebrow="Fellowship" title="Churches & Bible Studies" />
+        <View style={styles.photoGrid}>
+          {[
+            { key: 'communities', title: 'Communities', sub: 'Churches & study circles', badge: `${(state.communities || []).filter((c) => c.joined === true).length} joined`, tint: colors.primary, img: 'https://images.unsplash.com/photo-1519491050282-cf00c82424b4?auto=format&fit=crop&w=600&q=80', onPress: () => nav.push('Communities') },
+            { key: 'wish', title: 'Make a Wish', sub: 'Light candle · Faith desires', badge: 'Prayer wish', tint: colors.gold, img: 'https://images.unsplash.com/photo-1603006905003-be475563bc59?auto=format&fit=crop&w=600&q=80', onPress: () => setShowWishModal(true) },
+            { key: 'people', title: 'Find Believers', sub: 'Christian networking', badge: 'Verified', tint: colors.lavender, img: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=600&q=80', onPress: () => nav.push('People') },
+            { key: 'live', title: 'Live Fellowship', sub: `${liveCount} active fellowship${liveCount === 1 ? '' : 's'}`, badge: 'Live now', tint: colors.rose, live: true, img: 'https://images.unsplash.com/photo-1544531586-fde5298cdd40?auto=format&fit=crop&w=600&q=80', onPress: () => nav.push('Live') },
+          ].map((c) => (
+            <PressScale key={c.key} scaleTo={0.96} accessibilityRole="button" style={styles.photoCard} onPress={c.onPress}>
+              <Image source={{ uri: c.img }} style={styles.photoCardBg} />
+              <View style={styles.photoCardScrim} />
+              <View style={styles.photoCardContent}>
+                <View style={[styles.photoCardBadge, { backgroundColor: alpha(c.tint, 0.92) }]}>
+                  {c.live ? <LiveRing color="#FFFFFF" size={6} /> : null}
+                  <Text style={styles.photoCardBadgeText}>{c.badge}</Text>
+                </View>
+                <View>
+                  <Text style={styles.photoCardTitle}>{c.title}</Text>
+                  <Text style={styles.photoCardSub} numberOfLines={1}>{c.sub}</Text>
+                </View>
+              </View>
+            </PressScale>
+          ))}
+        </View>
+
+        {/* 7. Interactive Bible Games — quick play list */}
+        <SectionHead eyebrow="Quick play" title="Interactive Bible Games" />
+        <View style={styles.groupCard}>
+          {BIBLE_GAMES.map((game, i) => (
+            <Pressable
+              key={game.id}
+              style={({ pressed }) => [styles.quickGameRow, i > 0 && styles.groupDivider, pressed && styles.pressedFill]}
+              onPress={() => startGame(gameTypeFor(game.id))}
+            >
+              <Image source={{ uri: game.thumbnail }} style={styles.quickGameThumb} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.quickGameBadge} numberOfLines={1}>{game.badge}</Text>
+                <Text style={styles.quickGameTitle} numberOfLines={1}>{game.title}</Text>
+                <Text style={styles.quickGameMeta} numberOfLines={1}>{game.players}</Text>
+              </View>
+              <View style={styles.quickGamePlay}>
+                <Icon name="play" size={15} color={colors.primary} />
               </View>
             </Pressable>
           ))}
-        </ScrollView>
-      </Section>
+        </View>
 
-      {/* 11. Channels & Broadcasts */}
-      <Section title="Channels & Broadcasts">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
-          {CHANNELS_DATA.map((ch) => (
-            <View key={ch.id} style={styles.channelCard}>
-              <View style={styles.channelPreview}>
-                <Icon name="live" size={26} color={colors.indigo} />
-                <View style={styles.channelFollowersBadge}>
-                  <Text style={styles.channelFollowersText}>{ch.followers} followers</Text>
+        {/* 8. Channels & Broadcasts */}
+        <SectionHead eyebrow="Tune in" title="Channels & Broadcasts" />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bleed} contentContainerStyle={styles.hScroll}>
+          {(state.channels || CHANNELS_DATA).map((ch) => {
+            const joined = joinedChannels.includes(ch.id);
+            return (
+              <View key={ch.id} style={styles.channelCard}>
+                <Pressable onPress={() => setChannelPreview(ch)} accessibilityLabel={`Preview ${ch.name}`} style={({ pressed }) => [styles.channelPreview, pressed && { opacity: 0.9 }]}>
+                  <View style={styles.channelIconRing}>
+                    <Icon name="play" size={20} color={colors.goldLight} />
+                  </View>
+                  <View style={styles.channelFollowersBadge}>
+                    <Text style={styles.channelFollowersText}>{ch.followers} followers</Text>
+                  </View>
+                </Pressable>
+                <View style={{ padding: 14 }}>
+                  <Text style={styles.channelName} numberOfLines={1}>{ch.name}</Text>
+                  <Text style={styles.channelVideoTitle} numberOfLines={1}>{ch.videoTitle || ch.recentVideo?.title || ch.tagline}</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                    <Button small kind="ghost" label="Watch" onPress={() => setChannelPreview(ch)} style={{ flex: 1 }} />
+                    <Pop trigger={joined} amount={1.08} style={{ flex: 1 }}>
+                      <Button
+                        small
+                        kind={joined ? 'ghost' : 'primary'}
+                        label={joined ? 'Joined' : 'Join'}
+                        icon={joined ? <Icon name="check" size={12} color={colors.primary} strokeWidth={2.6} /> : null}
+                        onPress={() => toggleChannel(ch)}
+                      />
+                    </Pop>
+                  </View>
                 </View>
               </View>
-              <View style={{ padding: 12 }}>
-                <Text style={styles.channelName} numberOfLines={1}>{ch.name}</Text>
-                <Text style={styles.channelVideoTitle} numberOfLines={1}>{ch.videoTitle || ch.recentVideo?.title || 'Watch Message'}</Text>
-                <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
-                  <Button small kind="ghost" label="Watch" onPress={() => nav.push('Live')} />
-                  <Button small label="Join" onPress={() => {}} />
-                </View>
-              </View>
-            </View>
-          ))}
+            );
+          })}
         </ScrollView>
-      </Section>
 
-      <Button
-        label="＋ Create Post, Group or Stream"
-        onPress={() => nav.push('Create')}
-        style={{ marginTop: 24, marginBottom: 36 }}
-      />
+        <View style={styles.createCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.createEyebrow}>Share with the body</Text>
+            <Text style={styles.createTitle}>Start something new</Text>
+          </View>
+        </View>
+        <Button
+          label="Create Post, Group or Stream"
+          icon={<Glyph name="plus" size={15} color="#FFFFFF" />}
+          onPress={() => nav.push('Create')}
+          style={{ marginTop: 10 }}
+        />
+      </ScrollView>
 
       {/* Interactive Bible Game Modal (20+ Questions with 4 Choices) */}
-      <Modal visible={showGameModal} transparent animationType="slide">
+      <AnimatedModal visible={showGameModal} onRequestClose={() => setShowGameModal(false)}>
         <View style={styles.modalOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setShowGameModal(false)} accessibilityLabel="Dismiss" />
           <View style={styles.gameSheet}>
+            <View style={styles.grabber} />
             <View style={styles.sheetTopBar}>
-              <View>
-                <Text style={styles.sheetHeaderCategory}>
-                  {gameQuestions[activeQuestionIdx]?.categoryLabel || 'BIBLE TRIVIA'}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.sheetEyebrow} numberOfLines={1}>
+                  {currentQ?.categoryLabel || 'Bible trivia'}
                 </Text>
-                <Text style={styles.sheetHeaderProgress}>
-                  Question {activeQuestionIdx + 1} of {gameQuestions.length}
+                <Text style={styles.sheetTitle}>
+                  {gameOver ? 'Your results' : `Question ${activeQuestionIdx + 1} of ${gameQuestions.length}`}
                 </Text>
               </View>
               <View style={styles.gameScoreBadges}>
-                <View style={styles.scorePill}>
-                  <Text style={styles.scorePillText}>★ {gameScore} pts</Text>
-                </View>
+                <Pop trigger={gameScore} amount={1.12} style={styles.scorePill}>
+                  <Icon name="star" size={11} color={colors.gold} />
+                  <AnimatedNumber value={gameScore} style={styles.scorePillText} format={(n) => `${Math.round(n)} pts`} />
+                </Pop>
                 {streak > 1 ? (
-                  <View style={[styles.scorePill, { backgroundColor: colors.gold + '25', borderColor: colors.gold }]}>
-                    <Text style={[styles.scorePillText, { color: colors.gold }]}>{streak}x Streak 🔥</Text>
-                  </View>
+                  <ScaleIn>
+                    <Pop trigger={streak} amount={1.15} style={[styles.scorePill, styles.scorePillStreak]}>
+                      <Text style={[styles.scorePillText, { color: colors.goldMuted }]}>{streak}x streak</Text>
+                    </Pop>
+                  </ScaleIn>
                 ) : null}
-                <Pressable onPress={() => setShowGameModal(false)} hitSlop={12} style={{ padding: 4, marginLeft: 8 }}>
-                  <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '700' }}>✕</Text>
-                </Pressable>
+                <CloseButton onPress={() => setShowGameModal(false)} />
               </View>
             </View>
+            <AnimatedBar progress={gameOver ? 1 : progressPct / 100} delay={60} style={styles.progressTrack} fillStyle={styles.progressFill} />
 
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
               {!gameOver ? (
-                <>
-                  {/* Question Card */}
-                  <View style={styles.gameQuestionBox}>
-                    <Text style={styles.gameQuestionText}>
-                      {gameQuestions[activeQuestionIdx]?.question}
-                    </Text>
-                  </View>
+                <View key={`${activeGameType}-${activeQuestionIdx}`}>
+                  <FadeInUp distance={12} duration={340} style={styles.gameQuestionBox}>
+                    <Text style={styles.gameQuestionEyebrow}>✦  Question</Text>
+                    <Text style={styles.gameQuestionText}>{currentQ?.question}</Text>
+                  </FadeInUp>
 
-                  {/* 4 Multi-Choice Options */}
                   <View style={{ gap: 10, marginTop: 14 }}>
-                    {gameQuestions[activeQuestionIdx]?.options.map((opt, oIdx) => {
-                      const currentQ = gameQuestions[activeQuestionIdx];
+                    {currentQ?.options.map((opt, oIdx) => {
                       const isCorrect = oIdx === currentQ.correctIndex;
                       const isChosen = selectedOption === oIdx;
 
@@ -604,137 +598,213 @@ export default function DiscoverScreen() {
 
                       if (hasAnswered) {
                         if (isCorrect) {
-                          optBg = colors.forest + '20';
-                          optBorder = colors.forest;
-                          optTextColor = colors.forest;
-                          letterBg = colors.forest;
+                          optBg = colors.cardSage;
+                          optBorder = colors.positive;
+                          optTextColor = colors.positive;
+                          letterBg = colors.positive;
                           letterColor = '#FFFFFF';
                         } else if (isChosen && !isCorrect) {
-                          optBg = colors.rose + '20';
-                          optBorder = colors.rose;
-                          optTextColor = colors.rose;
-                          letterBg = colors.rose;
+                          optBg = colors.cardRose;
+                          optBorder = colors.negative;
+                          optTextColor = colors.negative;
+                          letterBg = colors.negative;
                           letterColor = '#FFFFFF';
+                        } else {
+                          optTextColor = colors.muted;
                         }
                       }
 
+                      const flagged = hasAnswered && (isCorrect || isChosen);
                       return (
-                        <Pressable
-                          key={oIdx}
-                          onPress={() => handleSelectOption(oIdx)}
-                          disabled={hasAnswered}
-                          style={[styles.gameOptionBtn, { backgroundColor: optBg, borderColor: optBorder }]}
-                        >
-                          <View style={[styles.gameOptionLetter, { backgroundColor: letterBg }]}>
-                            <Text style={[styles.gameOptionLetterText, { color: letterColor }]}>
-                              {['A', 'B', 'C', 'D'][oIdx]}
-                            </Text>
-                          </View>
-                          <Text style={[styles.gameOptionText, { color: optTextColor }]} numberOfLines={2}>
-                            {opt}
-                          </Text>
-                          {hasAnswered && isCorrect ? (
-                            <Text style={{ color: colors.forest, fontWeight: '700', fontSize: 16 }}>✓</Text>
-                          ) : null}
-                          {hasAnswered && isChosen && !isCorrect ? (
-                            <Text style={{ color: colors.rose, fontWeight: '700', fontSize: 16 }}>✕</Text>
-                          ) : null}
-                        </Pressable>
+                        <FadeInUp key={oIdx} index={oIdx} delay={90} distance={10} duration={320}>
+                          <Pop trigger={flagged} amount={isCorrect ? 1.035 : 0.97}>
+                            <PressScale
+                              onPress={() => handleSelectOption(oIdx)}
+                              disabled={hasAnswered}
+                              scaleTo={0.975}
+                              style={[styles.gameOptionBtn, { backgroundColor: optBg, borderColor: optBorder }]}
+                            >
+                              <View style={[styles.gameOptionLetter, { backgroundColor: letterBg }]}>
+                                <Text style={[styles.gameOptionLetterText, { color: letterColor }]}>
+                                  {['A', 'B', 'C', 'D'][oIdx]}
+                                </Text>
+                              </View>
+                              <Text style={[styles.gameOptionText, { color: optTextColor }]} numberOfLines={2}>
+                                {opt}
+                              </Text>
+                              {hasAnswered && isCorrect ? <ScaleIn from={0.3}><Icon name="check" size={17} color={colors.positive} strokeWidth={2.6} /></ScaleIn> : null}
+                              {hasAnswered && isChosen && !isCorrect ? <ScaleIn from={0.3}><Glyph name="close" size={16} color={colors.negative} /></ScaleIn> : null}
+                            </PressScale>
+                            <Burst trigger={hasAnswered && isChosen && isCorrect} radius={110} count={14} color={colors.gold} />
+                          </Pop>
+                        </FadeInUp>
                       );
                     })}
                   </View>
 
-                  {/* Explanation & Scripture Reference */}
                   {hasAnswered ? (
-                    <View style={styles.gameExplanationBox}>
+                    <FadeInUp distance={10} duration={340} delay={120} style={styles.gameExplanationBox}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Icon name="sparkles" size={14} color={colors.gold} />
-                        <Text style={styles.gameCitationBadge}>
-                          {gameQuestions[activeQuestionIdx]?.reference}
-                        </Text>
+                        <Text style={styles.gameCitationBadge}>{currentQ?.reference}</Text>
                       </View>
-                      <Text style={styles.gameExplanationText}>
-                        {gameQuestions[activeQuestionIdx]?.explanation}
-                      </Text>
+                      <Text style={styles.gameExplanationText}>{currentQ?.explanation}</Text>
 
-                      <Pressable style={styles.gameNextBtn} onPress={handleNextQuestion}>
-                        <Text style={styles.gameNextBtnText}>
-                          {activeQuestionIdx + 1 < gameQuestions.length ? 'Next Question →' : 'View Final Score 🏆'}
-                        </Text>
-                      </Pressable>
-                    </View>
+                      <Button
+                        label={activeQuestionIdx + 1 < gameQuestions.length ? 'Next question' : 'View final score'}
+                        icon={activeQuestionIdx + 1 < gameQuestions.length ? null : <Icon name="star" size={14} color={colors.goldLight} />}
+                        onPress={handleNextQuestion}
+                        style={{ marginTop: 14 }}
+                      />
+                    </FadeInUp>
                   ) : null}
-                </>
+                </View>
               ) : (
-                /* Game Over Summary */
                 <View style={styles.gameOverContainer}>
-                  <Text style={{ fontSize: 44, textAlign: 'center' }}>🏆</Text>
-                  <Text style={styles.gameOverTitle}>Challenge Completed!</Text>
-                  <Text style={styles.gameOverScoreText}>{gameScore} Total Points</Text>
-                  <Text style={styles.gameOverSub}>
-                    You answered {gameQuestions.length} Scripture challenges with steadfast faith.
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 20 }}>
-                    <Button
-                      label="Play Again"
-                      onPress={() => startGame(activeGameType)}
-                      style={{ flex: 1 }}
-                    />
-                    <Button
-                      kind="ghost"
-                      label="Done"
-                      onPress={() => setShowGameModal(false)}
-                      style={{ flex: 1 }}
-                    />
+                  <View style={styles.gameOverMedalWrap}>
+                    <ScaleIn from={0.4}>
+                      <View style={styles.gameOverMedal}>
+                        <Icon name="star" size={34} color={colors.goldLight} strokeWidth={1.8} />
+                      </View>
+                    </ScaleIn>
+                    <MountBurst radius={80} count={14} size={15} color={colors.gold} />
                   </View>
+                  <FadeInUp delay={160} distance={10} style={{ alignItems: 'center' }}>
+                    <Text style={styles.gameOverTitle}>Challenge Completed!</Text>
+                    <CountUp value={gameScore} style={styles.gameOverScoreText} format={(n) => `${Math.round(n)} total points`} />
+                  </FadeInUp>
+                  <FadeInUp delay={260} distance={10} style={{ alignItems: 'center', alignSelf: 'stretch' }}>
+                    <View style={styles.gameOverStats}>
+                      <View style={styles.gameOverStat}>
+                        <CountUp value={correctCount} style={styles.gameOverStatValue} format={(n) => `${Math.round(n)}/${gameQuestions.length}`} />
+                        <Text style={styles.gameOverStatLabel}>Correct</Text>
+                      </View>
+                      <View style={styles.gameOverStatDivider} />
+                      <View style={styles.gameOverStat}>
+                        <CountUp value={coinsEarned} style={[styles.gameOverStatValue, { color: colors.gold }]} format={(n) => `+${Math.round(n)}`} />
+                        <Text style={styles.gameOverStatLabel}>Coins</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.gameOverSub}>
+                      {coinsEarned ? `+${coinsEarned} coins added to your wallet · balance ${state.coins ?? 0}` : 'Answer correctly to earn coins next round.'}
+                    </Text>
+                  </FadeInUp>
+                  <FadeInUp delay={360} distance={10} style={{ flexDirection: 'row', gap: 10, marginTop: 24, alignSelf: 'stretch' }}>
+                    <Button label="Play again" onPress={() => startGame(activeGameType)} style={{ flex: 1 }} />
+                    <Button kind="ghost" label="Done" onPress={() => setShowGameModal(false)} style={{ flex: 1 }} />
+                  </FadeInUp>
                 </View>
               )}
             </ScrollView>
           </View>
         </View>
-      </Modal>
+      </AnimatedModal>
+
+      {/* Channel preview sheet */}
+      <AnimatedModal visible={!!channelPreview} onRequestClose={() => setChannelPreview(null)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setChannelPreview(null)} accessibilityLabel="Dismiss" />
+          {shownChannel ? (() => {
+            const ch = shownChannel;
+            const joined = joinedChannels.includes(ch.id);
+            return (
+              <View style={styles.channelSheet}>
+                <View style={styles.grabber} />
+                <View style={styles.sheetTopBar}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.sheetEyebrow} numberOfLines={1}>{ch.category} · {ch.language}</Text>
+                    <Text style={styles.sheetTitle} numberOfLines={2}>{ch.name}</Text>
+                  </View>
+                  <CloseButton onPress={() => setChannelPreview(null)} />
+                </View>
+                <View style={styles.channelSheetVideo}>
+                  <NightGlow />
+                  <ScaleIn delay={180} from={0.6} style={{ marginBottom: 36 }}>
+                    <Pulse min={0.96} max={1.06} duration={1200}>
+                      <View style={[styles.channelSheetPlay, { marginBottom: 0 }]}>
+                        <Icon name="video" size={22} color={colors.goldLight} />
+                      </View>
+                    </Pulse>
+                  </ScaleIn>
+                  <View style={{ position: 'absolute', left: 16, right: 16, bottom: 14 }}>
+                    <Text style={styles.channelSheetVideoTitle} numberOfLines={2}>{ch.videoTitle}</Text>
+                    <Text style={styles.channelSheetVideoMeta}>Latest message · {ch.videoDuration} · {ch.followers} followers</Text>
+                  </View>
+                </View>
+                <Text style={[styles.cardBody, { marginTop: 14 }]}>{ch.tagline}</Text>
+                {ch.recentPost ? (
+                  <View style={[styles.quoteBlock, { marginTop: 12 }]}>
+                    <Text style={styles.pinnedLabel}>✦  Latest post</Text>
+                    <Text style={styles.quoteBlockText}>{ch.recentPost}</Text>
+                  </View>
+                ) : null}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 18 }}>
+                  <Pop trigger={joined} amount={1.06} style={{ flex: 1 }}>
+                    <Button
+                      label={joined ? 'Joined' : 'Join channel'}
+                      kind={joined ? 'ghost' : 'primary'}
+                      icon={joined ? <Icon name="check" size={13} color={colors.primary} strokeWidth={2.6} /> : null}
+                      onPress={() => toggleChannel(ch)}
+                    />
+                  </Pop>
+                  <Button
+                    kind="ghost"
+                    label="Live rooms"
+                    icon={<Icon name="live" size={13} color={colors.fg} />}
+                    onPress={() => { setChannelPreview(null); nav.push('Live'); }}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+                <Pressable
+                  onPress={() => shareMessage(toast, `${ch.name} — ${ch.tagline} Watch “${ch.videoTitle}” on BibleNestra.`)}
+                  style={({ pressed }) => [styles.sheetLinkRow, pressed && { opacity: 0.6 }]}
+                >
+                  <Icon name="share" size={14} color={colors.primary} />
+                  <Text style={styles.sheetLinkText}>Share this channel</Text>
+                </Pressable>
+              </View>
+            );
+          })() : null}
+        </View>
+      </AnimatedModal>
 
       {/* Make a Wish & Light a Prayer Candle Modal */}
-      <Modal visible={showWishModal} transparent animationType="slide">
+      <AnimatedModal visible={showWishModal} onRequestClose={() => setShowWishModal(false)}>
         <View style={styles.modalOverlay}>
+          <Pressable style={{ flex: 1 }} onPress={() => setShowWishModal(false)} accessibilityLabel="Dismiss" />
           <View style={styles.wishSheet}>
+            <View style={styles.grabber} />
             <View style={styles.sheetTopBar}>
-              <View>
-                <Text style={styles.sheetHeaderCategory}>PRAYER ALTAR</Text>
-                <Text style={styles.sheetHeaderProgress}>Make a Wish & Light a Candle</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.sheetEyebrow}>Prayer altar</Text>
+                <Text style={styles.sheetTitle}>Make a Wish & Light a Candle</Text>
               </View>
-              <Pressable onPress={() => setShowWishModal(false)} hitSlop={12} style={{ padding: 4 }}>
-                <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '700' }}>✕</Text>
-              </Pressable>
+              <CloseButton onPress={() => setShowWishModal(false)} />
             </View>
 
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <View style={styles.wishHeroCard}>
                 <Image
-                  source={{ uri: 'https://images.unsplash.com/photo-1606293926075-69a00dbfde81?auto=format&fit=crop&w=600&q=80' }}
+                  source={{ uri: 'https://images.unsplash.com/photo-1603006905003-be475563bc59?auto=format&fit=crop&w=600&q=80' }}
                   style={styles.wishHeroImg}
                 />
                 <View style={styles.wishHeroOverlay} />
                 <View style={styles.wishHeroContent}>
-                  <Text style={styles.wishHeroTitle}>"Ask, and it shall be given you..."</Text>
+                  <Text style={styles.wishHeroEyebrow}>✦  Matthew 7:7</Text>
+                  <Text style={styles.wishHeroTitle}>“Ask, and it shall be given you…”</Text>
                   <Text style={styles.wishHeroSub}>Submit your heartfelt prayer desires before God and invite fellow believers to light a candle of intercession with you.</Text>
                 </View>
               </View>
 
               <Text style={styles.inputLabel}>Category</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginVertical: 6 }}>
-                {['Healing', 'Guidance', 'Family', 'Financial Miracle', 'Salvation', 'Revival'].map((cat) => (
-                  <Pressable
-                    key={cat}
-                    onPress={() => setWishCategory(cat)}
-                    style={[styles.wishCatChip, wishCategory === cat && styles.wishCatChipActive]}
-                  >
-                    <Text style={[styles.wishCatChipText, wishCategory === cat && { color: colors.gold, fontWeight: '600' }]}>{cat}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+              <Pills
+                small
+                items={WISH_CATEGORIES}
+                value={wishCategory}
+                onChange={setWishCategory}
+              />
 
-              <Text style={styles.inputLabel}>Your Prayer Wish / Desire</Text>
+              <Text style={styles.inputLabel}>Your prayer wish / desire</Text>
               <TextInput
                 placeholder="Pour out what you are believing God for..."
                 placeholderTextColor={colors.faint}
@@ -744,164 +814,503 @@ export default function DiscoverScreen() {
                 style={styles.wishInput}
               />
 
-              <Button
-                label="🕯️ Light Candle & Send Wish to Altar"
-                onPress={handleAddWish}
-                style={{ marginTop: 12 }}
-              />
+              <View style={{ marginTop: 14 }}>
+                <Button
+                  label="Light Candle & Send Wish to Altar"
+                  icon={<Icon name="sparkles" size={14} color={colors.goldLight} />}
+                  onPress={handleAddWish}
+                />
+                <Burst trigger={wishBurst} radius={90} count={14} size={14} color={colors.gold} />
+              </View>
 
-              {/* Community Wishes Altar */}
-              <View style={{ marginTop: 24 }}>
-                <Text style={styles.wishesSectionTitle}>Believers' Prayer Candles on the Altar</Text>
-                {wishes.map((w) => {
-                  const isLit = litCandleIds.includes(w.id);
-                  return (
-                    <View key={w.id} style={styles.wishItemCard}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={styles.wishItemUser}>{w.user} · {w.category}</Text>
-                        <Text style={styles.wishItemTime}>{w.time}</Text>
-                      </View>
-                      <Text style={styles.wishItemText}>{w.text}</Text>
-                      <View style={styles.wishItemActions}>
-                        <Pressable
-                          onPress={() => toggleLightCandle(w.id)}
-                          style={[styles.candleBtn, isLit && styles.candleBtnActive]}
-                        >
-                          <Text style={[styles.candleBtnText, isLit && { color: colors.gold, fontWeight: '700' }]}>
-                            🕯️ {isLit ? 'Candle Lit' : 'Light Candle'} · {w.candles}
-                          </Text>
-                        </Pressable>
-                        <Text style={styles.wishAmenText}>✦ {w.amen} Amen prayers</Text>
+              <View style={{ marginTop: 28 }}>
+                <Text style={styles.sheetEyebrow}>On the altar</Text>
+                <Text style={styles.wishesSectionTitle}>Believers' prayer candles</Text>
+                {wishes.map((w, i) => (
+                  <FadeInUp key={w.id} index={i} delay={180} distance={10} style={styles.wishItemCard}>
+                    <View style={styles.wishItemHead}>
+                      <Avatar name={w.author} size={32} />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.wishItemUser} numberOfLines={1}>{w.mine ? `${w.author} (you)` : w.author}</Text>
+                        <Text style={styles.wishItemTime}>{w.category} · {w.time}</Text>
                       </View>
                     </View>
-                  );
-                })}
+                    <Text style={styles.wishItemText}>{w.body || w.title}</Text>
+                    <View style={styles.wishItemActions}>
+                      <CandleButton w={w} verbose onPress={() => toggleLightCandle(w)} />
+                      <AmenButton w={w} onPress={() => toggleAmen(w)} />
+                    </View>
+                  </FadeInUp>
+                ))}
               </View>
             </ScrollView>
           </View>
         </View>
-      </Modal>
-      </ScrollView>
+      </AnimatedModal>
     </View>
   );
+}
+
+// ---------- Motion helpers ----------
+// Sparkle burst that fires once, shortly after it mounts (results screens, success states).
+function MountBurst(props) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    const id = setTimeout(() => setT(1), 200);
+    return () => clearTimeout(id);
+  }, []);
+  return <Burst trigger={t} {...props} />;
+}
+
+// Number that counts up from 0 on mount (and tweens on later changes).
+function CountUp({ value = 0, delay = 220, ...rest }) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(id);
+  }, [value]);
+  return <AnimatedNumber value={v} {...rest} />;
+}
+
+// Candle toggle: springs on press, flame pops, count tweens, sparkles when lit.
+function CandleButton({ w, onPress, verbose, offColor = colors.faint }) {
+  const [burst, setBurst] = useState(0);
+  const press = () => {
+    if (!w.lit) setBurst((n) => n + 1);
+    onPress();
+  };
+  return (
+    <View>
+      <PressScale
+        onPress={press}
+        scaleTo={0.92}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={w.lit ? `Put out candle for ${w.author}` : `Light candle for ${w.author}`}
+        style={[styles.amenBtn, w.lit && styles.amenBtnOn]}
+      >
+        <Pop trigger={w.lit} amount={1.45}>
+          <Icon name="flame" size={12} color={w.lit ? colors.goldMuted : offColor} fill={w.lit ? colors.goldLight : 'none'} />
+        </Pop>
+        <View style={styles.countRow}>
+          {verbose ? <Text style={[styles.amenBtnText, w.lit && styles.amenBtnTextOn]}>{w.lit ? 'Candle lit · ' : 'Light candle · '}</Text> : null}
+          <AnimatedNumber value={w.candles || 0} duration={450} style={[styles.amenBtnText, w.lit && styles.amenBtnTextOn]} />
+        </View>
+      </PressScale>
+      <Burst trigger={burst} radius={34} count={9} size={10} />
+    </View>
+  );
+}
+
+function AmenButton({ w, onPress, offColor = colors.faint }) {
+  const [burst, setBurst] = useState(0);
+  const press = () => {
+    if (!w.amened) setBurst((n) => n + 1);
+    onPress();
+  };
+  return (
+    <View>
+      <PressScale
+        onPress={press}
+        scaleTo={0.92}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={w.amened ? `Remove Amen for ${w.author}` : `Amen for ${w.author}`}
+        style={[styles.amenBtn, w.amened && styles.amenBtnOn]}
+      >
+        <Pop trigger={w.amened} amount={1.4}>
+          <Icon name="prayer" size={12} color={w.amened ? colors.goldMuted : offColor} />
+        </Pop>
+        <View style={styles.countRow}>
+          <Text style={[styles.amenBtnText, w.amened && styles.amenBtnTextOn]}>{w.amened ? 'Amen’d · ' : 'Amen · '}</Text>
+          <AnimatedNumber value={w.amen || 0} duration={450} style={[styles.amenBtnText, w.amened && styles.amenBtnTextOn]} />
+        </View>
+      </PressScale>
+      <Burst trigger={burst} radius={34} count={9} size={10} />
+    </View>
+  );
+}
+
+// ---------- Local helpers ----------
+const AVATAR_TINTS = [colors.primary, colors.sage, colors.rose, colors.lavender, colors.sky, colors.teal, colors.terracotta];
+
+function initials(name = '') {
+  return name.split(' ').filter(Boolean).map((x) => x[0]).slice(0, 2).join('').toUpperCase() || '?';
+}
+
+function Avatar({ name = '', size = 40, ring, style }) {
+  const tint = AVATAR_TINTS[((name.charCodeAt(0) || 0) + (name.length || 0)) % AVATAR_TINTS.length];
+  return (
+    <View
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: alpha(tint, 0.13),
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        ring && { borderWidth: 2, borderColor: colors.goldLight },
+        style,
+      ]}
+    >
+      <Text style={{ fontFamily: fonts.serifBold, fontSize: Math.round(size * 0.38), color: tint }}>{initials(name)}</Text>
+    </View>
+  );
+}
+
+function categoryTint(cat) {
+  return (
+    {
+      Healing: colors.sage,
+      Guidance: colors.sky,
+      Family: colors.rose,
+      Revival: colors.lavender,
+      Salvation: colors.primary,
+      'Financial Miracle': colors.gold,
+    }[cat] || colors.gold
+  );
+}
+
+function Glyph({ name, size = 16, color = colors.fg }) {
+  if (name === 'close') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M6 6l12 12M18 6L6 18" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      </Svg>
+    );
+  }
+  if (name === 'plus') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M12 5v14M5 12h14" stroke={color} strokeWidth={2.3} strokeLinecap="round" />
+      </Svg>
+    );
+  }
+  if (name === 'info') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx="12" cy="12" r="9" stroke={color} strokeWidth={2} />
+        <Path d="M12 11v5" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+        <Circle cx="12" cy="7.8" r="1.2" fill={color} />
+      </Svg>
+    );
+  }
+  if (name === 'more') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx="5" cy="12" r="1.8" fill={color} />
+        <Circle cx="12" cy="12" r="1.8" fill={color} />
+        <Circle cx="19" cy="12" r="1.8" fill={color} />
+      </Svg>
+    );
+  }
+  return null;
+}
+
+function HeaderIconBtn({ onPress, label, children, active }) {
+  return (
+    <PressScale
+      onPress={onPress}
+      hitSlop={10}
+      scaleTo={0.9}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[styles.headerIconBtn, active && styles.headerIconBtnActive]}
+    >
+      {children}
+    </PressScale>
+  );
+}
+
+function CloseButton({ onPress }) {
+  return (
+    <PressScale onPress={onPress} hitSlop={12} scaleTo={0.88} accessibilityRole="button" accessibilityLabel="Close" style={styles.closeBtn}>
+      <Glyph name="close" size={15} color={colors.fg} />
+    </PressScale>
+  );
+}
+
+function SectionHead({ eyebrow, title, sub, action, onAction, style }) {
+  return (
+    <View style={[styles.sectionHead, style]}>
+      {eyebrow ? <Text style={styles.sectionEyebrow}>{eyebrow}</Text> : null}
+      <View style={styles.sectionTitleRow}>
+        <Text style={styles.sectionTitle} numberOfLines={2}>{title}</Text>
+        {action ? (
+          <Pressable onPress={onAction} hitSlop={10} style={({ pressed }) => [styles.sectionActionBtn, pressed && { opacity: 0.6 }]}>
+            <Text style={styles.sectionActionText}>{action}</Text>
+            <Icon name="chevron-right" size={12} color={colors.primary} strokeWidth={2.4} />
+          </Pressable>
+        ) : null}
+      </View>
+      {sub ? <Text style={styles.sectionSub}>{sub}</Text> : null}
+    </View>
+  );
+}
+
+function AvatarRow({ name, title, subtitle, right, onPress }) {
+  return (
+    <PressScale onPress={onPress} disabled={!onPress} scaleTo={0.98} style={styles.avatarRow}>
+      <Avatar name={name} size={42} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={styles.avatarRowTitle} numberOfLines={1}>{title}</Text>
+        {subtitle ? <Text style={styles.avatarRowSub} numberOfLines={1}>{subtitle}</Text> : null}
+      </View>
+      {right ? <View style={{ alignItems: 'flex-end' }}>{right}</View> : onPress ? <Icon name="chevron-right" size={14} color={colors.faint} /> : null}
+    </PressScale>
+  );
+}
+
+function PassageChip({ icon, label, onPress, mine, active, pop }) {
+  const light = mine || active;
+  return (
+    <Pop trigger={pop} amount={1.1} style={{ alignSelf: 'flex-start' }}>
+      <PressScale onPress={onPress} scaleTo={0.94} accessibilityRole="button" style={[styles.passageChip, mine && styles.passageChipMine, active && !mine && styles.passageChipActive]}>
+        <Icon name={icon} size={13} color={light ? colors.goldLight : colors.primary} />
+        <Text style={[styles.passageChipText, light && { color: '#FFFFFF' }]} numberOfLines={1}>{label}</Text>
+      </PressScale>
+    </Pop>
+  );
+}
+
+// Chat bubble: every bubble fades/slides in once when it mounts — so the thread eases in on open
+// and each newly sent message glides up from its own side.
+function Bubble({ mine, style, children }) {
+  return (
+    <FadeInUp distance={mine ? 14 : 10} duration={320} style={[styles.msg, mine && styles.msgMine, style]}>
+      {children}
+    </FadeInUp>
+  );
+}
+
+// Keeps a chat ScrollView pinned to the newest message.
+function useStickToBottom() {
+  const ref = useRef(null);
+  const onContentSizeChange = () => ref.current && ref.current.scrollToEnd({ animated: true });
+  return { ref, onContentSizeChange };
 }
 
 // ---------- Communities ----------
 export function CommunitiesScreen() {
   const nav = useNav();
+  const toast = useToast();
   const { state, dispatch } = useStore();
   const [cat, setCat] = useState('All');
   const [q, setQ] = useState('');
   const list = state.communities.filter((c) => (cat === 'All' || c.category === cat || (cat === 'Regions' && c.region !== 'Global')) && (c.name + c.description + c.region).toLowerCase().includes(q.toLowerCase()));
   return (
     <Screen back title="Explore Communities">
-      <Input placeholder="Church name, city, country, Bible topic, or group" value={q} onChangeText={setQ} />
-      <Pills small items={COMMUNITY_CATEGORIES} value={cat} onChange={setCat} style={{ marginTop: 10 }} />
-      {list.map((c) => (
-        <Pressable key={c.id} style={styles.card} onPress={() => nav.push('Group', { id: c.id })}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <View style={styles.searchField}>
+        <Icon name="search" size={16} color={colors.muted} />
+        <TextInput
+          placeholder="Church name, city, country, Bible topic, or group"
+          placeholderTextColor={colors.faint}
+          value={q}
+          onChangeText={setQ}
+          style={styles.searchFieldInput}
+        />
+      </View>
+      <Pills small items={COMMUNITY_CATEGORIES} value={cat} onChange={setCat} style={{ marginTop: 12, marginBottom: 4 }} />
+      {list.map((c, i) => (
+        <FadeInUp key={c.id} index={i}>
+        <PressScale scaleTo={0.98} style={styles.card} onPress={() => nav.push('Group', { id: c.id })}>
+          <View style={styles.cardHeadRow}>
+            <View style={[styles.communityTile, { backgroundColor: alpha(AVATAR_TINTS[c.name.length % AVATAR_TINTS.length], 0.12) }]}>
+              <Icon name={c.category === 'Churches' ? 'church' : c.category === 'Prayer' ? 'prayer' : c.category === 'Bible books' ? 'book' : 'community'} size={19} color={AVATAR_TINTS[c.name.length % AVATAR_TINTS.length]} />
+            </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.cardTitle}>{c.name}</Text>
-              <Text style={styles.cardMeta}>{c.region} · {c.language} · {c.members.toLocaleString()} members</Text>
+              <Text style={styles.cardTitle} numberOfLines={1}>{c.name}</Text>
+              <Text style={styles.cardMeta} numberOfLines={1}>{c.region} · {c.language} · {c.members.toLocaleString()} members</Text>
             </View>
             {c.verified ? <Badge label="Verified" tint={colors.gold} /> : null}
           </View>
           <Text style={styles.cardBody}>{c.description}</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-            <View style={{ flexDirection: 'row', gap: 6 }}><Tag label={c.category} /><Tag label={c.privacy} tint={c.privacy === 'Private' ? colors.amber : undefined} /></View>
-            <Button small kind={c.joined === true ? 'ghost' : 'primary'} label={c.joined === true ? 'Joined' : c.joined === 'requested' ? 'Requested' : c.privacy === 'Private' ? 'Request to join' : 'Join'} onPress={() => dispatch({ type: 'join', id: c.id })} />
+          <View style={styles.cardFootRow}>
+            <View style={{ flexDirection: 'row', gap: 6, flexShrink: 1 }}>
+              <Tag label={c.category} />
+              <Tag label={c.privacy} tint={c.privacy === 'Private' ? colors.amber : undefined} />
+            </View>
+            <Pop trigger={c.joined} amount={1.08}>
+              <Button
+                small
+                kind={c.joined === true ? 'ghost' : 'primary'}
+                label={c.joined === true ? 'Joined' : c.joined === 'requested' ? 'Requested' : c.privacy === 'Private' ? 'Request to join' : 'Join'}
+                icon={c.joined === true ? <Icon name="check" size={12} color={colors.primary} strokeWidth={2.6} /> : null}
+                onPress={() => {
+                  dispatch({ type: 'join', id: c.id });
+                  if (c.joined === true) toast.show(`You left ${c.name}`, { icon: 'x' });
+                  else if (c.joined === 'requested') toast.show('Join request withdrawn', { icon: 'x' });
+                  else if (c.privacy === 'Private') toast.show('Request sent to the group admins', { haptic: 'success' });
+                  else toast.show(`Joined ${c.name}`, { icon: 'users', haptic: 'success', action: { label: 'Open', onPress: () => nav.push('Group', { id: c.id }) } });
+                }}
+              />
+            </Pop>
           </View>
-        </Pressable>
+        </PressScale>
+        </FadeInUp>
       ))}
-      {!list.length ? <Empty title="Can't find your church?" body="Search again, add it for verification, invite an administrator, or continue without joining." action="Add church for verification" onAction={() => nav.push('Onboarding', { step: 2 })} /> : null}
-      <Divider />
-      <Row title="Create a group" subtitle="Public, private, invite-only or hidden" right="›" onPress={() => nav.push('Create', { kind: 'Group' })} />
+      {!list.length ? <ScaleIn from={0.92}><Empty title="Can't find your church?" body="Search again, add it for verification, invite an administrator, or continue without joining." action="Add church for verification" onAction={() => nav.push('Onboarding', { step: 2 })} /></ScaleIn> : null}
+      <View style={{ height: 18 }} />
+      <Row
+        title="Create a group"
+        subtitle="Public, private, invite-only or hidden"
+        left={<Glyph name="plus" size={17} color={colors.primary} />}
+        onPress={() => nav.push('Create', { kind: 'Group' })}
+      />
     </Screen>
   );
 }
 
 // ---------- Group (channels + chat) ----------
-export function GroupScreen({ params }) {
+export function GroupScreen({ params = {} }) {
   const nav = useNav();
+  const toast = useToast();
   const { state, dispatch } = useStore();
-  const g = state.communities.find((c) => c.id === params.id);
+  const g = (state.communities || []).find((c) => c.id === params.id);
   const [channel, setChannel] = useState('General');
   const [tab, setTab] = useState('Chat');
-  const msgs = (state.groupMessages[g.id] || {})[channel] || [];
-  const pinned = Object.values(state.groupMessages[g.id] || {}).flat().filter((m) => m.pinned);
+  const stick = useStickToBottom();
+  if (!g) {
+    return (
+      <Screen back title="Group">
+        <Empty title="This group isn't available" body="It may have been removed, made hidden, or the link is out of date." action="Explore communities" onAction={() => nav.replace('Communities')} />
+      </Screen>
+    );
+  }
+  const groupMsgs = state.groupMessages[g.id] || {};
+  const msgs = groupMsgs[channel] || [];
+  const pinned = Object.values(groupMsgs).flat().filter((m) => m.pinned);
   const canPost = g.joined === true;
+  const muted = (state.mutedGroups || []).includes(g.id);
+
+  const joinOrLeave = () => {
+    dispatch({ type: 'join', id: g.id });
+    if (g.joined === true) toast.show(`You left ${g.name}`, { icon: 'x' });
+    else if (g.joined === 'requested') toast.show('Join request withdrawn', { icon: 'x' });
+    else if (g.privacy === 'Private') toast.show('Request sent to the group admins', { icon: 'check', haptic: 'success' });
+    else toast.show(`Welcome to ${g.name}`, { icon: 'users', haptic: 'success' });
+  };
+  const toggleMute = () => {
+    const list = state.mutedGroups || [];
+    dispatch({ type: 'set', patch: { mutedGroups: muted ? list.filter((x) => x !== g.id) : [...list, g.id] } });
+    toast.show(muted ? 'Notifications on for this group' : 'Group muted · no notifications', { icon: muted ? 'bell' : 'volume' });
+  };
+  const prayAlong = (m) => {
+    const next = (groupMsgs[channel] || []).map((x) => (x.id === m.id ? { ...x, praying: (x.praying || 0) + (x.prayedByMe ? -1 : 1), prayedByMe: !x.prayedByMe } : x));
+    dispatch({ type: 'set', patch: { groupMessages: { ...state.groupMessages, [g.id]: { ...groupMsgs, [channel]: next } } } });
+    toast.show(m.prayedByMe ? 'Removed from your prayers' : `You're praying with ${m.from}`, { icon: 'prayer', haptic: m.prayedByMe ? 'light' : 'success' });
+  };
+  const composerAction = (a) => {
+    if (!canPost) { toast.show('Join this group to share here', { tone: 'error' }); return; }
+    if (a === 'Passage') {
+      const pos = state.lastPosition || { bookId: 'MAT', chapter: 1 };
+      dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: `Let's read ${refLabel(pos.bookId, pos.chapter)} together.`, passage: pos } });
+      toast.show(`Shared ${refLabel(pos.bookId, pos.chapter)} in #${channel}`, { icon: 'book' });
+    }
+    if (a === 'Prayer') nav.push('NewPrayer');
+    if (a === 'Event') nav.push('Create', { kind: 'Event' });
+  };
   return (
     <Screen back title={g.name} subtitle={`${g.members.toLocaleString()} members · ${g.privacy}${g.verified ? ' · Verified' : ''}`} scroll={false} padded={false}
-      right={<Pressable onPress={() => setTab(tab === 'Chat' ? 'About' : 'Chat')} hitSlop={10}><Text style={{ color: colors.muted, fontSize: 16 }}>ⓘ</Text></Pressable>}>
+      right={<HeaderIconBtn label="Group info" active={tab === 'About'} onPress={() => setTab(tab === 'Chat' ? 'About' : 'Chat')}><Glyph name="info" size={17} color={tab === 'About' ? '#FFFFFF' : colors.fg} /></HeaderIconBtn>}>
       {tab === 'About' ? (
-        <ScrollView contentContainerStyle={{ padding: 18 }}>
-          <Text style={styles.cardBody}>{g.description}</Text>
-          <Section title="Rules"><Text style={styles.cardBody}>{g.rules}</Text></Section>
-          <Section title="Members & roles">
-            <Row title="Pastor Tunde" subtitle="Owner" />
-            <Row title="Amaka O." subtitle="Moderator" />
-            <Row title={state.user.displayName} subtitle={canPost ? 'Member' : 'Not a member'} />
+        <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 48 }} showsVerticalScrollIndicator={false}>
+          <FadeInUp style={styles.aboutHero}>
+            <ScaleIn delay={120} from={0.7}>
+              <Avatar name={g.name} size={56} ring />
+            </ScaleIn>
+            <Text style={styles.aboutTitle}>{g.name}</Text>
+            <Text style={styles.cardMeta}>{g.category} · {g.region} · {g.language}</Text>
+            <Text style={[styles.cardBody, { textAlign: 'center' }]}>{g.description}</Text>
+          </FadeInUp>
+          <FadeInUp index={1}>
+          <Section title="Rules">
+            <View style={styles.quoteBlock}><Text style={styles.quoteBlockText}>{g.rules}</Text></View>
           </Section>
+          </FadeInUp>
+          <FadeInUp index={2}>
+          <Section title="Members & roles">
+            <AvatarRow name="Pastor Tunde" title="Pastor Tunde" subtitle="Owner" />
+            <AvatarRow name="Amaka O." title="Amaka O." subtitle="Moderator" />
+            <AvatarRow name={state.user.displayName} title={state.user.displayName} subtitle={canPost ? 'Member' : g.joined === 'requested' ? 'Request pending' : 'Not a member'} />
+          </Section>
+          </FadeInUp>
+          <FadeInUp index={3}>
           <Section title="Group study settings">
             <Row title="Translation" right={state.translation} />
             <Row title="Current plan" right="Matthew · weekly" />
             <Row title="Meeting rhythm" right="Thursdays 19:00" />
-            <Row title="Live Bible study mode" subtitle="Synchronized passage, teacher controls" right="›" onPress={() => nav.push('Live')} />
+            <Row title="Live Bible study mode" subtitle="Synchronized passage, teacher controls" left={<Icon name="live" size={18} color={colors.primary} />} onPress={() => nav.push('Live')} />
           </Section>
+          </FadeInUp>
+          <FadeInUp index={4}>
           <Section title="Safety">
-            <Row title="Mute group" right="›" /><Row title="Report group" right="›" /><Row title="Leave group" right="›" onPress={() => { dispatch({ type: 'join', id: g.id }); nav.pop(); }} />
+            <Row title={muted ? 'Unmute group' : 'Mute group'} subtitle={muted ? 'You won\'t get notifications' : null} left={<Icon name={muted ? 'bell' : 'volume'} size={17} color={colors.muted} />} onPress={toggleMute} />
+            <Row title="Report group" left={<Icon name="shield" size={17} color={colors.muted} />} onPress={() => toast.show('Report sent · moderators will review within 24h', { icon: 'shield' })} />
+            {g.joined === true ? (
+              <Row title="Leave group" tint={colors.negative} left={<Icon name="x" size={17} color={colors.negative} />} onPress={() => { joinOrLeave(); nav.pop(); }} />
+            ) : null}
           </Section>
-          <Button label={canPost ? 'Back to chat' : g.privacy === 'Private' ? 'Request to join' : 'Join group'} onPress={() => (canPost ? setTab('Chat') : dispatch({ type: 'join', id: g.id }))} style={{ marginTop: 20 }} />
+          </FadeInUp>
+          <Button label={canPost ? 'Back to chat' : g.joined === 'requested' ? 'Withdraw request' : g.privacy === 'Private' ? 'Request to join' : 'Join group'} kind={g.joined === 'requested' ? 'ghost' : 'primary'} onPress={() => (canPost ? setTab('Chat') : joinOrLeave())} style={{ marginTop: 22 }} />
         </ScrollView>
       ) : (
         <View style={{ flex: 1 }}>
-          <Pills items={CHANNELS} value={channel} onChange={setChannel} style={{ paddingHorizontal: 18, flexGrow: 0 }} />
-          {pinned.length && channel === 'General' ? <Pressable style={styles.pinned}><Text style={styles.pinnedText}>{pinned[0].text}</Text></Pressable> : null}
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }}>
-            {!msgs.length ? <Empty title={`No messages in #${channel} yet`} /> : null}
+          <View style={styles.channelBar}>
+            <Pills small items={CHANNELS} value={channel} onChange={setChannel} style={{ paddingHorizontal: 18, flexGrow: 0 }} />
+          </View>
+          {pinned.length && channel === 'General' ? (
+            <FadeInUp distance={8} style={styles.pinned}>
+              <Text style={styles.pinnedLabel}>✦  Pinned</Text>
+              <Text style={styles.pinnedText} numberOfLines={2}>{pinned[0].text}</Text>
+            </FadeInUp>
+          ) : null}
+          <ScrollView ref={stick.ref} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }} showsVerticalScrollIndicator={false}>
+            {!msgs.length ? <ScaleIn key={channel} from={0.92}><Empty title={`No messages in #${channel} yet`} body={canPost ? 'Start the conversation below.' : null} /></ScaleIn> : null}
             {msgs.map((m) => (
-              <View key={m.id} style={[styles.msg, m.mine && styles.msgMine]}>
+              <Bubble key={m.id} mine={m.mine}>
                 {!m.mine ? <Text style={styles.msgFrom}>{m.from}</Text> : null}
                 <Text style={[styles.msgText, m.mine && { color: '#FFFFFF' }]}>{m.text}</Text>
                 {m.passage ? (
-                  <Pressable onPress={() => nav.push('Bible', m.passage)} style={[styles.passageChip, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
-                    <Icon name="book" size={13} color={colors.royalIndigo} />
-                    <Text style={styles.passageChipText}>{refLabel(m.passage.bookId, m.passage.chapter)} · Open</Text>
-                  </Pressable>
+                  <PassageChip mine={m.mine} icon="book" label={`${refLabel(m.passage.bookId, m.passage.chapter)} · Open`} onPress={() => nav.push('Bible', m.passage)} />
                 ) : null}
                 {m.prayer ? (
-                  <Pressable style={[styles.passageChip, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
-                    <Icon name="prayer" size={13} color={colors.royalIndigo} />
-                    <Text style={styles.passageChipText}>I'm praying · {m.praying}</Text>
-                  </Pressable>
+                  <PassageChip mine={m.mine} active={!!m.prayedByMe} pop={!!m.prayedByMe} icon="prayer" label={`${m.prayedByMe ? 'Praying' : 'I\'m praying'} · ${m.praying || 0}`} onPress={() => prayAlong(m)} />
                 ) : null}
                 {m.event ? (
-                  <Pressable onPress={() => nav.push('Calendar')} style={[styles.passageChip, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
-                    <Icon name="calendar" size={13} color={colors.royalIndigo} />
-                    <Text style={styles.passageChipText}>RSVP · Add to calendar</Text>
-                  </Pressable>
+                  <PassageChip mine={m.mine} icon="calendar" label="RSVP in calendar" onPress={() => nav.push('Calendar')} />
                 ) : null}
-                <Text style={[styles.msgTime, m.mine && { color: '#D4E2D8' }]}>{m.time}{m.mine ? ' · Delivered' : ''}</Text>
-              </View>
+                <Text style={[styles.msgTime, m.mine && styles.msgTimeMine]}>{m.time}{m.mine ? ' · Delivered' : ''}</Text>
+              </Bubble>
             ))}
           </ScrollView>
-          <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 6 }}>
-              {['Passage', 'Prayer', 'Poll', 'File', 'Voice', 'Event'].map((a) => (
-                <Pressable
-                  key={a}
-                  onPress={() => {
-                    if (!canPost) return;
-                    if (a === 'Passage') dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: 'Let\'s read this together.', passage: state.lastPosition } });
-                    if (a === 'Prayer') nav.push('NewPrayer');
-                  }}
-                  style={styles.composerChip}
-                >
-                  <Text style={styles.composerChipText}>{a}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-            {canPost ? <AskBar placeholder={`Message #${channel}`} onSend={(t) => dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: t } })} /> : <Notice text={g.joined === 'requested' ? 'Your request is waiting for approval.' : 'Join this group to post.'} />}
+          <View style={styles.composerWrap}>
+            {canPost ? (
+              <View style={{ flexDirection: 'row', gap: 6, paddingBottom: 8 }}>
+                {['Passage', 'Prayer', 'Event'].map((a) => (
+                  <PressScale
+                    key={a}
+                    onPress={() => composerAction(a)}
+                    scaleTo={0.93}
+                    accessibilityLabel={a === 'Passage' ? 'Share passage' : a === 'Prayer' ? 'New prayer request' : 'New event'}
+                    style={styles.composerChip}
+                  >
+                    <Icon name={{ Passage: 'book', Prayer: 'prayer', Event: 'calendar' }[a]} size={12} color={colors.muted} />
+                    <Text style={styles.composerChipText}>{a}</Text>
+                  </PressScale>
+                ))}
+              </View>
+            ) : null}
+            {canPost ? (
+              <AskBar placeholder={`Message #${channel}`} onSend={(t) => dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: t } })} />
+            ) : (
+              <View style={{ gap: 10 }}>
+                <Notice text={g.joined === 'requested' ? 'Your request is waiting for approval.' : 'Join this group to post.'} />
+                <Button label={g.joined === 'requested' ? 'Withdraw request' : g.privacy === 'Private' ? 'Request to join' : 'Join group'} kind={g.joined === 'requested' ? 'ghost' : 'primary'} onPress={joinOrLeave} />
+              </View>
+            )}
           </View>
         </View>
       )}
@@ -912,6 +1321,7 @@ export function GroupScreen({ params }) {
 // ---------- Chat List + Conversation (WhatsApp-Style) ----------
 export function ChatListScreen() {
   const nav = useNav();
+  const toast = useToast();
   const { state, dispatch } = useStore();
   const [tab, setTab] = useState('All');
   const list = state.chats.filter((c) => tab === 'All' || (tab === 'Prayer' && c.type.includes('Prayer')) || (tab === 'Bible study' && c.type === 'Bible study') || (tab === 'Professional' && c.type === 'Professional'));
@@ -920,86 +1330,161 @@ export function ChatListScreen() {
       title="Chats"
       subtitle="Direct, ministry & fellowship messaging"
       right={
-        <Pressable onPress={() => nav.push('People')} hitSlop={10} style={styles.searchIconBtn}>
-          <Text style={{ color: colors.forest, fontSize: 18, fontWeight: '700' }}>＋</Text>
-        </Pressable>
+        <HeaderIconBtn onPress={() => nav.push('People')} label="New chat">
+          <Glyph name="plus" size={17} color={colors.fg} />
+        </HeaderIconBtn>
       }
     >
       <Pills items={['All', 'Prayer', 'Bible study', 'Professional', 'Groups']} value={tab} onChange={(t) => (t === 'Groups' ? nav.push('Communities') : setTab(t))} />
-      <Row title="Bible Exegesis Chat" subtitle="AI Scripture companion · separate from member messaging" left={<Text style={{ color: colors.gold }}>✦</Text>} right="›" tint={colors.teal} onPress={() => nav.push('BibleChat', {})} />
+      <FadeInUp>
+        <PressScale onPress={() => nav.push('BibleChat', {})} scaleTo={0.98} accessibilityRole="button" style={styles.exegesisCard}>
+          <View style={styles.exegesisIcon}>
+            <Pulse min={0.9} max={1.1} duration={1400}>
+              <Icon name="sparkles" size={18} color={colors.goldLight} />
+            </Pulse>
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.exegesisTitle}>Bible Exegesis Chat</Text>
+            <Text style={styles.exegesisSub} numberOfLines={2}>AI Scripture companion · separate from member messaging</Text>
+          </View>
+          <Icon name="chevron-right" size={15} color={colors.nightMuted} />
+        </PressScale>
+      </FadeInUp>
       {state.requests.length ? (
         <Section title="Message requests">
-          {state.requests.map((r) => (
-            <View key={r.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{r.from}</Text>
-              <Text style={styles.cardBody}>{r.text}</Text>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                <Button small label="Accept" onPress={() => dispatch({ type: 'request', id: r.id, accept: true, from: r.from, text: r.text })} />
-                <Button small kind="ghost" label="Decline" onPress={() => dispatch({ type: 'request', id: r.id })} />
-                <Button small kind="ghost" label="Block" onPress={() => dispatch({ type: 'request', id: r.id })} />
+          {state.requests.map((r, i) => (
+            <FadeInUp key={r.id} index={1 + i} style={[styles.card, { marginTop: 0, marginBottom: 10 }]}>
+              <View style={styles.cardHeadRow}>
+                <Avatar name={r.from} size={36} />
+                <Text style={[styles.cardTitle, { flex: 1 }]}>{r.from}</Text>
               </View>
-            </View>
+              <Text style={styles.cardBody}>{r.text}</Text>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                <Button small label="Accept" onPress={() => { dispatch({ type: 'request', id: r.id, accept: true, from: r.from, text: r.text }); toast.show(`You can now chat with ${r.from}`, { icon: 'chat', haptic: 'success' }); }} />
+                <Button small kind="ghost" label="Decline" onPress={() => { dispatch({ type: 'request', id: r.id }); toast.show('Request declined', { icon: 'x' }); }} />
+                <Button
+                  small
+                  kind="ghost"
+                  label="Block"
+                  onPress={() => {
+                    dispatch({ type: 'request', id: r.id });
+                    const person = PEOPLE.find((p) => p.name === r.from);
+                    if (person) dispatch({ type: 'block', id: person.id });
+                    toast.show(`${r.from} is blocked`, { icon: 'shield' });
+                  }}
+                />
+              </View>
+            </FadeInUp>
           ))}
         </Section>
       ) : null}
       <Section title="Conversations">
-        {list.map((c) => (
-          <Row
-            key={c.id}
-            title={c.with}
-            subtitle={`${c.type} · ${c.last}`}
-            left={
-              <View style={[styles.avatar, { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.raised }]}>
-                <Text style={{ color: colors.forest, fontWeight: '700', fontSize: 14 }}>{c.with[0]}</Text>
-              </View>
-            }
-            right={
-              <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                <Text style={{ color: colors.muted, fontSize: 10.5 }}>{c.time}</Text>
-                {c.unread ? <Badge label={String(c.unread)} tint={colors.forest} /> : null}
-              </View>
-            }
-            onPress={() => nav.push('Chat', { id: c.id })}
-          />
+        {list.map((c, i) => (
+          <FadeInUp key={c.id} index={2 + i} distance={10}>
+            <AvatarRow
+              name={c.with}
+              title={c.with}
+              subtitle={`${c.type} · ${c.last}`}
+              right={
+                <View style={{ alignItems: 'flex-end', gap: 5 }}>
+                  <Text style={[styles.chatTime, c.unread && { color: colors.primary, fontWeight: '600' }]}>{c.time}</Text>
+                  {c.unread ? (
+                    <ScaleIn delay={300 + i * 55} from={0.4}>
+                      <View style={styles.unreadDot}><Text style={styles.unreadDotText}>{c.unread}</Text></View>
+                    </ScaleIn>
+                  ) : null}
+                </View>
+              }
+              onPress={() => nav.push('Chat', { id: c.id })}
+            />
+          </FadeInUp>
         ))}
+        {!list.length ? <ScaleIn key={tab} from={0.92}><Empty title="No conversations here yet" body="Find believers open to prayer, study or mentoring and say hello." action="Find believers" onAction={() => nav.push('People')} /></ScaleIn> : null}
       </Section>
     </Screen>
   );
 }
 
-export function ChatScreen({ params }) {
+export function ChatScreen({ params = {} }) {
   const nav = useNav();
+  const toast = useToast();
   const { state, dispatch } = useStore();
   let chat = state.chats.find((c) => c.id === params.id) || state.chats.find((c) => c.with === params.to);
   const [kindMenu, setKindMenu] = useState(false);
+  const stick = useStickToBottom();
   if (!chat && params.to) {
     return (
       <Screen back title={params.to} subtitle="New conversation" scroll={false}>
-        <Notice tint={colors.teal} text="Direct messaging is private and respectful. You can block or report at any time." />
+        <View style={styles.newChatHero}>
+          <ScaleIn from={0.6}>
+            <Avatar name={params.to} size={64} ring />
+          </ScaleIn>
+          <FadeInUp delay={120} distance={8} style={{ alignItems: 'center', gap: 8 }}>
+            <Text style={styles.aboutTitle}>{params.to}</Text>
+            {params.kind ? <Badge label={params.kind} tint={colors.primary} /> : null}
+          </FadeInUp>
+        </View>
+        <FadeInUp delay={220} distance={8}>
+          <Notice tint={colors.teal} text="Direct messaging is private and respectful. You can block or report at any time." />
+        </FadeInUp>
         <View style={{ flex: 1 }} />
-        <AskBar placeholder="Say hello..." onSend={(t) => { dispatch({ type: 'newChat', name: params.to, kind: params.kind, text: t }); nav.replace('Chat', { to: params.to }); }} />
+        <View style={{ paddingBottom: 10 }}>
+          <AskBar placeholder="Say hello..." onSend={(t) => { dispatch({ type: 'newChat', name: params.to, kind: params.kind, text: t }); toast.show(`Message sent to ${params.to}`, { icon: 'chat' }); nav.replace('Chat', { to: params.to }); }} />
+        </View>
       </Screen>
     );
   }
-  if (!chat) return <Screen back title="Chat"><Empty title="Conversation not found" /></Screen>;
+  if (!chat) return <Screen back title="Chat"><Empty title="Conversation not found" body="It may have been deleted or the link is out of date." action="All chats" onAction={() => nav.replace('ChatList')} /></Screen>;
+  const muted = (state.mutedChats || []).includes(chat.id);
+  const person = PEOPLE.find((p) => p.name === chat.with);
+  const runOption = (o) => {
+    setKindMenu(false);
+    if (o.startsWith('Convert to')) {
+      const kind = o.replace('Convert to ', '');
+      dispatch({ type: 'dm', cid: chat.id, text: `Invited ${chat.with} to turn this into a ${kind}.` });
+      toast.show(`Invite sent · ${chat.with} needs to accept`, { icon: 'check' });
+    } else if (o === 'Schedule a call') {
+      nav.push('Create', { kind: 'Event' });
+    } else if (o === 'Mute' || o === 'Unmute') {
+      const list = state.mutedChats || [];
+      dispatch({ type: 'set', patch: { mutedChats: muted ? list.filter((x) => x !== chat.id) : [...list, chat.id] } });
+      toast.show(muted ? 'Notifications on' : `${chat.with} muted`, { icon: muted ? 'bell' : 'volume' });
+    } else if (o === 'Block') {
+      if (person) dispatch({ type: 'block', id: person.id });
+      dispatch({ type: 'set', patch: { chats: state.chats.filter((c) => c.id !== chat.id) } });
+      toast.show(`${chat.with} is blocked`, { icon: 'shield' });
+      nav.pop();
+    } else if (o === 'Report') {
+      toast.show('Report sent · our safety team will review it', { icon: 'shield' });
+    }
+  };
   return (
-    <Screen back title={chat.with} subtitle={chat.type} scroll={false} padded={false} right={<Pressable onPress={() => setKindMenu(!kindMenu)} hitSlop={10}><Text style={{ color: colors.muted, fontSize: 18 }}>⋯</Text></Pressable>}>
+    <Screen back title={chat.with} subtitle={`${chat.type}${muted ? ' · Muted' : ''}`} scroll={false} padded={false}
+      right={<HeaderIconBtn label="Conversation options" active={kindMenu} onPress={() => setKindMenu(!kindMenu)}><Glyph name="more" size={17} color={kindMenu ? '#FFFFFF' : colors.fg} /></HeaderIconBtn>}>
       {kindMenu ? (
-        <View style={styles.menu}>
-          {['Convert to Bible study', 'Convert to prayer conversation', 'Convert to mentor conversation', 'Schedule a call', 'Mute', 'Block', 'Report'].map((o) => <Pressable key={o} onPress={() => setKindMenu(false)}><Text style={styles.menuItem}>{o}</Text></Pressable>)}
-          <Text style={[styles.menuItem, { color: colors.muted, fontSize: 10 }]}>Conversions need both people's consent.</Text>
-        </View>
+        <FadeInUp distance={-8} duration={220} style={styles.menu}>
+          {['Convert to Bible study', 'Convert to prayer conversation', 'Convert to mentor conversation', 'Schedule a call', muted ? 'Unmute' : 'Mute', 'Block', 'Report'].map((o, i) => (
+            <Pressable key={o} onPress={() => runOption(o)} style={({ pressed }) => [styles.menuRow, i === 4 && styles.menuRowDivider, pressed && styles.pressedFill]}>
+              <Text style={[styles.menuItem, (o === 'Block' || o === 'Report') && { color: colors.negative }]}>{o}</Text>
+            </Pressable>
+          ))}
+          <Text style={styles.menuFoot}>Conversions need both people's consent.</Text>
+        </FadeInUp>
       ) : null}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }}>
-        <Text style={{ color: colors.muted, fontSize: 10.5, textAlign: 'center' }}>Private conversation · end-to-end encrypted</Text>
+      <ScrollView ref={stick.ref} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }} showsVerticalScrollIndicator={false}>
+        <FadeInUp distance={6} style={styles.encryptPill}>
+          <Icon name="shield" size={11} color={colors.muted} />
+          <Text style={styles.encryptText}>Private conversation · end-to-end encrypted</Text>
+        </FadeInUp>
+        {!chat.messages.length ? <ScaleIn from={0.92}><Empty title="No messages yet" body={`Say hello to ${chat.with}.`} /></ScaleIn> : null}
         {chat.messages.map((m) => (
-          <View key={m.id} style={[styles.msg, m.mine && styles.msgMine]}>
+          <Bubble key={m.id} mine={m.mine}>
             <Text style={[styles.msgText, m.mine && { color: '#FFFFFF' }]}>{m.text}</Text>
-            <Text style={[styles.msgTime, m.mine && { color: '#D4E2D8' }]}>{m.time}{m.mine ? ' · Read ✓✓' : ''}</Text>
-          </View>
+            <Text style={[styles.msgTime, m.mine && styles.msgTimeMine]}>{m.time}{m.mine ? (m.status === 'read' ? ' · Read ✓✓' : ' · Sent ✓') : ''}</Text>
+          </Bubble>
         ))}
       </ScrollView>
-      <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
+      <View style={styles.composerWrap}>
         <AskBar placeholder="Message..." onSend={(t) => dispatch({ type: 'dm', cid: chat.id, text: t })} />
       </View>
     </Screen>
@@ -1007,35 +1492,125 @@ export function ChatScreen({ params }) {
 }
 
 // ---------- Calendar ----------
+const KIND_TINT = { Observance: colors.gold, Season: colors.lavender, 'Church event': colors.primary, Community: colors.sage };
+
+// "Romans 1:17" -> { bookId: 'ROM', chapter: 1, verse: 17 }
+function refFromText(text = '') {
+  const m = String(text).trim().match(/^(.+?)\s+(\d+)(?::(\d+))?/);
+  if (!m) return null;
+  const name = m[1].toLowerCase().replace(/^psalm$/, 'psalms');
+  const book = (BOOKS || []).find((b) => b.name.toLowerCase() === name);
+  return book ? { bookId: book.id, chapter: Number(m[2]), verse: m[3] ? Number(m[3]) : undefined } : null;
+}
+
+function icsFor(e) {
+  const day = e.date.replace(/-/g, '');
+  const pad = (n) => String(n).padStart(2, '0');
+  let when;
+  if (e.time) {
+    const [h, mi] = e.time.split(':').map(Number);
+    const endH = pad((h + 2) % 24);
+    when = `DTSTART:${day}T${pad(h)}${pad(mi)}00\nDTEND:${day}T${endH}${pad(mi)}00`;
+  } else {
+    const d = new Date(e.date + 'T12:00'); d.setDate(d.getDate() + 1);
+    const next = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+    when = `DTSTART;VALUE=DATE:${day}\nDTEND;VALUE=DATE:${next}`;
+  }
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//BibleNestra//EN', 'BEGIN:VEVENT', `UID:${e.id}@biblenestra`, when, `SUMMARY:${e.title}`, e.where ? `LOCATION:${e.where}` : null, e.scripture ? `DESCRIPTION:${e.scripture}` : null, 'END:VEVENT', 'END:VCALENDAR'].filter(Boolean).join('\n');
+}
+
 export function CalendarScreen() {
   const nav = useNav();
+  const toast = useToast();
   const { state, dispatch } = useStore();
   const [filter, setFilter] = useState('All');
   const list = CALENDAR.filter((e) => filter === 'All' || (filter === 'Observances' && (e.kind === 'Observance' || e.kind === 'Season')) || (filter === 'Church' && e.kind === 'Church event') || (filter === 'Community' && e.kind === 'Community') || (filter === 'Mine' && state.rsvps.includes(e.id)));
   const months = {};
   list.forEach((e) => { const m = e.date.slice(0, 7); (months[m] = months[m] || []).push(e); });
   const label = (m) => new Date(m + '-02').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const greeted = (id) => (state.feed || []).some((f) => f.greetingFor === id);
+
+  const rsvp = (e, going) => {
+    dispatch({ type: 'rsvp', id: e.id });
+    toast.show(going ? `RSVP removed · ${e.title}` : `You're going to ${e.title}`, { icon: going ? 'x' : 'calendar', haptic: going ? 'light' : 'success' });
+  };
+  const shareGreeting = (e) => {
+    if (greeted(e.id)) { nav.push('Feed'); return; }
+    dispatch({ type: 'post', post: { kind: 'Celebration', greetingFor: e.id, text: `${e.title} · ${e.scripture}. Blessings from ${state.user.displayName}.`, passage: refFromText(e.scripture) || undefined } });
+    toast.show(`${e.title} greeting posted`, { icon: 'sparkles', haptic: 'success', action: { label: 'View', onPress: () => nav.push('Feed') } });
+  };
+  const addToCalendar = async (e) => {
+    const ics = icsFor(e);
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      try {
+        const blob = new Blob([ics.replace(/\n/g, '\r\n')], { type: 'text/calendar' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `${e.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.ics`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        toast.show('Calendar file downloaded · open it to add', { icon: 'calendar' });
+      } catch (err) { toast.show('Could not create the calendar file', { tone: 'error' }); }
+      return;
+    }
+    try {
+      await Share.share({ title: e.title, message: `${e.title}\n${new Date(e.date + 'T12:00').toDateString()}${e.time ? ' · ' + e.time : ''}${e.where ? '\n' + e.where : ''}` });
+    } catch (err) { toast.show('Could not open the share sheet', { tone: 'error' }); }
+  };
+
   return (
-    <Screen back title="Calendar" subtitle="Personal · church · community · Christian observances" right={<Pressable onPress={() => nav.push('Create', { kind: 'Event' })} hitSlop={10}><Text style={{ color: colors.forest, fontSize: 20 }}>＋</Text></Pressable>}>
+    <Screen back title="Calendar" subtitle="Personal · church · community · Christian observances"
+      right={<HeaderIconBtn label="New event" onPress={() => nav.push('Create', { kind: 'Event' })}><Glyph name="plus" size={17} color={colors.fg} /></HeaderIconBtn>}>
       <Pills items={['All', 'Mine', 'Church', 'Community', 'Observances']} value={filter} onChange={setFilter} />
+      {!Object.keys(months).length ? <ScaleIn key={filter} from={0.92}><Empty title="Nothing here yet" body="RSVP to church or community events and they will appear here." action="Show all events" onAction={() => setFilter('All')} /></ScaleIn> : null}
       {Object.keys(months).sort().map((m) => (
         <Section key={m} title={label(m)}>
-          {months[m].map((e) => (
-            <View key={e.id} style={styles.event}>
-              <View style={styles.dateBox}><Text style={styles.dateDay}>{e.date.slice(8)}</Text><Text style={styles.dateMon}>{new Date(e.date + 'T12:00').toLocaleDateString(undefined, { weekday: 'short' })}</Text></View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.cardTitle}>{e.title}</Text>
-                <Text style={styles.cardMeta}>{[e.time, e.where, e.tradition].filter(Boolean).join(' · ')}</Text>
-                {e.scripture ? <Pressable onPress={() => nav.push('Search')}><Text style={{ color: colors.teal, fontSize: 11, marginTop: 4 }}>✦ {e.scripture}</Text></Pressable> : null}
-                {e.source ? <Text style={{ color: colors.muted, fontSize: 9.5, marginTop: 4 }}>Source: {e.source} · Verified</Text> : null}
-                <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
-                  <Tag label={e.kind} />
-                  {e.kind === 'Church event' || e.kind === 'Community' ? <Pressable onPress={() => dispatch({ type: 'rsvp', id: e.id })}><Tag label={state.rsvps.includes(e.id) ? '✓ Going' : 'RSVP'} tint={state.rsvps.includes(e.id) ? colors.teal : colors.forest} /></Pressable> : <Pressable onPress={() => dispatch({ type: 'post', post: { kind: 'Celebration', text: `${e.title} · ${e.scripture}. Blessings from ${state.user.displayName}.` } })}><Tag label="Share greeting" tint={colors.forest} /></Pressable>}
-                  <Tag label="Add to calendar" />
+          {months[m].map((e, i) => {
+            const tint = KIND_TINT[e.kind] || colors.primary;
+            const going = state.rsvps.includes(e.id);
+            const ref = refFromText(e.scripture);
+            const shared = greeted(e.id);
+            return (
+              <FadeInUp key={e.id} index={i} distance={10} style={styles.event}>
+                <View style={[styles.dateBox, { backgroundColor: alpha(tint, 0.1) }]}>
+                  <Text style={[styles.dateMon, { color: tint }]}>{new Date(e.date + 'T12:00').toLocaleDateString(undefined, { weekday: 'short' })}</Text>
+                  <Text style={[styles.dateDay, { color: tint }]}>{e.date.slice(8)}</Text>
                 </View>
-              </View>
-            </View>
-          ))}
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.eventKind, { color: tint }]}>{e.kind}</Text>
+                  <Text style={styles.cardTitle}>{e.title}</Text>
+                  <Text style={styles.cardMeta}>{[e.time, e.where, e.tradition].filter(Boolean).join(' · ')}</Text>
+                  {e.scripture ? (
+                    <Pressable onPress={() => (ref ? nav.push('Bible', ref) : nav.push('Search'))} style={styles.eventScripture}>
+                      <Text style={styles.eventScriptureText}>✦  {e.scripture}</Text>
+                    </Pressable>
+                  ) : null}
+                  {e.source ? <Text style={styles.eventSource}>Source: {e.source} · Verified</Text> : null}
+                  <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                    {e.kind === 'Church event' || e.kind === 'Community' ? (
+                      <Pop trigger={going} amount={1.12}>
+                        <PressScale onPress={() => rsvp(e, going)} scaleTo={0.92} accessibilityRole="button" style={[styles.eventAction, going && styles.eventActionOn]}>
+                          {going ? <ScaleIn from={0.3}><Icon name="check" size={11} color="#FFFFFF" strokeWidth={2.8} /></ScaleIn> : null}
+                          <Text style={[styles.eventActionText, going && { color: '#FFFFFF' }]}>{going ? 'Going' : 'RSVP'}</Text>
+                        </PressScale>
+                      </Pop>
+                    ) : (
+                      <Pop trigger={shared} amount={1.1}>
+                        <PressScale onPress={() => shareGreeting(e)} scaleTo={0.93} accessibilityRole="button" style={[styles.eventAction, shared && styles.eventActionOn]}>
+                          {shared ? <ScaleIn from={0.3}><Icon name="check" size={11} color="#FFFFFF" strokeWidth={2.8} /></ScaleIn> : null}
+                          <Text style={[styles.eventActionText, shared && { color: '#FFFFFF' }]}>{shared ? 'Greeting shared' : 'Share greeting'}</Text>
+                        </PressScale>
+                      </Pop>
+                    )}
+                    <PressScale onPress={() => addToCalendar(e)} scaleTo={0.93} accessibilityRole="button" style={[styles.eventAction, styles.eventActionQuiet]}>
+                      <Icon name="calendar" size={11} color={colors.muted} />
+                      <Text style={[styles.eventActionText, { color: colors.muted }]}>Add to calendar</Text>
+                    </PressScale>
+                  </View>
+                </View>
+              </FadeInUp>
+            );
+          })}
         </Section>
       ))}
     </Screen>
@@ -1045,109 +1620,220 @@ export function CalendarScreen() {
 // ---------- People (2-Column Visual Card Directory per PDF Spec) ----------
 export function PeopleScreen() {
   const nav = useNav();
+  const toast = useToast();
   const { state, dispatch } = useStore();
   const [f, setF] = useState('All');
   const list = PEOPLE.filter((p) => !state.blocked.includes(p.id)).filter((p) => f === 'All' || p.accepts.some((a) => a.toLowerCase().includes(f.toLowerCase())) || (f === 'Available now' && p.availability === 'Available now'));
+  const follow = (p, following) => {
+    dispatch({ type: 'follow', id: p.id });
+    toast.show(following ? `Unfollowed ${p.name}` : `Following ${p.name}`, { icon: following ? 'x' : 'check', haptic: following ? 'light' : 'success' });
+  };
 
   return (
     <Screen back title="Find Believers" subtitle="Christians open to fellowship and collaboration">
       <Pills small items={['All', 'Available now', 'Prayer', 'Bible study', 'Mentoring', 'Professional', 'Care']} value={f} onChange={setF} />
 
+      {!list.length ? <ScaleIn key={f} from={0.92}><Empty title="No one matches this filter" body="Try another filter to see more believers." action="Show everyone" onAction={() => setF('All')} /></ScaleIn> : null}
       <View style={styles.peopleGrid}>
-        {list.map((p) => (
-          <Pressable key={p.id} style={styles.personCard} onPress={() => nav.push('Person', { id: p.id })}>
-            <View style={styles.personAvatarWrapper}>
-              <View style={styles.personAvatar}>
-                <Text style={styles.personAvatarText}>{p.name.split(' ').map((x) => x[0]).slice(0, 2).join('')}</Text>
+        {list.map((p, i) => {
+          const following = state.follows.includes(p.id);
+          return (
+            <FadeInUp key={p.id} index={i} style={styles.personCell}>
+            <PressScale scaleTo={0.97} style={styles.personCard} onPress={() => nav.push('Person', { id: p.id })}>
+              <View style={styles.personAvatarWrapper}>
+                <Avatar name={p.name} size={58} />
+                {p.availability === 'Available now' ? <View style={styles.personOnlineDot} /> : null}
               </View>
-              {p.availability === 'Available now' ? <View style={styles.personOnlineDot} /> : null}
-            </View>
 
-            <Text style={styles.personCardName} numberOfLines={1}>{p.name}</Text>
-            <Text style={styles.personCardHeadline} numberOfLines={2}>{p.headline}</Text>
-            <Text style={styles.personCardCountry} numberOfLines={1}>{p.country}</Text>
+              <Text style={styles.personCardName} numberOfLines={1}>{p.name}</Text>
+              <Text style={styles.personCardHeadline} numberOfLines={2}>{p.headline}</Text>
+              <Text style={styles.personCardCountry} numberOfLines={1}>{p.country}</Text>
 
-            <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', justifyContent: 'center', marginVertical: 6 }}>
-              {p.verified.slice(0, 1).map((v) => (
-                <Badge key={v} label={v} tint={colors.forest} />
-              ))}
-            </View>
+              <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', justifyContent: 'center', marginTop: 8, minHeight: 22 }}>
+                {p.verified.slice(0, 1).map((v) => (
+                  <Badge key={v} label={v} tint={colors.primary} />
+                ))}
+              </View>
 
-            <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, width: '100%' }}>
-              <Pressable
-                onPress={() => nav.push('Chat', { to: p.name, kind: p.accepts[0] })}
-                style={styles.personChatBtn}
-              >
-                <Text style={styles.personChatBtnText}>Chat</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => dispatch({ type: 'follow', id: p.id })}
-                style={[styles.personFollowBtn, state.follows.includes(p.id) && styles.personFollowBtnActive]}
-              >
-                <Text style={[styles.personFollowBtnText, state.follows.includes(p.id) && { color: colors.forest }]}>
-                  {state.follows.includes(p.id) ? '✓' : '＋'}
-                </Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        ))}
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, width: '100%' }}>
+                <PressScale
+                  onPress={() => nav.push('Chat', { to: p.name, kind: p.accepts[0] })}
+                  accessibilityLabel={`Chat with ${p.name}`}
+                  scaleTo={0.94}
+                  style={styles.personChatBtn}
+                >
+                  <Icon name="chat" size={12} color="#FFFFFF" />
+                  <Text style={styles.personChatBtnText}>Chat</Text>
+                </PressScale>
+                <Pop trigger={following} amount={1.22}>
+                  <PressScale
+                    onPress={() => follow(p, following)}
+                    scaleTo={0.88}
+                    style={[styles.personFollowBtn, following && styles.personFollowBtnActive]}
+                    accessibilityLabel={following ? `Unfollow ${p.name}` : `Follow ${p.name}`}
+                  >
+                    {following ? <ScaleIn from={0.3}><Icon name="check" size={14} color={colors.primary} strokeWidth={2.6} /></ScaleIn> : <Glyph name="plus" size={14} color={colors.fg} />}
+                  </PressScale>
+                </Pop>
+              </View>
+            </PressScale>
+            </FadeInUp>
+          );
+        })}
       </View>
+      <View style={{ height: 16 }} />
       <Notice text="Profile badges indicate verified membership or ministry identity. They do not replace local pastoral authority." />
     </Screen>
   );
 }
 
-export function PersonScreen({ params }) {
+export function PersonScreen({ params = {} }) {
   const nav = useNav();
+  const toast = useToast();
   const { state, dispatch } = useStore();
+  const [confirmBlock, setConfirmBlock] = useState(false);
   const p = PEOPLE.find((x) => x.id === params.id);
-  if (!p) return <Screen back title="Profile"><Empty title="User not found" /></Screen>;
+  if (!p) return <Screen back title="Profile"><Empty title="User not found" body="This profile may be private or no longer available." action="Find believers" onAction={() => nav.replace('People')} /></Screen>;
+  const following = state.follows.includes(p.id);
+  const blocked = state.blocked.includes(p.id);
+  const existing = state.chats.find((c) => c.with === p.name);
   return (
     <Screen back title={p.name} subtitle={p.headline}>
-      <View style={{ alignItems: 'center', marginTop: 14 }}>
-        <View style={[styles.avatar, { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.raised, borderColor: colors.forest }]}>
-          <Text style={{ color: colors.forest, fontWeight: '700', fontSize: 24 }}>{p.name.split(' ').map((x) => x[0]).slice(0, 2).join('')}</Text>
-        </View>
-        <Text style={[styles.cardTitle, { fontSize: 20, marginTop: 12 }]}>{p.name}</Text>
-        <Text style={styles.cardMeta}>{p.headline} · {p.country} · {p.languages.join(', ')}</Text>
-        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>{p.verified.map((v) => <Badge key={v} label={v} tint={colors.forest} />)}</View>
-      </View>
-      <Text style={[styles.cardBody, { marginTop: 16, textAlign: 'center', fontSize: 13.5, lineHeight: 20 }]}>{p.intro}</Text>
-      <View style={{ flexDirection: 'row', gap: 10, marginTop: 18, justifyContent: 'center' }}>
-        <Button small label="Send Message" disabled={p.availability === 'Not accepting'} onPress={() => nav.push('Chat', { to: p.name, kind: p.accepts[0] })} />
-        <Button small kind="ghost" label={state.follows.includes(p.id) ? 'Following' : 'Follow'} onPress={() => dispatch({ type: 'follow', id: p.id })} />
-        <Button small kind="ghost" label="Block" onPress={() => { dispatch({ type: 'block', id: p.id }); nav.pop(); }} />
-      </View>
-      <Section title="Accepts"><View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>{p.accepts.map((a) => <Tag key={a} label={a} tint={colors.teal} />)}</View></Section>
-      <Section title="Interests"><View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>{p.interests.map((i) => <Tag key={i} label={i} />)}</View></Section>
+      <FadeInUp style={styles.profileCard}>
+        <ScaleIn delay={100} from={0.7} style={styles.personAvatarWrapper}>
+          <Avatar name={p.name} size={84} ring />
+          {p.availability === 'Available now' ? <View style={[styles.personOnlineDot, { width: 16, height: 16, borderRadius: 8, bottom: 3, right: 3 }]} /> : null}
+        </ScaleIn>
+        <Text style={styles.profileName}>{p.name}</Text>
+        <Text style={styles.profileHeadline}>{p.headline}</Text>
+        <Text style={styles.profileMeta}>{p.country} · {p.languages.join(', ')}</Text>
+        {p.verified.length ? (
+          <View style={{ flexDirection: 'row', gap: 6, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {p.verified.map((v) => <Badge key={v} label={v} tint={colors.primary} />)}
+          </View>
+        ) : null}
+        <View style={styles.profileRule} />
+        <Text style={styles.profileIntro}>“{p.intro}”</Text>
+        {blocked ? (
+          <Notice tint={colors.negative} text="You blocked this person. They can't message you or see your activity." />
+        ) : confirmBlock ? (
+          <FadeInUp distance={8} duration={260} style={styles.confirmBox}>
+            <Text style={styles.confirmText}>Block {p.name}? They won't be able to message you, and they'll disappear from your directory.</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+              <Button small kind="danger" label="Block" onPress={() => { dispatch({ type: 'block', id: p.id }); toast.show(`${p.name} is blocked`, { icon: 'shield' }); nav.pop(); }} style={{ flex: 1 }} />
+              <Button small kind="ghost" label="Cancel" onPress={() => setConfirmBlock(false)} style={{ flex: 1 }} />
+            </View>
+          </FadeInUp>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 18, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Button small label={existing ? 'Open chat' : 'Send Message'} icon={<Icon name="chat" size={13} color="#FFFFFF" />} disabled={p.availability === 'Not accepting'} onPress={() => (existing ? nav.push('Chat', { id: existing.id }) : nav.push('Chat', { to: p.name, kind: p.accepts[0] }))} />
+            <Pop trigger={following} amount={1.1}>
+              <Button
+                small
+                kind="ghost"
+                label={following ? 'Following' : 'Follow'}
+                icon={following ? <Icon name="check" size={12} color={colors.primary} strokeWidth={2.6} /> : null}
+                onPress={() => { dispatch({ type: 'follow', id: p.id }); toast.show(following ? `Unfollowed ${p.name}` : `Following ${p.name}`, { icon: following ? 'x' : 'check', haptic: following ? 'light' : 'success' }); }}
+              />
+            </Pop>
+            <Button small kind="ghost" label="Block" onPress={() => setConfirmBlock(true)} />
+          </View>
+        )}
+      </FadeInUp>
+      <FadeInUp index={1}>
+        <Section title="Accepts"><View style={styles.tagWrap}>{p.accepts.map((a) => <Badge key={a} label={a} tint={colors.teal} />)}</View></Section>
+      </FadeInUp>
+      <FadeInUp index={2}>
+        <Section title="Interests"><View style={styles.tagWrap}>{p.interests.map((i) => <Tag key={i} label={i} />)}</View></Section>
+      </FadeInUp>
+      <FadeInUp index={3}>
       <Section title="Professional Profile">
-        <Row title="Experience & Ministry" subtitle="Work history, church service" right="›" />
-        <Row title="Christian Portfolio" subtitle="Sermons, studies, published work" right="›" />
+        <Row title="Church" subtitle={p.church} left={<Icon name="church" size={17} color={colors.primary} />} />
+        <Row title="Experience & Ministry" subtitle={(p.skills || []).join(' · ')} left={<Icon name="briefcase" size={17} color={colors.primary} />} />
+        <Row title="Availability" subtitle={p.availability} left={<Icon name="clock" size={17} color={colors.gold} />} />
+        {p.mutual ? <Row title={`${p.mutual} mutual connection${p.mutual === 1 ? '' : 's'}`} left={<Icon name="users" size={17} color={colors.sage} />} /> : null}
       </Section>
+      </FadeInUp>
     </Screen>
   );
 }
 
 // ---------- Care Network ----------
+const CARE_ICONS = [
+  ['chat', colors.primary], ['prayer', colors.gold], ['sparkles', colors.gold], ['book', colors.primary], ['church', colors.lavender],
+  ['shield', colors.teal], ['briefcase', colors.sky], ['heart', colors.rose], ['users', colors.sage],
+];
 export function CareScreen({ params = {} }) {
   const nav = useNav();
+  const { state } = useStore();
   const [choice, setChoice] = useState(params.preselect || null);
   const match = {
     'I need someone to talk to': ['p1', 'p5', 'p4'], 'I need prayer': ['p1', 'p6'], 'I need encouragement': ['p5', 'p1'], 'I want to study the Bible with someone': ['p4'],
     'I need pastoral guidance': ['p1'], 'I want a qualified counselor': ['p3'], 'I need a career or ministry mentor': ['p2', 'p5'], 'I want to encourage others': [], 'I want to join a support group': [],
   };
-  const people = choice ? PEOPLE.filter((p) => (match[choice] || []).includes(p.id)) : [];
+  // Each need also gets a concrete next step inside the app.
+  const nextStep = {
+    'I need prayer': { label: 'Post a prayer request', icon: 'prayer', go: () => nav.push('NewPrayer') },
+    'I need encouragement': { label: 'Visit the prayer wall', icon: 'flame', go: () => nav.push('Wishes') },
+    'I want to study the Bible with someone': { label: 'Browse Bible study groups', icon: 'book', go: () => nav.push('Communities') },
+    'I want to encourage others': { label: 'Pray for requests on the wall', icon: 'prayer', go: () => nav.push('PrayerWall') },
+    'I want to join a support group': { label: 'Find a support community', icon: 'users', go: () => nav.push('Communities') },
+    'I need a career or ministry mentor': { label: 'Explore Kingdom careers', icon: 'briefcase', go: () => nav.push('Jobs') },
+  };
+  const people = choice ? PEOPLE.filter((p) => (match[choice] || []).includes(p.id) && !state.blocked.includes(p.id)) : [];
+  const step = choice ? nextStep[choice] : null;
+  const kindFor = (c) => (c === 'I need prayer' ? 'Prayer' : c === 'I want to study the Bible with someone' ? 'Bible study' : c.includes('mentor') ? 'Mentoring' : 'Care / support');
   return (
     <Screen back title="Christian Care Network" subtitle="Find Someone Who Understands">
-      <Notice tint={colors.teal} text="Sensitive conversations are private by default and never shared or monetized." />
-      {!choice ? CARE_OPTIONS.map((o) => <Row key={o} title={o} right="›" onPress={() => setChoice(o)} />) : (
-        <View>
-          <Row title={choice} tint={colors.teal} right={<Pressable onPress={() => setChoice(null)}><Text style={{ color: colors.muted }}>Change</Text></Pressable>} />
-          {choice === 'I want a qualified counselor' ? <Notice text="Only people with a verified professional license appear here. If you are in immediate danger, contact your local emergency services." /> : null}
+      <FadeInUp style={styles.careHero}>
+        <Text style={styles.careEyebrow}>✦  You are not alone</Text>
+        <Text style={styles.careTitle}>{choice ? 'People who can walk with you' : 'How can we help today?'}</Text>
+        <Text style={styles.careSub}>Sensitive conversations are private by default and never shared or monetized.</Text>
+      </FadeInUp>
+      {!choice ? CARE_OPTIONS.map((o, i) => {
+        const [ic, tint] = CARE_ICONS[i % CARE_ICONS.length];
+        return (
+          <FadeInUp key={o} index={1 + i} distance={10}>
+            <Row title={o} left={<Icon name={ic} size={17} color={tint} />} onPress={() => setChoice(o)} />
+          </FadeInUp>
+        );
+      }) : (
+        <View key={choice}>
+          <FadeInUp distance={8} duration={300}>
+          <Row
+            title={choice}
+            tint={colors.primary}
+            left={<Icon name="check" size={16} color={colors.primary} strokeWidth={2.6} />}
+            right={<PressScale onPress={() => setChoice(null)} scaleTo={0.92} accessibilityRole="button" style={styles.changeBtn}><Text style={styles.changeBtnText}>Change</Text></PressScale>}
+          />
+          </FadeInUp>
+          {choice === 'I want a qualified counselor' ? <FadeInUp index={1}><Notice text="Only people with a verified professional license appear here. If you are in immediate danger, contact your local emergency services." /></FadeInUp> : null}
           {people.length ? (
             <Section title="Recommended ministers and listeners">
-              {people.map((p) => <Row key={p.id} title={p.name} subtitle={`${p.headline} · ${p.availability}`} right={<Badge label={p.verified[0] || 'Member'} tint={colors.forest} />} onPress={() => nav.push('Person', { id: p.id })} />)}
+              {people.map((p, i) => (
+                <FadeInUp key={p.id} index={1 + i} distance={10}>
+                  <AvatarRow
+                    name={p.name}
+                    title={p.name}
+                    subtitle={`${p.headline} · ${p.availability}`}
+                    right={
+                      <PressScale onPress={() => nav.push('Chat', { to: p.name, kind: kindFor(choice) })} accessibilityLabel={`Message ${p.name}`} hitSlop={6} scaleTo={0.93} style={styles.careMsgBtn}>
+                        <Icon name="chat" size={12} color="#FFFFFF" />
+                        <Text style={styles.personChatBtnText}>Message</Text>
+                      </PressScale>
+                    }
+                    onPress={() => nav.push('Person', { id: p.id })}
+                  />
+                </FadeInUp>
+              ))}
             </Section>
+          ) : !step ? (
+            <ScaleIn from={0.92}><Empty title="No matches yet" body="We are growing this part of the network. Try another option or check back soon." action="Choose another option" onAction={() => setChoice(null)} /></ScaleIn>
+          ) : null}
+          {step ? (
+            <FadeInUp index={1 + people.length} distance={10}>
+              <Button label={step.label} kind={people.length ? 'ghost' : 'primary'} icon={<Icon name={step.icon} size={14} color={people.length ? colors.fg : '#FFFFFF'} />} onPress={step.go} style={{ marginTop: 20 }} />
+            </FadeInUp>
           ) : null}
         </View>
       )}
@@ -1158,157 +1844,719 @@ export function CareScreen({ params = {} }) {
 // ---------- Make a Wish ----------
 export function WishesScreen() {
   const nav = useNav();
-  const { state } = useStore();
+  const toast = useToast();
+  const { state, dispatch } = useStore();
+  const wishes = state.wishes || [];
+  const [confirmId, setConfirmId] = useState(null);
+  const candle = (w) => { dispatch({ type: 'lightCandle', id: w.id }); toast.show(w.lit ? 'Candle put out' : `Candle lit for ${w.author}`, { icon: 'flame', haptic: w.lit ? 'light' : 'success' }); };
+  const amen = (w) => { dispatch({ type: 'amenWish', id: w.id }); toast.show(w.amened ? 'Amen removed' : `You prayed Amen with ${w.author}`, { icon: 'prayer', haptic: w.amened ? 'light' : 'success' }); };
+  const remove = (w) => {
+    const idx = wishes.findIndex((x) => x.id === w.id);
+    dispatch({ type: 'set', patch: { wishes: wishes.filter((x) => x.id !== w.id) } });
+    setConfirmId(null);
+    toast.show('Wish removed', { icon: 'trash', action: { label: 'Undo', onPress: () => dispatch({ type: 'set', patch: { wishes: [...wishes.slice(0, idx), w, ...wishes.slice(idx)].filter((x, i, arr) => arr.findIndex((y) => y.id === x.id) === i) } }) } });
+  };
+  const respond = (w, r) => {
+    if (r === 'Prayer') { if (!w.amened) amen(w); else toast.show(`You're already praying with ${w.author}`, { icon: 'prayer' }); return; }
+    nav.push('Chat', { to: w.author, kind: r === 'Mentoring' ? 'Mentoring' : 'General chat' });
+  };
   return (
-    <Screen back title="Make a Wish" subtitle="A prayer request, ministry goal, or need" right={<Pressable onPress={() => nav.push('Create', { kind: 'Wish' })} hitSlop={10}><Text style={{ color: colors.forest, fontSize: 20 }}>＋</Text></Pressable>}>
-      {(state.wishes || []).map((w) => (
-        <View key={w.id} style={styles.card}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={styles.cardMeta}>{w.author} · {w.visibility}</Text><Tag label={w.category} /></View>
-          <Text style={styles.cardTitle}>{w.title}</Text>
-          <Text style={styles.cardBody}>{w.body}</Text>
-          <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-            {w.responses.map((r) => <Button key={r} small kind="ghost" label={r} onPress={() => (r === 'Prayer' ? nav.push('NewPrayer') : nav.push('Chat', { to: w.author }))} />)}
+    <Screen back title="Make a Wish" subtitle="A prayer request, ministry goal, or need"
+      right={<HeaderIconBtn label="New wish" onPress={() => nav.push('Create', { kind: 'Wish' })}><Glyph name="plus" size={17} color={colors.fg} /></HeaderIconBtn>}>
+      {!wishes.length ? <ScaleIn from={0.92}><Empty title="No wishes yet" body="Share a prayer request, ministry goal or need with your community." action="Make a wish" onAction={() => nav.push('Create', { kind: 'Wish' })} /></ScaleIn> : null}
+      {wishes.map((w, i) => (
+        <FadeInUp key={w.id} index={i} style={styles.card}>
+          <View style={styles.cardHeadRow}>
+            <Avatar name={w.author} size={34} />
+            <Text style={[styles.cardMeta, { flex: 1, marginTop: 0 }]} numberOfLines={1}>{w.mine ? 'You' : w.author} · {w.visibility} · {w.time}</Text>
+            <Badge label={w.category} tint={categoryTint(w.category)} />
           </View>
-        </View>
+          <Text style={[styles.cardTitle, { marginTop: 12, fontSize: 17 }]}>{w.title}</Text>
+          {w.body && w.body !== w.title ? <Text style={styles.cardBody}>{w.body}</Text> : null}
+          <View style={styles.wishItemActions}>
+            <CandleButton w={w} verbose onPress={() => candle(w)} />
+            <AmenButton w={w} onPress={() => amen(w)} />
+          </View>
+          {(w.responses || []).filter((r) => r !== 'Prayer').length || w.mine ? (
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {!w.mine ? (w.responses || []).filter((r) => r !== 'Prayer').map((r) => <Button key={r} small kind="ghost" label={r === 'Volunteer' ? 'Offer to help' : r === 'Mentoring' ? 'Offer mentoring' : r} onPress={() => respond(w, r)} />) : null}
+              {w.mine ? (
+                confirmId === w.id ? (
+                  <FadeInUp distance={6} duration={240} style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                    <Text style={[styles.cardMeta, { marginTop: 0 }]}>Remove this wish?</Text>
+                    <Button small kind="danger" label="Remove" onPress={() => remove(w)} />
+                    <Button small kind="ghost" label="Keep" onPress={() => setConfirmId(null)} />
+                  </FadeInUp>
+                ) : (
+                  <Button small kind="ghost" label="Remove" icon={<Icon name="trash" size={12} color={colors.fg} />} onPress={() => setConfirmId(w.id)} />
+                )
+              ) : null}
+            </View>
+          ) : null}
+        </FadeInUp>
       ))}
     </Screen>
   );
 }
 
 // ---------- Live ----------
+const LIVE_PASSAGE = { l1: { bookId: 'MAT', chapter: 1 }, l2: { bookId: 'PSA', chapter: 121 } };
+
 export function LiveScreen({ params = {} }) {
   const nav = useNav();
+  const toast = useToast();
+  const nar = useNarration();
   const [joined, setJoined] = useState(params.id || null);
+  const [handRaised, setHandRaised] = useState(false);
+  const [askMode, setAskMode] = useState(false);
+  const [chat, setChat] = useState([]);
   const l = LIVE.find((x) => x.id === joined);
+  const join = (x) => {
+    setJoined(x.id);
+    setHandRaised(false);
+    setAskMode(false);
+    setChat([]);
+    toast.show(x.status === 'live' ? `Joined · ${x.viewers + 1} watching` : `Opened ${x.title}`, { icon: 'live' });
+  };
+  if (joined && !l) {
+    return (
+      <Screen back title="Live Fellowship">
+        <Empty title="This stream has ended" body="It may have finished or been made private." action="See live rooms" onAction={() => setJoined(null)} />
+      </Screen>
+    );
+  }
   if (l) {
+    const passage = LIVE_PASSAGE[l.id] || { bookId: 'MAT', chapter: 1 };
+    const send = (t) => {
+      if (askMode) {
+        setChat((c) => [...c, { id: 'q' + Date.now(), text: t, question: true }]);
+        setAskMode(false);
+        toast.show('Question sent to the moderators', { icon: 'message', haptic: 'success' });
+      } else {
+        setChat((c) => [...c, { id: 'c' + Date.now(), text: t }]);
+      }
+    };
     return (
       <Screen back title={l.title} subtitle={`${l.host} · ${l.status}`} scroll={false} padded={false}>
-        <View style={styles.video}><Text style={{ color: colors.muted }}>{l.status === 'live' ? '● LIVE · ' + l.viewers + ' watching' : l.status === 'replay' ? 'Replay' : 'Starts ' + l.when}</Text><Text style={{ color: colors.muted, fontSize: 10, marginTop: 4 }}>Audio-only and reduced-quality modes available</Text></View>
-        <ScrollView contentContainerStyle={{ padding: 18 }}>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}><Tag label={l.language} /><Tag label={l.audience} />{l.captions ? <Tag label="Captions" /> : null}<Tag label="Moderated" /></View>
-          <Section title="Live Bible study"><Row title="Synchronized passage: Matthew 1" subtitle="Follow the teacher's highlights" right="›" onPress={() => nav.push('Bible', { bookId: 'MAT', chapter: 1 })} /></Section>
-          <Section title="Participate">
-            <Row title="Raise hand" />
-            <Row title="Send a prayer request" onPress={() => nav.push('NewPrayer')} />
-            <Row title="Ask a moderated question" />
+        <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
+          <FadeInUp style={styles.video}>
+            <NightGlow />
+            <View style={styles.videoTop}>
+              <View style={[styles.liveStatusPill, l.status !== 'live' && { backgroundColor: 'rgba(255,255,255,0.14)' }]}>
+                {l.status === 'live' ? <LiveRing color="#FFFFFF" size={6} /> : null}
+                <Text style={styles.liveStatusText}>{l.status === 'live' ? 'LIVE · ' + (l.viewers + 1) + ' watching' : l.status === 'replay' ? 'Replay' : 'Starts ' + l.when}</Text>
+              </View>
+              {handRaised ? (
+                <ScaleIn from={0.6}>
+                  <View style={[styles.liveStatusPill, { backgroundColor: alpha(colors.goldLight, 0.22) }]}>
+                    <Text style={styles.liveStatusText}>✋ Hand raised</Text>
+                  </View>
+                </ScaleIn>
+              ) : null}
+            </View>
+            <ScaleIn delay={160} from={0.6} style={{ alignSelf: 'center' }}>
+              <PressScale
+                onPress={() => { nar.playChapter(passage.bookId, passage.chapter, { translation: 'KJV' }); toast.show(`Listening along · ${refLabel(passage.bookId, passage.chapter)}`, { icon: 'audio' }); }}
+                accessibilityLabel="Listen along"
+                scaleTo={0.9}
+                style={styles.videoPlay}
+              >
+                <Icon name="play" size={26} color={colors.goldLight} />
+              </PressScale>
+            </ScaleIn>
+            <View>
+              <Text style={styles.videoTitle} numberOfLines={2}>{l.title}</Text>
+              <Text style={styles.videoNote}>Tap play to listen along to {refLabel(passage.bookId, passage.chapter)} in audio-only mode</Text>
+            </View>
+          </FadeInUp>
+          <FadeInUp index={1} style={[styles.tagWrap, { marginTop: 14 }]}>
+            <Tag label={l.language} /><Tag label={l.audience} />{l.captions ? <Tag label="Captions" /> : null}<Tag label="Moderated" tint={colors.teal} />
+          </FadeInUp>
+          <FadeInUp index={2}>
+          <Section title="Live Bible study">
+            <Row title={`Synchronized passage: ${refLabel(passage.bookId, passage.chapter)}`} subtitle="Follow the teacher's highlights" left={<Icon name="book" size={17} color={colors.primary} />} onPress={() => nav.push('Bible', passage)} />
           </Section>
+          </FadeInUp>
+          <FadeInUp index={3}>
+          <Section title="Participate">
+            <Row
+              title={handRaised ? 'Lower hand' : 'Raise hand'}
+              subtitle={handRaised ? 'The host can see you want to speak' : null}
+              tint={handRaised ? colors.primary : undefined}
+              left={<Icon name={handRaised ? 'check' : 'user'} size={17} color={handRaised ? colors.primary : colors.muted} />}
+              onPress={() => { setHandRaised(!handRaised); toast.show(handRaised ? 'Hand lowered' : 'Hand raised · the host will call on you', { icon: 'user', haptic: handRaised ? 'light' : 'success' }); }}
+            />
+            <Row title="Send a prayer request" left={<Icon name="prayer" size={17} color={colors.gold} />} onPress={() => nav.push('NewPrayer')} />
+            <Row
+              title={askMode ? 'Type your question below' : 'Ask a moderated question'}
+              subtitle={askMode ? 'Tap again to cancel' : null}
+              tint={askMode ? colors.primary : undefined}
+              left={<Icon name="message" size={17} color={askMode ? colors.primary : colors.muted} />}
+              onPress={() => setAskMode(!askMode)}
+            />
+          </Section>
+          </FadeInUp>
+          {chat.length ? (
+            <Section title="Fellowship chat">
+              <View style={{ gap: 8 }}>
+                {chat.map((m) => (
+                  <Bubble key={m.id} mine>
+                    {m.question ? <Text style={[styles.pinnedLabel, { color: colors.goldLight }]}>Question · awaiting moderator</Text> : null}
+                    <Text style={[styles.msgText, { color: '#FFFFFF' }]}>{m.text}</Text>
+                  </Bubble>
+                ))}
+              </View>
+            </Section>
+          ) : null}
         </ScrollView>
-        <View style={{ padding: 14 }}><AskBar placeholder="Say something in live fellowship chat..." /></View>
+        <View style={styles.composerWrap}><AskBar key={askMode ? 'ask' : 'chat'} placeholder={askMode ? 'Ask the host a question…' : 'Say something in live fellowship chat...'} onSend={send} /></View>
       </Screen>
     );
   }
   return (
-    <Screen back title="Live Fellowship" right={<Pressable onPress={() => nav.push('Create', { kind: 'Live stream' })} hitSlop={10}><Text style={{ color: colors.forest, fontSize: 20 }}>＋</Text></Pressable>}>
-      {['live', 'scheduled', 'replay'].map((s) => (
-        <Section key={s} title={s === 'live' ? 'Live now' : s === 'scheduled' ? 'Scheduled' : 'Replays'}>
-          {LIVE.filter((x) => x.status === s).map((x) => <Row key={x.id} title={x.title} subtitle={`${x.host} · ${x.language} · ${x.audience}${x.captions ? ' · Captions' : ''}`} right={s === 'live' ? <Badge label={`${x.viewers}`} tint="#e85d5d" /> : s === 'scheduled' ? x.when : 'Replay'} onPress={() => setJoined(x.id)} />)}
-        </Section>
-      ))}
+    <Screen back title="Live Fellowship"
+      right={<HeaderIconBtn label="Start a stream" onPress={() => nav.push('Create', { kind: 'Live stream' })}><Glyph name="plus" size={17} color={colors.fg} /></HeaderIconBtn>}>
+      {(() => {
+        const f = LIVE.find((x) => x.status === 'live');
+        if (!f) return null;
+        return (
+          <FadeInUp>
+            <PressScale onPress={() => join(f)} scaleTo={0.98} accessibilityRole="button" style={styles.liveFeature}>
+              <NightGlow />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={styles.liveStatusPill}>
+                  <LiveRing color="#FFFFFF" size={6} />
+                  <Text style={styles.liveStatusText}>LIVE · {f.viewers} watching</Text>
+                </View>
+                <Text style={styles.liveFeatureMeta}>{f.language}{f.captions ? ' · CC' : ''}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 14, marginTop: 34 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.liveFeatureEyebrow}>Happening now</Text>
+                  <Text style={styles.liveFeatureTitle} numberOfLines={2}>{f.title}</Text>
+                  <Text style={styles.liveFeatureHost} numberOfLines={1}>{f.host} · {f.audience}</Text>
+                </View>
+                <Pulse min={0.96} max={1.06} duration={1100}>
+                  <View style={styles.liveFeaturePlay}>
+                    <Icon name="play" size={20} color={colors.night} fill="solid" />
+                  </View>
+                </Pulse>
+              </View>
+            </PressScale>
+          </FadeInUp>
+        );
+      })()}
+      {['live', 'scheduled', 'replay'].map((st, si) => {
+        const items = LIVE.filter((x) => x.status === st);
+        if (!items.length) return null;
+        return (
+          <Section key={st} title={st === 'live' ? 'Live now' : st === 'scheduled' ? 'Scheduled' : 'Replays'} style={st === 'live' ? { marginTop: 24 } : null}>
+            {items.map((x, i) => (
+              <FadeInUp key={x.id} index={1 + si * 2 + i} distance={10}>
+                <Row
+                  title={x.title}
+                  subtitle={`${x.host} · ${x.language} · ${x.audience}${x.captions ? ' · Captions' : ''}`}
+                  left={<Icon name={st === 'live' ? 'live' : st === 'scheduled' ? 'calendar' : 'play'} size={18} color={st === 'live' ? colors.negative : st === 'scheduled' ? colors.primary : colors.muted} />}
+                  right={st === 'live' ? (
+                    <View style={styles.liveCountPill}>
+                      <LiveRing size={6} />
+                      <Text style={styles.liveCountText}>{x.viewers}</Text>
+                    </View>
+                  ) : st === 'scheduled' ? x.when : 'Replay'}
+                  onPress={() => join(x)}
+                />
+              </FadeInUp>
+            ))}
+          </Section>
+        );
+      })}
     </Screen>
   );
 }
 
 // ---------- Feed ----------
+// Share sheet, falling back to the clipboard on browsers without navigator.share.
+async function shareMessage(toast, message) {
+  try {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.share) {
+      if (navigator.clipboard) { await navigator.clipboard.writeText(message); toast.show('Copied to clipboard', { icon: 'link' }); return; }
+    }
+    await Share.share({ message });
+  } catch (e) {
+    toast.show('Sharing isn’t available on this device', { tone: 'error', icon: 'share' });
+  }
+}
+
+const FEED_TABS = ['For You', 'Following', 'Communities', 'Events'];
+
 export function FeedScreen() {
   const nav = useNav();
+  const toast = useToast();
   const { state, dispatch } = useStore();
   const [tab, setTab] = useState('For You');
+  const [openComments, setOpenComments] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const feed = state.feed || [];
+  const communityNames = (state.communities || []).map((c) => c.name);
+  const joinedCommunities = (state.communities || []).filter((c) => c.joined === true).map((c) => c.name);
+  const followedPeople = PEOPLE.filter((p) => state.follows.includes(p.id)).map((p) => p.name);
+  const joinedChannelNames = (state.channels || CHANNELS_DATA).filter((c) => (state.joinedChannels || []).includes(c.id) || state.follows.includes(c.id)).map((c) => c.name);
+  const list = feed.filter((f) => {
+    if (tab === 'Following') return f.mine || followedPeople.includes(f.author) || joinedCommunities.includes(f.author) || joinedChannelNames.includes(f.author);
+    if (tab === 'Communities') return communityNames.includes(f.author);
+    if (tab === 'Events') return f.kind === 'Announcement' || f.kind === 'Celebration';
+    return true;
+  });
+  const emptyCopy = {
+    'For You': ['Your feed is quiet', 'Posts, announcements and celebrations from your communities will appear here.', 'Create a post', () => nav.push('Create', { kind: 'Post' })],
+    Following: ['Nothing from people you follow yet', 'Follow believers or join communities to see their posts here.', 'Find believers', () => nav.push('People')],
+    Communities: ['No community posts yet', 'Join a church or study group to see its posts here.', 'Explore communities', () => nav.push('Communities')],
+    Events: ['No announcements or celebrations', 'Church announcements and celebrations will appear here.', 'Open calendar', () => nav.push('Calendar')],
+  }[tab];
+
+  const save = (f) => {
+    dispatch({ type: 'savePost', id: f.id });
+    toast.show(f.saved ? 'Removed from saved' : 'Post saved', { icon: 'bookmark', haptic: f.saved ? 'light' : 'success' });
+  };
+  const share = (f) => shareMessage(toast, `${f.author}: ${f.text}${f.passage ? `\n— ${refLabel(f.passage.bookId, f.passage.chapter)}` : ''}\n\nShared from BibleNestra`);
+  const addComment = (f) => {
+    const text = draft.trim();
+    if (!text) return;
+    const c = { id: 'pc' + Date.now(), from: state.user.displayName, text, time: 'Just now' };
+    dispatch({ type: 'set', patch: { feed: feed.map((x) => (x.id === f.id ? { ...x, comments: (x.comments || 0) + 1, commentList: [...(x.commentList || []), c] } : x)) } });
+    setDraft('');
+    toast.show('Comment posted', { icon: 'chat' });
+  };
+  const remove = (f) => {
+    const idx = feed.findIndex((x) => x.id === f.id);
+    dispatch({ type: 'deletePost', id: f.id });
+    setConfirmDelete(null);
+    toast.show('Post deleted', { icon: 'trash', action: { label: 'Undo', onPress: () => dispatch({ type: 'set', patch: { feed: [...feed.slice(0, idx), f, ...feed.slice(idx)].filter((x, i, arr) => arr.findIndex((y) => y.id === x.id) === i) } }) } });
+  };
+
   return (
-    <Screen back title="Feed" right={<Pressable onPress={() => nav.push('Create', { kind: 'Post' })} hitSlop={10}><Text style={{ color: colors.forest, fontSize: 20 }}>＋</Text></Pressable>}>
-      <Pills items={['For You', 'Following', 'Communities', 'Events']} value={tab} onChange={setTab} />
-      {(state.feed || []).filter((f) => tab !== 'Events' || f.kind === 'Announcement' || f.kind === 'Celebration').map((f) => (
-        <View key={f.id} style={styles.post}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}><Text style={styles.cardTitle}>{f.author}</Text><Tag label={f.kind} /></View>
-          <Text style={styles.cardBody}>{f.text}</Text>
-          {f.passage ? (
-            <Pressable onPress={() => nav.push('Bible', f.passage)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
-              <Icon name="book" size={12} color={colors.royalIndigo} />
-              <Text style={{ color: colors.royalIndigo, fontSize: 11, fontWeight: '600' }}>{refLabel(f.passage.bookId, f.passage.chapter)} · Open</Text>
-            </Pressable>
-          ) : null}
-          <View style={{ flexDirection: 'row', gap: 16, marginTop: 10, alignItems: 'center' }}>
-            <Pressable onPress={() => dispatch({ type: 'like', id: f.id })} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Icon name="heart" size={14} color={f.liked ? colors.roseCoral : colors.muted} />
-              <Text style={[styles.cardMeta, f.liked && { color: colors.roseCoral }]}>{f.likes}</Text>
-            </Pressable>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Icon name="chat" size={14} color={colors.muted} />
-              <Text style={styles.cardMeta}>{f.comments}</Text>
+    <Screen back title="Feed"
+      right={<HeaderIconBtn label="New post" onPress={() => nav.push('Create', { kind: 'Post' })}><Glyph name="plus" size={17} color={colors.fg} /></HeaderIconBtn>}>
+      <Pills items={FEED_TABS} value={tab} onChange={setTab} />
+      {!list.length ? <ScaleIn key={tab} from={0.92}><Empty title={emptyCopy[0]} body={emptyCopy[1]} action={emptyCopy[2]} onAction={emptyCopy[3]} /></ScaleIn> : null}
+      {list.map((f, i) => {
+        const showComments = openComments === f.id;
+        const myComments = f.commentList || [];
+        const earlier = Math.max(0, (f.comments || 0) - myComments.length);
+        return (
+          <FadeInUp key={f.id} index={i} style={styles.post}>
+            <View style={styles.cardHeadRow}>
+              <Avatar name={f.author} size={38} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.postAuthor} numberOfLines={1}>{f.mine ? `${f.author} (you)` : f.author}</Text>
+                <Text style={styles.postTime}>{f.time}</Text>
+              </View>
+              <Badge label={f.kind} tint={f.kind === 'Celebration' ? colors.gold : f.kind === 'Announcement' ? colors.primary : colors.sage} />
+              {f.mine ? (
+                <Pressable onPress={() => setConfirmDelete(confirmDelete === f.id ? null : f.id)} hitSlop={8} accessibilityLabel="Delete post" style={({ pressed }) => [styles.postIconBtn, pressed && styles.pressedFill]}>
+                  <Icon name="trash" size={15} color={colors.muted} />
+                </Pressable>
+              ) : null}
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Icon name="share" size={14} color={colors.muted} />
-              <Text style={styles.cardMeta}>Share</Text>
+            <Text style={styles.postBody}>{f.text}</Text>
+            {f.passage ? (
+              <PassageChip icon="book" label={`${refLabel(f.passage.bookId, f.passage.chapter)} · Open`} onPress={() => nav.push('Bible', f.passage)} />
+            ) : null}
+            {confirmDelete === f.id ? (
+              <FadeInUp distance={8} duration={260} style={[styles.confirmBox, { marginTop: 12 }]}>
+                <Text style={styles.confirmText}>Delete this post? It will be removed from everyone's feed.</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                  <Button small kind="danger" label="Delete" onPress={() => remove(f)} style={{ flex: 1 }} />
+                  <Button small kind="ghost" label="Cancel" onPress={() => setConfirmDelete(null)} style={{ flex: 1 }} />
+                </View>
+              </FadeInUp>
+            ) : null}
+            <View style={styles.postActions}>
+              <PressScale onPress={() => dispatch({ type: 'like', id: f.id })} scaleTo={0.9} style={styles.postAction} hitSlop={6} accessibilityLabel={f.liked ? 'Unlike' : 'Like'}>
+                <Pop trigger={!!f.liked} amount={1.4}>
+                  <Icon name="heart" size={15} color={f.liked ? colors.rose : colors.muted} fill={f.liked ? colors.rose : 'none'} />
+                </Pop>
+                <AnimatedNumber value={f.likes || 0} duration={400} style={[styles.postActionText, f.liked && { color: colors.rose }]} />
+              </PressScale>
+              <PressScale onPress={() => { setOpenComments(showComments ? null : f.id); setDraft(''); }} scaleTo={0.9} style={styles.postAction} hitSlop={6} accessibilityLabel="Comments">
+                <Icon name="chat" size={15} color={showComments ? colors.primary : colors.muted} />
+                <AnimatedNumber value={f.comments || 0} duration={400} style={[styles.postActionText, showComments && { color: colors.primary }]} />
+              </PressScale>
+              <PressScale onPress={() => share(f)} scaleTo={0.9} style={styles.postAction} hitSlop={6} accessibilityLabel="Share post">
+                <Icon name="share" size={15} color={colors.muted} />
+                <Text style={styles.postActionText}>Share</Text>
+              </PressScale>
+              <PressScale onPress={() => save(f)} scaleTo={0.9} style={[styles.postAction, { marginLeft: 'auto' }]} hitSlop={6} accessibilityLabel={f.saved ? 'Unsave post' : 'Save post'}>
+                <Pop trigger={!!f.saved} amount={1.35}>
+                  <Icon name="bookmark" size={15} color={f.saved ? colors.primary : colors.muted} fill={f.saved ? colors.primary : 'none'} />
+                </Pop>
+                <Text style={[styles.postActionText, f.saved && { color: colors.primary }]}>{f.saved ? 'Saved' : 'Save'}</Text>
+              </PressScale>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Icon name="bookmark" size={14} color={colors.muted} />
-              <Text style={styles.cardMeta}>Save</Text>
-            </View>
-            <Text style={[styles.cardMeta, { marginLeft: 'auto' }]}>{f.time}</Text>
-          </View>
-        </View>
-      ))}
+            {showComments ? (
+              <FadeInUp distance={8} duration={280} style={styles.commentsBox}>
+                {earlier ? <Text style={styles.commentsNote}>{earlier} earlier {earlier === 1 ? "reply" : "replies"} in this thread</Text> : null}
+                {myComments.map((c) => (
+                  <FadeInUp key={c.id} distance={8} duration={300} style={styles.commentRow}>
+                    <Avatar name={c.from} size={26} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.commentFrom}>{c.from} <Text style={styles.commentTime}>· {c.time}</Text></Text>
+                      <Text style={styles.commentText}>{c.text}</Text>
+                    </View>
+                  </FadeInUp>
+                ))}
+                <View style={styles.commentInputRow}>
+                  <TextInput
+                    value={draft}
+                    onChangeText={setDraft}
+                    onSubmitEditing={() => addComment(f)}
+                    placeholder="Add a kind comment…"
+                    placeholderTextColor={colors.faint}
+                    style={styles.commentInput}
+                    returnKeyType="send"
+                  />
+                  <PressScale onPress={() => addComment(f)} disabled={!draft.trim()} scaleTo={0.88} accessibilityLabel="Post comment" style={[styles.commentSend, !draft.trim() && { opacity: 0.4 }]}>
+                    <Icon name="arrow-up-right" size={14} color="#FFFFFF" />
+                  </PressScale>
+                </View>
+              </FadeInUp>
+            ) : null}
+          </FadeInUp>
+        );
+      })}
     </Screen>
   );
 }
 
+const eyebrowBase = { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase' };
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
+  liveFeature: { borderRadius: radius.xl, padding: 18, overflow: 'hidden', marginTop: 4, marginBottom: 4, ...shadow.lg },
+  liveFeatureMeta: { fontSize: 11.5, fontWeight: '600', color: colors.nightMuted },
+  liveFeatureEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.goldLight },
+  liveFeatureTitle: { fontFamily: fonts.serifBold, fontSize: 23, lineHeight: 28, color: colors.nightFg, marginTop: 4, letterSpacing: -0.3 },
+  liveFeatureHost: { fontSize: 12.5, color: colors.nightMuted, marginTop: 6 },
+  liveFeaturePlay: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
+  quickItem: { width: 68, alignItems: 'center' },
+  quickIcon: { width: 56, height: 56, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(59,47,30,0.06)' },
+  quickLabel: { fontSize: 11.5, fontWeight: '600', color: colors.fg, marginTop: 7 },
+  container: { flex: 1, backgroundColor: colors.screen },
+  pressedFill: { backgroundColor: colors.raised },
+  inlineMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  bleed: { marginHorizontal: -18 },
+  hScroll: { gap: 12, paddingHorizontal: 18, paddingTop: 2, paddingBottom: 8 },
+
+  // ---- Discover header
   discoverTopBar: {
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
+    backgroundColor: colors.screen,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 14,
   },
-  discoverHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  discoverTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0F172A',
-    letterSpacing: -0.5,
-  },
-  coinBadgePill: {
+  discoverHeaderRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12, gap: 12 },
+  discoverEyebrow: { ...eyebrowBase, color: colors.gold, marginBottom: 2 },
+  discoverTitle: { fontFamily: fonts.display, fontSize: 30, lineHeight: 36, color: colors.fg, letterSpacing: -0.6 },
+  coinChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#FDE68A',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
+    borderColor: colors.border,
+    paddingLeft: 5,
+    paddingRight: 12,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    marginBottom: 4,
+    ...shadow.sm,
   },
-  coinBadgeText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#92400E',
-  },
+  coinChipIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center' },
+  coinChipText: { fontSize: 13.5, fontWeight: '700', color: colors.fg, letterSpacing: -0.1 },
+  coinChipLabel: { fontSize: 12, color: colors.muted },
   discoverSearchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: 16,
+    height: 44,
+    ...shadow.sm,
   },
-  discoverSearchPlaceholder: {
-    fontFamily: fonts.sans,
-    fontSize: 12.5,
-    color: '#94A3B8',
+  discoverSearchPlaceholder: { flex: 1, fontSize: 14, color: colors.faint },
+
+  // ---- Section heading
+  sectionHead: { marginTop: 30, marginBottom: 14 },
+  sectionEyebrow: { ...eyebrowBase, color: colors.gold, marginBottom: 3 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  sectionTitle: { flex: 1, fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 27, color: colors.fg, letterSpacing: -0.4 },
+  sectionSub: { fontSize: 13, lineHeight: 18, color: colors.muted, marginTop: 3 },
+  sectionActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingVertical: 4 },
+  sectionActionText: { fontSize: 13, fontWeight: '600', color: colors.primary },
+
+  // ---- Altar
+  altarHeroCard: { borderRadius: 18, overflow: 'hidden', marginBottom: 14, ...shadow.md },
+  altarHeroBg: { width: '100%', height: 176 },
+  altarHeroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: alpha(colors.night, 0.62), borderRadius: 18 },
+  altarHeroContent: { flex: 1, padding: 16, justifyContent: 'space-between' },
+  altarHeroTopPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
   },
-  searchIconBtn: {
+  pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.goldLight },
+  altarHeroPillText: { ...eyebrowBase, fontSize: 9.5, color: colors.nightFg },
+  altarHeroBottomRow: { flexDirection: 'row', alignItems: 'flex-end' },
+  altarHeroTitle: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 25, color: '#FFFFFF', letterSpacing: -0.3 },
+  altarHeroSub: { fontSize: 12.5, lineHeight: 17, color: colors.nightMuted, marginTop: 4 },
+  makeWishActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FFFFFF',
+    paddingLeft: 14,
+    paddingRight: 10,
+    height: 36,
+    borderRadius: radius.pill,
+  },
+  makeWishActionText: { fontSize: 13, fontWeight: '700', color: colors.night },
+
+  wishStreamCard: {
+    width: 264,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+    justifyContent: 'space-between',
+    ...shadow.sm,
+  },
+  wishCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  wishCardUser: { fontSize: 13.5, fontWeight: '600', color: colors.fg },
+  wishCardTime: { fontSize: 11, color: colors.faint, marginTop: 1 },
+  wishCardBody: { fontFamily: fonts.serifItalic, fontSize: 15, lineHeight: 21, color: colors.passage, marginTop: 10, minHeight: 63 },
+  wishCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.rule,
+  },
+  amenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.raised,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+  },
+  amenBtnOn: { backgroundColor: colors.cardGold },
+  amenBtnText: { fontSize: 12, fontWeight: '600', color: colors.muted },
+  amenBtnTextOn: { color: colors.goldMuted, fontWeight: '700' },
+  countRow: { flexDirection: 'row', alignItems: 'center' },
+
+  // ---- Devotionals
+  devCard: {
+    width: 212,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    ...shadow.sm,
+  },
+  devThumb: { width: '100%', height: 124, backgroundColor: colors.raised },
+  devTimeBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: alpha(colors.night, 0.72),
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  devTimeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6, color: colors.nightFg },
+  devPlayBubble: {
+    position: 'absolute',
+    right: 12,
+    bottom: -18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primary,
+    borderWidth: 3,
+    borderColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  devInfo: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14, paddingRight: 56 },
+  devTitle: { fontFamily: fonts.serifBold, fontSize: 16, color: colors.fg, letterSpacing: -0.2 },
+  devSub: { fontSize: 12, color: colors.muted, marginTop: 2 },
+
+  // ---- Game cards
+  gameCard: {
+    width: 244,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  gameCardImg: { width: '100%', height: 116, backgroundColor: colors.raised },
+  gameBadgeBox: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: alpha(colors.night, 0.75),
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  gameBadgeText: { ...eyebrowBase, fontSize: 9.5, color: colors.goldLight },
+  gameCardContent: { padding: 14 },
+  gameCardTitle: { fontFamily: fonts.serifBold, fontSize: 16.5, color: colors.fg, letterSpacing: -0.2 },
+  gameCardSub: { fontSize: 12, lineHeight: 16, color: colors.muted, marginTop: 3, minHeight: 32 },
+  gameCardMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
+  gameCardPlayers: { fontSize: 11.5, color: colors.faint },
+  gameCardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 13,
+    height: 30,
+    borderRadius: radius.pill,
+  },
+  gameCardBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+
+  // ---- Jobs
+  jobsHeroTeaser: { borderRadius: 18, overflow: 'hidden', ...shadow.md },
+  jobsHeroBg: { width: '100%', height: 158 },
+  jobsHeroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: alpha(colors.night, 0.66), borderRadius: 18 },
+  jobsHeroContent: { flex: 1, padding: 16, justifyContent: 'space-between' },
+  jobsHeroEyebrow: { ...eyebrowBase, color: colors.goldLight },
+  jobsHeroTitle: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 25, color: '#FFFFFF', letterSpacing: -0.3 },
+  jobsHeroSub: { fontSize: 12.5, lineHeight: 17, color: colors.nightMuted, marginTop: 4 },
+  jobsHeroArrow: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
+  groupCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    ...shadow.sm,
+  },
+  groupDivider: { borderTopWidth: 1, borderTopColor: colors.rule },
+  jobRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14 },
+  iconTile: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  jobItemTitle: { fontSize: 14, fontWeight: '600', color: colors.fg, letterSpacing: -0.1 },
+  jobItemMeta: { fontSize: 12, color: colors.muted, marginTop: 3 },
+  jobKindText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
+  applySmallBtn: { backgroundColor: colors.primarySoft, paddingHorizontal: 14, height: 32, borderRadius: radius.pill, justifyContent: 'center' },
+  applySmallBtnText: { color: colors.primary, fontSize: 12.5, fontWeight: '700' },
+
+  // ---- Photo tiles
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12 },
+  photoCard: { width: '48.4%', height: 150, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.night, ...shadow.sm },
+  photoCardBg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  photoCardScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: alpha(colors.night, 0.48) },
+  photoCardContent: { flex: 1, padding: 12, justifyContent: 'space-between' },
+  photoCardBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3.5, borderRadius: radius.pill },
+  photoCardBadgeText: { ...eyebrowBase, fontSize: 9, letterSpacing: 0.9, color: '#FFFFFF' },
+  photoCardTitle: { color: '#FFFFFF', fontFamily: fonts.serifBold, fontSize: 17, letterSpacing: -0.2 },
+  photoCardSub: { color: 'rgba(255,255,255,0.82)', fontSize: 11.5, marginTop: 1 },
+
+  // ---- Quick play rows
+  quickGameRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
+  quickGameThumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: colors.raised },
+  quickGameBadge: { ...eyebrowBase, fontSize: 9.5, color: colors.gold },
+  quickGameTitle: { fontFamily: fonts.serifBold, fontSize: 16, color: colors.fg, marginTop: 1, letterSpacing: -0.2 },
+  quickGameMeta: { fontSize: 11.5, color: colors.faint, marginTop: 1 },
+  quickGamePlay: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+
+  // ---- Channels
+  channelSheet: { backgroundColor: colors.screen, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 30, ...shadow.lg },
+  channelSheetVideo: { height: 180, borderRadius: 18, backgroundColor: colors.night, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', marginTop: 6 },
+  channelSheetPlay: { width: 54, height: 54, borderRadius: 27, backgroundColor: alpha(colors.goldLight, 0.14), borderWidth: 1, borderColor: alpha(colors.goldLight, 0.35), alignItems: 'center', justifyContent: 'center', marginBottom: 36 },
+  channelSheetVideoTitle: { fontFamily: fonts.serifBold, fontSize: 17, lineHeight: 22, color: colors.nightFg },
+  channelSheetVideoMeta: { fontSize: 12, color: colors.nightMuted, marginTop: 3 },
+  sheetLinkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 16, paddingVertical: 6 },
+  sheetLinkText: { fontSize: 13.5, fontWeight: '600', color: colors.primary },
+  channelCard: {
+    width: 228,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    ...shadow.sm,
+  },
+  channelPreview: { height: 92, backgroundColor: colors.night, alignItems: 'center', justifyContent: 'center' },
+  channelIconRing: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: alpha(colors.goldLight, 0.12),
+    borderWidth: 1,
+    borderColor: alpha(colors.goldLight, 0.3),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  channelFollowersBadge: { position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 8, paddingVertical: 2.5, borderRadius: radius.pill },
+  channelFollowersText: { color: colors.nightFg, fontSize: 10, fontWeight: '600' },
+  channelName: { fontFamily: fonts.serifBold, fontSize: 16, color: colors.fg, letterSpacing: -0.2 },
+  channelVideoTitle: { fontSize: 12, color: colors.muted, marginTop: 2 },
+
+  createCard: { marginTop: 32, alignItems: 'center' },
+  createEyebrow: { ...eyebrowBase, color: colors.gold, textAlign: 'center' },
+  createTitle: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.fg, textAlign: 'center', marginTop: 2, letterSpacing: -0.3 },
+
+  // ---- Sheets / modals
+  modalOverlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
+  gameSheet: {
+    backgroundColor: colors.screen,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    maxHeight: '92%',
+    minHeight: 520,
+    ...shadow.lg,
+  },
+  wishSheet: {
+    backgroundColor: colors.screen,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    maxHeight: '92%',
+    minHeight: 560,
+    ...shadow.lg,
+  },
+  grabber: { alignSelf: 'center', width: 38, height: 4.5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: 12 },
+  sheetTopBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingBottom: 12 },
+  sheetEyebrow: { ...eyebrowBase, color: colors.gold },
+  sheetTitle: { fontFamily: fonts.serifBold, fontSize: 21, color: colors.fg, marginTop: 2, letterSpacing: -0.3 },
+  closeBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
@@ -1317,924 +2565,475 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 4,
   },
-  h1: { fontFamily: fonts.serifBold, fontSize: 21, color: colors.fg, letterSpacing: -0.3 },
-  sub: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.muted, marginTop: 4, textAlign: 'center', lineHeight: 17 },
-  card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 16, marginTop: 12 },
-  cardTitle: { fontFamily: fonts.serifBold, fontSize: 15, color: colors.fg },
-  cardMeta: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 3 },
-  cardBody: { fontFamily: fonts.sans, fontSize: 13, color: colors.passage, lineHeight: 19, marginTop: 8 },
-
-  // Hero Banner (PDF Page 1)
-  heroBanner: {
-    backgroundColor: colors.cardSage,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.sage + '35',
-    overflow: 'hidden',
-    marginTop: 10,
-    marginBottom: 16,
-    padding: 18,
-  },
-  heroBannerContent: {},
-  heroBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.forest,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    marginBottom: 8,
-  },
-  heroBadgeText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9.5,
-    color: '#FFFFFF',
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
-  heroTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 22,
-    color: colors.fg,
-    letterSpacing: -0.4,
-    lineHeight: 26,
-  },
-  heroSub: {
-    fontFamily: fonts.sans,
-    fontSize: 12.5,
-    color: colors.muted,
-    marginTop: 6,
-    lineHeight: 18,
-  },
-  heroPrimaryBtn: {
-    backgroundColor: colors.forest,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroPrimaryBtnText: {
-    color: '#FFFFFF',
-    fontFamily: fonts.sansMedium,
-    fontSize: 12.5,
-    fontWeight: '600',
-  },
-  heroSecondaryBtn: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroSecondaryBtnText: {
-    color: colors.fg,
-    fontFamily: fonts.sansMedium,
-    fontSize: 12.5,
-    fontWeight: '600',
-  },
-
-  // Verse of the Day Card (Rich Indigo Gradient & Amber Accents matching HTML Preview)
-  vodCard: {
-    backgroundColor: '#1E1B4B',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#312E81',
-    padding: 18,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  vodTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  vodBadge: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  vodBadgeText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#FBBF24',
-    letterSpacing: 1,
-  },
-  vodLabel: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FBBF24',
-    letterSpacing: 1.2,
-  },
-  vodRefText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    color: '#94A3B8',
-  },
-  vodQuote: {
-    fontFamily: fonts.serif,
-    fontSize: 14.5,
-    lineHeight: 22,
-    color: '#F1F5F9',
-    fontStyle: 'italic',
-  },
-  vodInteractionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  vodMetricBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  vodMetricText: {
-    fontFamily: fonts.sans,
-    fontSize: 12,
-    color: '#CBD5E1',
-  },
-
-  // Elevated Sanctuary Hero & Altar Styling
-  discoverEyebrow: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#B45309',
-    letterSpacing: 1.2,
-    marginBottom: 2,
-  },
-  coinBadgeIcon: {
-    color: '#D97706',
-    fontSize: 12,
-  },
-  vodCardMaster: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.16,
-    shadowRadius: 12,
-    elevation: 4,
-    marginBottom: 18,
-  },
-  vodImageBg: {
-    width: '100%',
-    minHeight: 220,
-    justifyContent: 'space-between',
-  },
-  vodDarkScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(11, 17, 32, 0.72)',
-    borderRadius: 24,
-  },
-  vodCardInner: {
-    padding: 18,
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  vodBadgePill: {
+  gameScoreBadges: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  scorePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(245, 158, 11, 0.25)',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.45)',
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    borderRadius: 12,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    height: 28,
+    borderRadius: radius.pill,
   },
-  vodBadgeIcon: {
-    color: '#FDE68A',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  vodQuoteText: {
-    fontFamily: fonts.serif,
-    fontSize: 15.5,
-    lineHeight: 23,
-    color: '#FFFFFF',
-    fontStyle: 'italic',
-    marginVertical: 12,
-    textShadowColor: 'rgba(0, 0, 0, 0.4)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  vodActionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.18)',
-  },
-  vodActionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  vodActionBtnPrimary: {
-    backgroundColor: '#F59E0B',
-    borderColor: '#FBBF24',
-  },
-  vodActionBtnSquare: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  vodActionBtnText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  scorePillStreak: { backgroundColor: colors.cardGold, borderColor: alpha(colors.gold, 0.3) },
+  scorePillText: { fontSize: 12, fontWeight: '700', color: colors.fg },
+  progressTrack: { height: 4, borderRadius: 2, backgroundColor: colors.raised, overflow: 'hidden', marginBottom: 4 },
+  progressFill: { height: 4, borderRadius: 2, backgroundColor: colors.primary },
 
-  // Altar Section
-  altarSection: {
-    marginBottom: 20,
+  gameQuestionBox: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 18,
+    marginTop: 14,
+    ...shadow.sm,
   },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  gameQuestionEyebrow: { ...eyebrowBase, color: colors.gold, marginBottom: 8 },
+  gameQuestionText: { fontFamily: fonts.serifMedium, fontSize: 19, lineHeight: 27, color: colors.fg, letterSpacing: -0.2 },
+  gameOptionBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: 1.5, gap: 12 },
+  gameOptionLetter: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  gameOptionLetterText: { fontSize: 12.5, fontWeight: '700' },
+  gameOptionText: { flex: 1, fontSize: 14, fontWeight: '500', lineHeight: 19 },
+  gameExplanationBox: {
+    backgroundColor: colors.cardGold,
+    borderRadius: radius.lg,
+    padding: 16,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: alpha(colors.gold, 0.2),
+  },
+  gameCitationBadge: { fontFamily: fonts.serifBold, fontSize: 14, color: colors.goldMuted },
+  gameExplanationText: { fontSize: 13.5, lineHeight: 20, color: colors.passage, marginTop: 6 },
+  gameOverContainer: { paddingTop: 22, paddingBottom: 10, alignItems: 'center' },
+  gameOverMedal: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: colors.night,
+    borderWidth: 3,
+    borderColor: alpha(colors.goldLight, 0.5),
     alignItems: 'center',
-    marginBottom: 10,
+    justifyContent: 'center',
+    ...shadow.md,
   },
-  sectionHeaderTitle: {
-    fontFamily: fonts.serifBold,
+  gameOverMedalWrap: { width: 160, height: 100, alignItems: 'center', justifyContent: 'center' },
+  gameOverStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingVertical: 14,
+    marginTop: 18,
+    ...shadow.sm,
+  },
+  gameOverStat: { flex: 1, alignItems: 'center' },
+  gameOverStatValue: { fontFamily: fonts.serifBold, fontSize: 24, color: colors.fg, letterSpacing: -0.4 },
+  gameOverStatLabel: { ...eyebrowBase, fontSize: 9.5, color: colors.muted, marginTop: 2 },
+  gameOverStatDivider: { width: 1, alignSelf: 'stretch', backgroundColor: colors.rule },
+  gameOverTitle: { fontFamily: fonts.serifBold, fontSize: 26, color: colors.fg, marginTop: 18, letterSpacing: -0.5 },
+  gameOverScoreText: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.gold, marginTop: 4 },
+  gameOverSub: { fontSize: 13.5, lineHeight: 19, color: colors.muted, textAlign: 'center', marginTop: 8, paddingHorizontal: 24 },
+
+  wishHeroCard: { height: 150, borderRadius: radius.lg, overflow: 'hidden', marginTop: 4, marginBottom: 6, backgroundColor: colors.night },
+  wishHeroImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  wishHeroOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: alpha(colors.night, 0.66) },
+  wishHeroContent: { flex: 1, padding: 16, justifyContent: 'flex-end' },
+  wishHeroEyebrow: { ...eyebrowBase, color: colors.goldLight, marginBottom: 4 },
+  wishHeroTitle: { fontFamily: fonts.serifItalic, fontSize: 19, color: colors.nightFg },
+  wishHeroSub: { fontSize: 12, color: colors.nightMuted, marginTop: 5, lineHeight: 17 },
+  inputLabel: { ...eyebrowBase, color: colors.muted, marginTop: 18, marginBottom: 6 },
+  wishInput: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: 14,
+    minHeight: 110,
     fontSize: 15,
+    lineHeight: 21,
     color: colors.fg,
-    letterSpacing: 0.2,
+    textAlignVertical: 'top',
   },
-  sectionHeaderSub: {
-    fontFamily: fonts.sans,
-    fontSize: 11,
-    color: colors.muted,
-    marginTop: 1,
-  },
-  lightCandleHeaderBtn: {
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
-  },
-  lightCandleHeaderBtnText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#B45309',
-  },
-  altarHeroCard: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    height: 140,
-    marginBottom: 12,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  altarHeroBg: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'space-between',
-  },
-  altarHeroScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    borderRadius: 20,
-  },
-  altarHeroContent: {
-    padding: 14,
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  altarHeroTopPill: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#D97706',
-    paddingHorizontal: 8,
-    paddingVertical: 2.5,
-    borderRadius: 10,
-  },
-  pulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#FFFFFF',
-  },
-  altarHeroPillText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.8,
-  },
-  altarHeroBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-  },
-  altarHeroTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  altarHeroSub: {
-    fontFamily: fonts.sans,
-    fontSize: 10.5,
-    color: '#FEF3C7',
-    marginTop: 2,
-  },
-  makeWishActionBtn: {
-    backgroundColor: '#F59E0B',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  makeWishActionText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-
-  // Wish Stream
-  wishStreamCard: {
-    width: 250,
+  wishesSectionTitle: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.fg, marginTop: 2, marginBottom: 12, letterSpacing: -0.3 },
+  wishItemCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#FDE68A',
-    borderRadius: 16,
-    padding: 12,
-    justifyContent: 'space-between',
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 14,
+    marginBottom: 10,
+    ...shadow.sm,
   },
-  wishCardHeader: {
+  wishItemHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  wishItemUser: { fontSize: 13.5, fontWeight: '600', color: colors.fg },
+  wishItemTime: { fontSize: 11.5, color: colors.faint, marginTop: 1 },
+  wishItemText: { fontFamily: fonts.serif, fontSize: 15.5, lineHeight: 22, color: colors.passage, marginTop: 10 },
+  wishItemActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
-  },
-  wishCardUser: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.fg,
-  },
-  wishCategoryBadge: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 6,
-  },
-  wishCategoryText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#B45309',
-  },
-  wishCardBody: {
-    fontFamily: fonts.serif,
-    fontSize: 12,
-    lineHeight: 17,
-    color: '#334155',
-    fontStyle: 'italic',
-  },
-  wishCardFooter: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 8,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  wishCandleCount: {
-    fontFamily: fonts.sans,
-    fontSize: 10.5,
-    color: '#94A3B8',
-  },
-  wishAmenBtn: {
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-  },
-  wishAmenBtnText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.forest,
+    borderTopColor: colors.rule,
   },
 
-  // Audio Devotionals Section
-  devotionalSection: {
-    marginBottom: 20,
-  },
-  devotionalAlbumCard: {
-    width: 170,
-    borderRadius: 18,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  devotionalAlbumThumb: {
-    width: '100%',
-    height: 105,
-    backgroundColor: '#0F172A',
-  },
-  devotionalTimeBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  devotionalTimeText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#FDE68A',
-  },
-  devotionalPlayBubble: {
-    position: 'absolute',
-    top: 68,
-    right: 8,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.forest,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  devotionalInfoBox: {
-    padding: 10,
-  },
-  devotionalTitle: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.fg,
-  },
-  devotionalSub: {
-    fontFamily: fonts.sans,
-    fontSize: 10,
-    color: colors.muted,
-    marginTop: 2,
-  },
-
-  // Games Section
-  gamesSection: {
-    marginBottom: 20,
-  },
-  playNowHeaderBtn: {
-    backgroundColor: colors.cardSage,
-    borderWidth: 1,
-    borderColor: colors.forest + '50',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  playNowHeaderBtnText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.forest,
-  },
-  gameCardElevated: {
-    width: 200,
-    borderRadius: 18,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-
-  // Jobs Section
-  jobsSection: {
-    marginBottom: 20,
-  },
-  jobsHeroTeaser: {
-    height: 120,
-    borderRadius: 18,
-    overflow: 'hidden',
-    marginBottom: 8,
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  jobsHeroBg: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'space-between',
-  },
-  jobsHeroScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(6, 78, 59, 0.72)',
-    borderRadius: 18,
-  },
-  jobsHeroContent: {
-    padding: 12,
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  jobsHeroBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#10B981',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  jobsHeroBadgeText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 8.5,
-    fontWeight: '900',
-    color: '#064E3B',
-    letterSpacing: 0.8,
-  },
-  jobsHeroTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  jobsHeroSub: {
-    fontFamily: fonts.sans,
-    fontSize: 10,
-    color: '#D1FAE5',
-    marginTop: 2,
-  },
-  jobItemCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 12,
-    borderRadius: 14,
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  jobKindBadge: {
-    backgroundColor: colors.cardSage,
-    borderWidth: 1,
-    borderColor: colors.forest + '30',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 6,
-  },
-  jobKindBadgeText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 8.5,
-    fontWeight: '800',
-    color: colors.forest,
-  },
-  applySmallBtn: {
-    backgroundColor: colors.forest,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  applySmallBtnText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  beInspiredCard: {
-    width: 140,
-    height: 140,
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    justifyContent: 'space-between',
-  },
-  beInspiredEmoji: {
-    fontSize: 22,
-  },
-  beInspiredTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 14,
-    color: colors.fg,
-    lineHeight: 18,
-  },
-  beInspiredSub: {
-    fontFamily: fonts.sans,
-    fontSize: 11,
-    color: colors.muted,
-  },
-  beInspiredArrowBox: {
-    alignSelf: 'flex-start',
-  },
-  beInspiredIconBox: {
+  // ---- Shared sub-screen pieces
+  headerIconBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  activityIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  faithIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // "Today's Activities" (PDF Page 4)
-  activitiesCard: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 14,
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.sm,
   },
-  activityRow: {
+  headerIconBtnActive: { backgroundColor: colors.fg, borderColor: colors.fg },
+  searchField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: 16,
+    height: 46,
+    ...shadow.sm,
+  },
+  searchFieldInput: { flex: 1, fontSize: 14, color: colors.fg, height: '100%' },
+  card: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 16,
+    marginTop: 12,
+    ...shadow.sm,
+  },
+  cardHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cardFootRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, gap: 8 },
+  communityTile: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.fg, letterSpacing: -0.2 },
+  cardMeta: { fontSize: 12, color: colors.muted, marginTop: 2 },
+  cardBody: { fontSize: 13.5, color: colors.passage, lineHeight: 20, marginTop: 10 },
+  tagWrap: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+
+  avatarRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.rule,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 8,
+    ...shadow.sm,
   },
-  activityCheckCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: colors.muted,
+  avatarRowTitle: { fontSize: 14.5, fontWeight: '600', color: colors.fg, letterSpacing: -0.1 },
+  avatarRowSub: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
+
+  // Group
+  aboutHero: {
     alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 20,
+    ...shadow.sm,
+  },
+  aboutTitle: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg, marginTop: 12, textAlign: 'center', letterSpacing: -0.4 },
+  quoteBlock: { backgroundColor: colors.cardGold, borderWidth: 1, borderColor: alpha(colors.gold, 0.25), borderRadius: radius.md, padding: 14 },
+  quoteBlockText: { fontFamily: fonts.serif, fontSize: 15, lineHeight: 22, color: colors.passage },
+  channelBar: { paddingTop: 10, paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  pinned: {
+    marginHorizontal: 18,
+    marginTop: 12,
+    borderRadius: radius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: alpha(colors.gold, 0.28),
+    backgroundColor: colors.cardGold,
+  },
+  pinnedLabel: { ...eyebrowBase, fontSize: 9.5, color: colors.gold, marginBottom: 3 },
+  pinnedText: { fontSize: 13, lineHeight: 18, color: colors.fg },
+  msg: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderBottomLeftRadius: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    maxWidth: '84%',
+    ...shadow.sm,
+  },
+  msgMine: { alignSelf: 'flex-end', backgroundColor: colors.primary, borderColor: colors.primary, borderBottomLeftRadius: 18, borderBottomRightRadius: 6 },
+  msgFrom: { fontSize: 11.5, color: colors.gold, fontWeight: '700', marginBottom: 3 },
+  msgText: { fontSize: 14.5, lineHeight: 20, color: colors.fg },
+  msgTime: { fontSize: 10.5, color: colors.faint, marginTop: 5 },
+  msgTimeMine: { color: 'rgba(255,255,255,0.66)', textAlign: 'right' },
+  passageChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
+  passageChipMine: { backgroundColor: 'rgba(255,255,255,0.14)' },
+  passageChipActive: { backgroundColor: colors.primary },
+  passageChipText: { fontFamily: fonts.serifBold, fontSize: 13.5, color: colors.primary },
+  composerWrap: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.screen,
+  },
+  composerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     backgroundColor: colors.surface,
   },
-  activityCheckCircleActive: {
-    backgroundColor: colors.forest,
-    borderColor: colors.forest,
-  },
-  activityCheckMark: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: 'transparent',
-  },
-  activityTitle: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: colors.fg,
-  },
-  activityTitleDone: {
-    textDecorationLine: 'line-through',
-    color: colors.muted,
-  },
-  activitySub: {
-    fontFamily: fonts.sans,
-    fontSize: 11,
-    color: colors.muted,
-    marginTop: 2,
-  },
-  activityIcon: {
-    fontSize: 16,
-  },
-  activityFooterRow: {
-    paddingTop: 10,
+  composerChipText: { fontSize: 12, fontWeight: '500', color: colors.fg },
+
+  // Chats
+  exegesisCard: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.night,
+    borderRadius: radius.lg,
+    padding: 14,
+    marginTop: 14,
+    ...shadow.md,
   },
-  countdownTimerText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    color: colors.muted,
+  exegesisIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: alpha(colors.goldLight, 0.14),
+    borderWidth: 1,
+    borderColor: alpha(colors.goldLight, 0.3),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-
-  sectionActionText: {
-    color: colors.forest,
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    fontWeight: '600',
+  exegesisTitle: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.nightFg, letterSpacing: -0.2 },
+  exegesisSub: { fontSize: 12, color: colors.nightMuted, marginTop: 2, lineHeight: 16 },
+  chatTime: { fontSize: 11, color: colors.faint },
+  unreadDot: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  unreadDotText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
+  newChatHero: { alignItems: 'center', paddingVertical: 24, gap: 8 },
+  menu: {
+    position: 'absolute',
+    right: 14,
+    top: 6,
+    zIndex: 5,
+    width: 250,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingVertical: 6,
+    ...shadow.lg,
   },
+  menuRow: { paddingVertical: 10, paddingHorizontal: 14 },
+  menuRowDivider: { borderTopWidth: 1, borderTopColor: colors.rule, marginTop: 4, paddingTop: 12 },
+  menuItem: { color: colors.fg, fontSize: 14 },
+  menuFoot: { fontSize: 11, color: colors.faint, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 6, borderTopWidth: 1, borderTopColor: colors.rule, marginTop: 4 },
+  encryptPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'center',
+    backgroundColor: colors.raised,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    marginBottom: 6,
+  },
+  encryptText: { fontSize: 11, color: colors.muted },
 
-  // Video Card in Discover
-  videoCard: { width: 130, height: 185, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
-  videoThumb: { flex: 1, padding: 8, justifyContent: 'space-between' },
-  videoBadge: { alignSelf: 'flex-start', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  videoBadgeText: { color: '#fff', fontSize: 10, fontFamily: fonts.sansMedium },
-  videoCreatorName: { color: colors.gold, fontSize: 11, fontFamily: fonts.sansMedium, fontWeight: '700' },
-  videoCaptionPreview: { color: '#fff', fontSize: 11, fontFamily: fonts.sans, marginTop: 2 },
+  // Calendar
+  event: {
+    flexDirection: 'row',
+    gap: 14,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 14,
+    marginBottom: 10,
+    ...shadow.sm,
+  },
+  dateBox: { width: 50, height: 56, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
+  dateDay: { fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 25 },
+  dateMon: { fontSize: 9.5, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
+  eventKind: { fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 2 },
+  eventScripture: { marginTop: 6, alignSelf: 'flex-start' },
+  eventScriptureText: { fontFamily: fonts.serifItalic, color: colors.gold, fontSize: 13.5 },
+  eventSource: { color: colors.faint, fontSize: 11, marginTop: 4 },
+  eventAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: alpha(colors.primary, 0.3),
+    borderRadius: radius.pill,
+    paddingHorizontal: 11,
+    height: 28,
+  },
+  eventActionOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  eventActionQuiet: { borderColor: colors.border, backgroundColor: colors.raised },
+  eventActionText: { fontSize: 11, fontWeight: '600', color: colors.primary },
 
-  // Prayer Hub in Discover
-  prayerHubCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 16 },
-  prayerHubTitle: { fontFamily: fonts.serifBold, fontSize: 15, color: colors.fg },
-  prayerHubSub: { fontFamily: fonts.sans, fontSize: 11.5, color: colors.muted, marginTop: 2 },
-  submitPrayerSmallBtn: { backgroundColor: colors.forest, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14 },
-  submitPrayerSmallBtnText: { color: '#FFFFFF', fontSize: 11, fontFamily: fonts.sansMedium, fontWeight: '600' },
-  prayerItemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
-  prayerItemTitle: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.fg },
-  prayerItemSub: { fontFamily: fonts.sans, fontSize: 10.5, color: colors.muted, marginTop: 2 },
-  quickPrayBtn: { backgroundColor: colors.raised, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14 },
-  quickPrayBtnOn: { backgroundColor: colors.forest, borderColor: colors.forest },
-  quickPrayBtnText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg, fontWeight: '600' },
-
-  // Jobs Card in Discover
-  jobsCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 16 },
-  jobHeading: { fontFamily: fonts.serifBold, fontSize: 15, color: colors.fg },
-  jobSub: { fontFamily: fonts.sans, fontSize: 11.5, color: colors.muted, marginTop: 2 },
-  jobItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
-  jobItemTitle: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.fg },
-  jobItemMeta: { fontFamily: fonts.sans, fontSize: 10.5, color: colors.muted, marginTop: 2 },
-
-  // Channels
-  channelCard: { width: 175, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 14, overflow: 'hidden' },
-  channelPreview: { height: 80, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
-  channelPreviewIcon: { fontSize: 26 },
-  channelFollowersBadge: { position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
-  channelFollowersText: { color: '#fff', fontSize: 9 },
-  channelName: { fontFamily: fonts.serifBold, fontSize: 13.5, color: colors.fg },
-  channelVideoTitle: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 2 },
-
-  // 2-Column People Grid
-  peopleGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
-  personCard: { width: '48.5%', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, alignItems: 'center' },
+  // People
+  peopleGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12, marginTop: 14 },
+  personCell: { width: '48.4%' },
+  personCard: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    ...shadow.sm,
+  },
   personAvatarWrapper: { position: 'relative' },
-  personAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.raised, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  personAvatarText: { color: colors.forest, fontFamily: fonts.serifBold, fontSize: 16 },
-  personOnlineDot: { position: 'absolute', bottom: 0, right: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.positive, borderWidth: 2, borderColor: colors.surface },
-  personCardName: { fontFamily: fonts.sansMedium, fontSize: 13.5, fontWeight: '600', color: colors.fg, marginTop: 8 },
-  personCardHeadline: { fontFamily: fonts.sans, fontSize: 10.5, color: colors.muted, textAlign: 'center', marginTop: 2, height: 28 },
-  personCardCountry: { fontFamily: fonts.sans, fontSize: 10, color: colors.gold, marginTop: 2 },
-  personChatBtn: { flex: 1, backgroundColor: colors.forest, borderRadius: 14, paddingVertical: 6, alignItems: 'center' },
-  personChatBtnText: { color: '#FFFFFF', fontFamily: fonts.sansMedium, fontSize: 11, fontWeight: '600' },
-  personFollowBtn: { width: 32, backgroundColor: colors.raised, borderWidth: 1, borderColor: colors.border, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  personFollowBtnActive: { borderColor: colors.forest },
-  personFollowBtnText: { color: colors.fg, fontSize: 13, fontWeight: '600' },
+  personOnlineDot: { position: 'absolute', bottom: 1, right: 1, width: 13, height: 13, borderRadius: 7, backgroundColor: colors.positive, borderWidth: 2.5, borderColor: colors.surface },
+  personCardName: { fontFamily: fonts.serifBold, fontSize: 16, color: colors.fg, marginTop: 10, letterSpacing: -0.2 },
+  personCardHeadline: { fontSize: 11.5, color: colors.muted, textAlign: 'center', marginTop: 3, lineHeight: 15, height: 30 },
+  personCardCountry: { ...eyebrowBase, fontSize: 9.5, color: colors.gold, marginTop: 6 },
+  personChatBtn: { flex: 1, flexDirection: 'row', gap: 5, backgroundColor: colors.primary, borderRadius: radius.pill, height: 34, alignItems: 'center', justifyContent: 'center' },
+  personChatBtnText: { color: '#FFFFFF', fontSize: 12.5, fontWeight: '600' },
+  personFollowBtn: { width: 34, height: 34, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  personFollowBtnActive: { borderColor: colors.primarySoft, backgroundColor: colors.primarySoft },
 
-  pinned: { marginHorizontal: 18, marginTop: 6, backgroundColor: colors.surface, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: colors.border },
-  pinnedText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
-  msg: { alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, borderBottomLeftRadius: 2, padding: 12, maxWidth: '85%' },
-  msgMine: { alignSelf: 'flex-end', backgroundColor: colors.forest, borderWidth: 1, borderColor: colors.forest, borderRadius: 12, borderBottomRightRadius: 2 },
-  msgFrom: { fontFamily: fonts.sansMedium, fontSize: 10.5, color: colors.gold, fontWeight: '600', marginBottom: 3 },
-  msgText: { fontFamily: fonts.sans, fontSize: 13, lineHeight: 18, color: colors.fg },
-  msgTime: { fontFamily: fonts.sans, fontSize: 9.5, color: colors.muted, marginTop: 4 },
-  passageChip: { marginTop: 8, backgroundColor: colors.raised, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: colors.border },
-  passageChipText: { fontFamily: fonts.serif, fontSize: 12, color: colors.fg },
-  composerChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.surface },
-  composerChipText: { fontFamily: fonts.sans, fontSize: 11, color: colors.fg },
-  menu: { position: 'absolute', right: 14, top: 44, zIndex: 5, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 4 },
-  menuItem: { fontFamily: fonts.sans, color: colors.fg, fontSize: 13, paddingVertical: 8, paddingHorizontal: 12 },
-  event: { flexDirection: 'row', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
-  dateBox: { width: 44, alignItems: 'center', backgroundColor: colors.surface, borderRadius: 8, paddingVertical: 6, borderWidth: 1, borderColor: colors.border },
-  dateDay: { fontFamily: fonts.sansMedium, fontSize: 16, fontWeight: '600', color: colors.fg },
-  dateMon: { fontFamily: fonts.sans, fontSize: 9.5, color: colors.forest, letterSpacing: 0.5 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  video: { height: 200, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', borderRadius: 14, overflow: 'hidden' },
-  post: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.rule },
+  // Person
+  profileCard: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    paddingVertical: 24,
+    paddingHorizontal: 18,
+    marginTop: 4,
+    ...shadow.sm,
+  },
+  profileName: { fontFamily: fonts.display, fontSize: 26, color: colors.fg, marginTop: 14, letterSpacing: -0.5, textAlign: 'center' },
+  profileHeadline: { fontSize: 13.5, color: colors.fg, marginTop: 3, textAlign: 'center' },
+  profileMeta: { fontSize: 12, color: colors.muted, marginTop: 3, textAlign: 'center' },
+  profileRule: { width: 36, height: 1, backgroundColor: colors.goldLight, marginTop: 16 },
+  profileIntro: { fontFamily: fonts.serifItalic, fontSize: 16, lineHeight: 23, color: colors.passage, textAlign: 'center', marginTop: 14, paddingHorizontal: 6 },
 
-  // Churches & Bible Studies Photographic Cards
-  photoCard: { width: '48.5%', height: 135, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, position: 'relative' },
-  photoCardBg: { ...StyleSheet.absoluteFillObject },
-  photoCardScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10, 15, 20, 0.58)' },
-  photoCardContent: { flex: 1, padding: 11, justifyContent: 'space-between' },
-  photoCardBadge: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
-  photoCardBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
-  photoCardTitle: { color: '#FFFFFF', fontFamily: fonts.serifBold, fontSize: 14.5, fontWeight: '700' },
-  photoCardSub: { color: 'rgba(255,255,255,0.85)', fontFamily: fonts.sans, fontSize: 10.5, marginTop: 2 },
+  // Care
+  careHero: {
+    backgroundColor: colors.cardSage,
+    borderRadius: radius.lg,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: alpha(colors.sage, 0.18),
+  },
+  careEyebrow: { ...eyebrowBase, color: colors.sage },
+  careTitle: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg, marginTop: 4, letterSpacing: -0.4 },
+  careSub: { fontSize: 13, lineHeight: 18, color: colors.muted, marginTop: 4 },
+  changeBtn: { backgroundColor: colors.raised, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 5 },
+  changeBtnText: { fontSize: 12, fontWeight: '600', color: colors.fg },
 
-  // Interactive Games
-  gameCard: { width: 225, backgroundColor: colors.surface, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
-  gameCardImg: { width: '100%', height: 110, backgroundColor: colors.raised },
-  gameBadgeBox: { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
-  gameBadgeText: { color: colors.gold, fontSize: 9.5, fontWeight: '700', textTransform: 'uppercase' },
-  gameCardContent: { padding: 12 },
-  gameCardTitle: { fontFamily: fonts.serifBold, fontSize: 14, color: colors.fg },
-  gameCardSub: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted, marginTop: 3, height: 32 },
-  gameCardMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
-  gameCardPlayers: { fontFamily: fonts.sans, fontSize: 10, color: colors.muted },
-  gameCardBtn: { backgroundColor: colors.forest, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  gameCardBtnText: { color: '#FFFFFF', fontSize: 10.5, fontWeight: '700' },
+  // Live
+  video: {
+    height: 220,
+    backgroundColor: colors.night,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    padding: 16,
+    justifyContent: 'space-between',
+    ...shadow.lg,
+  },
+  videoTop: { flexDirection: 'row' },
+  liveStatusPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.negative, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
+  liveCountPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: alpha(colors.negative, 0.1), paddingHorizontal: 9, paddingVertical: 4, borderRadius: radius.pill },
+  liveCountText: { fontSize: 12, fontWeight: '700', color: colors.negative },
+  liveStatusText: { color: '#FFFFFF', fontSize: 10.5, fontWeight: '700', letterSpacing: 0.6 },
+  videoPlay: {
+    alignSelf: 'center',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: alpha(colors.goldLight, 0.14),
+    borderWidth: 1,
+    borderColor: alpha(colors.goldLight, 0.35),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoTitle: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.nightFg, letterSpacing: -0.2 },
+  videoNote: { fontSize: 11, color: colors.nightMuted, marginTop: 3 },
 
-  // Modal Overlay & Sheets
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'flex-end' },
-  gameSheet: { backgroundColor: colors.screen, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '92%', minHeight: 480 },
-  sheetTopBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
-  sheetHeaderCategory: { fontFamily: fonts.sans, fontSize: 10, fontWeight: '700', color: colors.gold, letterSpacing: 0.8 },
-  sheetHeaderProgress: { fontFamily: fonts.serifBold, fontSize: 15, color: colors.fg, marginTop: 2 },
-  gameScoreBadges: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  scorePill: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  scorePillText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
-
-  gameQuestionBox: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 16, marginTop: 14 },
-  gameQuestionText: { fontFamily: fonts.serif, fontSize: 15, lineHeight: 22, color: colors.fg },
-
-  gameOptionBtn: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1.5, gap: 10 },
-  gameOptionLetter: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  gameOptionLetterText: { fontFamily: fonts.sansMedium, fontSize: 12, fontWeight: '700' },
-  gameOptionText: { flex: 1, fontFamily: fonts.sansMedium, fontSize: 13 },
-
-  gameExplanationBox: { backgroundColor: colors.raised, borderRadius: 12, padding: 14, marginTop: 14, borderWidth: 1, borderColor: colors.border },
-  gameCitationBadge: { fontFamily: fonts.sansMedium, fontSize: 11.5, fontWeight: '700', color: colors.gold },
-  gameExplanationText: { fontFamily: fonts.sans, fontSize: 12, lineHeight: 18, color: colors.fg, marginTop: 6 },
-  gameNextBtn: { backgroundColor: colors.forest, paddingVertical: 11, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-  gameNextBtnText: { color: '#FFFFFF', fontFamily: fonts.sansMedium, fontSize: 13, fontWeight: '700' },
-
-  gameOverContainer: { paddingVertical: 30, alignItems: 'center' },
-  gameOverTitle: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.fg, marginTop: 12 },
-  gameOverScoreText: { fontFamily: fonts.sansMedium, fontSize: 18, color: colors.gold, fontWeight: '700', marginTop: 6 },
-  gameOverSub: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.muted, textAlign: 'center', marginTop: 8, paddingHorizontal: 20 },
-
-  // Make a Wish Sheet
-  wishSheet: { backgroundColor: colors.screen, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, maxHeight: '92%', minHeight: 520 },
-  wishHeroCard: { height: 130, borderRadius: 14, overflow: 'hidden', marginVertical: 12, position: 'relative' },
-  wishHeroImg: { ...StyleSheet.absoluteFillObject },
-  wishHeroOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(25, 15, 5, 0.62)' },
-  wishHeroContent: { flex: 1, padding: 14, justifyContent: 'center' },
-  wishHeroTitle: { fontFamily: fonts.serifBold, fontSize: 16, color: '#FFFFFF' },
-  wishHeroSub: { fontFamily: fonts.sans, fontSize: 11, color: 'rgba(255,255,255,0.88)', marginTop: 4, lineHeight: 16 },
-
-  inputLabel: { fontFamily: fonts.sansMedium, fontSize: 11.5, fontWeight: '600', color: colors.fg, marginTop: 10 },
-  wishCatChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  wishCatChipActive: { borderColor: colors.gold, backgroundColor: colors.gold + '15' },
-  wishCatChipText: { fontFamily: fonts.sans, fontSize: 11, color: colors.muted },
-
-  wishInput: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, minHeight: 70, textAlignVertical: 'top', color: colors.fg, fontSize: 13, marginTop: 6 },
-  wishesSectionTitle: { fontFamily: fonts.serifBold, fontSize: 14, color: colors.fg, marginBottom: 10 },
-  wishItemCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, marginBottom: 10 },
-  wishItemUser: { fontFamily: fonts.sansMedium, fontSize: 11.5, fontWeight: '700', color: colors.gold },
-  wishItemTime: { fontFamily: fonts.sans, fontSize: 10, color: colors.muted },
-  wishItemText: { fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 18, color: colors.fg, marginTop: 4 },
-  wishItemActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
-  candleBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.raised, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
-  candleBtnActive: { borderColor: colors.gold, backgroundColor: colors.gold + '20' },
-  candleBtnText: { fontFamily: fonts.sansMedium, fontSize: 11, color: colors.fg },
-  wishAmenText: { fontFamily: fonts.sans, fontSize: 10.5, color: colors.forest, fontWeight: '600' },
+  // Feed
+  post: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 16,
+    marginTop: 12,
+    ...shadow.sm,
+  },
+  postAuthor: { fontSize: 14.5, fontWeight: '600', color: colors.fg },
+  postTime: { fontSize: 11.5, color: colors.faint, marginTop: 1 },
+  postBody: { fontSize: 14.5, lineHeight: 21, color: colors.passage, marginTop: 12 },
+  postIconBtn: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginLeft: 2 },
+  confirmBox: { backgroundColor: colors.cardRose, borderWidth: 1, borderColor: alpha(colors.negative, 0.22), borderRadius: radius.md, padding: 14, marginTop: 16, alignSelf: 'stretch' },
+  confirmText: { fontSize: 13.5, lineHeight: 19, color: colors.fg },
+  careMsgBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
+  commentsBox: { marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, gap: 10 },
+  commentsNote: { fontSize: 12, color: colors.faint },
+  commentRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  commentFrom: { fontSize: 12.5, fontWeight: '700', color: colors.fg },
+  commentTime: { fontSize: 12, fontWeight: '400', color: colors.faint },
+  commentText: { fontSize: 13.5, lineHeight: 19, color: colors.fg, marginTop: 1 },
+  commentInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.raised, borderRadius: radius.pill, paddingLeft: 14, paddingRight: 5, height: 40 },
+  commentInput: { flex: 1, fontSize: 13.5, color: colors.fg, paddingVertical: 0 },
+  commentSend: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  postActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.rule,
+  },
+  postAction: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  postActionText: { fontSize: 12.5, color: colors.muted, fontWeight: '500' },
 });

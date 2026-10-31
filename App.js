@@ -1,13 +1,19 @@
-import React, { Component, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { Component, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, BackHandler, Dimensions, Easing, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
 import { StoreProvider, useStore } from './src/store';
-import { NavProvider, useNav } from './src/navigation';
+import { NavProvider, useNav, FocusCtx, EXIT_MS } from './src/navigation';
 import TabBar from './src/components/TabBar';
-import { colors } from './src/theme';
+import MiniPlayer from './src/components/MiniPlayer';
+import NowPlayingSheet from './src/components/NowPlayingSheet';
+import { ToastProvider } from './src/components/Toast';
+import { NarrationProvider } from './src/audio/Narration';
+import { colors, fonts, FONT_ASSETS, readerThemes } from './src/theme';
 
 import HomeScreen from './src/screens/HomeScreen';
+import TodayScreen from './src/screens/TodayScreen';
 import DiscoverScreen, { CommunitiesScreen, GroupScreen, ChatListScreen, ChatScreen, CalendarScreen, PeopleScreen, PersonScreen, CareScreen, WishesScreen, LiveScreen, FeedScreen } from './src/screens/DiscoverScreen';
 import BibleScreen, { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen } from './src/screens/BibleScreen';
 import GodModeScreen, { ReadingScreen, BibleChatScreen, CompanionScreen } from './src/screens/GodModeScreen';
@@ -55,48 +61,151 @@ const ROUTES = {
   People: PeopleScreen, Person: PersonScreen, Care: CareScreen, Wishes: WishesScreen, Live: LiveScreen, Feed: FeedScreen,
   Learn: LearnScreen, Plan: PlanScreen, Lesson: LessonScreen, SermonStudio: SermonStudioScreen, Transcript: TranscriptScreen,
   Create: CreateScreen, Profile: ProfileScreen, Onboarding: OnboardingScreen,
-  Socials: SocialsScreen, Concordance: ConcordanceScreen, Jobs: JobsScreen, Chats: ChatListScreen,
+  Today: TodayScreen, Socials: SocialsScreen, Concordance: ConcordanceScreen, Jobs: JobsScreen, Chats: ChatListScreen,
 };
 
+// Gentle enter animation: pushed screens slide in from the right, tab switches cross-fade up.
+function Transition({ kind, children, skip }) {
+  const a = useRef(new Animated.Value(skip ? 1 : 0)).current;
+  useEffect(() => {
+    if (skip) return;
+    Animated.timing(a, { toValue: 1, duration: kind === 'push' ? 280 : 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, []);
+  const transform = kind === 'push'
+    ? [{ translateX: a.interpolate({ inputRange: [0, 1], outputRange: [36, 0] }) }]
+    : [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }];
+  return <Animated.View style={{ flex: 1, opacity: a, transform }}>{children}</Animated.View>;
+}
+
+// A layer in the navigation stack. Pushed screens slide in from the right over the previous one,
+// which shifts left and dims (iOS-style parallax); popped screens slide back out before unmounting.
+function StackLayer({ entering, leaving, covered, initialCovered, children }) {
+  const W = Dimensions.get('window').width;
+  const x = useRef(new Animated.Value(entering ? 1 : 0)).current;
+  const cover = useRef(new Animated.Value(initialCovered ? 1 : covered ? 1 : 0)).current;
+  useEffect(() => {
+    if (entering) Animated.timing(x, { toValue: 0, duration: 360, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+  }, []);
+  useEffect(() => {
+    if (leaving) Animated.timing(x, { toValue: 1, duration: EXIT_MS - 20, easing: Easing.inOut(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+  }, [leaving]);
+  useEffect(() => {
+    Animated.timing(cover, { toValue: covered ? 1 : 0, duration: covered ? 360 : EXIT_MS - 20, easing: covered ? Easing.out(Easing.cubic) : Easing.inOut(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+  }, [covered]);
+  const translateX = Animated.add(
+    x.interpolate({ inputRange: [0, 1], outputRange: [0, W] }),
+    cover.interpolate({ inputRange: [0, 1], outputRange: [0, -W * 0.26] }),
+  );
+  return (
+    <Animated.View
+      pointerEvents={covered || leaving ? 'none' : 'auto'}
+      style={[StyleSheet.absoluteFill, { transform: [{ translateX }] }, (entering || leaving) && styles.layerShadow]}
+    >
+      <FocusCtx.Provider value={!covered && !leaving}>{children}</FocusCtx.Provider>
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { backgroundColor: '#15172B', opacity: cover.interpolate({ inputRange: [0, 1], outputRange: [0, 0.16] }) }]}
+      />
+    </Animated.View>
+  );
+}
+
 const TABS = {
+  Today: TodayScreen,
   Bible: BibleScreen,
   Discover: DiscoverScreen,
   Socials: SocialsScreen,
   Profile: ProfileScreen,
 };
 
+
+
+
+
+
 function Root() {
   const { state, ready } = useStore();
   const nav = useNav();
-  const [tab, setTab] = useState('Bible');
-  if (!ready) return <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>;
+  const [tab, setTab] = useState('Today');
+  // Android hardware back pops the in-app stack before leaving the app
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (nav.stack.length) { nav.pop(); return true; }
+      return false;
+    });
+    return () => sub.remove();
+  }, [nav.stack.length]);
+  // Keep the tab screen mounted only while a transition is running (so it can be seen sliding),
+  // then unmount it under pushed screens so its media/effects stop.
+  const sig = nav.rendered.map((e) => e.key + (e.leaving ? '~' : '')).join('|');
+  const sigRef = useRef(sig);
+  const changedAt = useRef(0);
+  if (sigRef.current !== sig) { sigRef.current = sig; changedAt.current = Date.now(); }
+  const [, force] = useState(0);
+  useEffect(() => { const t = setTimeout(() => force((n) => n + 1), 460); return () => clearTimeout(t); }, [sig]);
+  if (!ready) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
   if (!state.onboarded) return <OnboardingScreen />;
   const top = nav.stack[nav.stack.length - 1];
+  const animating = Date.now() - changedAt.current < 440;
   const Tab = TABS[tab];
-  let screen = <Tab key={tab} />;
-  if (top) {
-    const Comp = ROUTES[top.name];
-    screen = Comp ? <Comp key={top.key} params={top.params} /> : <Tab key={tab} />;
-  }
+  const showBase = true; // tab stays mounted under pushed screens (keeps scroll + state); media pauses via FocusCtx
+  const layers = (
+    <View style={{ flex: 1 }}>
+      {showBase ? (
+        <StackLayer key={'tab-' + tab} covered={!!top} initialCovered={!top && nav.rendered.length > 0}>
+          <Transition kind="tab" skip={nav.rendered.length > 0}><Tab /></Transition>
+        </StackLayer>
+      ) : null}
+      {nav.rendered.map((e) => {
+        const Comp = ROUTES[e.name];
+        const liveIdx = nav.stack.indexOf(e);
+        const covered = !e.leaving && liveIdx > -1 && liveIdx < nav.stack.length - 1;
+        return (
+          <StackLayer key={e.key} entering leaving={!!e.leaving} covered={covered}>
+            <View style={{ flex: 1, backgroundColor: colors.screen }}>
+              {Comp ? <Comp params={e.params} /> : <Tab />}
+            </View>
+          </StackLayer>
+        );
+      })}
+    </View>
+  );
   const isSocials = tab === 'Socials' && !top;
+  // The Bible tab follows the reader theme (Paper / Sepia / Night) so the chrome matches the page.
+  const reader = tab === 'Bible' && !top ? readerThemes[state.readerTheme] : null;
+  const pageBg = isSocials ? '#000000' : reader ? reader.bg : colors.screen;
+  const variant = isSocials ? 'dark' : reader && reader.key !== 'paper' ? reader.key : 'light';
+  const lightStatus = isSocials || (reader && reader.dark);
   return (
-    <SafeAreaView style={[styles.safe, isSocials && { backgroundColor: '#000000' }]} edges={isSocials ? ['top'] : ['top', 'bottom']}>
-      <StatusBar style={isSocials ? 'light' : 'dark'} />
-      <View style={{ flex: 1, backgroundColor: isSocials ? '#000000' : colors.screen }}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>{screen}</KeyboardAvoidingView>
-        {!top ? <TabBar active={tab} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
+    <SafeAreaView style={[styles.safe, { backgroundColor: pageBg }]} edges={isSocials ? ['top'] : ['top', 'bottom']}>
+      <StatusBar style={lightStatus ? 'light' : 'dark'} />
+      <View style={{ flex: 1, backgroundColor: pageBg }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          {layers}
+        </KeyboardAvoidingView>
+        {!(tab === 'Bible' && !top) && !(top && top.name === 'Bible') ? <MiniPlayer bg={top ? colors.screen : pageBg} /> : null}
+        {!top ? <TabBar active={tab} variant={variant} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
+        <NowPlayingSheet />
       </View>
     </SafeAreaView>
   );
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts(FONT_ASSETS);
+  if (!fontsLoaded && !fontError) {
+    return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
+  }
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <ErrorBoundary>
         <StoreProvider>
           <NavProvider>
-            <Root />
+            <NarrationProvider>
+              <ToastProvider>
+                <Root />
+              </ToastProvider>
+            </NarrationProvider>
           </NavProvider>
         </StoreProvider>
       </ErrorBoundary>
@@ -105,11 +214,15 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  layerShadow: Platform.select({
+    web: { boxShadow: '-8px 0 24px rgba(21,23,43,0.14)' },
+    default: { shadowColor: '#15172B', shadowOffset: { width: -6, height: 0 }, shadowOpacity: 0.14, shadowRadius: 16, elevation: 12 },
+  }),
   safe: { flex: 1, backgroundColor: colors.screen },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.screen },
   errorContainer: { padding: 24, justifyContent: 'center', alignItems: 'center' },
-  errorTitle: { color: colors.gold, fontSize: 20, fontWeight: '700', marginBottom: 12 },
-  errorText: { color: colors.muted, fontSize: 13, marginBottom: 20, textAlign: 'center' },
-  retryBtn: { backgroundColor: colors.gold, paddingVertical: 10, paddingHorizontal: 22, borderRadius: 10 },
-  retryText: { color: '#0e0c0b', fontWeight: '700', fontSize: 14 },
+  errorTitle: { color: colors.fg, fontFamily: fonts.serifBold, fontSize: 22, marginBottom: 10 },
+  errorText: { color: colors.muted, fontSize: 13, marginBottom: 22, textAlign: 'center', lineHeight: 19 },
+  retryBtn: { backgroundColor: colors.primary, paddingVertical: 12, paddingHorizontal: 26, borderRadius: 999 },
+  retryText: { color: colors.primaryFg, fontWeight: '700', fontSize: 14 },
 });

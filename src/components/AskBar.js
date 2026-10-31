@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { colors, fonts } from '../theme';
+import { colors, fonts, radius, shadow } from '../theme';
 
-export default function AskBar({ placeholder = 'Ask anything in scripture...', onSend, initial }) {
+export default function AskBar({ placeholder = 'Ask anything in scripture…', onSend, initial }) {
   const [text, setText] = useState(initial || '');
   const [focused, setFocused] = useState(false);
 
@@ -18,13 +18,14 @@ export default function AskBar({ placeholder = 'Ask anything in scripture...', o
   return (
     <View style={[styles.container, focused && styles.containerFocused]}>
       <View style={styles.iconWrapper}>
-        <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+        <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
           <Path
-            d="M21 21l-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0z"
-            stroke={focused ? colors.gold : colors.muted}
+            d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z"
+            stroke={focused ? colors.primary : colors.gold}
             strokeWidth={1.8}
-            strokeLinecap="round"
+            strokeLinejoin="round"
           />
+          <Path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8L19 15z" fill={colors.gold} />
         </Svg>
       </View>
 
@@ -43,18 +44,14 @@ export default function AskBar({ placeholder = 'Ask anything in scripture...', o
       <Pressable
         onPress={send}
         disabled={!hasText}
-        style={({ pressed }) => [
-          styles.sendBtn,
-          hasText ? styles.sendBtnActive : styles.sendBtnDisabled,
-          pressed && { opacity: 0.8 },
-        ]}
+        style={({ pressed }) => [styles.sendBtn, hasText ? styles.sendBtnActive : styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
         accessibilityLabel="Send"
       >
-        <Svg width={13} height={13} viewBox="0 0 14 14" fill="none">
+        <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
           <Path
-            d="M2 7h9M7.5 3.5 11 7l-3.5 3.5"
+            d="M12 19V5M5 12l7-7 7 7"
             stroke={hasText ? colors.primaryFg : colors.faint}
-            strokeWidth={2}
+            strokeWidth={2.4}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
@@ -69,43 +66,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingLeft: 16,
+    paddingRight: 6,
+    paddingVertical: 6,
     marginVertical: 8,
+    ...shadow.sm,
   },
-  containerFocused: {
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.raised,
-  },
-  iconWrapper: {
-    marginRight: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  input: {
-    flex: 1,
-    fontFamily: fonts.sans,
-    fontSize: 14,
-    color: colors.fg,
-    paddingVertical: 4,
-  },
-  sendBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 6,
-  },
-  sendBtnActive: {
-    backgroundColor: colors.primaryBg,
-  },
-  sendBtnDisabled: {
-    backgroundColor: colors.raised,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
+  containerFocused: { borderColor: colors.primary },
+  iconWrapper: { marginRight: 10, alignItems: 'center', justifyContent: 'center' },
+  input: { flex: 1, fontFamily: fonts.sans, fontSize: 14.5, color: colors.fg, paddingVertical: 6 },
+  sendBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', marginLeft: 6 },
+  sendBtnActive: { backgroundColor: colors.primaryBg },
+  sendBtnDisabled: { backgroundColor: colors.raised },
 });

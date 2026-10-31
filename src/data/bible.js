@@ -466,6 +466,31 @@ export const VERSE_OF_DAY = {
   reflection: 'God\'s love is not passive; it is active, sacrificial, and personal. Believing in Him transforms our present and guarantees our eternal future.',
 };
 
+// A rotating Verse of the Day (one per calendar day, cycling through the list).
+export const DAILY_VERSES = [
+  { bookId: 'JHN', chapter: 3, verse: 16, theme: 'God’s love', reflection: 'God’s love is not passive; it gives. Where can you receive that love today instead of trying to earn it?' },
+  { bookId: 'PSA', chapter: 23, verse: 1, theme: 'Provision', reflection: 'A shepherd knows what the sheep need before they ask. What are you anxious to have that God may already be providing?' },
+  { bookId: 'PHP', chapter: 4, verse: 6, theme: 'Peace in anxiety', reflection: 'Paul turns worry into prayer with thanksgiving. Name one worry and one thing you are thankful for, side by side.' },
+  { bookId: 'ROM', chapter: 8, verse: 28, theme: 'Trust', reflection: 'All things work together — not all things are good. Where have you seen God bring good out of something hard?' },
+  { bookId: 'ISA', chapter: 40, verse: 31, theme: 'Strength', reflection: 'Waiting on the Lord renews strength. What would it look like to wait well today rather than rush?' },
+  { bookId: 'PRO', chapter: 3, verse: 5, theme: 'Guidance', reflection: 'Trusting with all your heart means leaning less on your own understanding. Which decision do you need to hold more loosely?' },
+  { bookId: 'JER', chapter: 29, verse: 11, theme: 'Hope', reflection: 'These words were spoken to exiles far from home. God’s plans held even in the waiting. Where do you need that hope?' },
+  { bookId: 'MAT', chapter: 11, verse: 28, theme: 'Rest', reflection: 'Jesus invites the weary, not the finished. What burden can you set down in prayer right now?' },
+  { bookId: 'JOS', chapter: 1, verse: 9, theme: 'Courage', reflection: 'Courage here rests on presence: “the Lord thy God is with thee.” What step needs courage from you today?' },
+  { bookId: 'LAM', chapter: 3, verse: 22, theme: 'Mercy', reflection: 'His compassions fail not — they are new every morning. Let today start fresh, whatever yesterday held.' },
+  { bookId: '2CO', chapter: 5, verse: 17, theme: 'New life', reflection: 'In Christ you are a new creation. Which old label do you need to stop wearing?' },
+  { bookId: 'GAL', chapter: 5, verse: 22, theme: 'Fruit of the Spirit', reflection: 'Fruit grows slowly and quietly. Which of these would you most like the Spirit to grow in you this week?' },
+  { bookId: 'MIC', chapter: 6, verse: 8, theme: 'Faithful living', reflection: 'Do justly, love mercy, walk humbly. Pick one of the three and practise it deliberately today.' },
+  { bookId: '1JN', chapter: 4, verse: 19, theme: 'Love', reflection: 'We love because He first loved us. Who could you love well today as an overflow of being loved?' },
+];
+
+export function verseOfDay(date = new Date()) {
+  const start = new Date(date.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((date - start) / 86400000);
+  const list = DAILY_VERSES.filter((v) => getChapter('KJV', v.bookId, v.chapter));
+  return list[dayOfYear % list.length] || VERSE_OF_DAY;
+}
+
 // ---------- Strong's Concordance Database (Restored Required Feature) ----------
 export const CONCORDANCE = [
   {
@@ -704,4 +729,64 @@ export function availableChapters(bookId) {
     { bookId: 'ROM', chapter: 8 },
     { bookId: 'REV', chapter: 22 },
   ];
+}
+
+// ---------- Cross-references for frequently read chapters ----------
+export const CROSS_REFS = {
+  'MAT:1': [
+    { ref: 'GEN 12:3', why: 'The promise to Abraham — all nations blessed through his family line.' },
+    { ref: '2SA 7:12', why: 'God promises David a lasting throne; Matthew traces Jesus as David’s son.' },
+    { ref: 'RUT 4:21', why: 'Boaz, Obed and Jesse — Ruth’s place in the line of David.' },
+    { ref: 'ISA 7:14', why: 'The virgin and Immanuel, quoted in Matthew 1:23.' },
+    { ref: 'LUK 3:23', why: 'Luke’s genealogy of Jesus, traced back to Adam.' },
+  ],
+  'JHN:3': [
+    { ref: 'NUM 21:8', why: 'The bronze serpent lifted up, which Jesus applies to himself (v14).' },
+    { ref: 'EZK 36:26', why: 'A new heart and a new spirit — the background to “born of water and of the Spirit”.' },
+    { ref: 'JHN 1:12', why: 'Those who receive him are born of God.' },
+    { ref: 'ROM 5:8', why: 'God shows his love in that Christ died for us.' },
+    { ref: '1JN 4:9', why: 'God sent his only begotten Son that we might live through him.' },
+  ],
+  'PSA:23': [
+    { ref: 'JHN 10:11', why: 'Jesus: “I am the good shepherd.”' },
+    { ref: 'ISA 40:11', why: 'He shall feed his flock like a shepherd.' },
+    { ref: 'EZK 34:12', why: 'God promises to seek out and rescue his scattered sheep.' },
+    { ref: 'HEB 13:20', why: 'Jesus, the great shepherd of the sheep.' },
+  ],
+  'PHP:4': [
+    { ref: 'MAT 6:34', why: 'Take no thought for the morrow — Jesus on worry.' },
+    { ref: '1PE 5:7', why: 'Cast all your care upon him; for he careth for you.' },
+    { ref: 'ISA 26:3', why: 'Perfect peace for the mind stayed on God.' },
+    { ref: 'COL 3:15', why: 'Let the peace of God rule in your hearts.' },
+  ],
+  'GEN:1': [
+    { ref: 'JHN 1:1', why: 'In the beginning was the Word — creation through Christ.' },
+    { ref: 'HEB 11:3', why: 'The worlds were framed by the word of God.' },
+    { ref: 'PSA 33:6', why: 'By the word of the LORD were the heavens made.' },
+    { ref: 'COL 1:16', why: 'All things were created by him, and for him.' },
+  ],
+  'ROM:8': [
+    { ref: 'JHN 3:17', why: 'God sent not his Son to condemn the world.' },
+    { ref: 'GAL 5:16', why: 'Walk in the Spirit — the same contrast of flesh and Spirit.' },
+    { ref: 'EPH 1:11', why: 'Predestinated according to the purpose of him who works all things.' },
+    { ref: 'PSA 44:22', why: 'Quoted in Romans 8:36 — “for thy sake are we killed all the day long”.' },
+  ],
+};
+
+// English words in KJV text that point to an entry in CONCORDANCE (used for verse word study)
+export const WORD_KEYS = {
+  'Iēsous': ['jesus'],
+  'agapē': ['love', 'loved', 'loveth', 'charity'],
+  'pistis': ['faith', 'believe', 'believeth', 'believed', 'belief'],
+  'pneuma': ['spirit', 'ghost'],
+  'charis': ['grace', 'favour'],
+  'Yahweh': ['lord'],
+  'shalom': ['peace'],
+  'chesed': ['mercy', 'mercies', 'lovingkindness', 'kindness'],
+};
+
+export function parseRef(ref) {
+  const m = String(ref || '').trim().match(/^([1-3]?[A-Z]{2,3})\s+(\d+)(?::(\d+))?/);
+  if (!m) return null;
+  return { bookId: m[1], chapter: Number(m[2]), verse: m[3] ? Number(m[3]) : undefined };
 }

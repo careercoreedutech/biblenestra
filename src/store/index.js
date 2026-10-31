@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as seed from '../data/seed';
+import { seedRhythm } from '../data/rhythm';
 
 const KEY = 'biblenestra.state.v2';
 
@@ -31,8 +32,10 @@ const initial = {
   jobs: seed.JOBS,
   proposals: [],
   channels: seed.CHANNELS_DATA,
-  wishes: [],
-  feed: [],
+  wishes: seed.WISHES,
+  feed: seed.FEED,
+  recordings: [],
+  joinedChannels: [],
   vodLiked: false,
   giftTransactions: [
     { id: 'gt1', recipient: 'Grace Adeyemi', giftName: 'Flower Bouquet', coins: 25, time: 'Yesterday' },
@@ -43,13 +46,22 @@ const initial = {
   notifications: { push: true, email: false, bible: true, groups: true, prayer: true, events: true, gifts: true, jobs: true },
   streaksEnabled: true,
   fontSize: 16,
+  readerTheme: 'paper',
+  lineSpacing: 'Comfortable',
+  rhythm: seedRhythm(),
+  bestStreak: 21,
+  reflections: [],
   version: 0,
 };
 
 function reducer(s, a) {
   const bump = (patch) => ({ ...s, ...patch, version: s.version + 1 });
   switch (a.type) {
-    case 'hydrate': return { ...s, ...a.state };
+    case 'hydrate': {
+      // Older saves had empty feed/wishes; keep the starter content in that case.
+      const st = a.state || {};
+      return { ...s, ...st, feed: st.feed && st.feed.length ? st.feed : s.feed, wishes: st.wishes && st.wishes.length ? st.wishes : s.wishes };
+    }
     case 'set': return bump(a.patch);
     case 'onboard': return bump({ onboarded: true, user: { ...s.user, ...a.user }, translation: a.user.translation || s.translation });
     case 'position': return bump({ lastPosition: a.pos, recent: [a.pos, ...s.recent.filter((r) => !(r.bookId === a.pos.bookId && r.chapter === a.pos.chapter))].slice(0, 8) });
@@ -77,7 +89,33 @@ function reducer(s, a) {
     case 'prayerStatus': return bump({ prayers: s.prayers.map((p) => (p.id === a.id ? { ...p, status: a.status, updates: a.update ? [{ text: a.update, when: 'Just now' }, ...p.updates] : p.updates } : p)) });
 
     // Socials & Virtual Gifting
-    case 'like': return bump({ vodLiked: !s.vodLiked });
+    case 'like':
+      if (a.id && (s.feed || []).some((f) => f.id === a.id)) {
+        return bump({ feed: s.feed.map((f) => (f.id === a.id ? { ...f, liked: !f.liked, likes: (f.likes || 0) + (f.liked ? -1 : 1) } : f)) });
+      }
+      return bump({ vodLiked: !s.vodLiked });
+
+    // Feed posts
+    case 'post': return bump({ feed: [{ id: 'f' + Date.now(), author: s.user.displayName, time: 'Just now', likes: 0, comments: 0, mine: true, ...a.post }, ...(s.feed || [])] });
+    case 'savePost': return bump({ feed: (s.feed || []).map((f) => (f.id === a.id ? { ...f, saved: !f.saved } : f)) });
+    case 'deletePost': return bump({ feed: (s.feed || []).filter((f) => f.id !== a.id) });
+
+    // Wishes (prayer wishes / candles)
+    case 'addWish': return bump({ wishes: [{ id: 'w' + Date.now(), author: s.user.displayName, time: 'Just now', candles: 0, amen: 0, responses: ['Prayer'], visibility: 'Public', category: 'Prayer', mine: true, ...a.w, title: a.w.title || (a.w.body || '').slice(0, 48), body: a.w.body || a.w.text || '' }, ...(s.wishes || [])] });
+    case 'lightCandle': return bump({ wishes: (s.wishes || []).map((w) => (w.id === a.id ? { ...w, lit: !w.lit, candles: (w.candles || 0) + (w.lit ? -1 : 1) } : w)) });
+    case 'amenWish': return bump({ wishes: (s.wishes || []).map((w) => (w.id === a.id ? { ...w, amened: !w.amened, amen: (w.amen || 0) + (w.amened ? -1 : 1) } : w)) });
+
+    // Sermon Studio recordings
+    case 'recording': return bump({ recordings: [{ id: 'rec' + Date.now(), status: 'draft', created: new Date().toISOString(), ...a.r }, ...(s.recordings || [])] });
+    case 'recordingStatus': return bump({ recordings: (s.recordings || []).map((r) => (r.id === a.id ? { ...r, status: a.status, ...(a.patch || {}) } : r)) });
+    case 'renameRecording': return bump({ recordings: (s.recordings || []).map((r) => (r.id === a.id ? { ...r, title: a.title } : r)) });
+    case 'deleteRecording': return bump({ recordings: (s.recordings || []).filter((r) => r.id !== a.id) });
+
+    // Notes
+    case 'editNote': return bump({ notes: s.notes.map((n) => (n.id === a.id ? { ...n, text: a.text, when: 'Edited' } : n)) });
+
+    // Channels
+    case 'joinChannel': return bump({ joinedChannels: (s.joinedChannels || []).includes(a.id) ? s.joinedChannels.filter((x) => x !== a.id) : [...(s.joinedChannels || []), a.id] });
     case 'likeVideo': return bump({
       videos: s.videos.map((v) => (v.id === a.id ? { ...v, likes: v.likes + (v.liked ? -1 : 1), liked: !v.liked } : v)),
     });

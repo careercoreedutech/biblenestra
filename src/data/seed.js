@@ -397,3 +397,19 @@ export const CARE_OPTIONS = [
 ];
 
 export const COMPANION_CATEGORIES = ['Hope', 'Grief', 'Fear', 'Forgiveness', 'Relationships', 'Marriage & family', 'Wisdom', 'Work & finances', 'Faith & doubt', 'Prayer', 'Personal growth', 'Difficult passages'];
+
+// ---------- Starter content so Feed, Wishes and Sermon Studio aren't empty on first launch ----------
+export const FEED = [
+  { id: 'f1', author: 'Grace Chapel Lagos', kind: 'Announcement', text: 'Sunday services at 9:00 and 11:00. This week we continue our series in the Gospel of John — bring a friend!', time: '1h', likes: 48, comments: 6, passage: { bookId: 'JHN', chapter: 3 } },
+  { id: 'f2', author: 'Rev. Esther Mwangi', kind: 'Reflection', text: '“The Lord is my shepherd; I shall not want.” Wanting less is not the same as having less. Today, notice what you already have.', time: '3h', likes: 112, comments: 14, passage: { bookId: 'PSA', chapter: 23 } },
+  { id: 'f3', author: 'Jonas Berg', kind: 'Study', text: 'Reading Matthew 1 in Greek: the genealogy names four women before Mary — Tamar, Rahab, Ruth and Bathsheba. Grace runs through the family line.', time: '5h', likes: 37, comments: 9, passage: { bookId: 'MAT', chapter: 1 } },
+  { id: 'f4', author: 'Night Watch Prayer', kind: 'Announcement', text: 'Prayer room opens tonight at 11pm. Requests are read aloud anonymously unless you ask otherwise.', time: '8h', likes: 64, comments: 3 },
+  { id: 'f5', author: 'Chidi N.', kind: 'Celebration', text: 'Passed every final exam! Thank you to everyone who prayed. God is faithful. 🙌', time: '1d', likes: 203, comments: 41 },
+];
+
+export const WISHES = [
+  { id: 'w1', author: 'Hannah S.', title: 'Healing for my mother', body: 'Complete healing for my mother’s lungs and restoration of peace.', category: 'Healing', visibility: 'Public', responses: ['Prayer'], candles: 142, amen: 89, time: '2h' },
+  { id: 'w2', author: 'David O.', title: 'Open doors in media ministry', body: 'Open doors for a full-time Kingdom media ministry opportunity.', category: 'Guidance', visibility: 'Public', responses: ['Prayer', 'Mentoring'], candles: 98, amen: 65, time: '4h' },
+  { id: 'w3', author: 'Grace E.', title: 'Protection over my family', body: 'Deliverance and divine protection over my family in Chicago.', category: 'Family', visibility: 'Community', responses: ['Prayer'], candles: 230, amen: 184, time: '6h' },
+  { id: 'w4', author: 'Pastor Emmanuel', title: 'Revival among the youth', body: 'Spiritual revival among the youth and our church community.', category: 'Revival', visibility: 'Public', responses: ['Prayer', 'Volunteer'], candles: 312, amen: 247, time: '8h' },
+];

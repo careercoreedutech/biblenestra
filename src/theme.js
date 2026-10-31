@@ -1,84 +1,171 @@
 import { Platform } from 'react-native';
 
+/*
+ * BibleNestra design system — "Sanctuary Paper"
+ * Warm parchment canvas, deep ink type, royal indigo for action, burnished gold
+ * for scripture accents. Serif (Newsreader) for scripture & headings, the
+ * platform sans (SF Pro / Roboto) for interface text.
+ *
+ * Every screen reads from these tokens, so changing a value here re-skins the app.
+ */
+
+// Font files are loaded in App.js (see FONT_ASSETS). If they fail to load the
+// platform serif is used instead, so the app never blocks on fonts.
+export const FONT_ASSETS = {
+  Newsreader: require('@expo-google-fonts/newsreader/400Regular/Newsreader_400Regular.ttf'),
+  'Newsreader-Italic': require('@expo-google-fonts/newsreader/400Regular_Italic/Newsreader_400Regular_Italic.ttf'),
+  'Newsreader-Medium': require('@expo-google-fonts/newsreader/500Medium/Newsreader_500Medium.ttf'),
+  'Newsreader-SemiBold': require('@expo-google-fonts/newsreader/600SemiBold/Newsreader_600SemiBold.ttf'),
+  'Newsreader-SemiBoldItalic': require('@expo-google-fonts/newsreader/600SemiBold_Italic/Newsreader_600SemiBold_Italic.ttf'),
+};
+
+const systemSerif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia, serif' });
+
 export const fonts = {
-  serif: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
-  serifBold: Platform.select({ ios: 'Georgia-Bold', android: 'serif', default: 'serif' }),
+  serif: 'Newsreader',
+  serifItalic: 'Newsreader-Italic',
+  serifMedium: 'Newsreader-Medium',
+  serifBold: 'Newsreader-SemiBold',
+  serifBoldItalic: 'Newsreader-SemiBoldItalic',
+  display: 'Newsreader-SemiBold',
   sans: Platform.select({ ios: 'System', android: undefined, default: undefined }),
   sansMedium: Platform.select({ ios: 'System', android: undefined, default: undefined }),
-  display: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
+  fallbackSerif: systemSerif,
 };
 
 export const colors = {
-  // Vibrant, High-Contrast Modern Sanctuary Palette (Clean, Colorful & Premium)
-  screen: '#F8FAFC',        // Crisp, bright modern canvas (Slate 50)
-  surface: '#FFFFFF',       // Pure white card surfaces with clean contrast
-  raised: '#F1F5F9',        // Light slate tint for interactive pills & inputs
-  surfaceRaised: '#E2E8F0', // Elevated borders & container fills
-  active: '#E2E8F0',        // Pressed / active tint
+  // Surfaces
+  screen: '#F6F2EA',        // warm parchment canvas
+  surface: '#FFFFFF',       // cards
+  raised: '#F0EBE1',        // inputs, chips, quiet fills
+  surfaceRaised: '#E9E2D5', // pressed fills, containers
+  active: '#E9E2D5',
+  sunken: '#EDE7DC',
 
-  // Hairline borders & rules
-  border: '#E2E8F0',        // Crisp slate border
-  borderStrong: '#CBD5E1',  // Focused borders
-  rule: '#F1F5F9',          // Divider rules
-  tabLine: '#E2E8F0',       // Bottom dock border
+  // Lines
+  border: '#E7DFD1',
+  borderStrong: '#D6CBB8',
+  rule: '#EFE9DE',
+  tabLine: '#E7DFD1',
 
-  // Typographic hierarchy (High Contrast Crisp Slate)
-  fg: '#0F172A',            // Deep slate black (headings, high-legibility)
-  muted: '#475569',         // Crisp slate grey (clear, non-faded text)
-  faint: '#94A3B8',         // Subtle timestamps, captions
-  passage: '#1E293B',       // Sacred scripture reader ink (rich readable charcoal)
+  // Ink
+  fg: '#1C1915',            // headings & primary text
+  muted: '#6B6255',         // secondary text
+  faint: '#A1978A',         // captions, timestamps
+  passage: '#2A251E',       // scripture body
 
-  // Brand anchors & Action colors
-  forest: '#059669',        // Vivid sanctuary emerald
-  primary: '#059669',       // Primary action button fill
-  primaryBg: '#059669',     // Primary action background
-  primaryFg: '#FFFFFF',     // Crisp white button label
-  primaryInvertedBg: '#0F172A',
-  primaryInvertedFg: '#F8FAFC',
+  // Brand — royal indigo + burnished gold
+  primary: '#2E3A87',
+  primaryBg: '#2E3A87',
+  primaryFg: '#FFFFFF',
+  primarySoft: '#E7E9F5',
+  primaryInk: '#232C6B',
+  primaryInvertedBg: '#1C1915',
+  primaryInvertedFg: '#F6F2EA',
+  forest: '#2E3A87',        // legacy alias → primary action colour
 
-  // Vivid Rich Spectrum (Colorful Modern UI)
-  indigo: '#4F46E5',        // Electric royal indigo
-  gold: '#D97706',          // Radiant warm amber gold
-  goldLight: '#F59E0B',     // Bright gold highlight
-  goldMuted: '#B45309',     // Subdued gold for verse markers
-  goldFaint: 'rgba(217, 119, 6, 0.12)',
+  // Night (heroes, player bars, immersive surfaces)
+  night: '#15172B',
+  nightRaised: '#20233D',
+  nightBorder: 'rgba(255,255,255,0.10)',
+  nightFg: '#F4EFE6',
+  nightMuted: 'rgba(244,239,230,0.66)',
 
-  terracotta: '#EA580C',    // Vibrant burnt tangerine
-  terracottaFaint: 'rgba(234, 88, 12, 0.12)',
-  slate: '#475569',         // Slate blue for study references
-  sage: '#10B981',          // Fresh mint / emerald for growth & devotionals
-  sageFaint: 'rgba(16, 185, 129, 0.14)',
-  teal: '#0D9488',          // Exegesis & theology
-  lavender: '#7C3AED',      // Royal violet & church history
-  lavenderFaint: 'rgba(124, 58, 237, 0.14)',
-  rose: '#E11D48',          // Vibrant rose for prayer & devotion
-  roseFaint: 'rgba(225, 29, 72, 0.14)',
-  amber: '#D97706',         // Audio & sermons
-  sky: '#0284C7',           // Vibrant sky blue
-  skyFaint: 'rgba(2, 132, 199, 0.14)',
+  gold: '#A87A27',
+  goldLight: '#D4A852',
+  goldMuted: '#8C6620',
+  goldFaint: 'rgba(168,122,39,0.12)',
 
-  // Rich, Saturated Pastel Card Tints for "Be Inspired" & Badges
-  cardGold: '#FEF3C7',      // Warm golden glow
-  cardSage: '#D1FAE5',      // Fresh energetic emerald
-  cardRose: '#FFE4E6',      // Tender rose
-  cardLavender: '#EDE9FE',  // Regal violet
-  cardSky: '#E0F2FE',       // Pure clear sky
+  // Supporting palette (muted, harmonised with parchment)
+  indigo: '#3F4BA8',
+  terracotta: '#B45D3A',
+  terracottaFaint: 'rgba(180,93,58,0.12)',
+  slate: '#56606E',
+  sage: '#4E7A5C',
+  sageFaint: 'rgba(78,122,92,0.13)',
+  teal: '#2C7672',
+  lavender: '#6B52A3',
+  lavenderFaint: 'rgba(107,82,163,0.12)',
+  rose: '#B0475C',
+  roseFaint: 'rgba(176,71,92,0.12)',
+  amber: '#B7791F',
+  sky: '#356D9C',
+  skyFaint: 'rgba(53,109,156,0.12)',
 
-  // Status & Notifications
-  positive: '#10B981',      // Verified, answered, online
-  positiveFaint: 'rgba(16, 185, 129, 0.14)',
-  warning: '#F59E0B',       // Alerts & warnings
-  warningFaint: 'rgba(245, 158, 11, 0.14)',
-  negative: '#EF4444',      // Destructive & reports
-  negativeFaint: 'rgba(239, 68, 68, 0.14)',
+  // Soft card tints
+  cardGold: '#F5EBD7',
+  cardSage: '#E4ECE2',
+  cardRose: '#F5E3E2',
+  cardLavender: '#ECE6F3',
+  cardSky: '#E2EBF3',
+  cardIndigo: '#E7E9F5',
 
-  // Shadows
-  shadowColor: '#0F172A',
+  // Status
+  positive: '#3E7B57',
+  positiveFaint: 'rgba(62,123,87,0.13)',
+  warning: '#B7791F',
+  warningFaint: 'rgba(183,121,31,0.13)',
+  negative: '#B83A3A',
+  negativeFaint: 'rgba(184,58,58,0.11)',
 
-  // Compatibility aliases
-  accent: '#059669',
-  lineLight: '#F1F5F9',
-  yellow: '#D97706',
-  glossBorder: '#E2E8F0',
-  subtle: '#475569',
+  shadowColor: '#3B2F1E',
+
+  // Compatibility aliases used across screens
+  accent: '#2E3A87',
+  lineLight: '#EFE9DE',
+  yellow: '#A87A27',
+  glossBorder: '#E7DFD1',
+  subtle: '#6B6255',
 };
+
+export const radius = { xs: 6, sm: 10, md: 14, lg: 18, xl: 24, pill: 999 };
+export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 28 };
+
+// Soft, warm elevation (ignored props are harmless on each platform)
+export const shadow = {
+  sm: Platform.select({
+    web: { boxShadow: '0 1px 2px rgba(59,47,30,0.06), 0 1px 1px rgba(59,47,30,0.04)' },
+    default: { shadowColor: '#3B2F1E', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 1 },
+  }),
+  md: Platform.select({
+    web: { boxShadow: '0 6px 18px rgba(59,47,30,0.08), 0 1px 3px rgba(59,47,30,0.05)' },
+    default: { shadowColor: '#3B2F1E', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  }),
+  lg: Platform.select({
+    web: { boxShadow: '0 14px 34px rgba(21,23,43,0.18)' },
+    default: { shadowColor: '#15172B', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.18, shadowRadius: 22, elevation: 8 },
+  }),
+};
+
+export const type = {
+  eyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase' },
+  display: { fontFamily: fonts.display, fontSize: 30, lineHeight: 36, letterSpacing: -0.6, color: colors.fg },
+  title: { fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 28, letterSpacing: -0.3, color: colors.fg },
+  heading: { fontFamily: fonts.serifBold, fontSize: 18, lineHeight: 24, letterSpacing: -0.2, color: colors.fg },
+  body: { fontSize: 14, lineHeight: 20, color: colors.fg },
+  caption: { fontSize: 12, lineHeight: 16, color: colors.muted },
+};
+
+// Reader themes for the Bible reader (stored as state.readerTheme)
+export const readerThemes = {
+  paper: {
+    key: 'paper', label: 'Paper', dark: false,
+    bg: '#F6F2EA', surface: '#FFFFFF', chip: '#FFFFFF', border: '#E7DFD1', borderStrong: '#D6CBB8',
+    fg: '#1C1915', passage: '#2A251E', muted: '#6B6255', faint: '#A1978A',
+    accent: '#2E3A87', accentSoft: '#E7E9F5', gold: '#A87A27', sel: '#F5EBD7', raised: '#F0EBE1',
+  },
+  sepia: {
+    key: 'sepia', label: 'Sepia', dark: false,
+    bg: '#EEE2C9', surface: '#F8EFDC', chip: '#F8EFDC', border: '#DCCAA6', borderStrong: '#CDB78E',
+    fg: '#3A2D1C', passage: '#3A2D1C', muted: '#7A6650', faint: '#A38F72',
+    accent: '#7B4A1C', accentSoft: '#E6D3AE', gold: '#94661C', sel: '#E4CFA2', raised: '#E6D7B8',
+  },
+  night: {
+    key: 'night', label: 'Night', dark: true,
+    bg: '#101221', surface: '#1A1D33', chip: '#1A1D33', border: '#272B45', borderStrong: '#343957',
+    fg: '#EDE7DB', passage: '#D9D2C4', muted: '#9C98AA', faint: '#6C697D',
+    accent: '#AEB8FF', accentSoft: '#262B4F', gold: '#D4A852', sel: 'rgba(212,168,82,0.17)', raised: '#22263F',
+  },
+};
+
+export const lineSpacings = { Compact: 1.45, Comfortable: 1.62, Relaxed: 1.85 };

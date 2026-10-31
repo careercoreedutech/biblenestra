@@ -14,14 +14,20 @@
       "backgroundColor": "#0e0c0b"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "BibleNestra uses the microphone to record sermons and teachings in Sermon Studio."
+      }
     },
     "android": {
       "package": "com.biblenestra.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0e0c0b"
-      }
+      },
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
     "plugins": [
       "expo-asset",
@@ -34,7 +40,13 @@
           }
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "BibleNestra uses the microphone to record sermons and teachings in Sermon Studio."
+        }
+      ]
     ],
     "extra": {
       "eas": {

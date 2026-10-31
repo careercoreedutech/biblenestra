@@ -1,12 +1,74 @@
 # BibleNestra (Expo / React Native)
 
-Mobile front-end for the BibleNestra product specification, built in the God Mode UI language
-(dark warm theme, two-tone cards, orange accent, 5-tab bar: Home · Discover · Bible · God Mode · Prayer).
+Mobile front-end for the BibleNestra product specification (5-tab bar: Today · Bible · Discover · Socials · Profile).
+
+## Design system — "Sanctuary Paper"
+
+All styling flows from `src/theme.js`:
+
+- **Palette** – warm parchment canvas (`colors.screen`), white cards, deep ink text, royal indigo
+  (`colors.primary`) for actions and active states, burnished gold (`colors.gold`) for scripture accents,
+  and night indigo (`colors.night`) for immersive heroes and players. Muted supporting hues
+  (sage, rose, sky, lavender, teal) and soft `card*` tints for categories.
+- **Type** – Newsreader serif (`@expo-google-fonts/newsreader`, loaded in `App.js`) for scripture and headings;
+  the platform sans (SF Pro / Roboto) for interface text. Serif weights are separate families
+  (`fonts.serif`, `serifItalic`, `serifMedium`, `serifBold`, `serifBoldItalic`) — don't add `fontWeight`
+  or `fontStyle` to a serif style.
+- **Tokens** – `radius`, `space`, `shadow.sm|md|lg` and the `alpha(hex, a)` helper (in `components/ui.js`).
+- **Reader themes** – `readerThemes` (Paper / Sepia / Night) and `lineSpacings`, chosen from the **Aa** reading-settings
+  sheet in the Bible tab (stored as `state.readerTheme`, `state.lineSpacing`, `state.fontSize`). The tab bar follows the reader theme.
+- **Icons** – `components/Icons.js`: one consistent 24px line set (see `ICON_NAMES`).
+- **Motion** – screens slide/fade in (`Transition` in `App.js`), the verse sheet slides up, the tab indicator springs.
+- **Shared components** – `Screen`, `Section`, `Row`, `Pill(s)`, `Button`, `Input`, `Tag`, `Badge`, `Notice`,
+  `Empty`, `Eyebrow`, `NightGlow` (gradient depth for dark hero cards), `Card`, `AskBar`, `TabBar`.
+
+## Patterns borrowed from leading faith apps
+
+| Pattern | Inspired by | Where |
+|---|---|---|
+| Daily home with a 4-step rhythm (verse → reading → prayer → reflect) and a calm completion card | YouVersion Daily Refresh, Glorify daily checklist | `TodayScreen` |
+| Week strip + streak with current/longest and one grace day a week; streaks can be hidden | YouVersion streaks | `TodayScreen`, `data/rhythm.js` |
+| Verse image creator (backgrounds, type, square/story) shared as a PNG | YouVersion Verse Images, Verses app | `components/VerseImageSheet.js` (uses `react-native-view-shot` + `expo-sharing`) |
+| "Now playing" audio screen: narrator, speed, sleep timer, background music, Reflect pauses | Dwell | `components/NowPlayingSheet.js` |
+| Continue reading + seasonal challenge cards | YouVersion, Hallow | `TodayScreen` |
+
+## Motion
+
+All animation uses React Native's built-in `Animated` API (no extra native dependency):
+
+- `src/components/Motion.js` — `PressScale` (spring press feedback), `FadeInUp` (staggered entrances), `ScaleIn`, `Pop`,
+  `Pulse`, `LiveRing`, `Burst` (sparkles), `AnimatedNumber`, `AnimatedBar`, `Shimmer`, and `AnimatedModal`
+  (bottom sheets: dim layer fades, sheet springs up and animates out).
+- `App.js` `StackLayer` + `src/navigation.js` — screens slide in over a dimmed, parallax-shifted previous screen and slide
+  back out on Back; tab screens stay mounted underneath (scroll position kept) and media pauses via `useIsFocused()`.
+- Bible reader: swipe left/right to turn chapters with a page-slide; Today: staggered sections, animated progress, sparkle
+  completion; Socials: double-tap heart, spinning music disc; plus per-screen motion everywhere else.
+
+## What works on the device (no server needed)
+
+Everything below runs locally and is saved on the device (AsyncStorage):
+
+- **Bible** – full KJV offline, highlights, notes (edit / delete / undo), bookmarks, compare, reading themes,
+  share (native share sheet), post a verse to the feed, verse images (PNG via `react-native-view-shot` + `expo-sharing`).
+- **Narration** – real text-to-speech (`expo-speech`, `src/audio/Narration.js`): reads chapters verse by verse,
+  highlights and scrolls to the verse being read, continues into the next chapter, speed / voice / sleep timer /
+  Reflect pauses, global mini player.
+- **Today** – daily rotating verse, 4-step rhythm, streaks with grace days.
+- **Study** – word study from the bundled lexicon, cross-references for key chapters, concordance.
+- **Community** – feed posts, likes, saves, comments, wishes with candles and Amen, prayer wall (pray, updates,
+  answered, archive, report), groups, direct chats, calendar RSVP and `.ics` export, live rooms, jobs and proposals.
+- **Sermon Studio** – real microphone recording, playback, rename, share, delete (`expo-av`).
+- **Feedback** – confirmation toasts and haptics (`src/components/Toast.js`) for every action.
+
+### What still needs a backend
+Accounts and sync across devices, other people's live activity (posts, chats and prayers from real users),
+licensed translations and commentaries, speech-to-text for sermon transcripts, payments for coins/gifts,
+push notifications, and a hosted AI model for Bible Chat (it currently answers from the bundled Scripture and lexicon).
 
 ## Run
 
 ```bash
-npm install
+npm install            # adds @expo-google-fonts/newsreader, react-native-view-shot, expo-sharing, expo-speech, expo-haptics, expo-av
 npx expo start        # scan QR with Expo Go, or press i / a / w
 ```
 

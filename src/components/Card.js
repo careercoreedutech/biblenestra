@@ -1,161 +1,75 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, fonts } from '../theme';
+import { colors, fonts, radius, shadow } from '../theme';
 import { Icon } from './Icons';
+import { alpha } from './ui';
+import { PressScale } from './Motion';
 
 export default function Card({ title, subtitle, question, color = colors.gold, onPress, compact, icon, style, right }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.touchable,
-        pressed && styles.pressed,
-        style,
-      ]}
-    >
+    <PressScale onPress={onPress} scaleTo={0.97} style={[styles.touchable, style]}>
       <View style={[styles.card, compact && styles.cardCompact]}>
-        {/* Top meta row */}
-        {(question || icon) ? (
+        {question || icon || right ? (
           <View style={styles.headerRow}>
             {icon ? (
-              <View style={[styles.iconBox, { backgroundColor: color + '15' }]}>
-                {typeof icon === 'string' ? (
-                  <Icon name={icon} color={color} size={18} />
-                ) : (
-                  icon
-                )}
+              <View style={[styles.iconBox, { backgroundColor: alpha(color, 0.13) }]}>
+                {typeof icon === 'string' ? <Icon name={icon} color={color} size={17} /> : icon}
               </View>
             ) : null}
-
             {question ? (
-              <Text style={styles.questionText} numberOfLines={1}>
+              <Text style={[styles.questionText, { color }]} numberOfLines={1}>
                 {question}
               </Text>
-            ) : null}
-
+            ) : <View style={{ flex: 1 }} />}
             {right ? <View style={styles.rightSlot}>{right}</View> : null}
           </View>
         ) : null}
 
-        {/* Content body */}
         <View style={styles.body}>
-          <Text
-            style={[
-              styles.title,
-              compact ? styles.titleCompact : styles.titleRegular,
-            ]}
-            numberOfLines={compact ? 2 : 3}
-          >
+          <Text style={[styles.title, compact ? styles.titleCompact : styles.titleRegular]} numberOfLines={compact ? 2 : 3}>
             {title}
           </Text>
           {subtitle ? (
-            <Text
-              style={[styles.subtitle, compact && styles.subtitleCompact]}
-              numberOfLines={2}
-            >
+            <Text style={[styles.subtitle, compact && styles.subtitleCompact]} numberOfLines={2}>
               {subtitle}
             </Text>
           ) : null}
         </View>
-
-        {/* Quiet indicator line at the bottom */}
-        <View style={[styles.indicator, { backgroundColor: color }]} />
       </View>
-    </Pressable>
+    </PressScale>
   );
 }
 
 const styles = StyleSheet.create({
-  touchable: {
-    flex: 1,
-  },
-  pressed: {
-    opacity: 0.82,
-  },
+  touchable: { flex: 1 },
+  pressed: { opacity: 0.88, transform: [{ scale: 0.99 }] },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: 16,
-    minHeight: 120,
+    minHeight: 124,
     justifyContent: 'space-between',
     overflow: 'hidden',
-    shadowColor: colors.shadowColor,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    ...shadow.sm,
   },
-  cardCompact: {
-    minHeight: 92,
-    padding: 14,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  iconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: colors.raised,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconText: {
-    fontSize: 14,
-  },
+  cardCompact: { minHeight: 96, padding: 14 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 12 },
+  iconBox: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   questionText: {
     fontFamily: fonts.sansMedium,
     fontSize: 10.5,
-    color: colors.muted,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 1.1,
     flex: 1,
   },
-  rightSlot: {
-    marginLeft: 'auto',
-  },
-  body: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  title: {
-    fontFamily: fonts.serifBold,
-    color: colors.fg,
-    letterSpacing: -0.2,
-    lineHeight: 20,
-  },
-  titleRegular: {
-    fontSize: 15,
-    marginBottom: 4,
-  },
-  titleCompact: {
-    fontSize: 13.5,
-    lineHeight: 18,
-    marginBottom: 3,
-  },
-  subtitle: {
-    fontFamily: fonts.sans,
-    fontSize: 12,
-    color: colors.muted,
-    lineHeight: 16,
-  },
-  subtitleCompact: {
-    fontSize: 11,
-    color: colors.muted,
-    lineHeight: 15,
-  },
-  indicator: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3.5,
-  },
+  rightSlot: { marginLeft: 'auto' },
+  body: { justifyContent: 'flex-end' },
+  title: { fontFamily: fonts.serifBold, color: colors.fg, letterSpacing: -0.2 },
+  titleRegular: { fontSize: 17, lineHeight: 22, marginBottom: 4 },
+  titleCompact: { fontSize: 15, lineHeight: 19, marginBottom: 3 },
+  subtitle: { fontFamily: fonts.sans, fontSize: 12.5, color: colors.muted, lineHeight: 17 },
+  subtitleCompact: { fontSize: 11.5, lineHeight: 15.5 },
 });

@@ -1,19 +1,191 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
-import { Screen, Section, Row, Pills, Pill, Button, Tag, Badge, Notice, Input, Empty } from '../components/ui';
+import { Screen, Section, Row, Pills, Pill, Button, Tag, Badge, Notice, Input, Empty, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
-import { colors, fonts } from '../theme';
+import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { answerBibleChat, companionResults } from '../data/assistant';
 import { getChapter, refLabel, CHAPTER_TITLES } from '../data/bible';
 import { COMPANION_CATEGORIES } from '../data/seed';
+import { useToast } from '../components/Toast';
+import { useNarration } from '../audio/Narration';
+import { PressScale, FadeInUp, ScaleIn, Pop, Pulse } from '../components/Motion';
+
+const ND = Platform.OS !== 'web';
+const EASE_OUT = Easing.out(Easing.cubic);
+
+// Entrance that glides in from the right (the user's own chat bubbles).
+function SlideInRight({ children, style, distance = 28, duration = 320 }) {
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(a, { toValue: 1, duration, easing: EASE_OUT, useNativeDriver: ND }).start();
+  }, []);
+  return (
+    <Animated.View style={[style, { opacity: a, transform: [{ translateX: a.interpolate({ inputRange: [0, 1], outputRange: [distance, 0] }) }] }]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+// Three gold dots that bounce in sequence while the assistant is "thinking".
+function TypingDots() {
+  const dots = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
+  useEffect(() => {
+    const loops = dots.map((d, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 140),
+          Animated.timing(d, { toValue: 1, duration: 260, easing: EASE_OUT, useNativeDriver: ND }),
+          Animated.timing(d, { toValue: 0, duration: 260, easing: Easing.in(Easing.cubic), useNativeDriver: ND }),
+          Animated.delay((2 - i) * 140 + 160),
+        ])
+      )
+    );
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, []);
+  return (
+    <View style={styles.typingDots}>
+      {dots.map((d, i) => (
+        <Animated.View
+          key={i}
+          style={[styles.typingDot, {
+            opacity: d.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }),
+            transform: [{ translateY: d.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) }],
+          }]}
+        />
+      ))}
+    </View>
+  );
+}
+
+// Dropdown that fades + scales in from its corner and fades out before unmounting.
+function Dropdown({ visible, style, children }) {
+  const [mounted, setMounted] = useState(visible);
+  const a = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      Animated.timing(a, { toValue: 1, duration: 200, easing: EASE_OUT, useNativeDriver: ND }).start();
+    } else {
+      Animated.timing(a, { toValue: 0, duration: 140, easing: Easing.in(Easing.cubic), useNativeDriver: ND }).start(({ finished }) => finished && setMounted(false));
+    }
+  }, [visible]);
+  if (!mounted) return null;
+  return (
+    <Animated.View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[style, {
+        opacity: a,
+        transform: [
+          { translateY: a.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) },
+          { scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
+        ],
+      }]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+// Share via the native sheet; on web without navigator.share fall back to the clipboard.
+async function shareText(message, toast) {
+  try {
+    await Share.share({ message });
+  } catch (e) {
+    if (await copyText(message)) toast.show('Copied to clipboard', { icon: 'link' });
+    else toast.show('Sharing isn’t available here', { tone: 'error' });
+  }
+}
+
+async function copyText(text) {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) { /* clipboard blocked */ }
+  return false;
+}
+
+// Plain-text rendering of an answer for sharing / copying.
+function answerText(m) {
+  const body = (m.blocks || [])
+    .map((b) => (b.ref ? `“${b.text}” — ${b.ref} (${b.translation})` : `${b.type}: ${b.text}`))
+    .join('\n\n');
+  return `Q: ${m.question}\n\n${body}\n\n— BibleNestra Bible Intelligence`;
+}
+
+// The passage an answer is about: its first quoted Scripture, else the conversation context.
+function answerPassage(m, context) {
+  const s = (m.blocks || []).find((b) => b.ref && b.bookId);
+  if (s) return { bookId: s.bookId, chapter: s.chapter, verse: s.verse || null };
+  if (context) return { bookId: context.bookId, chapter: context.chapter, verse: context.verse || null };
+  return null;
+}
 
 function greeting() {
   const h = new Date().getHours();
   return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+}
+
+// Answer-block section tints (muted, on-brand)
+const BLOCK_TINT = {
+  Scripture: colors.gold,
+  Explanation: colors.primary,
+  Commentary: colors.sage,
+  Interpretations: colors.lavender,
+  'Further study': colors.sky,
+};
+const BLOCK_ICON = {
+  Scripture: 'bible',
+  Explanation: 'sparkles',
+  Commentary: 'book',
+  Interpretations: 'users',
+  'Further study': 'search',
+};
+
+// Small night-coloured avatar used for assistant messages
+function AssistantAvatar({ size = 28 }) {
+  return (
+    <View style={[styles.aiAvatar, { width: size, height: size, borderRadius: size / 2 }]}>
+      <Text style={{ color: colors.goldLight, fontSize: size * 0.42, lineHeight: size * 0.6 }}>✦</Text>
+    </View>
+  );
+}
+
+function ActionChip({ label, icon, onPress, active }) {
+  return (
+    <PressScale
+      onPress={onPress}
+      accessibilityRole="button"
+      scaleTo={0.93}
+      style={[styles.actionChip, active && styles.actionChipActive]}
+    >
+      {icon ? (
+        <Pop trigger={!!active}>
+          <Icon name={active ? 'check' : icon} size={13} color={active ? colors.primary : colors.muted} />
+        </Pop>
+      ) : null}
+      <Text style={[styles.actionChipText, active && { color: colors.primary }]}>{label}</Text>
+    </PressScale>
+  );
+}
+
+function MenuItem({ label, icon, onPress, last }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.menuItem, !last && styles.menuItemRule, pressed && { backgroundColor: colors.raised }]}
+    >
+      <Icon name={icon} size={15} color={colors.muted} />
+      <Text style={styles.menuItemText} numberOfLines={1}>{label}</Text>
+    </Pressable>
+  );
 }
 
 // ---------- God Mode home (the reference UI) ----------
@@ -26,8 +198,9 @@ export default function GodModeScreen() {
     <Screen title="Scripture Intelligence" menu={() => nav.push('Profile')} scroll={true}>
       {/* Editorial Header */}
       <View style={styles.greet}>
-        <Text style={styles.h1}>{greeting()}, {state.user.displayName}</Text>
-        <Text style={styles.sub}>Seek wisdom, examine context, and deepen your understanding of Scripture.</Text>
+        <Text style={styles.eyebrow}>{greeting()}</Text>
+        <Text style={styles.homeTitle}>{state.user.displayName}, what are you seeking today?</Text>
+        <Text style={styles.homeSub}>Seek wisdom, examine context, and deepen your understanding of Scripture.</Text>
       </View>
 
       {/* Pathways Grid */}
@@ -59,7 +232,7 @@ export default function GodModeScreen() {
           <Card
             title={'Difficult\nPassages'}
             subtitle="Tensions, history, and apologetics."
-            color={colors.amber}
+            color={colors.terracotta}
             icon="quiz"
             onPress={() => nav.push('BibleChat', { seed: 'Why ' })}
           />
@@ -68,12 +241,12 @@ export default function GodModeScreen() {
 
       {/* Quick suggestions */}
       <View style={styles.suggestionsContainer}>
-        <Text style={styles.quickPromptTitle}>EXPLORATION TOPICS</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+        <Text style={[styles.eyebrow, { color: colors.muted, marginBottom: 10 }]}>Exploration topics</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}>
           {['Peace in anxiety', 'Forgiving when hurt', 'Who is the Holy Spirit?', 'Romans 8 walk-through'].map((item) => (
             <Pressable
               key={item}
-              style={styles.suggestionChip}
+              style={({ pressed }) => [styles.suggestionChip, pressed && { backgroundColor: colors.raised }]}
               onPress={() => nav.push('BibleChat', { seed: item, send: true })}
             >
               <Text style={styles.suggestionChipText}>{item}</Text>
@@ -84,7 +257,9 @@ export default function GodModeScreen() {
 
       {state.chatHistory.length ? (
         <Pressable onPress={() => nav.push('BibleChat', {})} style={styles.resumeChat}>
-          <Text style={styles.resumeChatText}>Continue previous conversation ›</Text>
+          <Icon name="chat" size={15} color={colors.primary} />
+          <Text style={styles.resumeChatText}>Continue previous conversation</Text>
+          <Icon name="chevron-right" size={14} color={colors.primary} />
         </Pressable>
       ) : null}
 
@@ -97,84 +272,124 @@ export default function GodModeScreen() {
 }
 
 // ---------- Reading screen (Screen 2) ----------
-export function ReadingScreen({ params }) {
+export function ReadingScreen({ params = {} }) {
   const nav = useNav();
   const { state } = useStore();
-  const bookId = params.bookId || 'MAT';
-  const chapter = params.chapter || 1;
+  const nar = useNarration();
+  const toast = useToast();
+  const bookId = params.bookId || state.lastPosition?.bookId || 'MAT';
+  const chapter = Number(params.chapter || state.lastPosition?.chapter || 1);
   const verses = getChapter(state.translation, bookId, chapter) || getChapter('KJV', bookId, chapter) || [];
+  const narHere = nar.active && nar.bookId === bookId && nar.chapter === chapter;
+  const listen = () => {
+    if (!verses.length) return;
+    if (narHere) nar.toggle();
+    else {
+      nar.playChapter(bookId, chapter, { translation: state.translation });
+      toast.show(`Playing ${refLabel(bookId, chapter)}`, { icon: 'headphones', action: { label: 'Player', onPress: () => nar.openPlayer() } });
+    }
+  };
   const title = CHAPTER_TITLES[`${bookId}:${chapter}`] || refLabel(bookId, chapter);
   const ctx = { bookId, chapter };
   const ask = (q) => nav.push('BibleChat', { context: ctx, seed: q, send: true });
 
+  const tiles = [
+    { label: 'Summarize', sub: 'Key points', icon: 'sparkles', tint: colors.primary, bg: colors.cardIndigo, q: 'Summarize this chapter simply and clearly' },
+    { label: 'Plain words', sub: 'Modern', icon: 'chat', tint: colors.gold, bg: colors.cardGold, q: "Explain this passage in today's plain language" },
+    { label: 'Meaning', sub: 'Context', icon: 'book', tint: colors.sage, bg: colors.cardSage, q: 'What is the deeper theological meaning here?' },
+    { label: 'Apply', sub: 'Daily life', icon: 'heart', tint: colors.rose, bg: colors.cardRose, q: 'How do I apply this to my life today?' },
+  ];
+
   return (
-    <Screen back title={refLabel(bookId, chapter)} subtitle={title} scroll={false} padded={false}>
+    <Screen
+      back
+      title={refLabel(bookId, chapter)}
+      subtitle={title}
+      scroll={false}
+      padded={false}
+      right={
+        verses.length ? (
+          <PressScale
+            onPress={listen}
+            hitSlop={10}
+            scaleTo={0.88}
+            accessibilityLabel={narHere && nar.playing ? 'Pause narration' : 'Listen to chapter'}
+            style={[styles.menuIconCircle, narHere && { backgroundColor: colors.night, borderColor: colors.night }]}
+          >
+            <Pulse active={!!(narHere && nar.playing)} min={0.9} max={1.1}>
+              <Icon name={narHere && nar.playing ? 'pause' : 'headphones'} size={16} color={narHere ? colors.goldLight : colors.fg} />
+            </Pulse>
+          </PressScale>
+        ) : null
+      }
+    >
       {/* Scripture Text View */}
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 22, paddingTop: 16, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 22, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.readingHeader}>
-          <Text style={styles.readingEyebrow}>HOLY SCRIPTURE · {state.translation}</Text>
+        <FadeInUp style={styles.readingHeader}>
+          <Text style={styles.readingEyebrow}>Holy Scripture · {state.translation}</Text>
           <Text style={styles.readingTitle}>{title}</Text>
-          <View style={styles.readingDivider} />
-        </View>
+          <ScaleIn delay={220} from={0.6} style={styles.ornament}>
+            <View style={styles.ornamentLine} />
+            <Text style={styles.ornamentStar}>✦</Text>
+            <View style={styles.ornamentLine} />
+          </ScaleIn>
+        </FadeInUp>
 
-        {verses.map((v, i) => (
-          <Text key={i} style={styles.passageParagraph}>
-            <Text style={styles.verseNumber}>{i + 1} </Text>
-            {v}
-          </Text>
-        ))}
+        {verses.length ? (
+          verses.map((v, i) => (
+            // Only the first screenful staggers (FadeInUp caps the delay); later verses arrive with the last of them.
+            <FadeInUp key={i} index={i} delay={120} distance={8} duration={360} stagger={40}>
+              <Text style={[styles.passageParagraph, narHere && nar.verse === i + 1 && styles.passageActive]}>
+                <Text style={styles.verseNumber}>{i + 1}  </Text>
+                {v}
+              </Text>
+            </FadeInUp>
+          ))
+        ) : (
+          <Empty title="Chapter not available" body={`${refLabel(bookId, chapter)} isn’t in your library yet.`} action="Open the Bible" onAction={() => nav.push('Bible', {})} />
+        )}
       </ScrollView>
 
-      {/* Flat Bottom Sheet */}
-      <View style={styles.glassSheet}>
-
+      {/* Study sheet */}
+      <FadeInUp delay={180} distance={36} duration={460} style={styles.studySheet}>
         <View style={styles.sheetHandle} />
 
         <View style={styles.sheetTopRow}>
-          <View>
-            <Text style={styles.sheetStatus}>CURRENT PASSAGE</Text>
-            <Text style={styles.sheetHeading}>{refLabel(bookId, chapter)}: {title}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.sheetStatus}>Study with AI</Text>
+            <Text style={styles.sheetHeading} numberOfLines={1}>{refLabel(bookId, chapter)}: {title}</Text>
           </View>
-          <Pressable onPress={() => nav.push('Bible', ctx)} style={styles.openBibleBtn}>
-            <Text style={styles.openBibleText}>Full Bible ›</Text>
-          </Pressable>
+          <PressScale onPress={() => nav.push('Bible', ctx)} scaleTo={0.93} style={styles.openBibleBtn}>
+            <Icon name="bible" size={13} color={colors.primary} />
+            <Text style={styles.openBibleText}>Full Bible</Text>
+          </PressScale>
         </View>
 
-        {/* 4 Clean Ergonomic Action Tiles */}
         <View style={styles.sheetTiles}>
-          <Pressable style={styles.sheetTile} onPress={() => ask('Summarize this chapter simply and clearly')}>
-            <View style={{ marginBottom: 6 }}><Icon name="sparkles" size={18} color={colors.royalIndigo} /></View>
-            <Text style={styles.tileTitle}>Summarize</Text>
-            <Text style={styles.tileSub}>Key takeaways</Text>
-          </Pressable>
-
-          <Pressable style={styles.sheetTile} onPress={() => ask("Explain this passage in today's plain language")}>
-            <View style={{ marginBottom: 6 }}><Icon name="chat" size={18} color={colors.amberGold} /></View>
-            <Text style={styles.tileTitle}>Plain Language</Text>
-            <Text style={styles.tileSub}>Modern words</Text>
-          </Pressable>
-
-          <Pressable style={styles.sheetTile} onPress={() => ask('What is the deeper theological meaning here?')}>
-            <View style={{ marginBottom: 6 }}><Icon name="book" size={18} color={colors.emerald} /></View>
-            <Text style={styles.tileTitle}>Deep Meaning</Text>
-            <Text style={styles.tileSub}>Historical context</Text>
-          </Pressable>
-
-          <Pressable style={styles.sheetTile} onPress={() => ask('How do I apply this to my life today?')}>
-            <View style={{ marginBottom: 6 }}><Icon name="heart" size={18} color={colors.roseCoral} /></View>
-            <Text style={styles.tileTitle}>Apply to Life</Text>
-            <Text style={styles.tileSub}>Daily practice</Text>
-          </Pressable>
+          {tiles.map((t, i) => (
+            <FadeInUp key={t.label} index={i} delay={320} distance={10} style={{ flex: 1 }}>
+              <PressScale
+                scaleTo={0.94}
+                style={styles.sheetTile}
+                onPress={() => ask(t.q)}
+                accessibilityLabel={`${t.label}: ${t.sub}`}
+              >
+                <View style={[styles.tileIconBox, { backgroundColor: t.bg }]}>
+                  <Icon name={t.icon} size={16} color={t.tint} />
+                </View>
+                <Text style={styles.tileTitle} numberOfLines={1}>{t.label}</Text>
+                <Text style={styles.tileSub} numberOfLines={1}>{t.sub}</Text>
+              </PressScale>
+            </FadeInUp>
+          ))}
         </View>
 
-        <View style={{ marginTop: 12 }}>
-          <AskBar placeholder={`Ask about ${refLabel(bookId, chapter)}...`} onSend={ask} />
-        </View>
-      </View>
+        <AskBar placeholder={`Ask about ${refLabel(bookId, chapter)}...`} onSend={ask} />
+      </FadeInUp>
     </Screen>
   );
 }
@@ -183,27 +398,94 @@ export function ReadingScreen({ params }) {
 export function BibleChatScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
+  const toast = useToast();
+  const nar = useNarration();
+  const fresh = Boolean(params.context || params.seed);
   const [context, setContext] = useState(params.context || null);
-  const [history, setHistory] = useState(params.context || params.seed ? [] : state.chatHistory);
+  const [history, setHistory] = useState(fresh ? [] : state.chatHistory || []);
   const [typing, setTyping] = useState(false);
   const [menu, setMenu] = useState(false);
   const scroll = useRef(null);
   const sentSeed = useRef(false);
+  const historyRef = useRef(history);
+  const threads = state.chatThreads || [];
+
+  // Keep the history in a ref so the async responder never needs a state updater with side effects.
+  const commit = (next, persist) => {
+    historyRef.current = next;
+    setHistory(next);
+    if (persist) dispatch({ type: 'chat', history: next });
+  };
+
+  // Starting a fresh, seeded conversation keeps the previous one under "Recent conversations".
+  useEffect(() => {
+    if (fresh && (state.chatHistory || []).length) {
+      dispatch({ type: 'set', patch: { chatThreads: [{ id: 't' + Date.now(), history: state.chatHistory }, ...threads].slice(0, 5) } });
+    }
+  }, []);
 
   const send = (text) => {
     if (!text.trim()) return;
-    const userMsg = { id: 'u' + Date.now(), role: 'user', text };
-    setHistory((h) => [...h, userMsg]);
+    commit([...historyRef.current, { id: 'u' + Date.now(), role: 'user', text }], false);
     setTyping(true);
     setTimeout(() => {
       const blocks = answerBibleChat(text, context, state.translation);
-      setHistory((h) => {
-        const next = [...h, { id: 'a' + Date.now(), role: 'assistant', blocks, question: text }];
-        dispatch({ type: 'chat', history: next });
-        return next;
-      });
+      commit([...historyRef.current, { id: 'a' + Date.now(), role: 'assistant', blocks, question: text }], true);
       setTyping(false);
     }, 500);
+  };
+
+  const archiveCurrent = () => (historyRef.current.length ? [{ id: 't' + Date.now(), history: historyRef.current }, ...threads].slice(0, 5) : threads);
+
+  const newConversation = () => {
+    setMenu(false);
+    if (!historyRef.current.length) return toast.show('You’re already in a new conversation', { icon: 'chat' });
+    dispatch({ type: 'set', patch: { chatThreads: archiveCurrent() } });
+    commit([], true);
+    toast.show('Started a new conversation', { icon: 'chat' });
+  };
+
+  const deleteConversation = () => {
+    setMenu(false);
+    const prev = historyRef.current;
+    if (!prev.length) return toast.show('Nothing to delete yet', { icon: 'chat' });
+    commit([], true);
+    toast.show('Conversation deleted', { icon: 'trash', action: { label: 'Undo', onPress: () => commit(prev, true) } });
+  };
+
+  const resumeThread = (t) => {
+    setMenu(false);
+    const rest = threads.filter((x) => x.id !== t.id);
+    const cur = historyRef.current.length ? [{ id: 't' + Date.now(), history: historyRef.current }] : [];
+    dispatch({ type: 'set', patch: { chatThreads: [...cur, ...rest].slice(0, 5) } });
+    commit(t.history || [], true);
+    toast.show('Conversation restored', { icon: 'chat' });
+  };
+
+  const isSaved = (m) => (state.savedAnswers || []).some((a) => a.msgId === m.id);
+  const saveAnswer = (m) => {
+    if (isSaved(m)) return toast.show('Already in your library', { icon: 'bookmark', action: { label: 'Library', onPress: () => nav.push('Library') } });
+    dispatch({ type: 'saveAnswer', a: { msgId: m.id, question: m.question, blocks: m.blocks, context } });
+    toast.show('Answer saved to your library', { icon: 'bookmark', haptic: 'success', action: { label: 'Library', onPress: () => nav.push('Library') } });
+  };
+
+  const listen = (m) => {
+    const p = answerPassage(m, context);
+    if (!p) return toast.show('No passage to read aloud in this answer', { tone: 'error' });
+    if (p.verse) nar.playVerse(p.bookId, p.chapter, p.verse, { translation: state.translation });
+    else nar.playChapter(p.bookId, p.chapter, { translation: state.translation });
+    toast.show(`Listening to ${refLabel(p.bookId, p.chapter, p.verse)}`, { icon: 'headphones', action: { label: 'Player', onPress: () => nar.openPlayer() } });
+  };
+
+  const copy = async (m) => {
+    if (await copyText(answerText(m))) toast.show('Answer copied', { icon: 'link' });
+    else shareText(answerText(m), toast);
+  };
+
+  const postToFeed = (m) => {
+    const p = answerPassage(m, context);
+    dispatch({ type: 'post', post: { kind: 'Study', text: m.blocks.find((b) => b.type === 'Explanation')?.text || m.question, passage: p ? refLabel(p.bookId, p.chapter, p.verse) : undefined } });
+    toast.show('Shared to your feed', { icon: 'socials', action: { label: 'View', onPress: () => nav.push('Feed') } });
   };
 
   useEffect(() => {
@@ -221,7 +503,7 @@ export function BibleChatScreen({ params = {} }) {
     ? ['Summarize this chapter', "Explain verse 1 in today's language", 'What is the deeper meaning here?', 'What does this word mean in Greek?']
     : ['Which passages discuss peace?', 'What does love mean in original Greek?', 'Why did Jesus say you must be born again?', 'How do translations differ in Psalm 23?'];
 
-  const tint = (t) => ({ Scripture: colors.teal, Explanation: colors.fg, Commentary: colors.gold, Interpretations: colors.lavender, 'Further study': colors.yellow }[t] || colors.fg);
+  const tint = (t) => BLOCK_TINT[t] || colors.primary;
 
   return (
     <Screen
@@ -231,46 +513,90 @@ export function BibleChatScreen({ params = {} }) {
       scroll={false}
       padded={false}
       right={
-        <Pressable onPress={() => setMenu(!menu)} hitSlop={12} style={styles.menuIconCircle}>
-          <Text style={{ color: colors.fg, fontSize: 16 }}>⋯</Text>
-        </Pressable>
+        <PressScale
+          onPress={() => setMenu(!menu)}
+          hitSlop={12}
+          scaleTo={0.88}
+          accessibilityLabel="Conversation options"
+          style={[styles.menuIconCircle, menu && { backgroundColor: colors.raised }]}
+        >
+          <Text style={styles.menuDots}>•••</Text>
+        </PressScale>
       }
     >
-      {menu ? (
-        <View style={styles.dropdownMenu}>
-          <Pressable onPress={() => { setHistory([]); dispatch({ type: 'chat', history: [] }); setMenu(false); }}>
-            <Text style={styles.dropdownItem}>New conversation</Text>
-          </Pressable>
-          <Pressable onPress={() => { setContext(null); setMenu(false); }}>
-            <Text style={styles.dropdownItem}>Clear passage context</Text>
-          </Pressable>
-          <Pressable onPress={() => { nav.push('Profile', { tab: 'Privacy' }); setMenu(false); }}>
-            <Text style={styles.dropdownItem}>Memory & privacy</Text>
-          </Pressable>
-        </View>
-      ) : null}
+      {menu ? <Pressable style={styles.menuBackdrop} onPress={() => setMenu(false)} accessibilityLabel="Close menu" /> : null}
+      <Dropdown visible={menu} style={styles.dropdownMenu}>
+          <MenuItem icon="plus" label="New conversation" onPress={newConversation} />
+          {history.length ? <MenuItem icon="share" label="Share conversation" onPress={() => { setMenu(false); shareText(history.filter((m) => m.role === 'assistant').map(answerText).join('\n\n———\n\n'), toast); }} /> : null}
+          {history.length ? <MenuItem icon="trash" label="Delete conversation" onPress={deleteConversation} /> : null}
+          {context ? (
+            <MenuItem
+              icon="book"
+              label="Clear passage context"
+              onPress={() => { setContext(null); setMenu(false); toast.show('Now asking across the whole Bible', { icon: 'book' }); }}
+            />
+          ) : null}
+          {threads.length ? <Text style={styles.menuSection}>Recent conversations</Text> : null}
+          {threads.slice(0, 3).map((t) => (
+            <MenuItem
+              key={t.id}
+              icon="clock"
+              label={(t.history.find((m) => m.role === 'user') || {}).text || 'Conversation'}
+              onPress={() => resumeThread(t)}
+            />
+          ))}
+          <MenuItem
+            icon="shield"
+            label="Memory & privacy"
+            last
+            onPress={() => { nav.push('Profile', { tab: 'Privacy' }); setMenu(false); }}
+          />
+      </Dropdown>
 
       <ScrollView
         ref={scroll}
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 18, gap: 14 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 18, paddingBottom: 16, gap: 18 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {!history.length ? (
-          <View style={{ alignItems: 'center', marginTop: 16 }}>
-            <View style={styles.chatSparkBadge}>
-              <Text style={{ fontSize: 22, color: colors.gold }}>✦</Text>
-            </View>
-            <Text style={styles.chatEmptyTitle}>Ask About Scripture</Text>
-            <Text style={styles.chatEmptySub}>
-              Answers are cross-referenced with your licensed library, verifying citations before display.
+          <View style={styles.chatEmpty}>
+            <ScaleIn style={styles.chatSparkBadge} from={0.6}>
+              <Pulse min={0.92} max={1.06} duration={1400}>
+                <Text style={{ fontSize: 22, color: colors.goldLight }}>✦</Text>
+              </Pulse>
+            </ScaleIn>
+            <FadeInUp delay={80} style={{ alignItems: 'center' }}>
+              <Text style={styles.chatEmptyTitle}>Ask about Scripture</Text>
+              <Text style={styles.chatEmptySub}>
+                Answers are cross-referenced with your licensed library, verifying citations before display.
+              </Text>
+            </FadeInUp>
+            {context ? (
+              <View style={styles.contextChip}>
+                <Icon name="book" size={13} color={colors.primary} />
+                <Text style={styles.contextChipText}>Studying {refLabel(context.bookId, context.chapter, context.verse)}</Text>
+              </View>
+            ) : null}
+            <Text style={[styles.eyebrow, { color: colors.muted, alignSelf: 'flex-start', marginTop: 26, marginBottom: 10 }]}>
+              Try asking
             </Text>
-            <View style={{ marginTop: 20, gap: 8, alignSelf: 'stretch' }}>
-              {suggested.map((s) => (
-                <Pressable key={s} onPress={() => send(s)} style={styles.suggestCard}>
-                  <Text style={styles.suggestText}>✦ {s}</Text>
-                </Pressable>
+            <View style={{ gap: 8, alignSelf: 'stretch' }}>
+              {suggested.map((s, i) => (
+                <FadeInUp key={s} index={i} delay={180} distance={10}>
+                  <PressScale
+                    onPress={() => send(s)}
+                    scaleTo={0.98}
+                    style={styles.suggestCard}
+                  >
+                    <View style={styles.suggestIcon}>
+                      <Icon name="sparkles" size={14} color={colors.primary} />
+                    </View>
+                    <Text style={styles.suggestText}>{s}</Text>
+                    <Icon name="arrow-right" size={14} color={colors.faint} />
+                  </PressScale>
+                </FadeInUp>
               ))}
             </View>
           </View>
@@ -278,59 +604,99 @@ export function BibleChatScreen({ params = {} }) {
 
         {history.map((m) =>
           m.role === 'user' ? (
-            <View key={m.id} style={styles.userBubble}>
-              <Text style={styles.userText}>{m.text}</Text>
-            </View>
-          ) : (
-            <View key={m.id} style={styles.aiCard}>
-              <View style={styles.aiCardHeader}>
-                <Text style={styles.aiBadge}>✦ SCRIPTURE EXEGESIS</Text>
+            <SlideInRight key={m.id} style={styles.userRow}>
+              <View style={styles.userBubble}>
+                <Text style={styles.userText}>{m.text}</Text>
               </View>
-
-              {m.blocks.map((b, i) => (
-                <View key={i} style={styles.blockContainer}>
-                  <Text style={[styles.blockType, { color: tint(b.type) }]}>
-                    {b.type.toUpperCase()}{b.source ? ' · ' + b.source : ''}
-                  </Text>
-                  {b.ref ? (
-                    <Pressable
-                      onPress={() => nav.push('Bible', { bookId: b.bookId, chapter: b.chapter, verse: b.verse })}
-                      style={styles.quoteBox}
-                    >
-                      <Text style={styles.quoteText}>"{b.text}"</Text>
-                      <Text style={styles.quoteRef}>{b.ref} · {b.translation} · Read passage ›</Text>
-                    </Pressable>
-                  ) : (
-                    <Text style={styles.blockBodyText}>{b.text}</Text>
-                  )}
+            </SlideInRight>
+          ) : (
+            <View key={m.id} style={styles.aiWrap}>
+              <FadeInUp distance={6} duration={300} style={styles.aiHeader}>
+                <AssistantAvatar />
+                <Text style={styles.aiName}>Scripture Intelligence</Text>
+                <View style={styles.verifiedPill}>
+                  <Icon name="check" size={10} color={colors.positive} strokeWidth={2.6} />
+                  <Text style={styles.verifiedText}>Citations verified</Text>
                 </View>
-              ))}
+              </FadeInUp>
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
-                {context ? <Pill small label="Open passage" onPress={() => nav.push('Bible', context)} /> : null}
-                <Pill small label="Save answer" onPress={() => dispatch({ type: 'saveAnswer', a: { question: m.question, blocks: m.blocks } })} />
-                <Pill small label="Compare translations" onPress={() => nav.push('Bible', { ...(context || { bookId: 'JHN', chapter: 3 }) })} />
-                <Pill small label="Share excerpt" onPress={() => dispatch({ type: 'post', post: { kind: 'Study', text: m.blocks.find((b) => b.type === 'Explanation')?.text || m.question } })} />
+              <FadeInUp delay={60} distance={10} duration={340} style={styles.aiCard}>
+                {m.blocks.map((b, i) => {
+                  const t = tint(b.type);
+                  return (
+                    // Each answer section settles in after the last, like it is being written.
+                    <FadeInUp key={i} index={i} delay={80} stagger={70} distance={8} duration={320} style={[styles.blockContainer, i > 0 && styles.blockRule]}>
+                      <View style={styles.blockHeadRow}>
+                        <View style={[styles.blockHead, { backgroundColor: alpha(t, 0.1) }]}>
+                          <Icon name={BLOCK_ICON[b.type] || 'sparkles'} size={11} color={t} strokeWidth={2.2} />
+                          <Text style={[styles.blockType, { color: t }]}>{b.type}</Text>
+                        </View>
+                        {b.source ? <Text style={styles.blockSource} numberOfLines={1}>{b.source}</Text> : null}
+                      </View>
+                      {b.ref ? (
+                        <PressScale
+                          onPress={() => nav.push('Bible', { bookId: b.bookId, chapter: b.chapter, verse: b.verse })}
+                          scaleTo={0.98}
+                          style={styles.quoteBox}
+                        >
+                          <Text style={styles.quoteText}>“{b.text}”</Text>
+                          <View style={styles.quoteFoot}>
+                            <Text style={styles.quoteRef}>{b.ref} · {b.translation}</Text>
+                            <View style={styles.quoteLink}>
+                              <Text style={styles.quoteLinkText}>Read passage</Text>
+                              <Icon name="chevron-right" size={12} color={colors.primary} strokeWidth={2.4} />
+                            </View>
+                          </View>
+                        </PressScale>
+                      ) : (
+                        <Text style={styles.blockBodyText}>{b.text}</Text>
+                      )}
+                    </FadeInUp>
+                  );
+                })}
+              </FadeInUp>
+
+              <FadeInUp delay={140 + Math.min(m.blocks.length, 10) * 70} distance={6} duration={300}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -16 }} contentContainerStyle={{ gap: 8, paddingTop: 10, paddingHorizontal: 16 }}>
+                {(() => {
+                  const p = answerPassage(m, context);
+                  const saved = isSaved(m);
+                  return (
+                    <>
+                      {p ? <ActionChip icon="book" label="Open passage" onPress={() => nav.push('Bible', p)} /> : null}
+                      {p ? <ActionChip icon="headphones" label="Listen" onPress={() => listen(m)} /> : null}
+                      <ActionChip icon="bookmark" label={saved ? 'Saved' : 'Save answer'} active={saved} onPress={() => saveAnswer(m)} />
+                      {p ? <ActionChip icon="bible" label="Compare translations" onPress={() => nav.push('Bible', { ...p, compare: true })} /> : null}
+                      <ActionChip icon="share" label="Share" onPress={() => shareText(answerText(m), toast)} />
+                      <ActionChip icon="link" label="Copy" onPress={() => copy(m)} />
+                      <ActionChip icon="socials" label="Post to feed" onPress={() => postToFeed(m)} />
+                    </>
+                  );
+                })()}
               </ScrollView>
+              </FadeInUp>
             </View>
           )
         )}
 
         {typing ? (
-          <View style={styles.typingCard}>
-            <Text style={{ color: colors.gold, fontFamily: fonts.sansMedium, fontSize: 12 }}>
-              ✦ Verifying Scripture references…
-            </Text>
-          </View>
+          <FadeInUp distance={8} duration={260} style={styles.typingRow}>
+            <AssistantAvatar />
+            <View style={styles.typingCard}>
+              <TypingDots />
+              <Text style={styles.typingText}>Verifying Scripture references…</Text>
+            </View>
+          </FadeInUp>
         ) : null}
       </ScrollView>
 
-      <View style={{ padding: 14, paddingTop: 4 }}>
+      <View style={styles.composer}>
         <AskBar
           placeholder={context ? 'Ask about this passage...' : 'Ask about Scripture...'}
           onSend={send}
           initial={params.send ? '' : params.seed}
         />
+        <Text style={styles.composerNote}>Answers cite Scripture from your library. Always read in context.</Text>
       </View>
     </Screen>
   );
@@ -340,554 +706,640 @@ export function BibleChatScreen({ params = {} }) {
 export function CompanionScreen() {
   const nav = useNav();
   const { state, dispatch } = useStore();
+  const toast = useToast();
+  const nar = useNarration();
   const [text, setText] = useState('');
   const [cat, setCat] = useState(null);
   const [result, setResult] = useState(null);
   const [reflection, setReflection] = useState('');
 
+  const run = (msg, category, record = true) => {
+    const r = companionResults(category ? `${category}. ${msg}` : msg, state.translation);
+    setResult(r);
+    if (record) dispatch({ type: 'companion', entry: { when: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), text: msg, cat: category || null, refs: r.passages.map((p) => p.ref) } });
+  };
+
   const submit = () => {
     const msg = (text.trim() || cat || '').trim();
     if (!msg) return;
-    const r = companionResults(cat ? `${cat}. ${msg}` : msg, state.translation);
-    setResult(r);
-    dispatch({ type: 'companion', entry: { when: 'Now', text: msg, refs: r.passages.map((p) => p.ref) } });
+    run(msg, cat);
   };
+
+  const reopen = (h) => {
+    setText(h.text);
+    setCat(h.cat || null);
+    run(h.text, h.cat || null, false);
+  };
+
+  const isSaved = (p) => state.bookmarks.some((b) => b.bookId === p.bookId && b.chapter === p.chapter && (b.verse || null) === (p.verses[0] || null));
+  const toggleSave = (p) => {
+    const saved = isSaved(p);
+    dispatch({ type: 'bookmark', b: { bookId: p.bookId, chapter: p.chapter, verse: p.verses[0], folder: 'Scripture Companion' } });
+    toast.show(saved ? `${p.ref} removed from bookmarks` : `${p.ref} saved to bookmarks`, {
+      icon: 'bookmark',
+      haptic: saved ? 'select' : 'success',
+      action: saved ? undefined : { label: 'Library', onPress: () => nav.push('Library') },
+    });
+  };
+
+  const listen = (p) => {
+    if (p.verses.length > 1) nar.playChapter(p.bookId, p.chapter, { translation: state.translation, fromVerse: p.verses[0] });
+    else nar.playVerse(p.bookId, p.chapter, p.verses[0], { translation: state.translation });
+    toast.show(`Listening to ${p.ref}`, { icon: 'headphones', action: { label: 'Player', onPress: () => nar.openPlayer() } });
+  };
+
+  // What the person shared (shown back as their message in the conversation)
+  const shared = (text.trim() || cat || '').trim();
 
   return (
     <Screen back title="Scripture Companion" subtitle="Private · confidential · comforting">
       {!result ? (
-        <View>
-          <View style={{ alignItems: 'center', marginTop: 14 }}>
-            <View style={styles.chatSparkBadge}>
-              <Icon name="prayer" size={22} color={colors.royalIndigo} />
-            </View>
-            <Text style={styles.h1}>What is on your heart?</Text>
-            <Text style={[styles.sub, { maxWidth: 300 }]}>
-              Express your feelings honestly. We will find comforting, truth-filled Scripture tailored for you.
-            </Text>
+        <View key="compose">
+          <View style={styles.companionHero}>
+            <ScaleIn from={0.6} style={styles.companionIcon}>
+              <Icon name="prayer" size={22} color={colors.goldLight} />
+            </ScaleIn>
+            <FadeInUp delay={80} style={{ alignItems: 'center' }}>
+              <Text style={styles.companionTitle}>What is on your heart?</Text>
+              <Text style={styles.companionSub}>
+                Express your feelings honestly. We will find comforting, truth-filled Scripture tailored for you.
+              </Text>
+            </FadeInUp>
           </View>
 
-          <Input
-            multiline
-            placeholder="I have been feeling anxious about..."
-            value={text}
-            onChangeText={setText}
-            style={{ marginTop: 18, minHeight: 110 }}
-          />
+          <FadeInUp index={2} delay={60} style={styles.composeCard}>
+            <Input
+              multiline
+              placeholder="I have been feeling anxious about..."
+              value={text}
+              onChangeText={setText}
+              style={styles.composeInput}
+            />
+            <View style={styles.composeRule} />
+            <Text style={[styles.eyebrow, { color: colors.muted, marginBottom: 10 }]}>Or choose a theme</Text>
+            <View style={styles.themeWrap}>
+              {COMPANION_CATEGORIES.map((c) => (
+                <Pill key={c} small label={c} active={cat === c} onPress={() => setCat(cat === c ? null : c)} />
+              ))}
+            </View>
+          </FadeInUp>
 
-          <Pills
-            small
-            items={COMPANION_CATEGORIES}
-            value={cat}
-            onChange={(c) => setCat(cat === c ? null : c)}
-            style={{ marginTop: 10 }}
-            tint={colors.teal}
-          />
-
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+          <FadeInUp index={3} delay={60}>
             <Button
               label="Seek Scripture"
               onPress={submit}
-              style={{ flex: 1 }}
+              style={{ marginTop: 16 }}
               disabled={!text.trim() && !cat}
+              icon={<Icon name="sparkles" size={15} color={colors.primaryFg} />}
             />
-          </View>
+
+            <View style={styles.privacyLine}>
+              <Icon name="shield" size={13} color={colors.faint} />
+              <Text style={styles.privacyText}>Only you can see what you share here.</Text>
+            </View>
+          </FadeInUp>
 
           {state.companionHistory.length ? (
             <Section title="Your private reflections">
               {state.companionHistory.map((h, i) => (
-                <Row key={i} title={h.text} subtitle={h.refs.join(' · ')} right={h.when} />
+                <FadeInUp key={i} index={4 + i} delay={60} distance={10}>
+                  <Row
+                    title={h.text}
+                    subtitle={(h.refs || []).join(' · ')}
+                    right={h.when}
+                    left={<Icon name="bookmark" size={16} color={colors.gold} />}
+                    onPress={() => reopen(h)}
+                  />
+                </FadeInUp>
               ))}
             </Section>
           ) : null}
         </View>
       ) : (
-        <View>
-          {result.crisis ? (
-            <View style={styles.crisis}>
-              <Text style={styles.crisisTitle}>You matter deeply. Please reach out.</Text>
-              <Text style={styles.crisisText}>
-                If you are in immediate danger or distress, contact your local emergency service or 988. This app does not replace professional care.
-              </Text>
-              <Button small label="Talk to a qualified person" onPress={() => nav.push('Care')} style={{ marginTop: 10 }} />
-            </View>
+        <View key="result" style={{ gap: 16 }}>
+          {shared ? (
+            <SlideInRight style={[styles.userRow, { marginTop: 6 }]}>
+              <View style={styles.userBubble}>
+                <Text style={styles.userText}>{shared}{cat && text.trim() ? `  ·  ${cat}` : ''}</Text>
+              </View>
+            </SlideInRight>
           ) : null}
 
-          <View style={styles.acknowledgmentCard}>
-            <Text style={styles.ackText}>{result.acknowledgment}</Text>
-          </View>
-
-          {result.passages.map((p) => (
-            <View key={p.ref} style={styles.passageCard}>
-              <Text style={styles.passageRef}>✦ {p.ref} ({p.translation})</Text>
-              <Text style={styles.passageScripture}>"{p.text}"</Text>
-              <Text style={styles.passageWhy}>{p.why}</Text>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                <Button small kind="ghost" label="Read in context" onPress={() => nav.push('Bible', { bookId: p.bookId, chapter: p.chapter, verse: p.verses[0] })} />
-                <Button small kind="ghost" label="Save bookmark" onPress={() => dispatch({ type: 'bookmark', b: { bookId: p.bookId, chapter: p.chapter, verse: p.verses[0], folder: 'Scripture Companion' } })} />
+          {result.crisis ? (
+            <FadeInUp delay={120} style={styles.crisis}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Icon name="heart" size={16} color={colors.negative} />
+                <Text style={styles.crisisTitle}>You matter deeply. Please reach out.</Text>
               </View>
+              <Text style={styles.crisisText}>
+                If you are in immediate danger, call your local emergency number now. You can also reach a free, confidential crisis line (988 in the US). This app does not replace professional care.
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                <Button small label="Talk to a qualified person" onPress={() => nav.push('Care', { preselect: 'I need someone to talk to' })} />
+                <Button
+                  small
+                  kind="ghost"
+                  label="Find a crisis line"
+                  icon={<Icon name="globe" size={13} color={colors.fg} />}
+                  onPress={() => Linking.openURL('https://findahelpline.com').catch(() => toast.show('Couldn’t open the helpline directory', { tone: 'error' }))}
+                />
+              </View>
+            </FadeInUp>
+          ) : null}
+
+          <FadeInUp index={1} delay={160} style={styles.aiWrap}>
+            <View style={styles.aiHeader}>
+              <AssistantAvatar />
+              <Text style={styles.aiName}>Scripture Companion</Text>
             </View>
+            <View style={styles.ackBubble}>
+              <Text style={styles.ackText}>{result.acknowledgment}</Text>
+            </View>
+          </FadeInUp>
+
+          {result.passages.map((p, pi) => (
+            <FadeInUp key={p.ref} index={2 + pi} delay={160} stagger={120} distance={16} style={styles.passageCard}>
+              <View style={styles.blockHeadRow}>
+                <View style={[styles.blockHead, { backgroundColor: alpha(colors.gold, 0.12) }]}>
+                  <Icon name="bible" size={11} color={colors.gold} strokeWidth={2.2} />
+                  <Text style={[styles.blockType, { color: colors.gold }]}>{p.ref}</Text>
+                </View>
+                <Text style={styles.blockSource}>{p.translation}</Text>
+                <PressScale onPress={() => listen(p)} accessibilityLabel={`Listen to ${p.ref}`} hitSlop={6} scaleTo={0.88} style={styles.iconBtn}>
+                  <Icon name="headphones" size={15} color={colors.fg} />
+                </PressScale>
+                <PressScale
+                  onPress={() => shareText(`“${p.text}” — ${p.ref} (${p.translation})`, toast)}
+                  accessibilityLabel={`Share ${p.ref}`}
+                  hitSlop={6}
+                  scaleTo={0.88}
+                  style={styles.iconBtn}
+                >
+                  <Icon name="share" size={15} color={colors.fg} />
+                </PressScale>
+              </View>
+              <Text style={styles.passageScripture}>“{p.text}”</Text>
+              <View style={styles.whyBox}>
+                <Text style={styles.whyLabel}>Why this passage</Text>
+                <Text style={styles.passageWhy}>{p.why}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                <Button
+                  small
+                  kind="ghost"
+                  label="Read in context"
+                  style={{ flex: 1 }}
+                  icon={<Icon name="book" size={13} color={colors.fg} />}
+                  onPress={() => nav.push('Bible', { bookId: p.bookId, chapter: p.chapter, verse: p.verses[0] })}
+                />
+                <Pop trigger={isSaved(p)} amount={1.06} style={{ flex: 1 }}>
+                  <Button
+                    small
+                    kind={isSaved(p) ? 'primary' : 'ghost'}
+                    label={isSaved(p) ? 'Saved' : 'Save'}
+                    icon={<Icon name={isSaved(p) ? 'check' : 'bookmark'} size={13} color={isSaved(p) ? colors.primaryFg : colors.fg} />}
+                    onPress={() => toggleSave(p)}
+                  />
+                </Pop>
+              </View>
+            </FadeInUp>
           ))}
 
-          <Section title="Personal Reflection">
-            {result.reflections.map((r) => (
-              <Text key={r} style={styles.reflect}>· {r}</Text>
-            ))}
-            <Input
-              multiline
-              placeholder="Write a private note to God..."
-              value={reflection}
-              onChangeText={setReflection}
-              style={{ marginTop: 10, minHeight: 70 }}
-            />
-            {reflection.trim() ? (
-              <Button
-                small
-                label="Save reflection"
-                style={{ alignSelf: 'flex-start', marginTop: 8 }}
-                onPress={() => {
-                  dispatch({
-                    type: 'note',
-                    n: {
-                      bookId: result.passages[0].bookId,
-                      chapter: result.passages[0].chapter,
-                      verse: result.passages[0].verses[0],
-                      text: reflection.trim(),
-                    },
-                  });
-                  setReflection('');
-                }}
+          <FadeInUp index={2 + result.passages.length} delay={160} stagger={120}>
+          <Section title="Personal reflection" style={{ marginTop: 10 }}>
+            <View style={styles.reflectCard}>
+              {result.reflections.map((r, i) => (
+                <View key={r} style={styles.reflectRow}>
+                  <Text style={styles.reflectNum}>{i + 1}</Text>
+                  <Text style={styles.reflect}>{r}</Text>
+                </View>
+              ))}
+              <Input
+                multiline
+                placeholder="Write a private note to God..."
+                value={reflection}
+                onChangeText={setReflection}
+                style={styles.reflectInput}
               />
-            ) : null}
+              {reflection.trim() ? (
+                <ScaleIn style={{ alignSelf: 'flex-start' }} from={0.9}>
+                <Button
+                  small
+                  label="Save reflection"
+                  style={{ alignSelf: 'flex-start', marginTop: 10 }}
+                  onPress={() => {
+                    const first = result.passages[0];
+                    dispatch({
+                      type: 'note',
+                      n: first
+                        ? { bookId: first.bookId, chapter: first.chapter, verse: first.verses[0], text: reflection.trim() }
+                        : { bookId: 'PSA', chapter: 23, verse: 1, text: reflection.trim() },
+                    });
+                    setReflection('');
+                    toast.show('Reflection saved privately', { icon: 'highlight', haptic: 'success', action: { label: 'Library', onPress: () => nav.push('Library') } });
+                  }}
+                />
+                </ScaleIn>
+              ) : null}
+            </View>
           </Section>
+          </FadeInUp>
 
-          <Button kind="ghost" label="Start over" onPress={() => { setResult(null); setText(''); setCat(null); }} style={{ marginTop: 20 }} />
+          <FadeInUp index={3 + result.passages.length} delay={160} stagger={120}>
+          <Section title="Next steps" style={{ marginTop: 6 }}>
+            <Row
+              title="Continue in Bible Chat"
+              subtitle="Ask follow-up questions about these passages"
+              left={<Icon name="sparkles" size={17} color={colors.primary} />}
+              right={<Icon name="chevron-right" size={14} color={colors.faint} />}
+              onPress={() => nav.push('BibleChat', result.passages[0] ? { context: { bookId: result.passages[0].bookId, chapter: result.passages[0].chapter }, seed: 'How do I apply this to my life today?', send: true } : {})}
+            />
+            <Row
+              title="Ask others to pray"
+              subtitle="Share a request on the Prayer Wall"
+              left={<Icon name="prayer" size={17} color={colors.gold} />}
+              right={<Icon name="chevron-right" size={14} color={colors.faint} />}
+              onPress={() => nav.push('NewPrayer', result.passages[0] ? { verse: result.passages[0].ref } : {})}
+            />
+            <Row
+              title="Talk to a trusted person"
+              subtitle="Pastors, mentors and counselors"
+              left={<Icon name="users" size={17} color={colors.sage} />}
+              right={<Icon name="chevron-right" size={14} color={colors.faint} />}
+              onPress={() => nav.push('Care', { preselect: 'I need someone to talk to' })}
+            />
+          </Section>
+          </FadeInUp>
+
+          <Button kind="ghost" label="Start over" onPress={() => { setResult(null); setText(''); setCat(null); setReflection(''); }} style={{ marginTop: 6 }} />
         </View>
       )}
     </Screen>
   );
 }
 
+const EYEBROW = { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase' };
+
 const styles = StyleSheet.create({
-  greet: {
-    alignItems: 'center',
-    marginTop: 18,
-    marginBottom: 8,
+  eyebrow: { ...EYEBROW, color: colors.gold },
+
+  // ---- God Mode home
+  greet: { marginTop: 10, marginBottom: 4 },
+  homeTitle: { fontFamily: fonts.serifBold, fontSize: 27, lineHeight: 33, color: colors.fg, letterSpacing: -0.5, marginTop: 6 },
+  homeSub: { fontSize: 14, lineHeight: 20, color: colors.muted, marginTop: 8 },
+  grid: { marginTop: 22, gap: 12 },
+  gridRow: { flexDirection: 'row', gap: 12 },
+  suggestionsContainer: { marginTop: 26 },
+  suggestionChip: {
+    paddingHorizontal: 15,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  divinePill: {
+  suggestionChipText: { fontSize: 13, fontWeight: '500', color: colors.fg },
+  resumeChat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    marginTop: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primarySoft,
+  },
+  resumeChatText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+  askSection: { marginTop: 18, paddingBottom: 10 },
+
+  // ---- Reading
+  readingHeader: { alignItems: 'center', marginBottom: 22 },
+  readingEyebrow: { ...EYEBROW, letterSpacing: 2, color: colors.gold },
+  readingTitle: {
+    fontFamily: fonts.serifBold,
+    fontSize: 25,
+    lineHeight: 31,
+    letterSpacing: -0.4,
+    color: colors.fg,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  ornament: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
+  ornamentLine: { width: 40, height: 1, backgroundColor: colors.borderStrong },
+  ornamentStar: { fontSize: 10, color: colors.gold },
+  passageParagraph: { fontFamily: fonts.serif, fontSize: 17, lineHeight: 28, color: colors.passage, marginBottom: 12 },
+  passageActive: { backgroundColor: alpha(colors.gold, 0.14), borderRadius: 6 },
+  verseNumber: { fontSize: 10.5, color: colors.gold, fontWeight: '700' },
+  studySheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    ...shadow.lg,
+  },
+  sheetHandle: { width: 38, height: 4.5, borderRadius: 3, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: 12 },
+  sheetTopRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  sheetStatus: { ...EYEBROW, color: colors.gold },
+  sheetHeading: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.fg, marginTop: 2, letterSpacing: -0.2 },
+  openBibleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primarySoft,
+  },
+  openBibleText: { fontSize: 12, fontWeight: '600', color: colors.primary },
+  sheetTiles: { flexDirection: 'row', gap: 8, marginBottom: 2 },
+  sheetTile: {
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 11,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+  },
+  tileIconBox: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', marginBottom: 7 },
+  tileTitle: { fontSize: 12, fontWeight: '700', color: colors.fg, textAlign: 'center' },
+  tileSub: { fontSize: 10, color: colors.faint, textAlign: 'center', marginTop: 2 },
+
+  // ---- Chat chrome
+  menuIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.sm,
+  },
+  menuDots: { color: colors.fg, fontSize: 9, letterSpacing: 1, fontWeight: '700' },
+  dropdownMenu: {
+    position: 'absolute',
+    right: 14,
+    top: 6,
+    zIndex: 10,
+    width: 228,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingVertical: 4,
+    ...shadow.md,
+  },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 14 },
+  menuItemRule: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  menuItemText: { flex: 1, color: colors.fg, fontSize: 14, fontWeight: '500' },
+
+  // ---- Chat empty state
+  chatEmpty: { alignItems: 'center', marginTop: 18 },
+  chatSparkBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.night,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.md,
+  },
+  chatEmptyTitle: { fontFamily: fonts.serifBold, fontSize: 25, letterSpacing: -0.4, color: colors.fg, marginTop: 14 },
+  chatEmptySub: { fontSize: 13.5, color: colors.muted, textAlign: 'center', lineHeight: 19.5, maxWidth: 300, marginTop: 6 },
+  contextChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primarySoft,
+  },
+  contextChipText: { fontSize: 12, fontWeight: '600', color: colors.primary },
+  suggestCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    ...shadow.sm,
+  },
+  suggestIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  suggestText: { flex: 1, color: colors.fg, fontSize: 14, fontWeight: '500', lineHeight: 19 },
+
+  // ---- Messages
+  userRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+  userBubble: {
+    backgroundColor: colors.primary,
+    borderRadius: 20,
+    borderBottomRightRadius: 6,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    maxWidth: '84%',
+    ...shadow.sm,
+  },
+  userText: { color: colors.primaryFg, fontSize: 14.5, lineHeight: 20.5 },
+  aiWrap: { alignSelf: 'stretch' },
+  aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  aiAvatar: { backgroundColor: colors.night, alignItems: 'center', justifyContent: 'center' },
+  aiName: { fontSize: 12.5, fontWeight: '700', color: colors.fg },
+  verifiedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.positiveFaint,
+  },
+  verifiedText: { fontSize: 10.5, fontWeight: '600', color: colors.positive },
+  aiCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderTopLeftRadius: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    ...shadow.sm,
+  },
+  blockContainer: { paddingVertical: 14, gap: 9 },
+  blockRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderStrong },
+  blockHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  blockHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  blockType: { fontSize: 10, letterSpacing: 1, fontWeight: '700', textTransform: 'uppercase' },
+  blockSource: { flex: 1, fontSize: 11.5, color: colors.faint },
+  blockBodyText: { color: colors.passage, fontSize: 14.5, lineHeight: 21.5 },
+  quoteBox: {
+    backgroundColor: colors.screen,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.goldLight,
+    borderRadius: radius.sm,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+  },
+  quoteText: { fontFamily: fonts.serifItalic, color: colors.passage, fontSize: 15.5, lineHeight: 23 },
+  quoteFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 },
+  quoteRef: { flexShrink: 1, color: colors.gold, fontSize: 11.5, fontWeight: '700', letterSpacing: 0.2 },
+  quoteLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  quoteLinkText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
+  actionChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
-    backgroundColor: 'rgba(229, 184, 105, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(229, 184, 105, 0.3)',
-    marginBottom: 10,
-  },
-  divineSpark: {
-    color: colors.gold,
-    fontSize: 10,
-  },
-  divineText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9.5,
-    color: colors.gold,
-    letterSpacing: 1.5,
-  },
-  h1: {
-    fontFamily: fonts.serifBold,
-    fontSize: 25,
-    color: colors.fg,
-    letterSpacing: -0.4,
-    textAlign: 'center',
-  },
-  sub: {
-    fontFamily: fonts.sans,
-    fontSize: 13,
-    color: colors.muted,
-    marginTop: 6,
-    textAlign: 'center',
-    lineHeight: 18,
-    maxWidth: 290,
-  },
-  grid: {
-    marginTop: 20,
-    gap: 12,
-  },
-  gridRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  suggestionsContainer: {
-    marginTop: 22,
-  },
-  quickPromptTitle: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 10,
-    letterSpacing: 1.5,
-    color: colors.muted,
-    marginBottom: 8,
-  },
-  suggestionChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderWidth: 1,
-    borderColor: colors.lineLight,
-  },
-  suggestionChipText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: colors.fg,
-  },
-  resumeChat: {
-    alignSelf: 'center',
-    marginTop: 18,
-  },
-  resumeChatText: {
-    fontFamily: fonts.sansMedium,
-    color: colors.gold,
-    fontSize: 12,
-  },
-  askSection: {
-    marginTop: 20,
-    paddingBottom: 10,
-  },
-  readingHeader: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  readingEyebrow: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 10,
-    letterSpacing: 2,
-    color: colors.gold,
-  },
-  readingTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 22,
-    color: colors.fg,
-    marginTop: 6,
-    textAlign: 'center',
-  },
-  readingDivider: {
-    width: 40,
-    height: 1,
-    backgroundColor: colors.lineLight,
-    marginTop: 12,
-  },
-  passageParagraph: {
-    fontFamily: fonts.serif,
-    fontSize: 16.5,
-    lineHeight: 27,
-    color: colors.passage,
-    marginBottom: 14,
-  },
-  verseNumber: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 10.5,
-    color: colors.gold,
-    fontWeight: '700',
-  },
-  glassSheet: {
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 16,
-  },
-  sheetHandle: {
-    width: 32,
-    height: 3.5,
-    borderRadius: 2,
-    backgroundColor: colors.borderStrong,
-    alignSelf: 'center',
-    marginBottom: 10,
-  },
-  sheetTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sheetStatus: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9,
-    letterSpacing: 1.5,
-    color: colors.gold,
-  },
-  sheetHeading: {
-    fontFamily: fonts.serifBold,
-    fontSize: 15,
-    color: colors.fg,
-    marginTop: 2,
-  },
-  openBibleBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  openBibleText: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    color: colors.gold,
-  },
-  sheetTiles: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  sheetTile: {
-    flex: 1,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderWidth: 1,
-    borderColor: colors.lineLight,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-  },
-  tileIcon: {
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  tileTitle: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.fg,
-    textAlign: 'center',
-  },
-  tileSub: {
-    fontFamily: fonts.sans,
-    fontSize: 9,
-    color: colors.muted,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  menuIconCircle: {
-    width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dropdownMenu: {
-    position: 'absolute',
-    right: 16,
-    top: 50,
-    zIndex: 10,
-    backgroundColor: '#201a16',
-    borderWidth: 1,
-    borderColor: colors.glossBorder,
-    borderRadius: 14,
-    padding: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  dropdownItem: {
-    fontFamily: fonts.sans,
-    color: colors.fg,
-    fontSize: 13,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  chatSparkBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(229, 184, 105, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(229, 184, 105, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chatEmptyTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 20,
-    color: colors.fg,
-    marginTop: 10,
-  },
-  chatEmptySub: {
-    fontFamily: fonts.sans,
-    fontSize: 12.5,
-    color: colors.muted,
-    textAlign: 'center',
-    lineHeight: 18,
-    maxWidth: 290,
-    marginTop: 4,
-  },
-  suggestCard: {
-    backgroundColor: '#1e1814',
-    borderWidth: 1,
-    borderColor: colors.lineLight,
-    borderRadius: 14,
-    padding: 12,
-  },
-  suggestText: {
-    fontFamily: fonts.sansMedium,
-    color: colors.fg,
-    fontSize: 13,
-  },
-  userBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: colors.raised,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderBottomRightRadius: 2,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    maxWidth: '85%',
-  },
-  userText: {
-    fontFamily: fonts.sans,
-    color: colors.fg,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  aiCard: {
-    alignSelf: 'flex-start',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 14,
-    borderBottomLeftRadius: 2,
-    padding: 14,
-    maxWidth: '96%',
-    gap: 10,
   },
-  aiCardHeader: {
+  actionChipText: { fontSize: 12, fontWeight: '600', color: colors.fg },
+  actionChipActive: { backgroundColor: colors.primarySoft, borderColor: colors.primarySoft },
+  menuBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 9 },
+  menuSection: { ...EYEBROW, fontSize: 9.5, color: colors.faint, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 2 },
+  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  typingCard: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  aiBadge: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9.5,
-    letterSpacing: 1.5,
-    color: colors.gold,
-    fontWeight: '700',
-  },
-  blockContainer: {
-    gap: 4,
-  },
-  blockType: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 9.5,
-    letterSpacing: 1.5,
-    fontWeight: '700',
-  },
-  blockBodyText: {
-    fontFamily: fonts.sans,
-    color: colors.passage,
-    fontSize: 13.5,
-    lineHeight: 20,
-  },
-  quoteBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderLeftWidth: 3,
-    borderLeftColor: colors.teal,
-    paddingLeft: 10,
-    paddingVertical: 4,
-    marginVertical: 4,
-  },
-  quoteText: {
-    fontFamily: fonts.serif,
-    color: colors.fg,
-    fontSize: 14,
-    lineHeight: 21,
-    fontStyle: 'italic',
-  },
-  quoteRef: {
-    fontFamily: fonts.sansMedium,
-    color: colors.teal,
-    fontSize: 11,
-    marginTop: 4,
-  },
-  typingCard: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-  },
-  crisis: {
-    backgroundColor: '#351818',
-    borderWidth: 1,
-    borderColor: '#802e2e',
-    borderRadius: 14,
-    padding: 14,
-    marginTop: 10,
-  },
-  crisisTitle: {
-    fontFamily: fonts.sansMedium,
-    color: '#ff9999',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  crisisText: {
-    fontFamily: fonts.sans,
-    color: '#f0d0d0',
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 6,
-  },
-  acknowledgmentCard: {
-    padding: 14,
-    borderRadius: 12,
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    borderTopLeftRadius: 6,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    marginTop: 14,
   },
-  ackText: {
-    fontFamily: fonts.serif,
-    fontSize: 14.5,
+  typingDots: { flexDirection: 'row', gap: 4 },
+  typingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.gold },
+  typingText: { color: colors.muted, fontSize: 12.5 },
+  composer: {
+    paddingHorizontal: 14,
+    paddingTop: 2,
+    paddingBottom: 8,
+    backgroundColor: colors.screen,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  composerNote: { fontSize: 10.5, color: colors.faint, textAlign: 'center', marginTop: -2 },
+
+  // ---- Companion
+  companionHero: { alignItems: 'center', marginTop: 12 },
+  companionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.night,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.md,
+  },
+  companionTitle: { fontFamily: fonts.serifBold, fontSize: 27, letterSpacing: -0.5, color: colors.fg, marginTop: 14, textAlign: 'center' },
+  companionSub: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20, maxWidth: 310, marginTop: 6 },
+  composeCard: {
+    marginTop: 22,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+    ...shadow.sm,
+  },
+  composeInput: {
+    borderWidth: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    minHeight: 104,
+    fontSize: 15,
     lineHeight: 21,
-    color: colors.passage,
+    backgroundColor: 'transparent',
   },
+  composeRule: { height: StyleSheet.hairlineWidth, backgroundColor: colors.borderStrong, marginVertical: 12 },
+  themeWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  privacyLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12 },
+  privacyText: { fontSize: 12, color: colors.faint },
+  crisis: {
+    backgroundColor: colors.cardRose,
+    borderWidth: 1,
+    borderColor: alpha(colors.negative, 0.25),
+    borderRadius: radius.lg,
+    padding: 16,
+  },
+  crisisTitle: { color: colors.negative, fontWeight: '700', fontSize: 14.5 },
+  crisisText: { color: colors.passage, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  ackBubble: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderTopLeftRadius: 6,
+    padding: 15,
+    ...shadow.sm,
+  },
+  ackText: { fontFamily: fonts.serif, fontSize: 16, lineHeight: 24, color: colors.passage },
   passageCard: {
-    borderRadius: 12,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     padding: 16,
-    marginTop: 12,
+    ...shadow.sm,
   },
-  passageRef: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: colors.teal,
-    fontWeight: '700',
+  passageScripture: { fontFamily: fonts.serif, fontSize: 17, lineHeight: 26, color: colors.passage, marginTop: 12 },
+  whyBox: { marginTop: 12, padding: 12, borderRadius: radius.sm, backgroundColor: colors.screen },
+  whyLabel: { ...EYEBROW, fontSize: 9.5, color: colors.muted, marginBottom: 4 },
+  passageWhy: { fontSize: 13, color: colors.muted, lineHeight: 18.5 },
+  reflectCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 16,
+    ...shadow.sm,
   },
-  passageScripture: {
-    fontFamily: fonts.serif,
-    fontSize: 15,
-    lineHeight: 23,
-    color: colors.fg,
-    marginTop: 8,
-  },
-  passageWhy: {
-    fontFamily: fonts.sans,
+  reflectRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  reflectNum: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.cardGold,
+    color: colors.gold,
     fontSize: 11.5,
-    color: colors.muted,
-    lineHeight: 16,
-    marginTop: 8,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 22,
+    overflow: 'hidden',
   },
-  reflect: {
-    fontFamily: fonts.sans,
-    fontSize: 13,
-    color: colors.passage,
-    lineHeight: 19,
-    marginVertical: 2,
+  reflect: { flex: 1, fontFamily: fonts.serifItalic, fontSize: 15, color: colors.passage, lineHeight: 21 },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignSelf: 'center',
   },
+  reflectInput: { marginTop: 6, minHeight: 84, backgroundColor: colors.screen },
 });

@@ -4,10 +4,61 @@
 // Replace `answerBibleChat` and `companionResults` with a backend call (OpenAI Responses API
 // + retrieval, spec §1.7.3) that returns the same shape.
 
-import { COMMENTARY, CROSS_REFS, CHAPTER_TITLES, TEXT, WORD_STUDY, refLabel, searchBible } from './bible';
+import * as Bible from './bible';
+
+const { CHAPTER_TITLES, refLabel, searchBible, getChapter } = Bible;
+const CONCORDANCE = Bible.CONCORDANCE || [];
+const WORD_KEYS = Bible.WORD_KEYS || {};
+
+// Well-known passages for common questions, so topical answers start with the most relevant verses.
+const TOPICS = {
+  peace: ['JHN 14:27', 'PHP 4:7', 'ISA 26:3', 'ROM 5:1'],
+  love: ['1CO 13:4', 'JHN 3:16', '1JN 4:8', 'ROM 5:8'],
+  faith: ['HEB 11:1', 'ROM 10:17', 'EPH 2:8', 'JAS 2:17'],
+  hope: ['ROM 15:13', 'JER 29:11', 'HEB 6:19', 'ROM 5:5'],
+  grace: ['EPH 2:8', '2CO 12:9', 'TIT 2:11', 'JHN 1:16'],
+  fear: ['ISA 41:10', '2TI 1:7', 'PSA 56:3', 'JOS 1:9'],
+  anxiety: ['PHP 4:6', '1PE 5:7', 'MAT 6:34', 'PSA 94:19'],
+  forgiveness: ['1JN 1:9', 'EPH 4:32', 'MAT 6:14', 'COL 3:13'],
+  strength: ['ISA 40:31', 'PHP 4:13', 'PSA 46:1', '2CO 12:9'],
+  joy: ['NEH 8:10', 'PSA 16:11', 'JHN 15:11', 'ROM 15:13'],
+  prayer: ['MAT 6:9', '1TH 5:17', 'PHP 4:6', 'JAS 5:16'],
+  salvation: ['ROM 10:9', 'EPH 2:8', 'ACT 4:12', 'JHN 3:16'],
+  wisdom: ['JAS 1:5', 'PRO 3:5', 'PRO 9:10', 'COL 3:16'],
+  rest: ['MAT 11:28', 'PSA 23:2', 'HEB 4:9', 'PSA 62:1'],
+  comfort: ['2CO 1:3', 'PSA 23:4', 'MAT 5:4', 'ISA 66:13'],
+  healing: ['JER 17:14', 'PSA 147:3', 'JAS 5:15', 'ISA 53:5'],
+};
+const TOPIC_WORDS = { worry: 'anxiety', anxious: 'anxiety', afraid: 'fear', forgive: 'forgiveness', forgiven: 'forgiveness', saved: 'salvation', pray: 'prayer', heal: 'healing', strong: 'strength', tired: 'rest', weary: 'rest', grief: 'comfort', sad: 'comfort' };
+
+function topicFor(q) {
+  const words = q.toLowerCase().match(/[a-z]+/g) || [];
+  for (const w of words) {
+    if (TOPICS[w]) return w;
+    if (TOPIC_WORDS[w]) return TOPIC_WORDS[w];
+  }
+  return null;
+}
+
+function topicBlocks(topic, translation) {
+  return TOPICS[topic].map((ref) => {
+    const [b, cv] = ref.split(' ');
+    const [c, v] = cv.split(':').map(Number);
+    const text = (getChapter(translation, b, c) || [])[v - 1];
+    return text ? { type: 'Scripture', ref: refLabel(b, c, v), bookId: b, chapter: c, verse: v, text, translation } : null;
+  }).filter(Boolean);
+}
+// These study datasets are not exported by ./bible yet; default to empty so chat still answers.
+const COMMENTARY = Bible.COMMENTARY || {};
+const CROSS_REFS = Bible.CROSS_REFS || {};
+const WORD_STUDY = Bible.WORD_STUDY || {};
+const chapterVerses = (translation, key) => {
+  const [bookId, chapter] = String(key).split(':');
+  return getChapter(translation, bookId, Number(chapter)) || [];
+};
 
 function verseText(bookId, chapter, verse, translation = 'KJV') {
-  const ch = (TEXT[translation] || TEXT.KJV)[`${bookId}:${chapter}`];
+  const ch = getChapter(translation, bookId, chapter);
   return ch ? ch[verse - 1] : null;
 }
 
@@ -70,7 +121,28 @@ export function answerBibleChat(question, context, translation = 'KJV') {
   const blocks = [];
   const key = context ? `${context.bookId}:${context.chapter}` : null;
 
-  // Word study request
+  // Word study request from the bundled lexicon (CONCORDANCE)
+  if (q.includes('mean') || q.includes('greek') || q.includes('hebrew') || q.includes('original') || q.includes('word')) {
+    const words = q.match(/[a-z]+/g) || [];
+    const entry = CONCORDANCE.find((c) => (WORD_KEYS[c.translit] || []).some((k) => words.includes(k)) || words.includes(c.translit.toLowerCase()));
+    if (entry) {
+      blocks.push({ type: 'Explanation', text: `The ${entry.lang} word is ${entry.lemma} (${entry.translit}, Strong's ${entry.strong}), a ${entry.part.toLowerCase()}. ${entry.definition}` });
+      blocks.push({ type: 'Explanation', text: `Its sense: ${entry.meaning} It appears about ${entry.count} times in Scripture. ${entry.origin}.` });
+      entry.verses.slice(0, 2).forEach((v) => blocks.push({ type: 'Scripture', ref: refLabel(v.bookId, v.chapter, v.verse), bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: (getChapter(translation, v.bookId, v.chapter) || [])[v.verse - 1] || v.text, translation }));
+      blocks.push({ type: 'Further study', text: `Open ${entry.translit} in the Concordance to see more occurrences.` });
+      return blocks;
+    }
+  }
+
+  // Common topics answered from well-known passages
+  const topic = topicFor(q);
+  if (topic && (!context || q.includes('bible') || q.includes('passage') || q.includes('verse') || q.startsWith('which') || q.startsWith('what does'))) {
+    blocks.push({ type: 'Explanation', text: `Here are some of the clearest passages on ${topic}. Tap one to read it in context.` });
+    topicBlocks(topic, translation).forEach((b) => blocks.push(b));
+    blocks.push({ type: 'Further study', text: `Search the Bible for “${topic}” to see every occurrence in ${translation}.` });
+    return blocks;
+  }
+
   const word = Object.keys(WORD_STUDY).find((w) => q.includes(w));
   if (word && (q.includes('mean') || q.includes('word') || q.includes('greek') || q.includes('hebrew') || q.includes('original'))) {
     const w = WORD_STUDY[word];
@@ -93,7 +165,7 @@ export function answerBibleChat(question, context, translation = 'KJV') {
 
   // Passage-anchored answers
   if (context && key) {
-    const verses = (TEXT[translation] || TEXT.KJV)[key] || [];
+    const verses = chapterVerses(translation, key);
     const vmatch = q.match(/verse (\d+)|v(\d+)|:(\d+)/);
     const vnum = vmatch ? Number(vmatch[1] || vmatch[2] || vmatch[3]) : null;
     if (q.includes('summar') || q.includes('too long')) {

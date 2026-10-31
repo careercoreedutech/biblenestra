@@ -1,208 +1,140 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View, Platform } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
-import { colors, fonts } from '../theme';
-
-const TAB_COLORS = {
-  Bible: colors.forest,
-  Discover: colors.forest,
-  Socials: colors.forest,
-  Profile: colors.forest,
-};
+import { colors, fonts, shadow } from '../theme';
 
 const icons = {
-  Bible: (active, isDark) => (
+  Today: (c, active) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5z"
-        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={active ? 2.2 : 1.7}
-      />
-      <Path
-        d="M6.5 2H20v4H6.5A2.5 2.5 0 0 0 4 8.5"
-        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={active ? 2.2 : 1.7}
-      />
-      <Path
-        d="M12 7v7M9.5 9.5h5"
-        stroke={active ? colors.gold : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={2}
-        strokeLinecap="round"
-      />
+      <Circle cx={12} cy={12} r={4.2} stroke={c} strokeWidth={1.9} fill={active ? c : 'none'} fillOpacity={active ? 0.18 : 0} />
+      <Path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M5.5 18.5 7 17M17 7l1.5-1.5" stroke={active ? colors.gold : c} strokeWidth={1.9} strokeLinecap="round" />
     </Svg>
   ),
-  Discover: (active, isDark) => (
+  Bible: (c, active) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Circle
-        cx={12}
-        cy={12}
-        r={9}
-        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={active ? 2.2 : 1.7}
-      />
       <Path
-        d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"
-        fill={active ? (isDark ? '#10B981' : colors.forest) : 'none'}
-        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={active ? 2 : 1.7}
+        d="M5 4.5A2.5 2.5 0 0 1 7.5 2H19v17H7.5A2.5 2.5 0 0 0 5 21.5v-17z"
+        stroke={c}
+        strokeWidth={1.9}
         strokeLinejoin="round"
+        fill={active ? c : 'none'}
+        fillOpacity={active ? 0.14 : 0}
       />
+      <Path d="M5 21.5A2.5 2.5 0 0 1 7.5 19H19v3H7.5" stroke={c} strokeWidth={1.9} strokeLinejoin="round" />
+      <Path d="M12 6v8M9 9h6" stroke={active ? colors.gold : c} strokeWidth={1.9} strokeLinecap="round" />
     </Svg>
   ),
-  Socials: (active, isDark) => (
+  Discover: (c, active) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Rect
-        x={3}
-        y={3}
-        width={18}
-        height={18}
-        rx={5}
-        stroke={active ? '#10B981' : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={active ? 2.2 : 1.7}
-      />
-      <Path
-        d="M10 8.5l6 3.5-6 3.5V8.5z"
-        fill={active ? '#10B981' : (isDark ? '#64748B' : colors.faint)}
-        stroke={active ? '#10B981' : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={1.8}
-        strokeLinejoin="round"
-      />
+      <Circle cx={12} cy={12} r={9.2} stroke={c} strokeWidth={1.9} fill={active ? c : 'none'} fillOpacity={active ? 0.14 : 0} />
+      <Path d="M15.8 8.2l-2.1 5.5-5.5 2.1 2.1-5.5 5.5-2.1z" fill={active ? c : 'none'} stroke={c} strokeWidth={1.7} strokeLinejoin="round" />
     </Svg>
   ),
-  Chats: (active, isDark) => (
+  Socials: (c, active) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
-        fill={active ? colors.sageFaint : 'none'}
-        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={active ? 2.2 : 1.7}
-        strokeLinejoin="round"
-      />
+      <Rect x={3} y={3.5} width={18} height={17} rx={5} stroke={c} strokeWidth={1.9} fill={active ? c : 'none'} fillOpacity={active ? 0.16 : 0} />
+      <Path d="M10.2 8.8l5 3.2-5 3.2V8.8z" fill={c} stroke={c} strokeWidth={1.4} strokeLinejoin="round" />
     </Svg>
   ),
-  Profile: (active, isDark) => (
+  Profile: (c, active) => (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"
-        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={active ? 2.2 : 1.7}
-        strokeLinecap="round"
-      />
-      <Circle
-        cx={12}
-        cy={7}
-        r={4}
-        fill={active ? colors.sageFaint : 'none'}
-        stroke={active ? (isDark ? '#10B981' : colors.forest) : (isDark ? '#64748B' : colors.faint)}
-        strokeWidth={active ? 2.2 : 1.7}
-      />
+      <Circle cx={12} cy={8} r={4} stroke={c} strokeWidth={1.9} fill={active ? c : 'none'} fillOpacity={active ? 0.14 : 0} />
+      <Path d="M4.5 20.5c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5" stroke={c} strokeWidth={1.9} strokeLinecap="round" />
     </Svg>
   ),
 };
 
-export const TABS = ['Bible', 'Discover', 'Socials', 'Profile'];
+export const TABS = ['Today', 'Bible', 'Discover', 'Socials', 'Profile'];
 
-export default function TabBar({ active, onChange }) {
-  const isDark = active === 'Socials';
-  const dockBg = isDark ? '#000000' : '#FFFFFF';
-  const dockBorder = isDark ? 'rgba(255, 255, 255, 0.12)' : colors.tabLine;
+const VARIANTS = {
+  light: { page: colors.screen, dock: colors.surface, border: colors.border, on: colors.primary, onLabel: colors.fg, off: colors.faint, pill: colors.primarySoft },
+  night: { page: '#101221', dock: '#1A1D33', border: '#272B45', on: '#AEB8FF', onLabel: '#EDE7DB', off: '#6C697D', pill: '#262B4F' },
+  sepia: { page: '#EEE2C9', dock: '#F8EFDC', border: '#DCCAA6', on: '#7B4A1C', onLabel: '#3A2D1C', off: '#A38F72', pill: '#E6D3AE' },
+  dark: { page: '#000000', dock: 'rgba(28,28,32,0.96)', border: 'rgba(255,255,255,0.10)', on: '#FFFFFF', onLabel: '#FFFFFF', off: 'rgba(255,255,255,0.5)', pill: 'rgba(255,255,255,0.14)' },
+};
 
+function Tab({ name, isActive, v, onPress }) {
+  const scale = React.useRef(new Animated.Value(isActive ? 1 : 0)).current;
+  React.useEffect(() => {
+    Animated.spring(scale, { toValue: isActive ? 1 : 0, useNativeDriver: true, friction: 7, tension: 120 }).start();
+  }, [isActive]);
+  const c = isActive ? v.on : v.off;
   return (
-    <View style={[styles.dock, { backgroundColor: dockBg, borderTopColor: dockBorder }]}>
-      {TABS.map((name) => {
-        const isActive = name === active;
-        const activeColor = isDark ? (isActive ? '#10B981' : '#64748B') : (TAB_COLORS[name] || colors.forest);
-        const labelColor = isActive ? (isDark ? '#10B981' : activeColor) : (isDark ? '#64748B' : colors.muted);
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityLabel={name}
+      accessibilityState={{ selected: isActive }}
+      style={({ pressed }) => [styles.tab, pressed && { opacity: 0.7 }]}
+      onPress={onPress}
+    >
+      <View style={styles.iconWrap}>
+        <Animated.View
+          style={[
+            styles.indicator,
+            { backgroundColor: v.pill, opacity: scale, transform: [{ scaleX: scale.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }] },
+          ]}
+        />
+        <Animated.View style={{ zIndex: 1, transform: [{ scale: scale.interpolate({ inputRange: [0, 0.6, 1], outputRange: [1, 1.14, 1] }) }, { translateY: scale.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }] }}>{icons[name](c, isActive)}</Animated.View>
+      </View>
+      <Text style={[styles.label, { color: isActive ? v.onLabel : v.off }, isActive && styles.activeLabel]} numberOfLines={1}>
+        {name}
+      </Text>
+    </Pressable>
+  );
+}
 
-        return (
-          <Pressable
-            key={name}
-            style={({ pressed }) => [
-              styles.tab,
-              pressed && { opacity: 0.7 },
-            ]}
-            onPress={() => onChange(name)}
-          >
-            <View style={styles.iconContainer}>
-              {icons[name](isActive, isDark)}
-            </View>
-
-            <Text
-              style={[
-                styles.label,
-                { color: labelColor },
-                isActive && [styles.activeLabel, { color: isDark ? '#10B981' : activeColor }],
-              ]}
-              numberOfLines={1}
-            >
-              {name}
-            </Text>
-
-            {isActive ? (
-              <View style={[styles.activePill, { backgroundColor: isDark ? '#10B981' : activeColor }]} />
-            ) : (
-              <View style={styles.inactivePlaceholder} />
-            )}
-          </Pressable>
-        );
-      })}
+export default function TabBar({ active, onChange, variant }) {
+  const v = VARIANTS[variant || (active === 'Socials' ? 'dark' : 'light')] || VARIANTS.light;
+  return (
+    <View style={[styles.wrap, { backgroundColor: v.page }]}>
+      <View style={[styles.dock, { backgroundColor: v.dock, borderColor: v.border }]}>
+        {TABS.map((name) => (
+          <Tab key={name} name={name} isActive={name === active} v={v} onPress={() => onChange(name)} />
+        ))}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrap: {
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: Platform.OS === 'ios' ? 2 : 10,
+  },
   dock: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: colors.tabLine,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 18 : 8,
-    height: Platform.OS === 'ios' ? 68 : 58,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#1C1917',
-        shadowOffset: { width: 0, height: -3 },
-        shadowOpacity: 0.05,
-        shadowRadius: 6,
-      },
-      android: {
-        elevation: 6,
-      },
-    }),
+    borderRadius: 30,
+    borderWidth: 1,
+    height: 66,
+    paddingHorizontal: 6,
+    ...shadow.md,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    height: '100%',
   },
-  iconContainer: {
-    height: 22,
+  iconWrap: {
+    width: 52,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  indicator: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 15,
   },
   label: {
     fontFamily: fonts.sans,
     fontSize: 10.5,
-    marginTop: 3,
-    letterSpacing: 0.1,
+    marginTop: 2,
+    fontWeight: '500',
+    letterSpacing: 0.15,
   },
   activeLabel: {
-    fontFamily: fonts.sansMedium,
     fontWeight: '700',
-    color: colors.forest,
-  },
-  activePill: {
-    width: 14,
-    height: 2.5,
-    borderRadius: 1.5,
-    backgroundColor: colors.forest,
-    marginTop: 3,
-  },
-  inactivePlaceholder: {
-    height: 2.5,
-    marginTop: 3,
   },
 });
