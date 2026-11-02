@@ -183,8 +183,9 @@ Everyone watches the same 720p file; `GET /media/…` (or your R2 custom domain)
 - `PUT /me/notify-settings`: Update user notification preferences (`messages`, `groups`, `prayer`, `events`, `gifts`, `jobs`).
 
 ### Daily Rhythm & Streaks
-- `PUT /me/rhythm/:day`: `{ steps: ('verse'|'reading'|'prayer'|'reflect')[], reflection? }`. Day must be within ±1 day of the user's local date (`tz_offset`). Merges steps without deleting existing completed steps for that day. Optional reflection is strictly private (≤2000 chars). Returns `{ ok, day, steps, reflection, streak, bestStreak, graceUsedThisWeek }`.
+- `PUT /me/rhythm/:day`: `{ steps: ('verse'|'reading'|'prayer'|'reflect')[], reflection? }`. Day must be between 7 days ago and tomorrow of the user's local date (`tz_offset`). Steps are **add-only (no un-tick)**: once a step is completed on any device, it stays completed; incoming steps are merged via set union (`unnest(rhythm_days.steps || EXCLUDED.steps)`). Optional reflection is strictly private (≤2000 chars). Returns `{ ok, day, steps, reflection, streak, bestStreak, graceUsedThisWeek }`.
 - `GET /me/rhythm?since=YYYY-MM-DD`: Returns rhythm history for up to the last 120 days along with `{ streak, bestStreak, graceUsedThisWeek }`.
-- `GET /me`: Returns computed `streak`, stored `bestStreak` (updated when current streak sets a new record), and `graceUsedThisWeek`.
+- `GET /me`: Returns computed `streak`, stored `bestStreak` (updated on the server only when current streak exceeds previous best; client-sent bestStreak values are completely ignored), and `graceUsedThisWeek`.
+
 
 

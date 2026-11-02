@@ -22,8 +22,8 @@ rhythm.put('/me/rhythm/:day', async (c) => {
   }
 
   const diffDays = Math.round((dayMs - todayMs) / 86400000);
-  if (Math.abs(diffDays) > 1) {
-    throw bad('Day must be within ±1 day of your local date', 'DATE_OUT_OF_RANGE');
+  if (diffDays < -7 || diffDays > 1) {
+    throw bad('Day must be between 7 days ago and tomorrow of your local date', 'DATE_OUT_OF_RANGE');
   }
 
   const b = await body(c);

@@ -566,20 +566,40 @@ test('phase 2: notifications inbox and preferences', async () => {
   assert.ok(Array.isArray(notifs.json.items));
 });
 
-test('phase 2: daily rhythm, step union, streak computation, grace days, and privacy', async () => {
+test('phase 2: brand-new user ignores client bestStreak', async () => {
+  // Brand-new user tries to send bestStreak 21 to PUT /me
+  const putRes = await call('newbie', 'PUT', '/me', { displayName: 'Newbie', bestStreak: 21 });
+  assert.equal(putRes.status, 200);
+  assert.equal(putRes.json.bestStreak, 0);
+  assert.equal(putRes.json.streak, 0);
+
+  // GET /me returns streak 0, bestStreak 0
+  const newbieMe = await call('newbie', 'GET', '/me');
+  assert.equal(newbieMe.status, 200);
+  assert.equal(newbieMe.json.streak, 0);
+  assert.equal(newbieMe.json.bestStreak, 0);
+  assert.equal(newbieMe.json.graceUsedThisWeek, false);
+});
+
+test('phase 2: daily rhythm offline catch-up, step union, streak computation, grace days, and privacy', async () => {
   const ruthMe = await call('ruth', 'GET', '/me');
   assert.equal(ruthMe.status, 200);
   assert.equal(ruthMe.json.streak, 0);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const twoDaysAgoStr = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
-  const threeDaysAgoStr = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10);
+  const fiveDaysAgoStr = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10);
+  const eightDaysAgoStr = new Date(Date.now() - 8 * 86400000).toISOString().slice(0, 10);
   const futureStr = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
 
-  // 1. Day outside ±1 rejected
-  const rejectPast = await call('ruth', 'PUT', `/me/rhythm/${threeDaysAgoStr}`, { steps: ['verse'] });
-  assert.equal(rejectPast.status, 400);
-  assert.equal(rejectPast.json.code, 'DATE_OUT_OF_RANGE');
+  // 1. Offline catch-up range: 5 days back accepted, 8 days back rejected, future +2 rejected
+  const accept5Days = await call('ruth', 'PUT', `/me/rhythm/${fiveDaysAgoStr}`, { steps: ['verse'] });
+  assert.equal(accept5Days.status, 200);
+  assert.deepEqual(accept5Days.json.steps, ['verse']);
+
+  const reject8Days = await call('ruth', 'PUT', `/me/rhythm/${eightDaysAgoStr}`, { steps: ['verse'] });
+  assert.equal(reject8Days.status, 400);
+  assert.equal(reject8Days.json.code, 'DATE_OUT_OF_RANGE');
 
   const rejectFuture = await call('ruth', 'PUT', `/me/rhythm/${futureStr}`, { steps: ['verse'] });
   assert.equal(rejectFuture.status, 400);
@@ -605,11 +625,9 @@ test('phase 2: daily rhythm, step union, streak computation, grace days, and pri
   assert.deepEqual(todayEntry.steps.sort(), ['prayer', 'reading', 'verse']);
 
   // 3. Streak with a grace day
-  // Two days ago: completed. Yesterday: missed. Today: completed.
-  await env.__db.query(`
-    INSERT INTO rhythm_days (user_id, day, steps, updated_at)
-    VALUES ($1, $2::date, $3, now())
-  `, [ruthMe.json.id, twoDaysAgoStr, ['verse']]);
+  // Two days ago: completed (via allowed PUT catch-up). Yesterday: missed. Today: completed.
+  const acceptTwoDays = await call('ruth', 'PUT', `/me/rhythm/${twoDaysAgoStr}`, { steps: ['verse'] });
+  assert.equal(acceptTwoDays.status, 200);
 
   const ruthWithGrace = await call('ruth', 'GET', '/me');
   assert.equal(ruthWithGrace.status, 200);

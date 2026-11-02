@@ -87,6 +87,22 @@ const ONLINE_BLANK = {
   jobAdCredits: 0,
   giftTransactions: [],
   account: null, // { id, email, lastSyncedAt }
+  // Server-backed slices in online mode: start empty, no seed demo data
+  communities: [],
+  groupMessages: {},
+  chats: [],
+  requests: [],
+  wishes: [],
+  rsvps: [],
+  highlights: [],
+  notes: [],
+  bookmarks: [],
+  plans: [],
+  reflections: [],
+  rhythm: {},
+  bestStreak: 0,
+  channels: [],
+  joinedChannels: [],
 };
 if (ONLINE) Object.assign(initial, ONLINE_BLANK);
 

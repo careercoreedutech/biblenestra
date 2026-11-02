@@ -163,6 +163,7 @@ function OnlineSync({ api, children }) {
   const lastSync = useRef(0);
   const pendingDeletes = useRef({}); // item id → timeout
   const handles = useRef({}); // follow key (@handle) → user id
+  const offlineRhythmQueue = useRef(new Map()); // day -> { steps, reflection }
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
@@ -348,12 +349,28 @@ function OnlineSync({ api, children }) {
             patch.bestStreak = Math.max(s.bestStreak || 0, rData.bestStreak);
           }
 
-          // Offline retry: check if today's local rhythm has steps missing from server
-          const todayKey = dayKey(new Date());
-          const localTodaySteps = (s.rhythm || {})[todayKey] || [];
-          const serverTodaySteps = serverDaysMap.get(todayKey) || [];
-          if (localTodaySteps.some((st) => !serverTodaySteps.includes(st))) {
-            request('PUT', `/me/rhythm/${todayKey}`, { steps: localTodaySteps }).catch(() => {});
+          // Offline retry: retry any offline-queued days
+          if (offlineRhythmQueue.current.size > 0) {
+            for (const [qDay, qData] of Array.from(offlineRhythmQueue.current.entries())) {
+              try {
+                await request('PUT', `/me/rhythm/${qDay}`, qData);
+                offlineRhythmQueue.current.delete(qDay);
+              } catch (err) {
+                if (err && err.code !== 'NETWORK') offlineRhythmQueue.current.delete(qDay);
+              }
+            }
+          }
+
+          // Offline catch-up: check past 7 days up to today if local steps missing from server
+          const nowD = new Date();
+          for (let i = 0; i <= 7; i += 1) {
+            const pastD = new Date(nowD.getTime() - i * 86400000);
+            const checkKey = dayKey(pastD);
+            const localSteps = (s.rhythm || {})[checkKey] || [];
+            const serverSteps = serverDaysMap.get(checkKey) || [];
+            if (localSteps.some((st) => !serverSteps.includes(st))) {
+              request('PUT', `/me/rhythm/${checkKey}`, { steps: localSteps }).catch(() => {});
+            }
           }
         }
         const now = new Date().toISOString();
@@ -912,12 +929,13 @@ function OnlineSync({ api, children }) {
             const hasReflection = a.patch.reflection && a.patch.reflection.day === d;
             if (nextSteps.length !== prevSteps.length || hasReflection || nextSteps.some((st) => !prevSteps.includes(st))) {
               run(async () => {
+                const body = { steps: nextSteps };
+                if (hasReflection) {
+                  body.reflection = a.patch.reflection.text;
+                }
                 try {
-                  const body = { steps: nextSteps };
-                  if (hasReflection) {
-                    body.reflection = a.patch.reflection.text;
-                  }
                   const res = await request('PUT', `/me/rhythm/${d}`, body);
+                  offlineRhythmQueue.current.delete(d);
                   if (res && res.bestStreak) {
                     local({
                       type: 'serverSync',
@@ -927,8 +945,10 @@ function OnlineSync({ api, children }) {
                     });
                   }
                 } catch (e) {
-                  // Optimistic update stays on device; toast only if error is not network-offline
-                  if (e && e.code !== 'NETWORK') {
+                  // If network offline, queue for retry on reconnect
+                  if (e && e.code === 'NETWORK') {
+                    offlineRhythmQueue.current.set(d, body);
+                  } else {
                     fail(e, 'Couldn’t sync rhythm step');
                   }
                 }
