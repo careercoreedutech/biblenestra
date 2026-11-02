@@ -140,7 +140,7 @@ conversations.post('/conversations/dm', async (c) => {
       [me.id, targetUserId, conv.id]
     );
     // Send push notification & hub event for message request
-    notifyUser(c.env, targetUserId, { type: 'request.new', from: { id: me.id, displayName: me.display_name }, conversationId: conv.id });
+    await notifyUser(c.env, targetUserId, { type: 'request.new', from: { id: me.id, displayName: me.display_name }, conversationId: conv.id });
     sendNotification(c, {
       userId: targetUserId,
       kind: 'request',
@@ -215,10 +215,6 @@ conversations.post('/conversations/:id/messages', async (c) => {
   const convId = uuidParam(c, 'id');
   const b = await body(c);
 
-  // Verify membership
-  const member = await one(c.env, `SELECT * FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`, [convId, me.id]);
-  if (!member) throw forbidden('Not a member of this conversation');
-
   const kind = b.kind || 'text';
   if (!['text', 'image', 'voice', 'verse', 'prayer', 'event'].includes(kind)) throw bad('Invalid message kind');
   const text = str(b.text || '', { max: 5000, optional: true }) || '';
@@ -229,29 +225,40 @@ conversations.post('/conversations/:id/messages', async (c) => {
 
   if (!text && !mediaKey && !meta) throw bad('Message content required', 'EMPTY_MESSAGE');
 
-  // Simple per-user rate limit: max 30 messages in last 60 seconds
-  const recentCount = await one(c.env,
-    `SELECT COUNT(*)::int AS count FROM messages WHERE sender_id = $1 AND created_at > now() - INTERVAL '1 minute'`,
-    [me.id]
-  );
+  // Fetch conversation, membership, other members, and rate limit check in parallel (1 round-trip)
+  const [convData, recentCount] = await Promise.all([
+    one(c.env, `
+      SELECT c.id, c.kind, c.title,
+        EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2) AS is_member,
+        COALESCE(
+          (SELECT json_agg(json_build_object('user_id', cm.user_id, 'muted', cm.muted))
+           FROM conversation_members cm WHERE cm.conversation_id = $1 AND cm.user_id <> $2),
+          '[]'::json
+        ) AS other_members
+      FROM conversations c WHERE c.id = $1
+    `, [convId, me.id]),
+    one(c.env,
+      `SELECT COUNT(*)::int AS count FROM messages WHERE sender_id = $1 AND created_at > now() - INTERVAL '1 minute'`,
+      [me.id]
+    ),
+  ]);
+
+  if (!convData || !convData.is_member) throw forbidden('Not a member of this conversation');
   if ((recentCount?.count || 0) >= 30) {
     throw bad('You are sending messages too quickly. Please wait a moment.', 'RATE_LIMITED');
   }
 
+  const otherMembers = (typeof convData.other_members === 'string'
+    ? JSON.parse(convData.other_members)
+    : convData.other_members) || [];
+
   // If DM, check recipient block status
-  const conv = await one(c.env, `SELECT * FROM conversations WHERE id = $1`, [convId]);
-  if (conv?.kind === 'dm') {
-    const otherMember = await one(c.env,
-      `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id <> $2`,
-      [convId, me.id]
+  if (convData.kind === 'dm' && otherMembers.length > 0) {
+    const isBlocked = await one(c.env,
+      `SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
+      [me.id, otherMembers[0].user_id]
     );
-    if (otherMember) {
-      const isBlocked = await one(c.env,
-        `SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
-        [me.id, otherMember.user_id]
-      );
-      if (isBlocked) throw forbidden('You cannot message this user', 'BLOCKED');
-    }
+    if (isBlocked) throw forbidden('You cannot message this user', 'BLOCKED');
   }
 
   // Idempotency check with clientId
@@ -265,43 +272,46 @@ conversations.post('/conversations/:id/messages', async (c) => {
     if (existing) return c.json(messageShape(existing, me.id));
   }
 
-  // Insert message
+  // Insert message and touch conversation timestamps in a single atomic CTE query
   const row = await one(c.env,
-    `INSERT INTO messages (conversation_id, sender_id, kind, body, media_key, meta, reply_to, client_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING *`,
+    `WITH inserted AS (
+       INSERT INTO messages (conversation_id, sender_id, kind, body, media_key, meta, reply_to, client_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *
+     ),
+     up_conv AS (
+       UPDATE conversations SET last_message_at = now() WHERE id = $1
+     ),
+     up_mem AS (
+       UPDATE conversation_members SET last_read_at = now() WHERE conversation_id = $1 AND user_id = $2
+     )
+     SELECT i.*, ${userJson('u')} AS sender
+     FROM inserted i
+     JOIN users u ON u.id = i.sender_id`,
     [convId, me.id, kind, text, mediaKey, meta ? JSON.stringify(meta) : null, replyTo, clientId]
   );
 
-  // Update conversation last_message_at and sender's last_read_at
-  await q(c.env, `UPDATE conversations SET last_message_at = now() WHERE id = $1`, [convId]);
-  await q(c.env, `UPDATE conversation_members SET last_read_at = now() WHERE conversation_id = $1 AND user_id = $2`, [convId, me.id]);
+  const formatted = messageShape(row, me.id);
 
-  const senderUser = await one(c.env, `SELECT * FROM users WHERE id = $1`, [me.id]);
-  const formatted = messageShape({ ...row, sender: senderUser }, me.id);
-
-  // Notify all other members
-  const otherMembers = await q(c.env,
-    `SELECT user_id, muted FROM conversation_members WHERE conversation_id = $1 AND user_id <> $2`,
-    [convId, me.id]
-  );
-
-  for (const m of otherMembers) {
-    notifyUser(c.env, m.user_id, {
-      type: 'message.new',
-      conversationId: convId,
-      message: formatted,
-    });
-    if (!m.muted) {
-      sendNotification(c, {
-        userId: m.user_id,
-        kind: conv.kind === 'group' ? 'group' : 'message',
-        title: conv.kind === 'group' ? (conv.title || 'Group Message') : me.display_name,
-        body: kind === 'image' ? '📷 Photo' : kind === 'voice' ? '🎤 Voice message' : (text.slice(0, 100) || 'New message'),
-        data: { conversationId: convId, messageId: row.id },
+  // Notify all other members in parallel
+  await Promise.all(
+    otherMembers.map(async (m) => {
+      await notifyUser(c.env, m.user_id, {
+        type: 'message.new',
+        conversationId: convId,
+        message: formatted,
       });
-    }
-  }
+      if (!m.muted) {
+        sendNotification(c, {
+          userId: m.user_id,
+          kind: convData.kind === 'group' ? 'group' : 'message',
+          title: convData.kind === 'group' ? (convData.title || 'Group Message') : me.display_name,
+          body: kind === 'image' ? '📷 Photo' : kind === 'voice' ? '🎤 Voice message' : (text.slice(0, 100) || 'New message'),
+          data: { conversationId: convId, messageId: row.id },
+        });
+      }
+    })
+  );
 
   return c.json(formatted, 201);
 });
@@ -316,7 +326,7 @@ conversations.post('/conversations/:id/read', async (c) => {
   );
   const others = await q(c.env, `SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id <> $2`, [convId, me.id]);
   for (const o of others) {
-    notifyUser(c.env, o.user_id, { type: 'message.read', conversationId: convId, userId: me.id, readAt: new Date().toISOString() });
+    await notifyUser(c.env, o.user_id, { type: 'message.read', conversationId: convId, userId: me.id, readAt: new Date().toISOString() });
   }
   return c.json({ ok: true });
 });
@@ -344,7 +354,7 @@ conversations.post('/messages/:id/delete', async (c) => {
   await q(c.env, `UPDATE messages SET deleted = true, body = '' WHERE id = $1`, [msgId]);
   const others = await q(c.env, `SELECT user_id FROM conversation_members WHERE conversation_id = $1`, [msg.conversation_id]);
   for (const o of others) {
-    notifyUser(c.env, o.user_id, { type: 'message.deleted', messageId: msgId, conversationId: msg.conversation_id });
+    await notifyUser(c.env, o.user_id, { type: 'message.deleted', messageId: msgId, conversationId: msg.conversation_id });
   }
   return c.json({ ok: true });
 });
@@ -380,7 +390,7 @@ conversations.post('/me/requests/:fromId/accept', async (c) => {
   const me = c.get('user');
   const fromId = uuidParam(c, 'fromId');
   await q(c.env, `UPDATE message_requests SET status = 'accepted' WHERE from_id = $1 AND to_id = $2`, [fromId, me.id]);
-  notifyUser(c.env, fromId, { type: 'request.accepted', by: me.id });
+  await notifyUser(c.env, fromId, { type: 'request.accepted', by: me.id });
   return c.json({ ok: true, status: 'accepted' });
 });
 

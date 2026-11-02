@@ -184,7 +184,7 @@ communities.post('/communities/:id/join', async (c) => {
     await q(c.env, `UPDATE communities SET members_count = members_count + 1 WHERE id = $1`, [id]);
   } else {
     // Notify community owner/admins about request
-    notifyUser(c.env, comm.owner_id, { type: 'community.request', communityId: id, user: { id: me.id, displayName: me.display_name } });
+    await notifyUser(c.env, comm.owner_id, { type: 'community.request', communityId: id, user: { id: me.id, displayName: me.display_name } });
     sendNotification(c, {
       userId: comm.owner_id,
       kind: 'group',
@@ -261,7 +261,7 @@ communities.post('/communities/:id/members/:userId', async (c) => {
       );
     }
     await q(c.env, `UPDATE communities SET members_count = members_count + 1 WHERE id = $1`, [id]);
-    notifyUser(c.env, targetUserId, { type: 'community.approved', communityId: id });
+    await notifyUser(c.env, targetUserId, { type: 'community.approved', communityId: id });
     return c.json({ ok: true, status: 'member' });
   }
 

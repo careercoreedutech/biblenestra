@@ -474,11 +474,23 @@ ALTER TABLE users DROP COLUMN IF EXISTS streak;
 CREATE TABLE IF NOT EXISTS rhythm_days (
   user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   day         date NOT NULL,
-  steps       text[] NOT NULL DEFAULT '{}',
-  reflection  text,
+  steps       text[] NOT NULL DEFAULT '{}' CHECK (steps <@ ARRAY['verse','reading','prayer','reflect']::text[]),
+  reflection  text CHECK (reflection IS NULL OR char_length(reflection) <= 2000),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, day)
 );
 CREATE INDEX IF NOT EXISTS rhythm_days_user_day ON rhythm_days (user_id, day DESC);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rhythm_days_steps_check') THEN
+    ALTER TABLE rhythm_days ADD CONSTRAINT rhythm_days_steps_check CHECK (steps <@ ARRAY['verse','reading','prayer','reflect']::text[]);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rhythm_days_reflection_check') THEN
+    ALTER TABLE rhythm_days ADD CONSTRAINT rhythm_days_reflection_check CHECK (reflection IS NULL OR char_length(reflection) <= 2000);
+  END IF;
+END $$;
+
 
 

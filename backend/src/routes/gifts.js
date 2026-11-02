@@ -54,7 +54,7 @@ gifts.post('/gifts', async (c) => {
   );
 
   // 5. Notify recipient in real time and via push
-  notifyUser(c.env, toUserId, {
+  await notifyUser(c.env, toUserId, {
     type: 'gift.received',
     from: { id: me.id, displayName: me.display_name },
     gift,
