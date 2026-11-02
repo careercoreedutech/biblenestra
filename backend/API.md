@@ -17,7 +17,8 @@ User = { id, displayName, handle, avatarUrl, headline, bio, church, country, tra
          followers, following, isFollowing?, isMe? }
 
 Me = User & { coins, jobAdCredits, jobAdsNeeded: 5, supportAdsToday: number /*0..4*/, supportAdsDaily: 4,
-              bidFee: 20, adsClientClaim: boolean /* true when the server accepts unverified ad claims (dev/demo) */ }
+              bidFee: 20, streak: number, bestStreak: number, graceUsedThisWeek: boolean,
+              adsClientClaim: boolean /* true when the server accepts unverified ad claims (dev/demo) */ }
 
 Post = {
   id, author: User, kind, text, createdAt /*ISO*/,
@@ -46,6 +47,8 @@ Page<T> = { items: T[], nextCursor: string | null }
 | GET `/me` | | `Me` |
 | PUT `/me` | `{ displayName?, handle?, avatarUrl?, headline?, bio?, church?, country?, translation? }` | `Me` |
 | POST `/me/push-token` | `{ token, platform }` | `{ ok }` |
+| GET `/me/rhythm` | `?since=YYYY-MM-DD` | `{ days: [{ day, steps, reflection, updatedAt }], streak, bestStreak, graceUsedThisWeek }` |
+| PUT `/me/rhythm/:day` | `{ steps: string[], reflection? }` | `{ ok, day, steps, reflection, streak, bestStreak, graceUsedThisWeek }` |
 | GET `/me/following` | | `{ items: User[] }` — everyone you follow |
 | GET `/users/:id` | | `User` |
 | POST `/users/:id/follow` | | `{ following: boolean }` (toggle) |
@@ -100,3 +103,88 @@ The app compresses every video on the phone to **720p H.264 MP4 (~2 Mbps, about 
 2. `PUT uploadURL` (the MP4) and `PUT thumbnailURL` (the JPEG) — with the same `Authorization` header
 3. `POST /posts { kind: 'Video', videoUid }`
 Everyone watches the same 720p file; `GET /media/…` (or your R2 custom domain) supports byte ranges so players can seek.
+
+---
+
+## Phase 2 Endpoints & Real-time Contracts
+
+### Real-Time WebSockets (Durable Object `Hub`)
+- `POST /realtime/ticket`: Returns `{ ticket, expiresIn: 60 }` (HMAC-SHA256 signed with `REALTIME_SECRET`).
+- `GET /realtime?ticket=<token>`: Connects via WebSocket.
+- Events emitted:
+  - `presence`: `{ type: 'presence', status: 'connected', activeSockets: number, time: number }`
+  - `message.new`: `{ type: 'message.new', conversationId, message: MessageObject }`
+  - `message.read`: `{ type: 'message.read', conversationId, userId, readAt }`
+  - `message.deleted`: `{ type: 'message.deleted', messageId, conversationId }`
+  - `gift.received`: `{ type: 'gift.received', from, gift, coins }`
+  - `request.new`: `{ type: 'request.new', from, conversationId }`
+  - `notification.new`: `{ type: 'notification.new', notification }`
+
+### Direct Messages & Chat
+- `GET /conversations`: Lists conversations with last message, unread counts, and other member info.
+- `POST /conversations/dm`: `{ userId }` → Starts or gets DM conversation.
+- `GET /conversations/:id/messages`: Paginated messages (cursor) or `?after=<iso>` for polling.
+- `POST /conversations/:id/messages`: `{ kind: 'text'|'image'|'voice'|'verse'|'prayer'|'event', text, mediaKey, meta, clientId, replyTo }`.
+- `POST /conversations/:id/read`: Marks conversation read.
+- `POST /conversations/:id/mute`: Toggles mute.
+- `POST /messages/:id/delete`: Soft deletes own message.
+- `GET /me/requests`: Pending message requests from non-followed users.
+- `POST /me/requests/:fromId/accept`: Accepts request.
+- `POST /me/requests/:fromId/decline`: Declines request.
+- `POST /me/requests/:fromId/block`: Blocks requester.
+- `POST /users/:id/block`: Blocks a user.
+- `DELETE /users/:id/block`: Unblocks a user.
+
+### Voice & Chat Media
+- `POST /uploads/voice`: Upload voice note (`.m4a`, `.aac` ≤ 5 MB).
+- `POST /uploads/chat-image`: Upload image scoped to conversation.
+- `GET /chat/media/*`: Authenticated route; only conversation members can stream media.
+
+### Communities & Channels
+- `GET /communities?q=`: Search and list communities.
+- `POST /communities`: Create community with 5 default channels (General, Prayer, Bible Study, Announcements, Events).
+- `GET /communities/:id`: Community details, membership status, and channels list.
+- `POST /communities/:id/join`: Join public community or request private community.
+- `POST /communities/:id/leave`: Leave community.
+- `GET /communities/:id/members`: Members list with roles.
+- `POST /communities/:id/members/:userId`: Admin actions (`approve`, `decline`, `promote`, `demote`, `remove`).
+- `POST /communities/:id/pin`: Pin message in channel.
+
+### Calendar & Events
+- `GET /events?communityId=&filter=`: List upcoming events.
+- `POST /events`: Create event (`title`, `description`, `startsAt`, `endsAt`, `location`, `onlineUrl`, `coverKey`, `communityId`).
+- `POST /events/:id/rsvp`: `{ status: 'going'|'interested'|'no' }`.
+- `GET /events/:id/attendees`: List attendees.
+- `DELETE /events/:id`: Cancel event.
+
+### Make a Wish
+- `GET /wishes?category=&cursor=`: Paginated wishes.
+- `POST /wishes`: Create wish (`title`, `body`, `category`, `visibility`, `anonymous`).
+- `POST /wishes/:id/candle`: Toggle candle lighting.
+- `POST /wishes/:id/amen`: Toggle praying Amen.
+
+### Bible Study Sync
+- `GET /me/study?since=<iso>`: Returns notes, highlights, bookmarks, and reading plan progress updated since timestamp.
+- `PUT /me/study/notes`: Upsert note (`bookId`, `chapter`, `verse`, `text`, `scope`).
+- `DELETE /me/study/notes/:id`: Delete note.
+- `PUT /me/study/highlights`: Upsert highlight (`bookId`, `chapter`, `verse`, `color`).
+- `DELETE /me/study/highlights/:id`: Delete highlight.
+- `PUT /me/study/bookmarks`: Upsert bookmark (`bookId`, `chapter`, `verse`, `label`, `folder`).
+- `DELETE /me/study/bookmarks/:id`: Delete bookmark.
+- `PUT /me/study/plans`: Mark reading plan day done (`planId`, `day`, `done`).
+
+### Virtual Gifts
+- `POST /gifts`: `{ toUserId, giftId, postId? }`. Atomic transfer deducting price from sender and crediting 70% share to creator. Checks sufficient coin balance; rejects self-gifting.
+
+### Notifications Inbox & Settings
+- `GET /me/notifications`: Paginated notifications inbox with unread count.
+- `POST /me/notifications/read`: Mark one or all notifications read.
+- `GET /me/notify-settings`: Fetch user notification toggles.
+- `PUT /me/notify-settings`: Update user notification preferences (`messages`, `groups`, `prayer`, `events`, `gifts`, `jobs`).
+
+### Daily Rhythm & Streaks
+- `PUT /me/rhythm/:day`: `{ steps: ('verse'|'reading'|'prayer'|'reflect')[], reflection? }`. Day must be within ±1 day of the user's local date (`tz_offset`). Merges steps without deleting existing completed steps for that day. Optional reflection is strictly private (≤2000 chars). Returns `{ ok, day, steps, reflection, streak, bestStreak, graceUsedThisWeek }`.
+- `GET /me/rhythm?since=YYYY-MM-DD`: Returns rhythm history for up to the last 120 days along with `{ streak, bestStreak, graceUsedThisWeek }`.
+- `GET /me`: Returns computed `streak`, stored `bestStreak` (updated when current streak sets a new record), and `graceUsedThisWeek`.
+
+

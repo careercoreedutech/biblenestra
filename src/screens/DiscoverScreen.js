@@ -12,7 +12,11 @@ import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS, C
 import { refLabel, BOOKS } from '../data/bible';
 import { useToast, haptic } from '../components/Toast';
 import { useNarration } from '../audio/Narration';
-import { BIBLE_GAMES, TRIVIA_QUESTIONS, WHO_SAID_IT_QUESTIONS, VERSE_SCRAMBLE_DATA } from '../data/games';
+import { BIBLE_GAMES, GAME_TITLES, dailyQuestions, scrambleAsChoice, dateKey, resetLabel } from '../data/games';
+import { useAds } from '../ads/Ads';
+import { AD_RULES } from '../ads/config';
+import ProfileButton from '../components/ProfileButton';
+import { useSync } from '../api/sync';
 
 // ---------- Discover Hub (Sanctuary Paper) ----------
 const DEVOTIONALS_AUDIO = [
@@ -20,28 +24,6 @@ const DEVOTIONALS_AUDIO = [
   { id: 'dev2', title: 'The Armor of Light', sub: 'Ephesians 6 · Morning strength', time: '8 MIN', passage: { bookId: 'EPH', chapter: 6 }, img: 'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?auto=format&fit=crop&w=600&q=80' },
   { id: 'dev3', title: 'Midnight Peace & Vigil', sub: 'Proverbs 3 · Night liturgy', time: '15 MIN', passage: { bookId: 'PRO', chapter: 3 }, img: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80' },
 ];
-
-// Verse-scramble rounds as multiple choice: pick the correctly ordered words.
-function scrambleQuestions() {
-  const rot = (arr, n) => arr.slice(n).concat(arr.slice(0, n));
-  const swap = (arr, i, j) => { const a = arr.slice(); [a[i], a[j]] = [a[j], a[i]]; return a; };
-  return VERSE_SCRAMBLE_DATA.map((v, idx) => {
-    const right = v.correctOrder.join(' ');
-    const decoys = [swap(v.correctOrder, 1, 3), rot(v.correctOrder, 3), swap(swap(v.correctOrder, 0, 2), 4, 6)].map((a) => a.join(' ')).filter((d) => d !== right);
-    const correctIndex = (idx * 3 + 1) % 4;
-    const options = decoys.slice(0, 3);
-    options.splice(correctIndex, 0, right);
-    return {
-      id: v.id,
-      categoryLabel: 'Scripture scramble',
-      question: `Unscramble ${v.reference}:  ${v.scrambledWords.join(' · ')}`,
-      options,
-      correctIndex,
-      reference: v.reference,
-      explanation: v.verseText,
-    };
-  });
-}
 
 const WISH_CATEGORIES = ['Healing', 'Guidance', 'Family', 'Financial Miracle', 'Salvation', 'Revival'];
 
@@ -56,10 +38,12 @@ export default function DiscoverScreen() {
   const candlesBurning = wishes.reduce((n, w) => n + (w.candles || 0), 0);
   const liveCount = (LIVE || []).filter((l) => l.status === 'live').length;
 
-  // Interactive Games State
+  // Interactive Games State — a fresh, date-seeded set every day (see data/games.js)
+  const ads = useAds();
   const [showGameModal, setShowGameModal] = useState(false);
-  const [activeGameType, setActiveGameType] = useState('trivia'); // 'trivia' | 'who_said_it' | 'scramble'
-  const [gameQuestions, setGameQuestions] = useState(TRIVIA_QUESTIONS);
+  const [activeGameType, setActiveGameType] = useState('trivia'); // 'trivia' | 'who' | 'scramble' | 'chronology'
+  const [gameDate, setGameDate] = useState(null); // YYYY-MM-DD the current round belongs to
+  const [gameQuestions, setGameQuestions] = useState([]);
   const [activeQuestionIdx, setActiveQuestionIdx] = useState(0);
   const [selectedOption, setSelectedOption] = useState(null);
   const [hasAnswered, setHasAnswered] = useState(false);
@@ -68,22 +52,28 @@ export default function DiscoverScreen() {
   const [streak, setStreak] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [coinsEarned, setCoinsEarned] = useState(0);
+  // Ad break between questions: { next, left, playing } — the round's progress stays in the state above.
+  const [adBreak, setAdBreak] = useState(null);
+  const gameStats = state.gameStats || {};
+  const gameDaily = state.gameDaily || {};
+  const today = dateKey();
 
-  const gameTypeFor = (id) => (id === 'who_said_it' ? 'who_said_it' : id === 'verse_scramble' ? 'scramble' : 'trivia');
+  const gameTypeFor = (id) => (BIBLE_GAMES.find((g) => g.id === id) || {}).gameId || 'trivia';
 
-  const startGame = (type) => {
-    setActiveGameType(type);
-    if (type === 'who_said_it') {
-      setGameQuestions(WHO_SAID_IT_QUESTIONS.map(q => ({
-        ...q,
-        question: q.quote,
-        categoryLabel: 'Scripture Quotes'
-      })));
-    } else if (type === 'scramble') {
-      setGameQuestions(scrambleQuestions());
-    } else {
-      setGameQuestions(TRIVIA_QUESTIONS);
+  const buildQuestions = (type) => {
+    if (type === 'scramble') return dailyQuestions('scramble').map((v) => scrambleAsChoice(v));
+    return dailyQuestions(type);
+  };
+
+  const startGame = (type, { fresh = false } = {}) => {
+    // Re-opening a round that is still in progress today resumes it (nothing is lost).
+    if (!fresh && type === activeGameType && gameDate === dateKey() && gameQuestions.length && !gameOver) {
+      setShowGameModal(true);
+      return;
     }
+    setActiveGameType(type);
+    setGameDate(dateKey());
+    setGameQuestions(buildQuestions(type));
     setActiveQuestionIdx(0);
     setSelectedOption(null);
     setHasAnswered(false);
@@ -92,6 +82,7 @@ export default function DiscoverScreen() {
     setStreak(0);
     setGameOver(false);
     setCoinsEarned(0);
+    setAdBreak(null);
     setShowGameModal(true);
   };
 
@@ -112,22 +103,69 @@ export default function DiscoverScreen() {
     }
   };
 
-  const handleNextQuestion = () => {
-    if (activeQuestionIdx + 1 < gameQuestions.length) {
-      setActiveQuestionIdx((i) => i + 1);
-      setSelectedOption(null);
-      setHasAnswered(false);
+  const goToQuestion = (i) => {
+    setActiveQuestionIdx(i);
+    setSelectedOption(null);
+    setHasAnswered(false);
+  };
+
+  const finishRound = () => {
+    const prev = gameDaily[activeGameType];
+    const firstToday = !(prev && prev.date === gameDate);
+    // Coin prize: 5 coins per correct answer, once per game per day (replays are practice).
+    const prize = firstToday ? correctCount * 5 : 0;
+    setCoinsEarned(prize);
+    setGameOver(true);
+    dispatch({ type: 'gameResult', gameId: activeGameType, date: gameDate, correct: correctCount, total: gameQuestions.length, score: gameScore });
+    if (firstToday || gameScore > (prev.score || 0)) {
+      dispatch({ type: 'set', patch: { gameDaily: { ...gameDaily, [activeGameType]: { date: gameDate, correct: correctCount, total: gameQuestions.length, score: gameScore } } } });
+    }
+    if (prize > 0) {
+      dispatch({ type: 'earnCoins', amount: prize, reason: `${GAME_TITLES[activeGameType] || 'Bible game'} · ${correctCount}/${gameQuestions.length}` });
+      toast.show(`+${prize} coins added to your wallet`, { icon: 'coin', haptic: 'success' });
     } else {
-      // Coin prize: 5 coins per correct answer, credited to the wallet once per round.
-      const prize = correctCount * 5;
-      setCoinsEarned(prize);
-      setGameOver(true);
-      if (prize > 0) {
-        dispatch({ type: 'buyCoins', amount: prize });
-        toast.show(`+${prize} coins added to your wallet`, { icon: 'coin', haptic: 'success' });
-      }
+      toast.show(`Score saved · ${correctCount}/${gameQuestions.length} correct`, { icon: 'star', haptic: 'success' });
     }
   };
+
+  const handleNextQuestion = () => {
+    const next = activeQuestionIdx + 1;
+    if (next >= gameQuestions.length) { finishRound(); return; }
+    // After every Nth question (4, 8, …) pause for a short, skippable supported-by-ads break.
+    if (next % AD_RULES.gameInterstitialEvery === 0) {
+      setAdBreak({ next, left: 3, playing: false });
+      return;
+    }
+    goToQuestion(next);
+  };
+
+  const continueAfterAd = (next, watched) => {
+    setAdBreak(null);
+    goToQuestion(next);
+    if (watched) toast.show('Thank you for supporting BibleNestra 🙏', { icon: 'heart', haptic: 'success' });
+  };
+
+  const watchAd = async () => {
+    if (!adBreak || adBreak.playing) return;
+    const next = adBreak.next;
+    setAdBreak({ ...adBreak, playing: true });
+    // The ad is a full-screen presentation of its own: lower the game sheet first so it can show on
+    // top (iOS can't present over an open modal), then bring the sheet back at the next question.
+    setShowGameModal(false);
+    await new Promise((r) => setTimeout(r, 260));
+    let shown = false;
+    try { shown = !!(await ads.showInterstitial()).shown; } catch (e) { shown = false; }
+    continueAfterAd(next, shown);
+    setShowGameModal(true);
+  };
+
+  // Ad-break countdown: plays the ad automatically after ~3s while the game sheet is open.
+  useEffect(() => {
+    if (!adBreak || adBreak.playing || !showGameModal) return undefined;
+    if (adBreak.left <= 0) { watchAd(); return undefined; }
+    const id = setTimeout(() => setAdBreak((b) => (b && !b.playing ? { ...b, left: b.left - 1 } : b)), 1000);
+    return () => clearTimeout(id);
+  }, [adBreak, showGameModal]);
 
   // Make a Wish — persisted through the store (state.wishes)
   const [showWishModal, setShowWishModal] = useState(false);
@@ -202,6 +240,9 @@ export default function DiscoverScreen() {
               <AnimatedNumber value={state.coins ?? 0} style={styles.coinChipText} />
               <Text style={styles.coinChipLabel}>coins</Text>
             </PressScale>
+          </ScaleIn>
+          <ScaleIn delay={180} style={{ marginBottom: 2 }}>
+            <ProfileButton size={36} />
           </ScaleIn>
         </View>
 
@@ -349,7 +390,7 @@ export default function DiscoverScreen() {
         <SectionHead
           eyebrow="Play & learn"
           title="Bible Games & Quizzes"
-          sub="Multi-option challenges, streak multipliers & coin prizes"
+          sub="New questions every day · streak multipliers & coin prizes"
           action="Play now"
           onAction={() => startGame('trivia')}
         />
@@ -369,7 +410,11 @@ export default function DiscoverScreen() {
               </View>
               <View style={styles.gameCardContent}>
                 <Text style={styles.gameCardTitle} numberOfLines={1}>{game.title}</Text>
-                <Text style={styles.gameCardSub} numberOfLines={2}>{game.subtitle}</Text>
+                <Text style={styles.gameCardSub} numberOfLines={2}>
+                  {gameDaily[game.gameId] && gameDaily[game.gameId].date === today
+                    ? `Today ${gameDaily[game.gameId].correct}/${gameDaily[game.gameId].total} · best ${((gameStats[game.gameId] || {}).best || 0).toLocaleString()} pts`
+                    : game.subtitle}
+                </Text>
                 <View style={styles.gameCardMeta}>
                   <View style={styles.inlineMeta}>
                     <Icon name="users" size={12} color={colors.faint} />
@@ -486,7 +531,9 @@ export default function DiscoverScreen() {
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.quickGameBadge} numberOfLines={1}>{game.badge}</Text>
                 <Text style={styles.quickGameTitle} numberOfLines={1}>{game.title}</Text>
-                <Text style={styles.quickGameMeta} numberOfLines={1}>{game.players}</Text>
+                <Text style={styles.quickGameMeta} numberOfLines={1}>
+                  {gameDaily[game.gameId] && gameDaily[game.gameId].date === today ? `Played today · ${gameDaily[game.gameId].correct}/${gameDaily[game.gameId].total}` : `New set today · resets in ${resetLabel()}`}
+                </Text>
               </View>
               <View style={styles.quickGamePlay}>
                 <Icon name="play" size={15} color={colors.primary} />
@@ -554,10 +601,10 @@ export default function DiscoverScreen() {
             <View style={styles.sheetTopBar}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.sheetEyebrow} numberOfLines={1}>
-                  {currentQ?.categoryLabel || 'Bible trivia'}
+                  {adBreak ? 'Short break' : gameOver ? (GAME_TITLES[activeGameType] || 'Bible game') : (currentQ?.categoryLabel || 'Bible trivia')}
                 </Text>
                 <Text style={styles.sheetTitle}>
-                  {gameOver ? 'Your results' : `Question ${activeQuestionIdx + 1} of ${gameQuestions.length}`}
+                  {gameOver ? 'Your results' : adBreak ? `${adBreak.next} of ${gameQuestions.length} done` : `Question ${activeQuestionIdx + 1} of ${gameQuestions.length}`}
                 </Text>
               </View>
               <View style={styles.gameScoreBadges}>
@@ -576,9 +623,47 @@ export default function DiscoverScreen() {
               </View>
             </View>
             <AnimatedBar progress={gameOver ? 1 : progressPct / 100} delay={60} style={styles.progressTrack} fillStyle={styles.progressFill} />
+            <View style={styles.dailyLine}>
+              <Icon name="calendar" size={12} color={colors.faint} />
+              <Text style={styles.dailyLineText} numberOfLines={1}>New questions every day · resets in {resetLabel()}</Text>
+              {gameDaily[activeGameType] && gameDaily[activeGameType].date === today ? (
+                <Text style={styles.dailyLineScore}>Today {gameDaily[activeGameType].correct}/{gameDaily[activeGameType].total}</Text>
+              ) : null}
+            </View>
 
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
-              {!gameOver ? (
+              {adBreak && !gameOver ? (
+                <ScaleIn key={`ad-${adBreak.next}`} from={0.92} style={styles.adCard}>
+                  <NightGlow />
+                  <View style={styles.adCardIcon}>
+                    <Pulse min={0.92} max={1.08} active={!adBreak.playing}>
+                      <Icon name="heart" size={26} color={colors.night} />
+                    </Pulse>
+                  </View>
+                  <Text style={styles.adCardEyebrow}>Supported by ads</Text>
+                  <Text style={styles.adCardTitle}>Watch this ad to support this great platform 🙏</Text>
+                  <Text style={styles.adCardSub}>
+                    Your progress is saved — {adBreak.next} of {gameQuestions.length} answered, {correctCount} correct. Question {adBreak.next + 1} is up next.
+                  </Text>
+                  <Button
+                    label={adBreak.playing ? 'Playing ad…' : `Watch ad${adBreak.left > 0 ? ` · ${adBreak.left}s` : ''}`}
+                    icon={<Icon name="play" size={14} color="#FFFFFF" />}
+                    onPress={watchAd}
+                    disabled={adBreak.playing}
+                    style={{ alignSelf: 'stretch', marginTop: 18 }}
+                  />
+                  <Pressable
+                    onPress={() => continueAfterAd(adBreak.next, false)}
+                    disabled={adBreak.playing}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Skip ad"
+                    style={({ pressed }) => [styles.adSkip, pressed && { opacity: 0.6 }]}
+                  >
+                    <Text style={styles.adSkipText}>Skip</Text>
+                  </Pressable>
+                </ScaleIn>
+              ) : !gameOver ? (
                 <View key={`${activeGameType}-${activeQuestionIdx}`}>
                   <FadeInUp distance={12} duration={340} style={styles.gameQuestionBox}>
                     <Text style={styles.gameQuestionEyebrow}>✦  Question</Text>
@@ -629,7 +714,7 @@ export default function DiscoverScreen() {
                                   {['A', 'B', 'C', 'D'][oIdx]}
                                 </Text>
                               </View>
-                              <Text style={[styles.gameOptionText, { color: optTextColor }]} numberOfLines={2}>
+                              <Text style={[styles.gameOptionText, { color: optTextColor }]} numberOfLines={activeGameType === 'scramble' ? 4 : 3}>
                                 {opt}
                               </Text>
                               {hasAnswered && isCorrect ? <ScaleIn from={0.3}><Icon name="check" size={17} color={colors.positive} strokeWidth={2.6} /></ScaleIn> : null}
@@ -686,11 +771,25 @@ export default function DiscoverScreen() {
                       </View>
                     </View>
                     <Text style={styles.gameOverSub}>
-                      {coinsEarned ? `+${coinsEarned} coins added to your wallet · balance ${state.coins ?? 0}` : 'Answer correctly to earn coins next round.'}
+                      {coinsEarned ? `+${coinsEarned} coins added to your wallet · balance ${state.coins ?? 0}` : gameDaily[activeGameType] && gameDaily[activeGameType].date === today && correctCount ? 'Coins are awarded on your first round each day — replays are practice.' : 'Answer correctly to earn coins next round.'}
                     </Text>
+                    <View style={styles.gameOverDaily}>
+                      <View style={styles.gameOverDailyCell}>
+                        <Text style={styles.gameOverDailyValue}>{gameDaily[activeGameType] && gameDaily[activeGameType].date === today ? `${gameDaily[activeGameType].correct}/${gameDaily[activeGameType].total}` : `${correctCount}/${gameQuestions.length}`}</Text>
+                        <Text style={styles.gameOverDailyLabel}>Today's best</Text>
+                      </View>
+                      <View style={styles.gameOverDailyCell}>
+                        <Text style={styles.gameOverDailyValue}>{Math.max(gameScore, (gameStats[activeGameType] || {}).best || 0).toLocaleString()}</Text>
+                        <Text style={styles.gameOverDailyLabel}>All-time best pts</Text>
+                      </View>
+                      <View style={styles.gameOverDailyCell}>
+                        <Text style={styles.gameOverDailyValue}>{resetLabel()}</Text>
+                        <Text style={styles.gameOverDailyLabel}>New set in</Text>
+                      </View>
+                    </View>
                   </FadeInUp>
                   <FadeInUp delay={360} distance={10} style={{ flexDirection: 'row', gap: 10, marginTop: 24, alignSelf: 'stretch' }}>
-                    <Button label="Play again" onPress={() => startGame(activeGameType)} style={{ flex: 1 }} />
+                    <Button label="Replay today's set" onPress={() => startGame(activeGameType, { fresh: true })} style={{ flex: 1 }} />
                     <Button kind="ghost" label="Done" onPress={() => setShowGameModal(false)} style={{ flex: 1 }} />
                   </FadeInUp>
                 </View>
@@ -1409,9 +1508,41 @@ export function ChatScreen({ params = {} }) {
   const nav = useNav();
   const toast = useToast();
   const { state, dispatch } = useStore();
+  const sync = useSync();
   let chat = state.chats.find((c) => c.id === params.id) || state.chats.find((c) => c.with === params.to);
   const [kindMenu, setKindMenu] = useState(false);
   const stick = useStickToBottom();
+
+  useEffect(() => {
+    if (chat && chat.id && sync.online) {
+      if (sync.markChatRead) sync.markChatRead(chat.id);
+      if (sync.realtimeStatus !== 'connected' && sync.loadChatMessages) {
+        const interval = setInterval(() => {
+          sync.loadChatMessages(chat.id).then((res) => {
+            if (res && res.items) {
+              dispatch({
+                type: 'set',
+                patch: {
+                  chats: state.chats.map((c) => c.id === chat.id ? {
+                    ...c,
+                    messages: res.items.map((m) => ({
+                      id: m.id,
+                      from: m.sender?.displayName || 'Friend',
+                      mine: m.isMe,
+                      time: 'Just now',
+                      text: m.text,
+                      status: 'delivered',
+                    })),
+                  } : c),
+                },
+              });
+            }
+          }).catch(() => {});
+        }, 5000);
+        return () => clearInterval(interval);
+      }
+    }
+  }, [chat?.id, sync.online, sync.realtimeStatus]);
   if (!chat && params.to) {
     return (
       <Screen back title={params.to} subtitle="New conversation" scroll={false}>
@@ -2583,6 +2714,30 @@ const styles = StyleSheet.create({
   scorePillText: { fontSize: 12, fontWeight: '700', color: colors.fg },
   progressTrack: { height: 4, borderRadius: 2, backgroundColor: colors.raised, overflow: 'hidden', marginBottom: 4 },
   progressFill: { height: 4, borderRadius: 2, backgroundColor: colors.primary },
+  dailyLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  dailyLineText: { flex: 1, fontSize: 11.5, color: colors.faint },
+  dailyLineScore: { fontSize: 11.5, fontWeight: '700', color: colors.goldMuted },
+  adCard: {
+    backgroundColor: colors.night,
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 28,
+    paddingBottom: 14,
+    marginTop: 16,
+    alignItems: 'center',
+    overflow: 'hidden',
+    ...shadow.md,
+  },
+  adCardIcon: { width: 60, height: 60, borderRadius: 30, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
+  adCardEyebrow: { ...eyebrowBase, color: colors.goldLight, marginTop: 16 },
+  adCardTitle: { fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 29, color: colors.nightFg, textAlign: 'center', marginTop: 6, letterSpacing: -0.3 },
+  adCardSub: { fontSize: 13.5, lineHeight: 19, color: colors.nightMuted, textAlign: 'center', marginTop: 8 },
+  adSkip: { paddingVertical: 10, paddingHorizontal: 18, marginTop: 6 },
+  adSkipText: { fontSize: 13, fontWeight: '600', color: colors.nightMuted, textDecorationLine: 'underline' },
+  gameOverDaily: { flexDirection: 'row', alignSelf: 'stretch', marginTop: 16, gap: 8 },
+  gameOverDailyCell: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: radius.md, backgroundColor: colors.raised },
+  gameOverDailyValue: { fontSize: 15, fontWeight: '700', color: colors.fg },
+  gameOverDailyLabel: { fontSize: 10.5, color: colors.muted, marginTop: 2 },
 
   gameQuestionBox: {
     backgroundColor: colors.surface,

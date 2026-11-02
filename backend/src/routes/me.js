@@ -3,19 +3,23 @@ import { one, q } from '../lib/db.js';
 import { body, bad, notFound, str, uuidParam, today } from '../lib/http.js';
 import { meShape, userJson } from '../lib/shape.js';
 import { RULES } from '../lib/rules.js';
+import { getUserStreak } from '../lib/rhythm.js';
 
 const r = new Hono();
 
 export async function meResponse(env, userId) {
   const u = await one(env, 'SELECT * FROM users WHERE id = $1', [userId]);
+  const userToday = today(u.tz_offset);
+  const { streak, bestStreak, graceUsedThisWeek } = await getUserStreak(env, userId, u.tz_offset, u.best_streak);
   const s = await one(env, `SELECT
       (SELECT count(*)::int FROM ad_rewards WHERE user_id = $1 AND purpose = 'support' AND day = $2) AS support_today,
       (SELECT count(*)::int FROM follows WHERE followee_id = $1) AS followers,
-      (SELECT count(*)::int FROM follows WHERE follower_id = $1) AS following`, [userId, today(u.tz_offset)]);
+      (SELECT count(*)::int FROM follows WHERE follower_id = $1) AS following`, [userId, userToday]);
   return meShape(u, {
     supportAdsToday: Math.min(RULES.supportAdsDaily, s.support_today), supportAdsDaily: RULES.supportAdsDaily,
     jobAdsNeeded: RULES.jobAdsNeeded, bidFee: RULES.bidFee, followers: s.followers, following: s.following,
     adsClientClaim: env.ADS_CLIENT_CLAIM === 'true',
+    streak, bestStreak, graceUsedThisWeek,
   });
 }
 

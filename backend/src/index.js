@@ -23,6 +23,7 @@ import wishes from './routes/wishes.js';
 import study from './routes/study.js';
 import gifts from './routes/gifts.js';
 import notifications from './routes/notifications.js';
+import rhythm from './routes/rhythm.js';
 
 export function createApp() {
   const app = new Hono();
@@ -100,6 +101,7 @@ export function createApp() {
   app.route('/', study);
   app.route('/', gifts);
   app.route('/', notifications);
+  app.route('/', rhythm);
 
   return app;
 }

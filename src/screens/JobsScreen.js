@@ -7,10 +7,22 @@ import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useNav } from '../navigation';
 import { useStore } from '../store';
-import { useToast } from '../components/Toast';
-import { AnimatedModal, PressScale, FadeInUp, ScaleIn, Pop, Burst, AnimatedNumber, LiveRing } from '../components/Motion';
+import { useSync, usePullRefresh } from '../api/sync';
+import { errorMessage } from '../api/client';
+import { useToast, haptic } from '../components/Toast';
+import { AnimatedModal, PressScale, FadeInUp, ScaleIn, Pop, Burst, AnimatedNumber, LiveRing, Pulse } from '../components/Motion';
+import ProfileButton from '../components/ProfileButton';
+import { useAds } from '../ads/Ads';
+import { AD_RULES } from '../ads/config';
 
 const hasNumber = (v) => /\d/.test(String(v || ''));
+const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+
+// Bidding economy: posting is free; placing a bid costs coins, which can also be unlocked by watching rewarded ads.
+const BID_COST = AD_RULES.jobBidCost; // 20
+const ADS_NEEDED = AD_RULES.jobAdsForCoins; // 5
+const AD_COINS = AD_RULES.jobAdCoins; // 20
+const TOPUP_COINS = 100; // same simulated purchase as the Profile wallet's "+ Add 100 Coins"
 
 function FieldError({ text }) {
   if (!text) return null;
@@ -40,7 +52,10 @@ const CATEGORIES = [
 export default function JobsScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
+  const sync = useSync(); // online: bids, coins and ad credits are settled by the server
+  const pullRefresh = usePullRefresh();
   const toast = useToast();
+  const [bidBusy, setBidBusy] = useState(false);
   const [filterKind, setFilterKind] = useState('all'); // 'all' | 'job' | 'task' | 'proposals'
   const [selectedCat, setSelectedCat] = useState('All');
   const [search, setSearch] = useState('');
@@ -64,7 +79,15 @@ export default function JobsScreen({ params = {} }) {
   const [justApplied, setJustApplied] = useState(null); // job id whose proposal was just sent (success state in the sheet)
   const [sentBurst, setSentBurst] = useState(0);
   const closeTimer = useRef(null);
-  useEffect(() => () => clearTimeout(closeTimer.current), []);
+  // Bid gate (second step of the apply sheet)
+  const ads = useAds();
+  const [applyStep, setApplyStep] = useState('form'); // 'form' (proposal) | 'bid' (pay the bid fee)
+  const [adBusy, setAdBusy] = useState(false); // a rewarded ad is currently on screen
+  const [unlockFx, setUnlockFx] = useState(0); // bumps when 5 ads convert into coins (drives the "+20 coins" celebration)
+  const [celebrating, setCelebrating] = useState(false); // keep all 5 dots lit briefly after the unlock
+  const celebrateTimer = useRef(null);
+  const applyScroll = useRef(null);
+  useEffect(() => () => { clearTimeout(closeTimer.current); clearTimeout(celebrateTimer.current); }, []);
 
   // Post Job/Task Form State
   const [postTitle, setPostTitle] = useState('');
@@ -78,14 +101,23 @@ export default function JobsScreen({ params = {} }) {
   const jobs = state.jobs || [];
   const proposals = state.proposals || [];
   const appliedTo = (id) => proposals.find((pr) => pr.jobId === id);
+  const bids = state.bids || {};
+  const bidOn = (id) => bids[id] || null; // { coins, time } once the bid fee was paid for this job
+  const coins = state.coins || 0;
+  const adCredits = state.jobAdCredits || 0;
   const openCount = jobs.filter((j) => j.status !== 'closed').length;
   const myListings = jobs.filter((j) => j.mine);
 
   const openApply = (job, presetBid = '') => {
+    // Re-opening the same job keeps the unsent draft (and the bid step), so leaving to watch ads never loses work.
+    const sameDraft = selectedJob && selectedJob.id === job.id && !appliedTo(job.id);
     setSelectedJob(job);
-    setBidRate(presetBid);
-    setDeliveryTime('');
-    setCoverNote('');
+    if (!sameDraft) {
+      setBidRate(presetBid);
+      setDeliveryTime('');
+      setCoverNote('');
+      setApplyStep('form');
+    }
     setApplyErrors({});
     setJustApplied(null);
     clearTimeout(closeTimer.current);
@@ -113,7 +145,8 @@ export default function JobsScreen({ params = {} }) {
       },
     });
     setConfirmWithdraw(null);
-    toast.show('Proposal withdrawn', { icon: 'check' });
+    // The bid fee stays recorded on the job (state.bids), so re-applying later is free.
+    toast.show(bidOn(prop.jobId) ? 'Proposal withdrawn · your bid stays paid if you re-apply' : 'Proposal withdrawn', { icon: 'check' });
   };
 
   const shareJob = async (job) => {
@@ -141,6 +174,7 @@ export default function JobsScreen({ params = {} }) {
     return true;
   });
 
+  // Step 1 of applying: validate the proposal, then move to the bid gate (unless the fee was already paid for this job).
   const handleApply = () => {
     const errs = {};
     if (!bidRate.trim()) errs.bid = 'Enter your rate or price.';
@@ -148,30 +182,153 @@ export default function JobsScreen({ params = {} }) {
     if (!coverNote.trim()) errs.cover = 'Add a short cover note for the client.';
     else if (coverNote.trim().length < 20) errs.cover = 'A little more detail please (at least 20 characters).';
     setApplyErrors(errs);
-    if (Object.keys(errs).length) return;
-    dispatch({
-      type: 'applyJob',
-      jobId: selectedJob.id,
-      jobTitle: selectedJob.title,
-      proposal: {
-        applicant: state.user.displayName,
-        headline: state.user.headline,
-        bidRate: bidRate.trim(),
-        deliveryTime: deliveryTime.trim() || 'Flexible',
-        coverNote: coverNote.trim(),
-      },
-    });
-    // Celebrate inside the sheet (it now shows the "Proposal submitted" state), then glide it closed.
-    setJustApplied(selectedJob.id);
+    if (Object.keys(errs).length) {
+      haptic('warning');
+      return;
+    }
+    if (bidOn(selectedJob.id) && sync.online) {
+      toast.show('You’ve already placed a bid on this listing', { icon: 'briefcase' });
+      return;
+    }
+    if (bidOn(selectedJob.id)) {
+      // Fee already paid earlier (proposal was withdrawn) — resubmitting is free.
+      submitProposal(false);
+      return;
+    }
+    haptic('select');
+    setApplyStep('bid');
+    requestAnimationFrame(() => applyScroll.current?.scrollTo?.({ y: 0, animated: false }));
+  };
+
+  // Step 2: record the paid bid (optional) + send the proposal, then celebrate inside the sheet.
+  const submitProposal = async (payFee) => {
+    const job = selectedJob;
+    if (!job) return;
+    if (sync.online) {
+      // The server charges the bid fee atomically and returns the new balance
+      if (bidBusy) return;
+      setBidBusy(true);
+      try {
+        await sync.placeBid(job, { cover: coverNote.trim(), amount: bidRate.trim(), timeline: deliveryTime.trim() || 'Flexible' });
+      } catch (e) {
+        if (e && e.code === 'INSUFFICIENT_COINS') {
+          toast.show(`Not enough coins — a bid costs ${BID_COST}. Watch ${ADS_NEEDED} short ads to unlock ${AD_COINS}.`, { tone: 'error', icon: 'coin', duration: 4200 });
+        } else if (e && e.code === 'ALREADY_BID') {
+          toast.show('You’ve already placed a bid on this listing', { tone: 'error', icon: 'briefcase' });
+        } else {
+          toast.show(`Couldn’t place your bid: ${errorMessage(e)}`, { tone: 'error', icon: 'briefcase' });
+        }
+        return;
+      } finally {
+        setBidBusy(false);
+      }
+    } else {
+      if (payFee) dispatch({ type: 'placeBid', jobId: job.id, coins: BID_COST });
+      dispatch({
+        type: 'applyJob',
+        jobId: job.id,
+        jobTitle: job.title,
+        proposal: {
+          applicant: state.user.displayName,
+          headline: state.user.headline,
+          bidRate: bidRate.trim(),
+          deliveryTime: deliveryTime.trim() || 'Flexible',
+          coverNote: coverNote.trim(),
+        },
+      });
+    }
+    // Celebrate inside the sheet (it now shows the "Bid placed" state), then glide it closed.
+    setApplyStep('form');
+    setJustApplied(job.id);
     setTimeout(() => setSentBurst((b) => b + 1), 120);
-    closeTimer.current = setTimeout(() => setShowApplyModal(false), 1500);
+    closeTimer.current = setTimeout(() => setShowApplyModal(false), 1700);
     setBidRate('');
     setDeliveryTime('');
     setCoverNote('');
-    toast.show(`Proposal sent${selectedJob.client?.name ? ` to ${selectedJob.client.name}` : ''}`, {
+    const who = job.client?.name ? ` to ${job.client.name}` : '';
+    toast.show(payFee ? `Bid placed for ${BID_COST} coins · proposal sent${who}` : `Proposal resubmitted${who}`, {
       icon: 'briefcase',
       haptic: 'success',
       action: { label: 'View', onPress: () => { setShowApplyModal(false); setFilterKind('proposals'); } },
+    });
+  };
+
+  const payAndBid = () => {
+    if (bidBusy) return;
+    if (coins < BID_COST) {
+      toast.show(`You need ${BID_COST - coins} more coins to bid`, { tone: 'error', icon: 'coin' });
+      return;
+    }
+    submitProposal(true);
+  };
+
+  // One rewarded ad = one step toward the coin unlock. Progress lives in the store, so it survives leaving midway.
+  const watchBidAd = async () => {
+    if (adBusy) return;
+    const willUnlock = adCredits + 1 >= ADS_NEEDED;
+    setAdBusy(true);
+    // Full-screen ads can't reliably stack over our own modal sheet (web portals / iOS presentation),
+    // so glide the sheet away, play the ad, then bring the sheet back with the draft + bid step intact.
+    setShowApplyModal(false);
+    await wait(320);
+    let r = null;
+    try {
+      r = await ads.showRewarded({ purpose: 'job' });
+    } catch (e) {
+      r = null;
+    }
+    // Online: the server credits the ad (and converts every 5 into coins)
+    let credit = null;
+    let creditErr = null;
+    if (r && r.rewarded && sync.online) {
+      try { credit = await sync.creditAd('job'); } catch (e) { creditErr = e; }
+    }
+    setShowApplyModal(true);
+    await wait(380); // let the sheet spring back in so the dot fill / unlock celebration is actually seen
+    setAdBusy(false);
+    if (!r || !r.rewarded) {
+      toast.show('Ad closed before the end — no credit this time', { tone: 'error', icon: 'play' });
+      return;
+    }
+    if (sync.online) {
+      if (creditErr || !credit) {
+        toast.show((creditErr && creditErr.message) || 'Couldn’t record that ad — please try again', { tone: 'error', icon: 'play' });
+        return;
+      }
+      if (credit.unlocked) {
+        setCelebrating(true);
+        setUnlockFx((n) => n + 1);
+        clearTimeout(celebrateTimer.current);
+        celebrateTimer.current = setTimeout(() => setCelebrating(false), 2400);
+        toast.show(`+${credit.unlocked} coins unlocked — thank you for supporting BibleNestra`, { icon: 'coin', haptic: 'success' });
+      } else {
+        toast.show(`Ad ${credit.jobAdCredits} of ${ADS_NEEDED} watched · progress saved`, { icon: 'check', haptic: 'select' });
+      }
+      return;
+    }
+    dispatch({ type: 'jobAdCredit', need: ADS_NEEDED, coins: AD_COINS });
+    if (willUnlock) {
+      setCelebrating(true);
+      setUnlockFx((n) => n + 1);
+      clearTimeout(celebrateTimer.current);
+      celebrateTimer.current = setTimeout(() => setCelebrating(false), 2400);
+      toast.show(`+${AD_COINS} coins unlocked — thank you for supporting BibleNestra`, { icon: 'coin', haptic: 'success' });
+    } else {
+      toast.show(`Ad ${adCredits + 1} of ${ADS_NEEDED} watched · progress saved`, { icon: 'check', haptic: 'select' });
+    }
+  };
+
+  const buyBidCoins = () => {
+    if (sync.online) {
+      // No purchase API yet — coins are server-side, so a simulated top-up would be overwritten
+      toast.show(`Coin purchases are coming soon — watch ${ADS_NEEDED} short ads to unlock ${AD_COINS} coins`, { icon: 'coin', duration: 3600 });
+      return;
+    }
+    dispatch({ type: 'buyCoins', amount: TOPUP_COINS });
+    toast.show(`Added ${TOPUP_COINS} coins · balance ${coins + TOPUP_COINS}`, {
+      icon: 'coin',
+      haptic: 'success',
+      action: { label: 'Wallet', onPress: () => { setShowApplyModal(false); nav.push('Profile', { tab: 'Wallet & Gifts' }); } },
     });
   };
 
@@ -251,19 +408,24 @@ export default function JobsScreen({ params = {} }) {
 
   return (
     <Screen
+      refreshControl={pullRefresh}
       back
       title="Christian Jobs & Tasks"
       subtitle="Faith-Based Work, Freelance & Ministry Gigs"
       right={
-        <PressScale
-          onPress={openPost}
-          accessibilityLabel="Post work"
-          scaleTo={0.92}
-          style={styles.postNavBtn}
-        >
-          <PlusIcon size={13} color={colors.primaryFg} />
-          <Text style={styles.postNavBtnText}>Post</Text>
-        </PressScale>
+        <View style={styles.headerRight}>
+          <PressScale
+            onPress={openPost}
+            accessibilityLabel="Post work"
+            scaleTo={0.92}
+            style={styles.postNavBtn}
+          >
+            <PlusIcon size={12} color={colors.primaryFg} />
+            <Text style={styles.postNavBtnText}>Post</Text>
+          </PressScale>
+          {/* Profile avatar is always the right-most header element on main screens */}
+          <ProfileButton size={36} />
+        </View>
       }
     >
       {/* Video hero (night surface) */}
@@ -333,9 +495,10 @@ export default function JobsScreen({ params = {} }) {
       >
         {bounties.map((b, bi) => {
           const applied = appliedTo(b.job.id);
+          const bountyBid = bidOn(b.job.id);
           return (
           <FadeInUp key={b.key} index={bi} delay={120} distance={16}>
-          <PressScale onPress={() => openApply(b.job, b.price)} accessibilityLabel={`Apply for ${b.title} bounty`} scaleTo={0.975} style={styles.bountyCard}>
+          <PressScale onPress={() => openApply(b.job, b.price)} accessibilityLabel={`Bid on ${b.title} bounty`} scaleTo={0.975} style={styles.bountyCard}>
             <Image source={{ uri: b.image }} style={styles.bountyCardBg} />
             <View style={styles.bountyCardScrim} />
             <View style={styles.bountyCardContent}>
@@ -353,10 +516,13 @@ export default function JobsScreen({ params = {} }) {
                 <Text style={styles.bountyCardTagline}>{b.tagline}</Text>
                 <Text style={styles.bountyCardDesc} numberOfLines={2}>{b.desc}</Text>
               </View>
-              <Pop trigger={!!applied} amount={1.06}>
-                <View style={[styles.bountyClaimBtn, applied && { backgroundColor: colors.goldLight }]}>
-                  <Text style={styles.bountyClaimBtnText}>{applied ? 'Applied · view status' : 'Apply for bounty'}</Text>
-                  <Icon name={applied ? 'check' : 'arrow-right'} size={13} color={colors.night} strokeWidth={2.4} />
+              <Pop trigger={!!(applied || bountyBid)} amount={1.06}>
+                <View style={[styles.bountyClaimBtn, (applied || bountyBid) && { backgroundColor: colors.goldLight }]}>
+                  {bountyBid || applied ? null : <Icon name="coin" size={13} color={colors.gold} />}
+                  <Text style={styles.bountyClaimBtnText}>
+                    {bountyBid ? `Bid placed · ${bountyBid.coins} coins` : applied ? 'Applied · view status' : `Bid on bounty · ${BID_COST} coins`}
+                  </Text>
+                  <Icon name={applied || bountyBid ? 'check' : 'arrow-right'} size={13} color={colors.night} strokeWidth={2.4} />
                 </View>
               </Pop>
             </View>
@@ -450,10 +616,16 @@ export default function JobsScreen({ params = {} }) {
                 <View style={styles.coverQuote}>
                   <Text style={styles.coverQuoteText} numberOfLines={2}>“{prop.coverNote}”</Text>
                 </View>
+                {bidOn(prop.jobId) ? (
+                  <View style={styles.bidPlacedRow}>
+                    <Icon name="coin" size={13} color={colors.gold} />
+                    <Text style={styles.bidPlacedRowText}>Bid placed · {bidOn(prop.jobId).coins} coins</Text>
+                  </View>
+                ) : null}
                 <View style={styles.propFooter}>
                   <Text style={[styles.jobTimeText, { marginTop: 0, flex: 1 }]}>Submitted {prop.time}</Text>
                   {confirmWithdraw === prop.id ? (
-                    <FadeInUp distance={0} duration={200} style={{ flexDirection: 'row', gap: 6 }}>
+                    <FadeInUp distance={0} duration={200} style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                       <Button small kind="ghost" label="Keep" onPress={() => setConfirmWithdraw(null)} />
                       <Button small kind="danger" label="Withdraw" onPress={() => withdraw(prop)} />
                     </FadeInUp>
@@ -486,6 +658,7 @@ export default function JobsScreen({ params = {} }) {
           </View>
           {filteredJobs.map((item, idx) => {
             const applied = appliedTo(item.id);
+            const bid = bidOn(item.id);
             const closed = item.status === 'closed';
             return (
             <FadeInUp key={item.id} index={idx} distance={12} duration={380}>
@@ -508,7 +681,7 @@ export default function JobsScreen({ params = {} }) {
                   <Text style={styles.clientAvatarText}>{(item.client?.name || '?')[0]}</Text>
                 </View>
                 <Text style={styles.clientText} numberOfLines={1}>
-                  <Text style={styles.clientName}>{item.client.name}</Text> · {item.client.church}
+                  <Text style={styles.clientName}>{item.client.name}</Text>{item.client.church ? ` · ${item.client.church}` : null}
                 </Text>
                 {item.client?.verified ? <Icon name="check" size={13} color={colors.positive} strokeWidth={2.6} /> : null}
               </View>
@@ -530,16 +703,24 @@ export default function JobsScreen({ params = {} }) {
               <View style={styles.jobFooter}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.priceText} numberOfLines={1}>{item.budget}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
                     <Text style={styles.proposalsCountText} numberOfLines={1}>{item.deadline}{'\u00A0·\u00A0'}</Text>
-                    <AnimatedNumber value={item.proposalsCount || 0} style={styles.proposalsCountText} />
-                    <Text style={styles.proposalsCountText} numberOfLines={1}>{'\u00A0'}{item.proposalsCount === 1 ? 'proposal' : 'proposals'}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <AnimatedNumber value={item.proposalsCount || 0} style={styles.proposalsCountText} />
+                      <Text style={styles.proposalsCountText} numberOfLines={1}>{'\u00A0'}{item.proposalsCount === 1 ? 'proposal' : 'proposals'}</Text>
+                    </View>
                   </View>
                 </View>
                 {item.mine ? (
                   <View style={[styles.applyChip, styles.applyChipQuiet]}>
                     <Text style={[styles.applyChipText, { color: colors.primary }]}>Manage</Text>
                   </View>
+                ) : bid ? (
+                  // Paid bids replace the bid button (even if the proposal was later withdrawn)
+                  <ScaleIn key="bid" style={[styles.applyChip, styles.bidPlacedChip]}>
+                    <Icon name="check" size={13} color={colors.goldMuted} strokeWidth={2.6} />
+                    <Text style={[styles.applyChipText, { color: colors.goldMuted }]}>Bid placed · {bid.coins} coins</Text>
+                  </ScaleIn>
                 ) : applied ? (
                   <ScaleIn key="applied" style={[styles.applyChip, styles.applyChipQuiet]}>
                     <Icon name="check" size={13} color={colors.primary} strokeWidth={2.6} />
@@ -551,8 +732,11 @@ export default function JobsScreen({ params = {} }) {
                   </View>
                 ) : (
                   <View style={styles.applyChip}>
-                    <Text style={styles.applyChipText}>Apply</Text>
-                    <Icon name="arrow-right" size={13} color={colors.primaryFg} strokeWidth={2.4} />
+                    <Text style={styles.applyChipText}>Bid</Text>
+                    <View style={styles.applyChipCost}>
+                      <Icon name="coin" size={11} color={colors.goldLight} />
+                      <Text style={styles.applyChipCostText}>{BID_COST}</Text>
+                    </View>
                   </View>
                 )}
               </View>
@@ -587,13 +771,36 @@ export default function JobsScreen({ params = {} }) {
             <View style={styles.grabber} />
             <View style={styles.sheetHeader}>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.eyebrow}>{selectedJob?.mine ? 'Manage listing' : selectedJob && appliedTo(selectedJob.id) ? 'Your proposal' : 'Submit proposal'}</Text>
-                <Text style={styles.sheetTitle} numberOfLines={2}>{selectedJob?.title}</Text>
+                <Text style={styles.eyebrow}>
+                  {selectedJob?.mine
+                    ? 'Manage listing'
+                    : selectedJob && appliedTo(selectedJob.id)
+                      ? (bidOn(selectedJob.id) ? 'Your bid' : 'Your proposal')
+                      : applyStep === 'bid' ? 'Step 2 of 2 · bid fee' : 'Your proposal · step 1 of 2'}
+                </Text>
+                <Text style={styles.sheetTitle} numberOfLines={2}>{applyStep === 'bid' && selectedJob && !appliedTo(selectedJob.id) ? 'Place your bid' : selectedJob?.title}</Text>
               </View>
               <CloseButton onPress={() => setShowApplyModal(false)} />
             </View>
 
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+            <ScrollView ref={applyScroll} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              {applyStep === 'bid' && selectedJob && !selectedJob.mine && !appliedTo(selectedJob.id) ? (
+                <BidGate
+                  key={`gate-${selectedJob.id}`}
+                  job={selectedJob}
+                  proposal={{ bidRate: bidRate.trim(), deliveryTime: deliveryTime.trim() || 'Flexible' }}
+                  coins={coins}
+                  credits={adCredits}
+                  adBusy={adBusy}
+                  celebrating={celebrating}
+                  unlockFx={unlockFx}
+                  onPay={payAndBid}
+                  onWatchAd={watchBidAd}
+                  onBuy={buyBidCoins}
+                  onEdit={() => { haptic('select'); setApplyStep('form'); }}
+                />
+              ) : (
+              <>
               <View style={styles.clientInfoBox}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <View style={[styles.clientAvatar, { width: 34, height: 34, borderRadius: 17 }]}>
@@ -632,7 +839,7 @@ export default function JobsScreen({ params = {} }) {
                         <Icon name="check" size={22} color={colors.night} strokeWidth={2.8} />
                         <Burst trigger={sentBurst} count={12} radius={52} size={12} />
                       </View>
-                      <Text style={styles.sentTitle}>Proposal sent</Text>
+                      <Text style={styles.sentTitle}>{bidOn(selectedJob.id) ? 'Bid placed' : 'Proposal sent'}</Text>
                       <Text style={styles.sentSub}>{selectedJob.client?.name ? `${selectedJob.client.name} will review your pitch.` : 'The creator will review your pitch.'}</Text>
                     </View>
                   ) : null}
@@ -643,6 +850,12 @@ export default function JobsScreen({ params = {} }) {
                   <Text style={styles.statusBoxBody}>
                     Your bid of {appliedTo(selectedJob.id).bidRate} is {String(appliedTo(selectedJob.id).status).toLowerCase()}. You’ll be notified when the client responds.
                   </Text>
+                  {bidOn(selectedJob.id) ? (
+                    <View style={[styles.bidPlacedRow, { alignSelf: 'flex-start' }]}>
+                      <Icon name="coin" size={13} color={colors.gold} />
+                      <Text style={styles.bidPlacedRowText}>Bid placed · {bidOn(selectedJob.id).coins} coins</Text>
+                    </View>
+                  ) : null}
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
                     <Button small kind="ghost" label="Share" style={{ flex: 1 }} icon={<Icon name="share" size={13} color={colors.fg} />} onPress={() => shareJob(selectedJob)} />
                     <Button small label="My proposals" style={{ flex: 1 }} onPress={() => { setShowApplyModal(false); setFilterKind('proposals'); }} />
@@ -688,12 +901,33 @@ export default function JobsScreen({ params = {} }) {
                   />
                   <FieldError text={applyErrors.cover} />
 
+                  {/* What happens next: the bid fee (or "already paid" if they withdrew earlier) */}
+                  {bidOn(selectedJob?.id) ? (
+                    <View style={styles.bidHint}>
+                      <Icon name="check" size={14} color={colors.positive} strokeWidth={2.6} />
+                      <Text style={styles.bidHintText}>
+                        <Text style={styles.bidHintStrong}>Bid already paid.</Text> Resubmitting this proposal is free.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.bidHint}>
+                      <Icon name="coin" size={14} color={colors.gold} />
+                      <Text style={styles.bidHintText}>
+                        Bidding costs <Text style={styles.bidHintStrong}>{BID_COST} coins</Text> or {ADS_NEEDED} short ads. You have{' '}
+                        <Text style={styles.bidHintStrong}>{coins}</Text>.
+                      </Text>
+                    </View>
+                  )}
+
                   <Button
-                    label="Submit Proposal to Client"
+                    label={bidOn(selectedJob?.id) ? 'Resubmit proposal' : 'Continue to bid'}
                     onPress={handleApply}
-                    style={{ marginTop: 22 }}
+                    style={{ marginTop: 14 }}
+                    icon={bidOn(selectedJob?.id) ? null : <Icon name="coin" size={15} color={colors.goldLight} />}
                   />
                 </>
+              )}
+              </>
               )}
             </ScrollView>
           </View>
@@ -805,10 +1039,18 @@ export default function JobsScreen({ params = {} }) {
                 style={[styles.formInput, styles.formInputMulti]}
               />
 
+              {/* Posting is free — the coin fee is paid by bidders */}
+              <View style={styles.bidHint}>
+                <Icon name="coin" size={14} color={colors.gold} />
+                <Text style={styles.bidHintText}>
+                  <Text style={styles.bidHintStrong}>Posting is free.</Text> Bidders pay {BID_COST} coins or watch {ADS_NEEDED} ads to bid — this keeps proposals serious.
+                </Text>
+              </View>
+
               <Button
                 label="Publish Listing"
                 onPress={handlePostJob}
-                style={{ marginTop: 22 }}
+                style={{ marginTop: 14 }}
               />
             </ScrollView>
           </View>
@@ -823,6 +1065,149 @@ function PlusIcon({ size = 16, color = '#FFFFFF' }) {
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M12 5v14M5 12h14" stroke={color} strokeWidth={2.6} strokeLinecap="round" />
     </Svg>
+  );
+}
+
+// "Place your bid" — step 2 of applying. Two ways to cover the fee: pay coins, or watch rewarded ads to unlock coins.
+function BidGate({ job, proposal, coins, credits, adBusy, celebrating, unlockFx, onPay, onWatchAd, onBuy, onEdit }) {
+  const enough = coins >= BID_COST;
+  const short = Math.max(0, BID_COST - coins);
+  const lit = celebrating ? ADS_NEEDED : credits; // dots shown filled (all 5 during the unlock celebration)
+  const adLabel = adBusy ? 'Ad playing…' : `Watch ad ${Math.min(credits + 1, ADS_NEEDED)} of ${ADS_NEEDED}`;
+
+  return (
+    <View>
+      {/* Proposal summary — the pitch they're about to send */}
+      <FadeInUp distance={8} style={styles.gateSummary}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.priceLabel}>Your proposal</Text>
+          <Text style={styles.gateSummaryJob} numberOfLines={1}>{job.title}</Text>
+          <Text style={styles.gateSummaryMeta} numberOfLines={1}>
+            <Text style={{ color: colors.fg, fontWeight: '700' }}>{proposal.bidRate}</Text> · {proposal.deliveryTime}
+          </Text>
+        </View>
+        <PressScale onPress={onEdit} scaleTo={0.92} hitSlop={8} style={styles.gateEditBtn} accessibilityLabel="Edit proposal">
+          <Icon name="edit" size={13} color={colors.primary} />
+          <Text style={styles.gateEditText}>Edit</Text>
+        </PressScale>
+      </FadeInUp>
+
+      {/* Path A — pay coins */}
+      <FadeInUp index={1} distance={10} style={styles.gateCard}>
+        <View style={styles.gateBalanceRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.priceLabel}>Your balance</Text>
+            <View style={styles.gateCoinsRow}>
+              <View style={styles.gateCoinDot}><Icon name="coin" size={15} color={colors.goldMuted} /></View>
+              <Pop trigger={coins} amount={1.15}>
+                <AnimatedNumber value={coins} style={styles.gateCoinsValue} />
+              </Pop>
+              <Text style={styles.gateCoinsUnit}>coins</Text>
+            </View>
+          </View>
+          <View style={styles.gateFeeBox}>
+            <Text style={styles.priceLabel}>Bid fee</Text>
+            <Text style={styles.gateFeeValue}>{BID_COST} coins</Text>
+          </View>
+        </View>
+
+        {enough ? (
+          <Text style={styles.gateNote}>After bidding you’ll have {coins - BID_COST} coins. The fee is charged once per job.</Text>
+        ) : (
+          <ScaleIn from={0.96} style={styles.gateShort}>
+            <Icon name="lock" size={13} color={colors.negative} />
+            <Text style={styles.gateShortText}>You need {short} more {short === 1 ? 'coin' : 'coins'} to bid — watch ads below to unlock {AD_COINS} free.</Text>
+          </ScaleIn>
+        )}
+
+        <Pop trigger={enough} amount={1.04}>
+          <Button
+            label={enough ? `Pay ${BID_COST} coins & bid` : `Need ${short} more coins`}
+            onPress={onPay}
+            disabled={!enough}
+            style={{ marginTop: 14 }}
+            icon={<Icon name={enough ? 'coin' : 'lock'} size={15} color={enough ? colors.goldLight : colors.primaryFg} />}
+          />
+        </Pop>
+      </FadeInUp>
+
+      <View style={styles.gateOr}>
+        <View style={styles.gateOrLine} />
+        <Text style={styles.gateOrText}>or unlock coins for free</Text>
+        <View style={styles.gateOrLine} />
+      </View>
+
+      {/* Path B — watch 5 rewarded ads to unlock 20 coins (progress persists in the store) */}
+      <FadeInUp index={2} distance={10} style={[styles.gateCard, !enough && styles.gateCardHighlight]}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          <View style={styles.gateAdIcon}><Icon name="play" size={16} color={colors.goldMuted} fill="solid" /></View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Text style={styles.gateAdTitle}>Watch {ADS_NEEDED} ads to unlock {AD_COINS} coins</Text>
+              {!enough ? <Badge label="Recommended" tint={colors.gold} /> : null}
+            </View>
+            <Text style={styles.gateAdBody}>Short ads keep BibleNestra free for everyone ✨ Your progress is saved — leave and come back anytime.</Text>
+          </View>
+        </View>
+
+        {/* 5-step progress */}
+        <View style={styles.dotsRow} accessibilityLabel={`${lit} of ${ADS_NEEDED} ads watched`}>
+          {Array.from({ length: ADS_NEEDED }).map((_, i) => {
+            const done = i < lit;
+            const next = !celebrating && i === credits;
+            return (
+              <React.Fragment key={i}>
+                {i > 0 ? <View style={[styles.dotLine, i < lit && styles.dotLineDone]} /> : null}
+                <Pop trigger={done} amount={1.25}>
+                  {next ? (
+                    <Pulse min={0.94} max={1.06} active={!adBusy}>
+                      <View style={[styles.dot, styles.dotNext]}><Text style={[styles.dotNum, { color: colors.primary }]}>{i + 1}</Text></View>
+                    </Pulse>
+                  ) : (
+                    <View style={[styles.dot, done && styles.dotDone]}>
+                      {done ? <Icon name="check" size={13} color={colors.night} strokeWidth={2.8} /> : <Text style={styles.dotNum}>{i + 1}</Text>}
+                    </View>
+                  )}
+                </Pop>
+              </React.Fragment>
+            );
+          })}
+        </View>
+
+        <View style={{ position: 'relative', alignItems: 'center' }}>
+          {/* Burst stays mounted so it fires when unlockFx changes (it ignores its first value) */}
+          <Burst trigger={unlockFx} count={14} radius={70} size={13} />
+          {celebrating ? (
+            <ScaleIn key={`unlock-${unlockFx}`} from={0.6} style={styles.unlockChip}>
+              <Icon name="coin" size={15} color={colors.night} />
+              <Text style={styles.unlockChipText}>+{AD_COINS} coins unlocked</Text>
+            </ScaleIn>
+          ) : (
+            <Text style={styles.dotsCaption}>
+              {credits ? `${credits} of ${ADS_NEEDED} watched · ${ADS_NEEDED - credits} to go` : `0 of ${ADS_NEEDED} watched`}
+            </Text>
+          )}
+        </View>
+
+        <Button
+          label={adLabel}
+          onPress={onWatchAd}
+          disabled={adBusy}
+          kind={enough ? 'ghost' : 'primary'}
+          style={{ marginTop: 12 }}
+          icon={<Icon name="play" size={13} color={enough ? colors.fg : colors.primaryFg} fill="solid" />}
+        />
+      </FadeInUp>
+
+      {/* Path C — top up the wallet (same simulated purchase the Profile wallet uses) */}
+      <FadeInUp index={3} distance={10} style={styles.gateBuyRow}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.gateBuyTitle}>Short on time?</Text>
+          <Text style={styles.gateBuySub}>Top up your Kingdom Wallet instead.</Text>
+        </View>
+        <Button small kind="ghost" label={`Buy ${TOPUP_COINS} coins`} onPress={onBuy} icon={<Icon name="coin" size={13} color={colors.gold} />} />
+      </FadeInUp>
+    </View>
   );
 }
 
@@ -845,12 +1230,152 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
     backgroundColor: colors.primary,
-    paddingHorizontal: 13,
-    height: 36,
+    paddingHorizontal: 11,
+    height: 34,
     borderRadius: 18,
     ...shadow.sm,
   },
   postNavBtnText: { fontSize: 13, fontWeight: '700', color: colors.primaryFg },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+
+  // ---- Bid fee hints & states
+  bidHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 9,
+    marginTop: 20,
+    padding: 12,
+    borderRadius: radius.md,
+    backgroundColor: alpha(colors.gold, 0.08),
+    borderWidth: 1,
+    borderColor: alpha(colors.gold, 0.18),
+  },
+  bidHintText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.muted },
+  bidHintStrong: { color: colors.fg, fontWeight: '700' },
+  bidPlacedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: colors.cardGold,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+  },
+  bidPlacedRowText: { fontSize: 12, fontWeight: '700', color: colors.goldMuted },
+  bidPlacedChip: { backgroundColor: colors.cardGold, paddingHorizontal: 11, gap: 4 },
+  applyChipCost: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginLeft: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  applyChipCostText: { color: colors.goldLight, fontSize: 12, fontWeight: '800' },
+
+  // ---- Bid gate
+  gateSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: radius.lg,
+    backgroundColor: colors.raised,
+  },
+  gateSummaryJob: { fontFamily: fonts.serifBold, fontSize: 15.5, color: colors.fg, letterSpacing: -0.2 },
+  gateSummaryMeta: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
+  gateEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  gateEditText: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
+  gateCard: {
+    marginTop: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: 16,
+    ...shadow.sm,
+  },
+  gateCardHighlight: { borderColor: colors.goldLight, borderWidth: 1.5, ...shadow.md },
+  gateBalanceRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
+  gateCoinsRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 2 },
+  gateCoinDot: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center' },
+  gateCoinsValue: { fontFamily: fonts.serifBold, fontSize: 30, color: colors.fg, letterSpacing: -0.6 },
+  gateCoinsUnit: { fontSize: 13, color: colors.muted, marginTop: 6 },
+  gateFeeBox: { alignItems: 'flex-end', paddingBottom: 4 },
+  gateFeeValue: { fontSize: 16, fontWeight: '800', color: colors.goldMuted },
+  gateNote: { fontSize: 12.5, color: colors.muted, marginTop: 10, lineHeight: 18 },
+  gateShort: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 12,
+    padding: 10,
+    borderRadius: radius.md,
+    backgroundColor: colors.negativeFaint,
+  },
+  gateShortText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.negative, fontWeight: '600' },
+  gateOr: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 4 },
+  gateOrLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.borderStrong },
+  gateOrText: { ...EYEBROW, fontSize: 9.5, color: colors.faint },
+  gateAdIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center' },
+  gateAdTitle: { fontFamily: fonts.serifBold, fontSize: 16.5, lineHeight: 21, color: colors.fg, letterSpacing: -0.2, flexShrink: 1 },
+  gateAdBody: { fontSize: 12.5, lineHeight: 18, color: colors.muted, marginTop: 4 },
+  dotsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 18, marginBottom: 10, paddingHorizontal: 4 },
+  dot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotNext: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  dotDone: { borderColor: colors.goldLight, backgroundColor: colors.goldLight },
+  dotNum: { fontSize: 12, fontWeight: '700', color: colors.faint },
+  dotLine: { flex: 1, height: 2, marginHorizontal: 4, borderRadius: 1, backgroundColor: colors.border },
+  dotLineDone: { backgroundColor: colors.goldLight },
+  dotsCaption: { fontSize: 12, fontWeight: '600', color: colors.muted, paddingVertical: 6 },
+  unlockChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.goldLight,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    ...shadow.md,
+  },
+  unlockChipText: { fontSize: 13.5, fontWeight: '800', color: colors.night },
+  gateBuyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.borderStrong,
+  },
+  gateBuyTitle: { fontSize: 13.5, fontWeight: '700', color: colors.fg },
+  gateBuySub: { fontSize: 12, color: colors.muted, marginTop: 1 },
 
   // ---- Hero
   jobsVideoHero: {

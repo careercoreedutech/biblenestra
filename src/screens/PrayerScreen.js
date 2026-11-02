@@ -6,6 +6,7 @@ import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, 
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
+import { usePullRefresh } from '../api/sync';
 import { useNav } from '../navigation';
 import { useToast } from '../components/Toast';
 import { PressScale, FadeInUp, ScaleIn, Pop, Burst, AnimatedNumber, LiveRing } from '../components/Motion';
@@ -148,6 +149,7 @@ function PrayAction({ p, onToggle }) {
 export default function PrayerScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
+  const pullRefresh = usePullRefresh(); // online only
   const toast = useToast();
   const [tab, setTab] = useState(params.filter || 'All');
 
@@ -183,6 +185,7 @@ export default function PrayerScreen({ params = {} }) {
 
   return (
     <Screen
+      refreshControl={pullRefresh}
       back={nav.stack.length > 0}
       title="Prayer Wall"
       subtitle="Intercede & share with the body of Christ"
@@ -304,7 +307,8 @@ export function PrayerDetailScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
   const toast = useToast();
-  const p = (state.prayers || []).find((x) => x.id === params.id);
+  // (online: a just-posted prayer gets its server id; `localId` keeps the device id it was opened with)
+  const p = (state.prayers || []).find((x) => x.id === params.id || x.localId === params.id);
   const [update, setUpdate] = useState('');
   const [sheet, setSheet] = useState(null); // 'encourage' | 'scripture' | 'report' | null
   const [encourage, setEncourage] = useState('');

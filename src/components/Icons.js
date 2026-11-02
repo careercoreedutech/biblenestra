@@ -118,6 +118,10 @@ const GLYPHS = {
     <Circle key="a" cx={11} cy={11} r={6.5} stroke={c} strokeWidth={sw} />,
     <Path key="b" d="M16 16l4 4" stroke={c} strokeWidth={sw} strokeLinecap="round" />,
   ],
+  download: (c, sw) => [
+    <Path key="a" d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5" stroke={c} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />,
+    <Path key="b" d="M5 19.5h14" stroke={c} strokeWidth={sw} strokeLinecap="round" />,
+  ],
   check: (c, sw) => [<Path key="a" d="M5 12.5l4.5 4.5L19 7.5" stroke={c} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />],
   'check-circle': (c, sw, f) => [
     <Circle key="a" cx={12} cy={12} r={9} stroke={c} strokeWidth={sw} fill={f ? c : 'none'} fillOpacity={f ? 0.16 : 0} />,

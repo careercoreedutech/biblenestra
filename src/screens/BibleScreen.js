@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, PanResponder, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { AnimatedModal, Pop, ScaleIn, PressScale } from '../components/Motion';
+import { AnimatedModal, Pop, ScaleIn, PressScale, Pulse } from '../components/Motion';
 import Svg, { Path } from 'react-native-svg';
 import { Screen, Section, Row, Pill, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider, alpha, NightGlow } from '../components/ui';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
 import VerseImageSheet from '../components/VerseImageSheet';
 import { useToast } from '../components/Toast';
+import ProfileButton from '../components/ProfileButton';
+import TranslationPicker from '../components/TranslationPicker';
+import { useChapter, useChapters, prefetchChapter } from '../bible/loader';
+import { translationInfo, resolveTranslationId } from '../bible/catalog';
 import { useNarration } from '../audio/Narration';
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow, readerThemes, lineSpacings } from '../theme';
@@ -53,11 +57,19 @@ export default function BibleScreen({ params: routeParams }) {
     else nar.playChapter(pos.bookId, pos.chapter, { translation: tr });
   };
   const [imageOpen, setImageOpen] = useState(false);
-  const tr = state.translation;
+  const tr = resolveTranslationId(state.translation);
   const t = readerThemes[state.readerTheme] || readerThemes.paper;
   const spacing = lineSpacings[state.lineSpacing] || lineSpacings.Comfortable;
   const key = `${pos.bookId}:${pos.chapter}`;
-  const verses = getChapter(tr, pos.bookId, pos.chapter);
+  const chapterData = useChapter(tr, pos.bookId, pos.chapter);
+  // While a translation streams in (or if we're offline) the reader keeps showing KJV.
+  const verses = chapterData.verses || chapterData.fallback;
+  const showingFallback = !chapterData.verses && !!chapterData.fallback;
+  useEffect(() => {
+    // Warm the next chapter so swiping forward is instant.
+    const b = BOOKS.find((x) => x.id === pos.bookId);
+    if (chapterData.verses && b && pos.chapter < b.chapters) prefetchChapter(tr, pos.bookId, pos.chapter + 1);
+  }, [chapterData.verses, tr, pos.bookId, pos.chapter]);
   const title = CHAPTER_TITLES[key];
   const book = BOOKS.find((b) => b.id === pos.bookId);
 
@@ -138,10 +150,9 @@ export default function BibleScreen({ params: routeParams }) {
   };
 
   const setTranslation = (id) => {
-    const t = TRANSLATIONS.find((x) => x.id === id);
-    if (!t.available) return;
     dispatch({ type: 'set', patch: { translation: id } });
     setPicker(null);
+    if (id !== tr) toast.show(`Reading in ${translationInfo(id).name}`, { icon: 'bible', haptic: 'select' });
   };
 
   const share = async () => {
@@ -152,12 +163,11 @@ export default function BibleScreen({ params: routeParams }) {
 
   const postToFeed = () => {
     if (!selected) return;
-    const t = TRANSLATIONS.find((x) => x.id === tr);
     dispatch({
       type: 'post',
       post: {
         kind: 'Verse',
-        text: `“${verses[selected - 1]}” — ${refLabel(pos.bookId, pos.chapter, selected)} (${tr}, ${t.publisher})`,
+        text: `“${verses[selected - 1]}” — ${refLabel(pos.bookId, pos.chapter, selected)} (${showingFallback ? 'KJV' : tr})`,
         passage: { bookId: pos.bookId, chapter: pos.chapter },
       },
     });
@@ -165,11 +175,13 @@ export default function BibleScreen({ params: routeParams }) {
   };
 
   goRef.current = go;
-  const trInfo = TRANSLATIONS.find((t) => t.id === tr);
+  const trInfo = translationInfo(tr);
+  const rtl = !!trInfo.rtl && !showingFallback;
   const tools = [
     { key: 'books', label: 'Books', icon: 'book', onPress: () => setPicker('book') },
     { key: 'search', label: 'Search', icon: 'search', onPress: () => nav.push('Search') },
-    { key: 'lexicon', label: 'Lexicon', icon: 'sparkles', onPress: () => nav.push('Concordance') },
+    { key: 'lexicon', label: 'Lexicon', icon: 'sparkles', onPress: () => nav.push('Concordance', selected ? { bookId: pos.bookId, chapter: pos.chapter, verse: selected } : {}) },
+    { key: 'commentary', label: 'Commentary', icon: 'book', onPress: () => nav.push('Study', { ...pos, verse: selected || undefined, tab: 'Commentary' }) },
     { key: 'compare', label: 'Compare', icon: 'bible', onPress: () => setCompare(!compare), active: compare },
     {
       key: 'save',
@@ -212,6 +224,7 @@ export default function BibleScreen({ params: routeParams }) {
           <Pressable onPress={toggleNarration} hitSlop={8} accessibilityLabel="Narration" style={[styles.iconBtn, { backgroundColor: t.chip, borderColor: t.border }, audio && { backgroundColor: t.accent, borderColor: t.accent }]}>
             <Pop trigger={audio}><Icon name="headphones" size={18} color={audio ? (t.dark ? t.bg : '#FFFFFF') : t.fg} /></Pop>
           </Pressable>
+          {!isRoute ? <ProfileButton size={36} /> : null}
         </View>
       </View>
 
@@ -259,7 +272,7 @@ export default function BibleScreen({ params: routeParams }) {
           <ScaleIn key={pos.bookId + pos.chapter} from={0.7}>
             <Text style={[styles.chapterNumber, { color: t.accent }]}>{pos.chapter}</Text>
           </ScaleIn>
-          {title && title.length <= 80 && !/\.\.\.$|…$/.test(title) ? <Text style={[styles.chapterTitle, { color: t.muted }]}>{title}</Text> : null}
+          {title && (showingFallback || trInfo.lang === 'English') && title.length <= 80 && !/\.\.\.$|…$/.test(title) ? <Text style={[styles.chapterTitle, { color: t.muted }]}>{title}</Text> : null}
           <View style={styles.ornament}>
             <View style={[styles.ornamentLine, { backgroundColor: t.borderStrong }]} />
             <Text style={[styles.ornamentStar, { color: t.gold }]}>✦</Text>
@@ -267,12 +280,20 @@ export default function BibleScreen({ params: routeParams }) {
           </View>
         </View>
 
+        {showingFallback && !compare ? (
+          <View style={[styles.loadNotice, { backgroundColor: t.chip, borderColor: t.border }]}>
+            {chapterData.loading ? <Pulse><Icon name="download" size={15} color={t.accent} /></Pulse> : <Icon name="globe" size={15} color={t.gold} />}
+            <Text style={[styles.loadNoticeText, { color: t.fg }]} numberOfLines={2}>
+              {chapterData.loading ? `Loading ${trInfo.name}… showing KJV meanwhile` : `${tr} isn't saved on this device yet — connect to the internet to load it. Showing KJV.`}
+            </Text>
+          </View>
+        ) : null}
         {!verses ? (
           <Empty
-            title="Not downloaded yet"
-            body={`${refLabel(pos.bookId, pos.chapter)} isn't cached offline in ${tr}.`}
-            action="Browse offline chapters"
-            onAction={() => setPicker('book')}
+            title="Chapter unavailable"
+            body={`${refLabel(pos.bookId, pos.chapter)} couldn't be loaded in ${tr}.`}
+            action="Choose another translation"
+            onAction={() => setPicker('translation')}
           />
         ) : compare ? (
           <CompareView pos={pos} base={tr} others={state.compareWith} onPick={() => setPicker('compare')} />
@@ -295,13 +316,13 @@ export default function BibleScreen({ params: routeParams }) {
                 }}
                 style={[styles.verseRow, h && { backgroundColor: alpha(h.color, t.dark ? 0.24 : 0.18) }, isSpoken && { backgroundColor: t.accentSoft, borderLeftWidth: 3, borderLeftColor: t.accent }, isSel && { backgroundColor: t.sel }]}
               >
-                <Text style={[styles.verseText, { color: t.passage, fontSize: fs, lineHeight: Math.round(fs * spacing) }]}>
-                  {n === 1 ? (
+                <Text style={[styles.verseText, { color: t.passage, fontSize: fs, lineHeight: Math.round(fs * spacing) }, rtl && { writingDirection: 'rtl', textAlign: 'right' }]}>
+                  {n === 1 && !rtl && v ? (
                     <Text style={[styles.dropCapLetter, { color: t.accent, fontSize: fs * 2, lineHeight: Math.round(fs * spacing) }]}>{v.charAt(0)}</Text>
                   ) : (
                     <Text style={[styles.vnum, { color: isSel ? t.accent : t.gold }]}>{n}{'\u2009'} </Text>
                   )}
-                  <Text>{n === 1 ? v.slice(1) : v}</Text>
+                  <Text>{n === 1 && !rtl && v ? v.slice(1) : v}</Text>
                   {notes.length ? <Text style={{ color: t.gold, fontSize: fs * 0.8 }}>  ✎</Text> : null}
                 </Text>
               </Pressable>
@@ -341,7 +362,7 @@ export default function BibleScreen({ params: routeParams }) {
         </View>
 
         <Text style={[styles.copyright, { color: t.faint }]}>
-          {trInfo?.name} · {trInfo?.publisher}
+          {showingFallback ? 'King James Version · Public domain' : (trInfo.attribution || `${trInfo.name} · ${trInfo.licence}`)}
         </Text>
         <Text style={[styles.copyright, { color: t.faint, marginTop: 6 }]}>Swipe left or right to turn the page</Text>
         </Animated.View>
@@ -427,7 +448,7 @@ export default function BibleScreen({ params: routeParams }) {
             {[
               ['Listen from here', () => { nar.playChapter(pos.bookId, pos.chapter, { translation: tr, fromVerse: selected }); setSelected(null); }],
               ['Post to feed', postToFeed],
-              ['Concordance', () => nav.push('Concordance')],
+              ['Word by word', () => nav.push('Concordance', { bookId: pos.bookId, chapter: pos.chapter, verse: selected })],
               ['Exegesis', () => nav.push('BibleChat', { context: { ...pos, verse: selected } })],
               ['Commentary', () => nav.push('Study', { ...pos, verse: selected, tab: 'Commentary' })],
               ['Cross-refs', () => nav.push('Study', { ...pos, verse: selected, tab: 'Cross-references' })],
@@ -642,60 +663,25 @@ export default function BibleScreen({ params: routeParams }) {
       <AnimatedModal visible={picker === 'translation' || picker === 'compare'} onRequestClose={() => setPicker(null)}>
         <View style={styles.modalBackdrop}>
           <Pressable style={{ flex: 1 }} onPress={() => setPicker(null)} />
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, { height: '88%' }]}>
             <View style={styles.grabber} />
             <View style={styles.modalHead}>
-              <Text style={styles.modalTitle}>{picker === 'compare' ? 'Compare translations' : 'Translation'}</Text>
+              <Text style={styles.modalTitle}>{picker === 'compare' ? 'Compare (up to 3)' : 'Translations'}</Text>
               <Pressable onPress={() => setPicker(null)} hitSlop={12} style={styles.modalClose}>
                 <Text style={styles.modalCloseText}>Done</Text>
               </Pressable>
             </View>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 50 }}>
-              {Array.from(new Set(TRANSLATIONS.map((t) => t.lang))).map((lang) => (
-                <View key={lang} style={{ marginTop: 14 }}>
-                  <Text style={styles.modalSub}>{lang}</Text>
-                  {TRANSLATIONS.filter((t) => t.lang === lang).map((t) => {
-                    const inCompare = state.compareWith.includes(t.id);
-                    return (
-                      <Row
-                        key={t.id}
-                        title={`${t.id} · ${t.name}`}
-                        subtitle={t.available ? `${t.publisher}${t.offline ? ' · Offline' : ''}` : `Requires license · ${t.publisher}`}
-                        tint={t.available ? undefined : colors.faint}
-                        right={
-                          picker === 'compare' ? (
-                            t.available ? (
-                              <Badge label={inCompare ? 'Added' : 'Add'} tint={inCompare ? colors.primary : colors.muted} />
-                            ) : (
-                              <Tag label="Unavailable" tint={colors.faint} />
-                            )
-                          ) : t.id === tr ? (
-                            <Badge label="Active" tint={colors.primary} />
-                          ) : t.available ? null : (
-                            <Tag label="Unavailable" tint={colors.faint} />
-                          )
-                        }
-                        onPress={() => {
-                          if (!t.available) return;
-                          if (picker === 'compare') {
-                            dispatch({
-                              type: 'set',
-                              patch: {
-                                compareWith: inCompare
-                                  ? state.compareWith.filter((x) => x !== t.id)
-                                  : [...state.compareWith, t.id],
-                              },
-                            });
-                          } else {
-                            setTranslation(t.id);
-                          }
-                        }}
-                      />
-                    );
-                  })}
-                </View>
-              ))}
-            </ScrollView>
+            <TranslationPicker
+              mode={picker === 'compare' ? 'compare' : 'read'}
+              active={tr}
+              compareWith={state.compareWith}
+              onPick={setTranslation}
+              onToggleCompare={(id) => dispatch({
+                type: 'set',
+                patch: { compareWith: state.compareWith.includes(id) ? state.compareWith.filter((x) => x !== id) : [...state.compareWith, id].slice(-3) },
+              })}
+              onClose={() => setPicker(null)}
+            />
           </View>
         </View>
       </AnimatedModal>
@@ -717,8 +703,8 @@ function SlideUp({ children, style }) {
 
 function CompareView({ pos, base, others, onPick }) {
   const cols = [base, ...others.filter((o) => o !== base)];
-  const texts = cols.map((c) => ({ id: c, verses: getChapter(c, pos.bookId, pos.chapter) }));
-  const max = Math.max(...texts.map((t) => (t.verses ? t.verses.length : 0)));
+  const texts = useChapters(cols, pos.bookId, pos.chapter);
+  const max = Math.max(1, ...texts.map((t) => (t.verses ? t.verses.length : 0)));
   return (
     <View style={{ marginTop: 12 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -733,7 +719,7 @@ function CompareView({ pos, base, others, onPick }) {
           {texts.map((t) => (
             <View key={t.id} style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.compareTr}>{t.id}</Text>
-              <Text style={styles.compareText}>{t.verses && t.verses[i] ? t.verses[i] : '—'}</Text>
+              <Text style={[styles.compareText, translationInfo(t.id).rtl && { writingDirection: 'rtl', textAlign: 'right' }]}>{t.verses ? (t.verses[i] || '—') : '…'}</Text>
             </View>
           ))}
         </View>
@@ -985,6 +971,8 @@ const styles = StyleSheet.create({
   availChapterTitle: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
 
   // Compare
+  loadNotice: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, borderWidth: 1, marginBottom: 14 },
+  loadNoticeText: { flex: 1, fontSize: 12.5, lineHeight: 17 },
   compareHead: { fontSize: 12, fontWeight: '700', letterSpacing: 0.6, color: colors.muted },
   colPickerBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: colors.primarySoft },
   compareRow: { flexDirection: 'row', gap: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderStrong },

@@ -30,7 +30,7 @@ function NavButton({ onPress, children, label }) {
   );
 }
 
-export function Screen({ title, children, back, right, scroll = true, menu, subtitle, padded = true, style }) {
+export function Screen({ title, children, back, right, scroll = true, menu, subtitle, padded = true, style, refreshControl }) {
   const nav = useNav();
   const Body = scroll ? ScrollView : View;
 
@@ -66,6 +66,7 @@ export function Screen({ title, children, back, right, scroll = true, menu, subt
         contentContainerStyle={scroll ? [padded && styles.pad, { paddingBottom: 48 }] : undefined}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        {...(scroll && refreshControl ? { refreshControl } : {})}
       >
         {scroll ? children : <View style={[{ flex: 1 }, padded && styles.pad]}>{children}</View>}
       </Body>

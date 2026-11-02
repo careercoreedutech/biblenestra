@@ -4,6 +4,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { BOOKS, getChapter, bookName } from '../data/bible';
+import { ttsLocale } from '../bible/catalog';
 
 let Speech = null;
 try { Speech = require('expo-speech'); } catch (e) { Speech = null; }
@@ -53,10 +54,12 @@ export function NarrationProvider({ children }) {
     const verses = versesFor(s);
     const text = verses[verse - 1];
     if (!text) return;
-    const intro = verse === 1 && s.mode === 'chapter' ? `${bookName(s.bookId)}, chapter ${s.chapter}. ` : '';
+    const locale = ttsLocale(s.translation);
+    const english = locale.startsWith('en');
+    const intro = english && verse === 1 && s.mode === 'chapter' ? `${bookName(s.bookId)}, chapter ${s.chapter}. ` : '';
     const o = opts.current;
     const idx = NARRATORS.findIndex((n) => n.id === o.narrator.id);
-    const voice = o.voices.length ? o.voices[idx % o.voices.length].identifier : undefined;
+    const voice = english && o.voices.length ? o.voices[idx % o.voices.length].identifier : undefined;
     setSt((p) => ({ ...p, ...s, verse, total: verses.length, active: true, playing: true }));
     if (!Speech) return;
     Speech.stop();
@@ -64,7 +67,7 @@ export function NarrationProvider({ children }) {
       rate: Math.max(0.5, Math.min(2, o.rate * o.narrator.rateMul)),
       pitch: o.narrator.pitch,
       voice,
-      language: 'en-US',
+      language: locale,
       onDone: () => {
         if (my !== gen.current) return;
         const wait = opts.current.reflect ? 4000 : 120;

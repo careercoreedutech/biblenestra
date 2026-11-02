@@ -1,0 +1,97 @@
+// Daily rotation for Bible games — pure functions, no React / RN imports (unit-testable in Node).
+//
+// Each game bank is split into pools (e.g. trivia: story questions, verse questions, book facts).
+// For every pool we walk a seeded permutation of the whole pool, `take` items per day:
+//   day N uses positions [N*take, N*take + take) (mod pool size) of that permutation.
+// So no question repeats until the whole pool has been served (e.g. 209 story questions at
+// 6/day = a 34-day cycle); options are re-shuffled every day. Everything is derived from the local calendar date (YYYY-MM-DD), so every user
+// sees the same "today's set" and it changes at local midnight. No storage is needed.
+
+// FNV-1a 32-bit string hash
+export function hash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+// mulberry32 PRNG -> () => float in [0, 1)
+export function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function shuffled(arr, seed) {
+  const a = arr.slice();
+  const r = rng(seed);
+  for (let i = a.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(r() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const pad = (n) => (n < 10 ? '0' + n : '' + n);
+
+// Local calendar date key, e.g. "2026-11-01"
+export function dateKey(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Whole days since 1970-01-01 for a local date (DST-safe: uses the calendar date, not the clock)
+export function dayNumber(d = new Date()) {
+  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+}
+
+// Milliseconds until the next local midnight, and a short label ("7h", "42m")
+export function msUntilReset(now = new Date()) {
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  return Math.max(0, next.getTime() - now.getTime());
+}
+export function resetLabel(now = new Date()) {
+  const ms = msUntilReset(now);
+  const h = Math.floor(ms / 3600000);
+  if (h >= 1) return `${h}h`;
+  return `${Math.max(1, Math.ceil(ms / 60000))}m`;
+}
+
+// Items of `pool` for `day`. The pool is walked through one seeded permutation, `take` items per
+// day, so an item only comes back after the whole pool has been served (every ~L/take days).
+export function takeForDay(pool, take, day, salt) {
+  const L = pool.length;
+  if (!L) return [];
+  const n = Math.min(take, L);
+  const perm = shuffled(pool.map((_, i) => i), hash(salt));
+  const out = [];
+  for (let k = 0; k < n; k += 1) out.push(pool[perm[(day * n + k) % L]]);
+  return out;
+}
+
+// Shuffle a multiple-choice question's options for the day; returns a new object with the
+// updated correctIndex (correct answer text is preserved).
+export function shuffleOptions(q, seed) {
+  if (!q || !Array.isArray(q.options)) return q;
+  const order = shuffled(q.options.map((_, i) => i), seed);
+  return { ...q, options: order.map((i) => q.options[i]), correctIndex: order.indexOf(q.correctIndex) };
+}
+
+// Build today's session. `mix` = [[poolKey, count], ...]; `items` carry `.pool`.
+export function dailySelection(gameId, items, mix, date = new Date(), { shuffleChoices = true } = {}) {
+  const day = dayNumber(date);
+  const byPool = {};
+  items.forEach((it) => { (byPool[it.pool] = byPool[it.pool] || []).push(it); });
+  let picked = [];
+  mix.forEach(([pool, count]) => {
+    picked = picked.concat(takeForDay(byPool[pool] || [], count, day, `${gameId}:${pool}`));
+  });
+  picked = shuffled(picked, hash(`${gameId}@${day}`));
+  return shuffleChoices ? picked.map((q) => shuffleOptions(q, hash(`${q.id}@${day}`))) : picked;
+}

@@ -4,3 +4,5 @@ dist/
 android/
 ios/
 scratch/
+.env
+.env.local

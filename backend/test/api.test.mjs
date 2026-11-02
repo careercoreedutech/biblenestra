@@ -566,3 +566,84 @@ test('phase 2: notifications inbox and preferences', async () => {
   assert.ok(Array.isArray(notifs.json.items));
 });
 
+test('phase 2: daily rhythm, step union, streak computation, grace days, and privacy', async () => {
+  const ruthMe = await call('ruth', 'GET', '/me');
+  assert.equal(ruthMe.status, 200);
+  assert.equal(ruthMe.json.streak, 0);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const twoDaysAgoStr = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  const threeDaysAgoStr = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10);
+  const futureStr = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+
+  // 1. Day outside ±1 rejected
+  const rejectPast = await call('ruth', 'PUT', `/me/rhythm/${threeDaysAgoStr}`, { steps: ['verse'] });
+  assert.equal(rejectPast.status, 400);
+  assert.equal(rejectPast.json.code, 'DATE_OUT_OF_RANGE');
+
+  const rejectFuture = await call('ruth', 'PUT', `/me/rhythm/${futureStr}`, { steps: ['verse'] });
+  assert.equal(rejectFuture.status, 400);
+  assert.equal(rejectFuture.json.code, 'DATE_OUT_OF_RANGE');
+
+  // 2. Two devices (two sessions) marking different steps on the same day -> union
+  // Session 1 marks 'verse'
+  const session1 = await call('ruth', 'PUT', `/me/rhythm/${todayStr}`, { steps: ['verse'] });
+  assert.equal(session1.status, 200);
+  assert.deepEqual(session1.json.steps.sort(), ['verse']);
+  assert.equal(session1.json.streak, 1);
+
+  // Session 2 marks 'reading' and 'prayer' on the same day
+  const session2 = await call('ruth', 'PUT', `/me/rhythm/${todayStr}`, { steps: ['reading', 'prayer'] });
+  assert.equal(session2.status, 200);
+  assert.deepEqual(session2.json.steps.sort(), ['prayer', 'reading', 'verse']);
+
+  // GET /me/rhythm confirms merged steps
+  const rhythmGet = await call('ruth', 'GET', '/me/rhythm');
+  assert.equal(rhythmGet.status, 200);
+  const todayEntry = rhythmGet.json.days.find((d) => d.day === todayStr);
+  assert.ok(todayEntry);
+  assert.deepEqual(todayEntry.steps.sort(), ['prayer', 'reading', 'verse']);
+
+  // 3. Streak with a grace day
+  // Two days ago: completed. Yesterday: missed. Today: completed.
+  await env.__db.query(`
+    INSERT INTO rhythm_days (user_id, day, steps, updated_at)
+    VALUES ($1, $2::date, $3, now())
+  `, [ruthMe.json.id, twoDaysAgoStr, ['verse']]);
+
+  const ruthWithGrace = await call('ruth', 'GET', '/me');
+  assert.equal(ruthWithGrace.status, 200);
+  assert.equal(ruthWithGrace.json.streak, 2);
+  assert.equal(ruthWithGrace.json.graceUsedThisWeek, true);
+  assert.ok(ruthWithGrace.json.bestStreak >= 2);
+
+  // 4. Reflection never returned to other users
+  const secretReflection = 'Deep private prayer for healing and guidance';
+  const saveReflection = await call('ruth', 'PUT', `/me/rhythm/${todayStr}`, {
+    steps: ['reflect'],
+    reflection: secretReflection,
+  });
+  assert.equal(saveReflection.status, 200);
+  assert.equal(saveReflection.json.reflection, secretReflection);
+
+  // User 'bob' inspects ruth's public profile
+  const bobViewsRuth = await call('bob', 'GET', `/users/${ruthMe.json.id}`);
+  assert.equal(bobViewsRuth.status, 200);
+  assert.equal(bobViewsRuth.json.reflection, undefined);
+  assert.equal(bobViewsRuth.json.steps, undefined);
+  assert.equal(bobViewsRuth.json.rhythm, undefined);
+
+  // User 'bob' queries public feed - ruth's reflection is not there
+  const feed = await call('bob', 'GET', '/feed');
+  assert.equal(feed.status, 200);
+  for (const item of feed.json.items) {
+    assert.notEqual(item.text, secretReflection);
+  }
+
+  // Ruth can retrieve her own reflection via /me/rhythm
+  const ruthOwnRhythm = await call('ruth', 'GET', '/me/rhythm');
+  const ruthToday = ruthOwnRhythm.json.days.find((d) => d.day === todayStr);
+  assert.equal(ruthToday.reflection, secretReflection);
+});
+
+

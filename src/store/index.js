@@ -1,11 +1,20 @@
 // Durable persistence (AsyncStorage) with support for Bible, Socials, Gifting,
 // Discover, WhatsApp-style Chat, and Jobs/Tasks Marketplace.
-import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+//
+// Online mode (src/api): the server-backed slices (feed, videos, prayers, jobs, proposals, bids, coins,
+// coinLog, supportAds, jobAdCredits, user identity) start empty and are filled by the sync layer, and are
+// persisted under a separate key so they never mix with the on-device data of local mode. User actions
+// still go through the reducer first (optimistic); the sync layer registers an "effects" handler via
+// `registerEffects` that mirrors each action to the API and reconciles / rolls back.
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as seed from '../data/seed';
 import { seedRhythm } from '../data/rhythm';
+import { API_CONFIG } from '../api/config';
 
-const KEY = 'biblenestra.state.v2';
+const ONLINE = API_CONFIG.online;
+export const STORE_KEY = ONLINE ? 'biblenestra.state.v2.online' : 'biblenestra.state.v2';
+const KEY = STORE_KEY;
 
 const initial = {
   onboarded: true,
@@ -51,8 +60,39 @@ const initial = {
   rhythm: seedRhythm(),
   bestStreak: 21,
   reflections: [],
+  // v6
+  supportAds: { date: '', count: 0 }, // Today "support us" fire tasks (resets daily)
+  jobAdCredits: 0, // rewarded ads watched toward the next coin unlock (Jobs)
+  coinLog: [], // { id, amount (+/-), reason, time }
+  bids: {}, // jobId -> { coins, paidWith: 'coins'|'ads', time }
+  gameStats: {}, // gameId -> { date, played, correct, best }
+  scripturePop: { enabled: false, every: 180, quietFrom: 22, quietTo: 7, content: 'both', translation: 'KJV' },
+  downloadedTranslations: ['KJV'],
   version: 0,
 };
+
+// Online mode: start the server-backed slices empty (no demo content, no demo coins) until the first sync.
+const ONLINE_BLANK = {
+  user: { ...seed.USER, id: null, displayName: 'Friend', username: 'friend', headline: '', country: '', church: { name: '', visible: false }, coins: 0 },
+  coins: 0,
+  feed: [],
+  videos: [],
+  prayers: [],
+  jobs: [],
+  proposals: [],
+  bids: {},
+  coinLog: [],
+  follows: [],
+  supportAds: { date: '', count: 0 },
+  jobAdCredits: 0,
+  giftTransactions: [],
+  account: null, // { id, email, lastSyncedAt }
+};
+if (ONLINE) Object.assign(initial, ONLINE_BLANK);
+
+// Helpers for the item-level actions used by the sync layer
+const sliceOf = (a) => a.slice || (a.src === 'video' ? 'videos' : 'feed');
+const mapItem = (list, id, fn) => (list || []).map((x) => (x.id === id ? fn(x) : x));
 
 function reducer(s, a) {
   const bump = (patch) => ({ ...s, ...patch, version: s.version + 1 });
@@ -60,9 +100,54 @@ function reducer(s, a) {
     case 'hydrate': {
       // Older saves had empty feed/wishes; keep the starter content in that case.
       const st = a.state || {};
+      if (ONLINE) return { ...s, ...st, wishes: st.wishes && st.wishes.length ? st.wishes : s.wishes };
       return { ...s, ...st, feed: st.feed && st.feed.length ? st.feed : s.feed, wishes: st.wishes && st.wishes.length ? st.wishes : s.wishes };
     }
     case 'set': return bump(a.patch);
+    // ---- sync layer (online mode) ----
+    case 'serverSync': return bump(a.patch);
+    case 'replaceItem': return bump({ [a.slice]: mapItem(s[a.slice], a.id, () => a.item) });
+    case 'patchItem': return bump({ [a.slice]: mapItem(s[a.slice], a.id, (x) => ({ ...x, ...a.patch })) });
+    case 'removeItem': return bump({ [a.slice]: (s[a.slice] || []).filter((x) => x.id !== a.id) });
+    case 'appendItems': {
+      // pagination: add items that aren't already in the slice
+      const have = new Set((s[a.slice] || []).map((x) => x.id));
+      return bump({ [a.slice]: [...(s[a.slice] || []), ...a.items.filter((x) => !have.has(x.id))] });
+    }
+    // ---- semantic social actions (same behaviour in local mode; mirrored to the API online) ----
+    case 'react': {
+      // reaction: null (clear) | 'like' (plain like) | 'amen' | 'love' | 'praise' | 'care'
+      return bump({
+        [sliceOf(a)]: mapItem(s[sliceOf(a)], a.id, (x) => {
+          const on = !!a.reaction;
+          const likes = Math.max(0, (Number(x.likes) || 0) + (on && !x.liked ? 1 : !on && x.liked ? -1 : 0));
+          return { ...x, liked: on, reaction: on && a.reaction !== 'like' ? a.reaction : null, likes };
+        }),
+      });
+    }
+    case 'hidePost': {
+      const list = s.hiddenPosts || [];
+      return bump({ hiddenPosts: a.hidden === false ? list.filter((k) => k !== a.key) : [...list.filter((k) => k !== a.key), a.key] });
+    }
+    case 'sharePost': return bump({ [sliceOf(a)]: mapItem(s[sliceOf(a)], a.id, (x) => ({ ...x, shares: (Number(x.shares) || 0) + 1 })) });
+    case 'restorePost': {
+      const key = sliceOf(a);
+      const list = (s[key] || []).filter((x) => x.id !== a.item.id);
+      const i = Math.max(0, Math.min(a.index == null ? 0 : a.index, list.length));
+      return bump({ [key]: [...list.slice(0, i), a.item, ...list.slice(i)] });
+    }
+    case 'commentPost': {
+      // a.comment = { id, from, text, time, replies: [] }; a.parentId → reply
+      return bump({
+        feed: mapItem(s.feed, a.id, (f) => ({
+          ...f,
+          comments: (f.comments || 0) + 1,
+          commentList: a.parentId
+            ? (f.commentList || []).map((c) => (c.id === a.parentId ? { ...c, replies: [...(c.replies || []), a.comment] } : c))
+            : [...(f.commentList || []), a.comment],
+        })),
+      });
+    }
     case 'onboard': return bump({ onboarded: true, user: { ...s.user, ...a.user }, translation: a.user.translation || s.translation });
     case 'position': return bump({ lastPosition: a.pos, recent: [a.pos, ...s.recent.filter((r) => !(r.bookId === a.pos.bookId && r.chapter === a.pos.chapter))].slice(0, 8) });
     case 'highlight': {
@@ -97,8 +182,8 @@ function reducer(s, a) {
 
     // Feed posts
     case 'post': return bump({ feed: [{ id: 'f' + Date.now(), author: s.user.displayName, time: 'Just now', likes: 0, comments: 0, mine: true, ...a.post }, ...(s.feed || [])] });
-    case 'savePost': return bump({ feed: (s.feed || []).map((f) => (f.id === a.id ? { ...f, saved: !f.saved } : f)) });
-    case 'deletePost': return bump({ feed: (s.feed || []).filter((f) => f.id !== a.id) });
+    case 'savePost': return bump({ [sliceOf(a)]: (s[sliceOf(a)] || []).map((f) => (f.id === a.id ? { ...f, saved: !f.saved } : f)) });
+    case 'deletePost': return bump({ [sliceOf(a)]: (s[sliceOf(a)] || []).filter((f) => f.id !== a.id && f.localId !== a.id) });
 
     // Wishes (prayer wishes / candles)
     case 'addWish': return bump({ wishes: [{ id: 'w' + Date.now(), author: s.user.displayName, time: 'Just now', candles: 0, amen: 0, responses: ['Prayer'], visibility: 'Public', category: 'Prayer', mine: true, ...a.w, title: a.w.title || (a.w.body || '').slice(0, 48), body: a.w.body || a.w.text || '' }, ...(s.wishes || [])] });
@@ -122,14 +207,15 @@ function reducer(s, a) {
     case 'commentVideo': return bump({
       videos: s.videos.map((v) => {
         if (v.id !== a.id) return v;
-        const newC = { id: 'c' + Date.now(), from: s.user.displayName, text: a.text, time: 'Just now', likes: 0, replies: [] };
+        const newC = { id: a.tempId || 'c' + Date.now(), from: s.user.displayName, text: a.text, time: 'Just now', likes: 0, replies: [], mine: true };
         if (a.replyTo) {
           return {
             ...v,
-            comments: v.comments.map((c) => (c.id === a.replyTo ? { ...c, replies: [...c.replies, { id: 'cr' + Date.now(), from: s.user.displayName, text: a.text, time: 'Just now' }] } : c)),
+            commentCount: v.commentCount != null ? v.commentCount + 1 : undefined,
+            comments: (v.comments || []).map((c) => (c.id === a.replyTo ? { ...c, replies: [...(c.replies || []), { id: a.tempId || 'cr' + Date.now(), from: s.user.displayName, text: a.text, time: 'Just now', mine: true }] } : c)),
           };
         }
-        return { ...v, comments: [newC, ...v.comments] };
+        return { ...v, commentCount: v.commentCount != null ? v.commentCount + 1 : undefined, comments: [newC, ...(v.comments || [])] };
       }),
     });
     case 'sendGift': {
@@ -141,7 +227,40 @@ function reducer(s, a) {
         videos: s.videos.map((v) => (v.id === a.videoId ? { ...v, gifts: v.gifts + 1 } : v)),
       });
     }
-    case 'buyCoins': return bump({ coins: s.coins + a.amount });
+    case 'buyCoins': return bump({ coins: s.coins + a.amount, coinLog: [{ id: 'cl' + Date.now(), amount: a.amount, reason: a.reason || 'Coin purchase', time: new Date().toISOString() }, ...(s.coinLog || [])].slice(0, 60) });
+    // v6 — coins economy & ads
+    case 'earnCoins': return bump({ coins: s.coins + a.amount, coinLog: [{ id: 'cl' + Date.now(), amount: a.amount, reason: a.reason || 'Reward', time: new Date().toISOString() }, ...(s.coinLog || [])].slice(0, 60) });
+    case 'spendCoins': {
+      if (s.coins < a.amount) return s;
+      return bump({ coins: s.coins - a.amount, coinLog: [{ id: 'cl' + Date.now(), amount: -a.amount, reason: a.reason || 'Spent', time: new Date().toISOString() }, ...(s.coinLog || [])].slice(0, 60) });
+    }
+    case 'supportAd': {
+      const today = a.date;
+      const cur = s.supportAds && s.supportAds.date === today ? s.supportAds.count : 0;
+      return bump({ supportAds: { date: today, count: Math.min(4, cur + 1) } });
+    }
+    case 'jobAdCredit': {
+      // one rewarded ad watched; every `need` ads converts to `coins`
+      const n = (s.jobAdCredits || 0) + 1;
+      if (n >= a.need) {
+        return bump({ jobAdCredits: 0, coins: s.coins + a.coins, coinLog: [{ id: 'cl' + Date.now(), amount: a.coins, reason: 'Unlocked by watching ads', time: new Date().toISOString() }, ...(s.coinLog || [])].slice(0, 60) });
+      }
+      return bump({ jobAdCredits: n });
+    }
+    case 'placeBid': {
+      if (a.coins && s.coins < a.coins) return s;
+      return bump({
+        coins: s.coins - (a.coins || 0),
+        bids: { ...(s.bids || {}), [a.jobId]: { coins: a.coins || 0, time: new Date().toISOString() } },
+        coinLog: a.coins ? [{ id: 'cl' + Date.now(), amount: -a.coins, reason: 'Bid on a job', time: new Date().toISOString() }, ...(s.coinLog || [])].slice(0, 60) : s.coinLog,
+      });
+    }
+    case 'gameResult': {
+      const prev = (s.gameStats || {})[a.gameId] || {};
+      return bump({ gameStats: { ...(s.gameStats || {}), [a.gameId]: { date: a.date, played: (prev.played || 0) + 1, correct: (prev.correct || 0) + a.correct, best: Math.max(prev.best || 0, a.score || 0) } } });
+    }
+    case 'scripturePop': return bump({ scripturePop: { ...(s.scripturePop || {}), ...a.patch } });
+    case 'downloadedTranslation': return bump({ downloadedTranslations: Array.from(new Set([...(s.downloadedTranslations || ['KJV']), a.code])) });
     case 'publishVideo': return bump({ videos: [a.video, ...s.videos] });
 
     // Jobs & Marketplace
@@ -177,6 +296,10 @@ function reducer(s, a) {
     case 'block': return bump({ blocked: [...s.blocked, a.id] });
     case 'user': return bump({ user: { ...s.user, ...a.user } });
     case 'reset': return { ...initial, version: s.version + 1 };
+    case 'signOut': {
+      // Online sign-out: drop the account's server data (local Bible notes etc. stay on the device)
+      return { ...s, ...ONLINE_BLANK, hiddenPosts: [], version: s.version + 1 };
+    }
     default: return s;
   }
 }
@@ -184,8 +307,27 @@ function reducer(s, a) {
 const Ctx = createContext(null);
 
 export function StoreProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, initial);
+  const [state, rawDispatch] = useReducer(reducer, initial);
   const [ready, setReady] = useState(false);
+  // Always-current state (updated synchronously on every dispatch) + the online effects handler.
+  const stateRef = useRef(initial);
+  const effectsRef = useRef(null);
+  const dispatch = useCallback((a) => {
+    if (!a) return;
+    const prev = stateRef.current;
+    const next = reducer(prev, a);
+    stateRef.current = next;
+    rawDispatch(a);
+    // `a.local` marks actions that must not be mirrored to the server (e.g. reconciliation from it)
+    if (effectsRef.current && !a.local && next !== prev) {
+      try { effectsRef.current(a, prev, next); } catch (e) { /* effects never break the UI */ }
+    }
+  }, []);
+  const registerEffects = useCallback((fn) => {
+    effectsRef.current = fn;
+    return () => { if (effectsRef.current === fn) effectsRef.current = null; };
+  }, []);
+  const getState = useCallback(() => stateRef.current, []);
   const [sync, setSync] = useState({ status: 'saved', at: null });
   const lastSaved = useRef(0);
 
@@ -208,7 +350,7 @@ export function StoreProvider({ children }) {
       .catch(() => setSync({ status: 'failed', at: sync.at, retry: () => dispatch({ type: 'set', patch: {} }) }));
   }, [state.version, ready]);
 
-  const value = useMemo(() => ({ state, dispatch, ready, sync }), [state, ready, sync]);
+  const value = useMemo(() => ({ state, dispatch, ready, sync, registerEffects, getState }), [state, ready, sync]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

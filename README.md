@@ -2,6 +2,62 @@
 
 Mobile front-end for the BibleNestra product specification (5-tab bar: Today · Bible · Discover · Socials · Profile).
 
+## Backend (v7) — Cloudflare Workers + Neon + Clerk + R2
+
+The app now has a real backend in `backend/` — no server to buy. **Full setup guide: `backend/SETUP.md`**, API contract: `backend/API.md`.
+
+| Mode | When | Behaviour |
+|---|---|---|
+| Local | no `EXPO_PUBLIC_API_URL` | Exactly as before — everything stored on the phone |
+| Online | `EXPO_PUBLIC_API_URL` + `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in `.env` | Sign in (Google, Apple on iOS, email code); posts, photos, videos, likes/reactions, comments, follows, prayers, jobs & bids, coins, ad rewards and game rewards live in Neon and sync across devices |
+| Dev-online | API URL + dev user (development builds only) | Test without Clerk: `?api=http://localhost:8787&devUser=alice` in the web preview |
+
+- On the server, coins can only change through the server: bid fees (20, charged atomically), 5 rewarded ads → 20 coins,
+  4 support flames a day, game coins once per game per day. Rewarded ads are verified with AdMob server-side verification.
+- Photos are resized on the phone (≈1600 px JPEG); videos are compressed on the phone to **720p H.264 MP4** (~15 MB/min,
+  `react-native-compressor`, poster frame via `expo-video-thumbnails`). Both are stored in Cloudflare R2 (no bandwidth fees).
+  Video compression needs a development/EAS build — in Expo Go the original file is uploaded.
+- Local try-out: `cd backend && npm install && npm test && npm run dev -- --seed`.
+- Phase 2 backend (Cloudflare Durable Objects Hub + Neon):
+  - Direct messages, group chats, communities & channels, message requests, user blocking.
+  - Live real-time events via Cloudflare Durable Object `Hub` (WebSocket Hibernation API) + polling fallback.
+  - Calendar events & RSVPs, Make a Wish candles & amens.
+  - Bible study synchronization (notes, highlights, bookmarks, reading plans progress).
+  - Virtual gifts moving coins between users with creator revenue share (70%).
+  - Notifications inbox and Expo push notification delivery.
+  - Safe on-device fallback: when `EXPO_PUBLIC_API_URL` is empty, everything continues to operate locally.
+
+## New in this version (v6)
+
+| Request | What was built | Where |
+|---|---|---|
+| 20+ Bible translations, more languages | **57 translations in 34 languages**, all legal to show in an app: 16 English (KJV, BSB, WEB, LSV, FBV, T4T, ASV, YLT, BBE, Darby, Geneva…), 11 African (Yorùbá, Igbo, Hausa, Kiswahili, Twi ×2, Éwé, Lingala, Luganda, Chichewa, Shona), European (French, Spanish, Portuguese, German, Italian, Russian, Ukrainian, Polish, Latin) and Asian/Middle-Eastern (Arabic ×2, Hebrew, Persian, Chinese ×2, Korean, Japanese, Hindi, Tamil, Telugu, Bengali, Urdu, Tagalog, Vietnamese, Turkish). Search + region filter, right-to-left text, attribution line under each chapter, narration in the matching language, offline download per translation. | `src/bible/catalog.js`, `src/bible/loader.js`, `src/components/TranslationPicker.js` |
+| The Passion Translation, NIV, ESV, NLT… | These are copyrighted. They are listed under **"Coming with a publisher licence"** (TPT, NIV, ESV, NLT, NKJV, AMP, MSG, NASB, CSB, NET, NRSV, RV1960, NVI). Once you hold a licence, add the endpoint to `LICENSED_SOURCES` in `src/bible/config.js` and the version becomes selectable — no other code changes. | `src/bible/config.js` |
+| Scripture / prayer pop-ups | Local notifications that pop a verse (KJV, works offline) or a prayer every 30 min – 12 h, with quiet hours and content choice (Scriptures / Prayers / Both). Android uses a high-importance channel so they appear as heads-up pop-ups; tapping opens the verse. "Send me one now" test. | `src/notifications/*`, `ScripturePopScreen`, Today → Scripture pop-ups, Profile |
+| Concordance & commentaries inside the app | No more links out. Word-by-word KJV with Strong's numbers for any verse, full Thayer's (Greek) / Brown-Driver-Briggs (Hebrew) entries with tappable cross-links, "Where it appears" from the offline KJV. Seven public-domain commentaries per chapter (Matthew Henry, JFB, Adam Clarke, John Gill, Tyndale notes, Keil & Delitzsch, Calvin), focused on the selected verse. Everything is cached for offline after first open. | `ConcordanceScreen`, `StudyScreen`, `src/bible/study.js` |
+| One Socials, Facebook-style (feed + videos) | Socials has **Feed · Videos**. Feed is a light Facebook-style news feed: “What's on your heart?” composer, a Reels strip, chips For You · Following · Communities · Events, text / quote / photo-grid / inline-video posts, Like (long-press for 🙏 ❤️ 🙌 😢 reactions) · Comment · Share · Save, ⋯ menu (hide, delete with undo). Videos keeps the full-screen reels. The old `Feed` route opens Socials. | `SocialsScreen`, `src/components/social/*`, `src/ui/chrome.js` |
+| 4 🔥 "support us today" | Today shows four flames — each lights after one rewarded ad. After the fourth: full-screen 🎉🎉🎉🎉 "Your reward shall be great in God's Presence". Resets daily. | `src/components/SupportAdsCard.js` |
+| Ads in games | "Watch this ad to support this great platform" card, then a video (interstitial) ad after question 4 and every 4 questions after. | Discover → Games, Learn |
+| Game questions ×500, new every day | Trivia 901 · Who said it? 513 · Verse scramble 560 · Timeline 550 questions. A fresh date-based set every day (no repeats until a pool is used up), "resets in Xh" timer, today's and best score, coins only on the first round each day. Built from the bundled KJV and checked by a validator (`scripts/gen_games.py`, `scripts/validate_games.py`). | `src/data/games/*`, `src/data/games.js` |
+| Jobs bidding | Bidding costs 20 coins, or watch 5 rewarded ads to unlock 20 coins (progress is kept if you leave). Posting a job stays free. | `JobsScreen` |
+| Profile icon top-right | The Profile tab was removed; an avatar sits at the top-right of Today, Bible, Discover, Socials and Jobs. | `src/components/ProfileButton.js` |
+
+### Before publishing — checklist for the backend team
+1. **AdMob**: `src/ads/config.js` and `app.json` use Google's *test* ids. Replace them with your AdMob ids. Ads only run in a
+   development/production build (`eas build`), not in Expo Go or on the web — there a demo ad with a countdown is shown so the
+   flows can be tested. Ad rules (4 support ads, every 4th question, 20 coins / 5 ads) live in `AD_RULES`.
+2. **Bible text & study data** come from two free open services: the Free Use Bible API (bible.helloao.org — translations and
+   commentaries, each with its licence metadata) and bolls.life (Strong's-tagged KJV and lexicon). For production, mirror
+   them on your own server/CDN and change the two URLs in `src/bible/config.js`.
+3. **Attribution**: CC BY-SA translations (Biblica® Open, IRV, LSV…) must show their attribution — the reader already prints
+   it under every chapter. Keep that line.
+4. **Licensed versions** (TPT, NIV…): get written permission from the publisher, serve the text from your backend, add it to
+   `LICENSED_SOURCES`.
+5. **Notifications**: Scripture pop-ups are local (no push server). Server push (new messages, prayer updates) still needs Expo
+   push tokens or FCM/APNs on your backend.
+6. Coins are simulated locally (`buyCoins`). Real purchases need in-app purchases (Google Play Billing / StoreKit) verified by
+   your backend, and coin balances should move server-side.
+
 ## Design system — "Sanctuary Paper"
 
 All styling flows from `src/theme.js`:
@@ -48,7 +104,7 @@ All animation uses React Native's built-in `Animated` API (no extra native depen
 
 Everything below runs locally and is saved on the device (AsyncStorage):
 
-- **Bible** – full KJV offline, highlights, notes (edit / delete / undo), bookmarks, compare, reading themes,
+- **Bible** – full KJV offline, 56 more translations streamed and cached (or downloaded) on demand, highlights, notes (edit / delete / undo), bookmarks, compare, reading themes,
   share (native share sheet), post a verse to the feed, verse images (PNG via `react-native-view-shot` + `expo-sharing`).
 - **Narration** – real text-to-speech (`expo-speech`, `src/audio/Narration.js`): reads chapters verse by verse,
   highlights and scrolls to the verse being read, continues into the next chapter, speed / voice / sleep timer /
@@ -62,14 +118,15 @@ Everything below runs locally and is saved on the device (AsyncStorage):
 
 ### What still needs a backend
 Accounts and sync across devices, other people's live activity (posts, chats and prayers from real users),
-licensed translations and commentaries, speech-to-text for sermon transcripts, payments for coins/gifts,
-push notifications, and a hosted AI model for Bible Chat (it currently answers from the bundled Scripture and lexicon).
+licensed (copyrighted) translations, speech-to-text for sermon transcripts, payments for coins/gifts,
+server push notifications, and a hosted AI model for Bible Chat (it currently answers from the bundled Scripture and lexicon).
 
 ## Run
 
 ```bash
-npm install            # adds @expo-google-fonts/newsreader, react-native-view-shot, expo-sharing, expo-speech, expo-haptics, expo-av
-npx expo start        # scan QR with Expo Go, or press i / a / w
+npm install
+npx expo start         # Expo Go / web preview (ads show as demo ads)
+npx expo run:android   # or: eas build --profile development — needed for real AdMob ads
 ```
 
 ## What's implemented (all on local data, persisted with AsyncStorage)
@@ -88,7 +145,7 @@ npx expo start        # scan QR with Expo Go, or press i / a / w
 | Communities & group chat (§1.10) | `CommunitiesScreen` (filters, join/request), `GroupScreen` (General/Prayer/Bible Study/Announcements/Events channels, pinned, passage/prayer/event cards, composer) |
 | People & direct chat (§1.10.5) | `PeopleScreen`, `PersonScreen`, `ChatListScreen` (message requests), `ChatScreen` (consent-based conversions) |
 | Live streams & rooms (§1.10.6) | `LiveScreen` |
-| Social feed (§1.11) | `FeedScreen`, Home "For you" |
+| Social feed (§1.11) | `SocialsScreen` (feed + videos merged) |
 | Make a Wish (§1.12) | `WishesScreen` + Create |
 | Professional profile & verification badges (§1.13) | `ProfileScreen`, `PersonScreen` |
 | Care Network (§1.14) | `CareScreen` – "Find Someone Who Understands" |
@@ -105,7 +162,10 @@ src/navigation.js           tiny stack navigator (push/pop/replace/reset)
 src/store/index.js          reducer + AsyncStorage persistence + sync status
 src/theme.js                colours
 src/components/             Card, AskBar, TabBar, ui (Screen, Row, Pills, Button, …)
-src/data/bible.js           translation catalog, sample chapters (KJV/WEB), concordance search, lexicon, commentary, cross-refs
+src/data/bible.js           books, bundled KJV, verse of the day, search, cross-refs
+src/bible/                  translation catalog, chapter loader + offline cache, commentaries & Strong's lexicon, data URLs
+src/ads/                    AdMob wrapper (useAds) with demo fallback, ad unit ids and AD_RULES
+src/notifications/          Scripture pop-ups scheduling and content
 src/data/seed.js            communities, people, prayers, calendar, plans, courses, live, recordings, feed
 src/data/assistant.js       grounded local responders for Bible Chat and Scripture Companion
 src/screens/                HomeScreen, BibleScreen, GodModeScreen, PrayerScreen, DiscoverScreen, MoreScreens

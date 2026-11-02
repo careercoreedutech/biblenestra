@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useToast } from '../components/Toast';
-import { PressScale, FadeInUp, ScaleIn } from '../components/Motion';
+import { PressScale, FadeInUp, ScaleIn, Shimmer } from '../components/Motion';
 import { Icon } from '../components/Icons';
 import { Screen, Section, Row, Pill, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider, NightGlow } from '../components/ui';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import * as BibleData from '../data/bible';
+import { COMMENTARIES, loadCommentary, loadTaggedChapter, useAsync } from '../bible/study';
 import {
   BOOKS,
   TRANSLATIONS,
@@ -66,37 +67,7 @@ export function StudyScreen({ params }) {
 
       {/* Keyed on the tab so switching tabs cross-fades the panel in. */}
       <FadeInUp key={tab} distance={8} duration={300}>
-      {tab === 'Commentary' ? (
-        (COMMENTARY[key] || []).length ? (
-          (COMMENTARY[key] || []).map((c, i) => (
-            <FadeInUp key={i} index={i} distance={8} style={styles.commCard}>
-              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-                <Badge label={c.tradition} tint={colors.gold} />
-                <Badge label="Commentary" tint={colors.primary} />
-              </View>
-              <Text style={styles.commText}>{c.text}</Text>
-              <Text style={styles.commSrc}>Source: {c.source}</Text>
-              <Button
-                small
-                kind="ghost"
-                label="Save to library"
-                style={{ alignSelf: 'flex-start', marginTop: 10 }}
-                onPress={() =>
-                  dispatch({
-                    type: 'saveAnswer',
-                    a: {
-                      question: 'Commentary on ' + refLabel(params.bookId, params.chapter),
-                      blocks: [{ type: 'Commentary', source: c.source, text: c.text }],
-                    },
-                  }) || toast.show('Saved to your library', { icon: 'bookmark' })
-                }
-              />
-            </FadeInUp>
-          ))
-        ) : (
-          <Empty title="Commentary isn’t connected yet" body="Licensed commentaries appear here once a publisher is connected. Meanwhile, ask Bible Intelligence about this passage." action="Ask about this passage" onAction={() => nav.push('BibleChat', { context: params })} />
-        )
-      ) : null}
+      {tab === 'Commentary' ? <CommentaryPanel bookId={params.bookId} chapter={params.chapter} verse={params.verse} testament={book ? book.testament : 'NT'} /> : null}
 
       {tab === 'Cross-references' ? (
         (CROSS_REFS[key] || []).length ? (
@@ -114,28 +85,7 @@ export function StudyScreen({ params }) {
         )
       ) : null}
 
-      {tab === 'Word study' ? (
-        <View>
-          <Notice tint={colors.teal} text={`Original-language words found in ${verse ? 'this verse' : 'this chapter'} (${book && book.testament === 'OT' ? 'Hebrew' : 'Greek'}).`} />
-          {lexicon.map((d, i) => (
-            <FadeInUp key={d.strong} index={i} distance={8}>
-            <PressScale onPress={() => nav.push('Concordance', { query: d.translit })} scaleTo={0.985} style={styles.commCard}>
-              <Text style={styles.wordHead}>{d.lemma}</Text>
-              <Text style={styles.wordMeta}>{d.translit} · {d.lang} · {d.strong} · {d.part}</Text>
-              <View style={styles.wordGrid}>
-                <Text style={styles.wordLabel}>Definition</Text><Text style={styles.wordValue}>{d.definition}</Text>
-                <Text style={styles.wordLabel}>Meaning</Text><Text style={styles.wordValue}>{d.meaning}</Text>
-                <Text style={styles.wordLabel}>Occurrences</Text><Text style={styles.wordValue}>{d.count} times in Scripture</Text>
-              </View>
-              <View style={styles.contextBox}>
-                <Text style={styles.contextText}>Open in the concordance ›</Text>
-              </View>
-            </PressScale>
-            </FadeInUp>
-          ))}
-          {!lexicon.length ? <Empty title="No lexicon entries for this verse" body="Word studies cover key terms like love, faith, grace, spirit, peace and mercy." /> : null}
-        </View>
-      ) : null}
+      {tab === 'Word study' ? <WordStudyPanel bookId={params.bookId} chapter={params.chapter} verse={params.verse || 1} lexicon={lexicon} /> : null}
 
       {tab === 'Context' ? (
         <View>
@@ -155,6 +105,104 @@ export function StudyScreen({ params }) {
 
       <Button label="Ask AI Bible Intelligence" onPress={() => nav.push('BibleChat', { context: params })} style={{ marginTop: 24 }} />
     </Screen>
+  );
+}
+
+// ---------- Commentary (public-domain commentaries, read in-app) ----------
+function CommentaryPanel({ bookId, chapter, verse, testament }) {
+  const { dispatch } = useStore();
+  const toast = useToast();
+  const list = COMMENTARIES.filter((c) => !c.otOnly || testament === 'OT');
+  const [cid, setCid] = useState(list[0].id);
+  const [open, setOpen] = useState({});
+  const info = list.find((c) => c.id === cid) || list[0];
+  const res = useAsync(() => loadCommentary(cid, bookId, chapter), [cid, bookId, chapter]);
+  const entries = res.data || [];
+  // The note that covers the chosen verse is the last one that starts at or before it.
+  const focus = verse ? entries.filter((e) => e.verse && e.verse <= verse).pop() : null;
+  const rest = entries.filter((e) => e !== focus);
+
+  const save = (e) => {
+    dispatch({ type: 'saveAnswer', a: { question: `${info.name} on ${refLabel(bookId, chapter, e.verse || undefined)}`, blocks: [{ type: 'Commentary', source: info.name, text: e.text }] } });
+    toast.show('Saved to your library', { icon: 'bookmark', haptic: 'success' });
+  };
+
+  const rangeOf = (e) => {
+    if (!e.verse) return 'Introduction';
+    const next = entries.find((x) => x.verse && x.verse > e.verse);
+    const end = next ? next.verse - 1 : null;
+    return end && end > e.verse ? `Verses ${e.verse}–${end}` : end === e.verse ? `Verse ${e.verse}` : `Verse ${e.verse}${next ? '' : ' onward'}`;
+  };
+  const Card = ({ e, i, highlight }) => {
+    const k = `${e.verse}-${i}`;
+    const expanded = highlight || open[k];
+    return (
+      <FadeInUp index={Math.min(i, 6)} distance={8} style={[styles.commCard, highlight && { borderColor: colors.gold, borderWidth: 1.5 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={styles.commVerse}>{rangeOf(e)}{highlight && e.verse !== verse ? ` · includes verse ${verse}` : ''}</Text>
+          <Pressable onPress={() => save(e)} hitSlop={10}><Icon name="bookmark" size={16} color={colors.muted} /></Pressable>
+        </View>
+        <Text style={styles.commText} numberOfLines={expanded ? undefined : 5}>{e.text}</Text>
+        {!highlight && e.text.length > 280 ? (
+          <Pressable onPress={() => setOpen((o) => ({ ...o, [k]: !o[k] }))} hitSlop={8}>
+            <Text style={styles.commMore}>{expanded ? 'Show less' : 'Read more'}</Text>
+          </Pressable>
+        ) : null}
+      </FadeInUp>
+    );
+  };
+
+  return (
+    <View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginTop: 14 }} contentContainerStyle={{ gap: 8 }}>
+        {list.map((c) => (
+          <PressScale key={c.id} onPress={() => setCid(c.id)} scaleTo={0.95} style={[styles.commPill, cid === c.id && styles.commPillOn]}>
+            <Text style={[styles.commPillText, cid === c.id && { color: '#FFFFFF' }]}>{c.short}</Text>
+          </PressScale>
+        ))}
+      </ScrollView>
+      <Text style={styles.commAbout}>{info.name} · {info.about}</Text>
+      {res.loading ? [0, 1, 2].map((i) => <Shimmer key={i} style={{ height: 96, borderRadius: 16, marginTop: 12 }} />) : null}
+      {res.error ? <Empty title="You're offline" body="Commentaries download the first time you open them, then stay on your phone for offline study." /> : null}
+      {!res.loading && !res.error && !entries.length ? <Empty title={`${info.short} has no notes on this chapter`} body="Try another commentator above." /> : null}
+      {focus ? <Card e={focus} i={0} highlight /> : null}
+      {focus && rest.length ? <Text style={styles.commRestHead}>The rest of chapter {chapter}</Text> : null}
+      {rest.map((e, i) => <Card key={`${e.verse}-${i}`} e={e} i={i + 1} />)}
+      {entries.length ? <Text style={styles.commSrc}>{info.name} · {info.licence}</Text> : null}
+    </View>
+  );
+}
+
+// ---------- Word study: the verse word by word with Strong's numbers ----------
+function WordStudyPanel({ bookId, chapter, verse, lexicon }) {
+  const nav = useNav();
+  const res = useAsync(() => loadTaggedChapter(bookId, chapter), [bookId, chapter]);
+  const words = res.data ? res.data[verse - 1] || [] : [];
+  const testament = (BOOKS.find((b) => b.id === bookId) || {}).testament;
+  return (
+    <View style={{ marginTop: 12 }}>
+      <Notice tint={colors.teal} text={`Tap any word to open its ${testament === 'OT' ? 'Hebrew' : 'Greek'} meaning in the lexicon. ${refLabel(bookId, chapter, verse)} · KJV.`} />
+      {res.loading ? <Shimmer style={{ height: 90, borderRadius: 16, marginTop: 12 }} /> : null}
+      {res.error ? <Empty title="You're offline" body="The word-by-word view downloads once, then works offline." /> : null}
+      <View style={styles.wsWrap}>
+        {words.map((w, i) => (w.s ? (
+          <PressScale key={i} onPress={() => nav.push('Concordance', { bookId, chapter, verse, strong: w.s, word: w.w })} scaleTo={0.92} style={styles.wsChip}>
+            <Text style={styles.wsWord}>{w.w}</Text>
+            <Text style={styles.wsNum}>{w.s}</Text>
+          </PressScale>
+        ) : <Text key={i} style={styles.wsPlain}>{w.w}</Text>))}
+      </View>
+      {lexicon.length ? <Text style={styles.commRestHead}>Key words explained</Text> : null}
+      {lexicon.map((d, i) => (
+        <FadeInUp key={d.strong} index={i} distance={8}>
+          <PressScale onPress={() => nav.push('Concordance', { strong: d.strong, bookId, chapter, verse })} scaleTo={0.985} style={styles.commCard}>
+            <Text style={styles.wordHead}>{d.lemma}</Text>
+            <Text style={styles.wordMeta}>{d.translit} · {d.lang} · {d.strong} · {d.part}</Text>
+            <Text style={[styles.commText, { marginTop: 8 }]}>{d.definition}</Text>
+          </PressScale>
+        </FadeInUp>
+      ))}
+    </View>
   );
 }
 
@@ -199,10 +247,10 @@ export function FactbookScreen({ params }) {
 }
 
 // ---------- Search / concordance ----------
-export function SearchScreen() {
+export function SearchScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(params.query || '');
   const [scope, setScope] = useState('ALL');
   const [kind, setKind] = useState('Bible');
   const results = useMemo(() => (kind === 'Bible' ? searchBible(q, state.translation, scope) : []), [q, scope, kind, state.translation]);
@@ -502,6 +550,18 @@ const styles = StyleSheet.create({
   },
   commText: { fontFamily: fonts.serif, fontSize: 16, lineHeight: 24, color: colors.passage, marginTop: 10 },
   commSrc: { fontSize: 11.5, color: colors.faint, marginTop: 10 },
+  commVerse: { fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: colors.gold },
+  commMore: { fontSize: 13, fontWeight: '700', color: colors.primary, marginTop: 8 },
+  commPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  commPillOn: { backgroundColor: colors.night, borderColor: colors.night },
+  commPillText: { fontSize: 13, fontWeight: '700', color: colors.fg },
+  commAbout: { fontSize: 12.5, color: colors.muted, marginTop: 10 },
+  commRestHead: { fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase', color: colors.muted, marginTop: 22, marginBottom: 2 },
+  wsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12, alignItems: 'center' },
+  wsChip: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
+  wsWord: { fontFamily: fonts.serif, fontSize: 16, color: colors.fg },
+  wsNum: { fontSize: 9.5, fontWeight: '800', color: colors.primary, marginTop: 1 },
+  wsPlain: { fontFamily: fonts.serif, fontSize: 16, color: colors.faint },
   wordHead: { fontFamily: fonts.serifBold, fontSize: 26, color: colors.fg },
   wordMeta: { fontSize: 12, fontWeight: '600', color: colors.gold, marginTop: 2 },
   wordGrid: { marginTop: 12, gap: 2 },

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   Dimensions,
@@ -7,6 +7,8 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  RefreshControl,
+  ActivityIndicator,
   Share,
   StyleSheet,
   Text,
@@ -14,17 +16,24 @@ import {
   View,
   Image,
 } from 'react-native';
-import Svg, { Path, Circle, Rect, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Path, Rect, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
+import { useSync } from '../api/sync';
 import { useNav, useIsFocused } from '../navigation';
-import { GIFTS } from '../data/seed';
-import { Button, Tag, Badge, alpha } from '../components/ui';
+import { GIFTS, PEOPLE, CHANNELS_DATA } from '../data/seed';
+import ProfileButton from '../components/ProfileButton';
+import { PhotoViewer } from '../components/social/FeedCard';
+import { LightPostCard, ComposerCard, ReelsStrip, HubCards, PostMenuSheet, reactionOf } from '../components/social/LightFeed';
+import CreatePostSheet from '../components/social/CreatePostSheet';
+import { SOCIAL, CONTENT_THEMES, parseScriptureRef, passageLabel, timestampOf, relTime, initials } from '../components/social/shared';
+import { setSocialsDark } from '../ui/chrome';
+import { Button, alpha } from '../components/ui';
 import { useToast, haptic } from '../components/Toast';
 import { useNarration } from '../audio/Narration';
-import { BOOKS, refLabel } from '../data/bible';
+import { refLabel, verseOfDay, getChapter } from '../data/bible';
 import {
   PressScale,
   FadeInUp,
@@ -42,22 +51,6 @@ import {
 const ND = Platform.OS !== 'web'; // native driver where supported
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-// "Matthew 1:5", "Psalm 23", "1 John 4:8", "Song of Solomon 2:4" → { bookId, chapter, verse }
-const normBook = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-function parseScriptureRef(ref) {
-  const m = String(ref || '').trim().match(/^(.+?)\s*(\d+)(?:\s*[:.]\s*(\d+))?/);
-  if (!m) return null;
-  const n = normBook(m[1]);
-  if (!n) return null;
-  const book =
-    BOOKS.find((b) => normBook(b.name) === n || normBook(b.slug) === n || b.id.toLowerCase() === n) ||
-    BOOKS.find((b) => normBook(b.name).startsWith(n) || n.startsWith(normBook(b.name)));
-  if (!book) return null;
-  const chapter = Math.min(Math.max(parseInt(m[2], 10) || 1, 1), book.chapters || 1);
-  const verse = m[3] ? parseInt(m[3], 10) : null;
-  return verse ? { bookId: book.id, chapter, verse } : { bookId: book.id, chapter };
-}
 
 function formatCount(n) {
   const v = Number(n) || 0;
@@ -127,9 +120,6 @@ const GUILD_INVITE = 'https://discord.gg/clipfarm';
 // Immersive feed backdrops (night family — only visible behind text posts / while video loads)
 const VIDEO_THEMES = [colors.night, colors.nightRaised, colors.primaryInk];
 
-// Dark card themes offered for text posts (white serif text sits on these)
-const CONTENT_THEMES = [colors.night, colors.primaryInk, colors.teal, colors.lavender];
-
 const WHITE = '#FFFFFF';
 const GLASS = 'rgba(0,0,0,0.38)';
 const GLASS_BORDER = 'rgba(255,255,255,0.16)';
@@ -139,17 +129,6 @@ const TEXT_SHADOW = {
   textShadowOffset: { width: 0, height: 1 },
   textShadowRadius: 3,
 };
-
-const SAMPLE_VIDEOS = [
-  { id: 'sv1', title: 'Sanctuary Worship & Altar', url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4', duration: '0:45' },
-  { id: 'sv2', title: 'Acoustic Praise Session', url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/friday.mp4', duration: '0:38' },
-];
-
-const SAMPLE_IMAGES = [
-  { id: 'si1', title: 'Believers In Prayer', url: 'https://images.unsplash.com/photo-1609234656388-0ff363383899?auto=format&fit=crop&w=600&q=80' },
-  { id: 'si2', title: 'Open Scripture Meditation', url: 'https://images.unsplash.com/photo-1504052434569-70ad5836ab65?auto=format&fit=crop&w=600&q=80' },
-  { id: 'si3', title: 'Altar Candle of Faith', url: 'https://images.unsplash.com/photo-1603006905003-be475563bc59?auto=format&fit=crop&w=600&q=80' },
-];
 
 // Small local glyphs not covered by the shared icon set
 function CloseGlyph({ color = colors.muted, size = 12 }) {
@@ -328,48 +307,6 @@ function SheetHead({ eyebrow, title, subtitle, onClose, right }) {
     </View>
   );
 }
-
-function UploadVideoPreview({ videoUrl }) {
-  const previewPlayer = useVideoPlayer(videoUrl || null, (p) => {
-    p.loop = true;
-    p.play();
-    p.muted = true;
-  });
-
-  return (
-    <View style={styles.modalPreviewBox}>
-      {videoUrl ? (
-        <VideoView
-          style={StyleSheet.absoluteFill}
-          player={previewPlayer}
-          allowsFullscreen={false}
-          allowsPictureInPicture={false}
-          nativeControls={false}
-          contentFit="cover"
-        />
-      ) : (
-        <View style={styles.modalPreviewPlaceholder}>
-          <Icon name="video" size={30} color={colors.goldLight} />
-          <Text style={styles.modalPreviewPlaceholderText}>Select a video to preview</Text>
-        </View>
-      )}
-      <View style={styles.modalPreviewScrim} pointerEvents="none" />
-      <View style={styles.modalPreviewBadge}>
-        <Pulse min={0.7} max={1.25} duration={800}>
-          <View style={styles.modalPreviewDot} />
-        </Pulse>
-        <Text style={styles.modalPreviewBadgeText}>LIVE VIDEO PREVIEW</Text>
-      </View>
-    </View>
-  );
-}
-
-const PUBLISH_MODES = [
-  { id: 'upload_videos', label: 'Upload Videos', icon: 'video' },
-  { id: 'post_video', label: 'Post a Video', icon: 'play' },
-  { id: 'upload_images', label: 'Upload Images', icon: 'sparkles' },
-  { id: 'post_content', label: 'Post a Content', icon: 'highlight' },
-];
 
 const GIFT_ICONS = {
   g_rose: { name: 'sun', color: colors.rose },
@@ -598,7 +535,7 @@ function VideoReelItem({
               ) : null}
             </View>
             <Text style={styles.creatorHandle} numberOfLines={1}>
-              {item.creator.handle} · {item.creator.church}
+              {[item.creator.label != null ? item.creator.label : item.creator.handle, item.creator.church].filter(Boolean).join(' · ')}
             </Text>
           </View>
 
@@ -730,71 +667,323 @@ function VideoReelItem({
   );
 }
 
-export default function SocialsScreen({ params = {} }) {
+
+// ─── Unified Socials ─────────────────────────────────────────────
+// Facebook-style: "Feed" is a light news feed (composer, Reels strip, posts with For You · Following ·
+// Communities · Events chips); "Videos" is the full-screen dark reels player. Also mounted as a route
+// (`Socials` / `Feed`) — then it shows a back button and honours params.tab ('feed' | 'videos' |
+// 'following'), params.postId (scroll + highlight) and params.initialVideoId.
+const SEGMENTS = [
+  { id: 'feed', label: 'Feed', icon: 'home' },
+  { id: 'videos', label: 'Videos', icon: 'play' },
+];
+const FEED_CHIPS = ['For You', 'Following', 'Communities', 'Events'];
+const EVENT_KINDS = ['Announcement', 'Celebration', 'Event', 'Greeting'];
+
+// Header segmented switch with a sliding pill (light on Feed, dark on Videos)
+function SegmentSwitch({ value, onChange, light }) {
+  const [w, setW] = useState(0);
+  const PAD = 3;
+  const tabW = w ? (w - PAD * 2) / SEGMENTS.length : 0;
+  const x = useRef(new Animated.Value(0)).current;
+  const placed = useRef(false);
+  useEffect(() => {
+    if (!tabW) return;
+    const to = PAD + Math.max(0, SEGMENTS.findIndex((s) => s.id === value)) * tabW;
+    if (!placed.current) {
+      placed.current = true;
+      x.setValue(to);
+      return;
+    }
+    Animated.spring(x, { toValue: to, useNativeDriver: ND, speed: 20, bounciness: 6 }).start();
+  }, [value, tabW]);
+  return (
+    <View style={[styles.segRow, light && styles.segRowLight]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityRole="tablist">
+      {tabW ? <Animated.View pointerEvents="none" style={[styles.segPill, light && styles.segPillLight, { width: tabW, transform: [{ translateX: x }] }]} /> : null}
+      {SEGMENTS.map((s) => {
+        const on = value === s.id;
+        const tint = light ? (on ? colors.primary : colors.muted) : on ? colors.night : colors.nightMuted;
+        return (
+          <Pressable key={s.id} onPress={() => onChange(s.id)} style={styles.segTab} accessibilityRole="tab" accessibilityState={{ selected: on }}>
+            <Icon name={s.icon} size={13} color={tint} strokeWidth={on ? 2.4 : 2} />
+            <Text style={[styles.segText, on && styles.segTextOn, light && styles.segTextLight, light && on && styles.segTextLightOn]}>{s.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+export default function SocialsScreen({ params }) {
+  const routeMode = params != null; // pushed as a route (vs. the Socials tab, which gets no params)
+  const p = params || {};
   const { state, dispatch } = useStore();
+  const sync = useSync(); // online mode: pull-to-refresh, pagination, comments from the API
   const nav = useNav();
   const toast = useToast();
   const nar = useNarration();
   const focused = useIsFocused(); // false while another screen is on top — pauses video
-  const [mainTab, setMainTab] = useState('reels'); // 'reels' | 'guild' | 'creators'
-  const [activeTab, setActiveTab] = useState('Recommended'); // 'Following' | 'Recommended'
-  const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT - 105);
+
+  const [segment, setSegment] = useState(p.tab === 'videos' || p.initialVideoId ? 'videos' : 'feed');
+  const [chip, setChip] = useState(p.tab === 'following' ? 'Following' : 'For You');
+  const [menuKey, setMenuKey] = useState(null); // feed item whose ⋯ menu is open
+  const [mainTab, setMainTab] = useState('home'); // 'home' | 'guild' | 'creators'
+  const [bodyHeight, setBodyHeight] = useState(SCREEN_HEIGHT - 230);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [selectedId, setSelectedId] = useState(null);
-  const [showComments, setShowComments] = useState(false);
+  const [selectedId, setSelectedId] = useState(null); // video the gift sheet is for
+  const [commentTarget, setCommentTarget] = useState(null); // { src: 'post' | 'video', id }
   const [showGiftStore, setShowGiftStore] = useState(false);
-  const [showPublishModal, setShowPublishModal] = useState(false);
   const [giftNotice, setGiftNotice] = useState(null); // inline feedback inside the gift sheet
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
+  const [composer, setComposer] = useState(null); // null | { mode, bounty?, preset? }
   const [cornerCat, setCornerCat] = useState('All');
-  const [bounty, setBounty] = useState(null); // campaign the next submission is for
+  const [viewer, setViewer] = useState(null); // { images, start }
+  const [highlightKey, setHighlightKey] = useState(null);
+  const [visibleVideoKey, setVisibleVideoKey] = useState(null);
 
-  const flatListRef = useRef(null);
+  const reelsRef = useRef(null);
+  const feedRef = useRef(null);
+  const layouts = useRef({}); // feed card key → { y, h } inside the feed ScrollView
+  const scrollY = useRef(0);
+  const pendingScroll = useRef(null);
 
-  // Sliding underline under Following | For You
-  const [tabLayouts, setTabLayouts] = useState({});
-  const underlineX = useRef(new Animated.Value(0)).current;
-  const underlinePlaced = useRef(false);
-  const UNDERLINE_W = 18;
-  const onFeedTabLayout = (key, e) => {
-    const { x, width } = e.nativeEvent.layout;
-    setTabLayouts((l) => (l[key] && l[key].x === x && l[key].width === width ? l : { ...l, [key]: { x, width } }));
-  };
-  useEffect(() => {
-    const l = tabLayouts[activeTab];
-    if (!l) return;
-    const to = l.x + l.width / 2 - UNDERLINE_W / 2;
-    if (!underlinePlaced.current) {
-      underlinePlaced.current = true;
-      underlineX.setValue(to);
-      return;
-    }
-    Animated.spring(underlineX, { toValue: to, useNativeDriver: ND, speed: 18, bounciness: 7 }).start();
-  }, [activeTab, tabLayouts]);
-
-  // Brief celebratory card after publishing
-  const [published, setPublished] = useState(null); // { key, label }
+  // Brief celebratory card after publishing a video
+  const [published, setPublished] = useState(null);
   useEffect(() => {
     if (!published) return undefined;
     const t = setTimeout(() => setPublished(null), 2000);
     return () => clearTimeout(t);
   }, [published]);
 
-  // Opened from Profile → Creator with a specific video: jump to it once.
+  // Clear a highlight after it has played so the same card can glow again later
   useEffect(() => {
-    if (!params.initialVideoId) return;
-    const idx = (state.videos || []).findIndex((v) => v.id === params.initialVideoId);
-    if (idx > 0) {
-      setActiveIndex(idx);
-      setTimeout(() => { try { flatListRef.current && flatListRef.current.scrollToIndex({ index: idx, animated: false }); } catch (e) {} }, 50);
+    if (!highlightKey) return undefined;
+    const t = setTimeout(() => setHighlightKey(null), 2600);
+    return () => clearTimeout(t);
+  }, [highlightKey]);
+
+  // Dark chrome (page background, status bar, tab bar) only while the full-screen reels — or the
+  // night-themed guild reached from them — are on screen and this screen is focused. Light otherwise.
+  // Only the instance that turned it on turns it off, so a covered Socials tab can't clobber a pushed one.
+  const wantDark = focused && (mainTab === 'guild' || (mainTab === 'home' && segment === 'videos'));
+  const ownsDark = useRef(false);
+  useEffect(() => {
+    if (wantDark) {
+      setSocialsDark(true);
+      ownsDark.current = true;
+    } else if (ownsDark.current || focused) {
+      setSocialsDark(false);
+      ownsDark.current = false;
     }
-  }, [params.initialVideoId]);
+  }, [wantDark, focused]);
+  useEffect(() => () => { if (ownsDark.current) setSocialsDark(false); }, []);
 
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 60,
-  });
+  // ─── Data ──────────────────────────────────────────────────────
+  const videos = state.videos || [];
+  const feed = state.feed || [];
+  const follows = state.follows || [];
+  const reelVideos = useMemo(() => videos.filter((v) => v.videoUrl), [videos]);
+  const communityNames = (state.communities || []).map((c) => c.name);
 
+  const allItems = useMemo(() => {
+    const now = Date.now();
+    const fromPost = (f) => {
+      const ts = timestampOf(f, now);
+      const person = PEOPLE.find((x) => x.name === f.author);
+      const images = Array.isArray(f.images) && f.images.length ? f.images : f.image ? [f.image] : [];
+      return {
+        key: 'p_' + f.id,
+        src: 'post',
+        id: f.id,
+        name: f.author || 'Believer',
+        verified: !!f.authorVerified || !!(person && person.verified && person.verified.length),
+        sub: f.mine ? null : f.authorSub || (person ? person.username : communityNames.includes(f.author) ? 'Community' : null),
+        handle: f.authorHandle || null, // online: '@handle' of the server author (followable)
+        time: f.createdAt ? relTime(ts) : f.time,
+        ts,
+        kind: f.kind || 'Post',
+        text: f.text || '',
+        images,
+        passage: f.passage || null,
+        scripture: f.passage ? passageLabel(f.passage) : '',
+        quoteBg: f.bg || null,
+        likes: f.likes || 0,
+        liked: !!f.liked,
+        reaction: f.reaction || null,
+        comments: f.comments || 0,
+        shares: f.shares || 0,
+        saved: !!f.saved,
+        mine: !!f.mine,
+        raw: f,
+      };
+    };
+    const fromVideo = (v, idx) => {
+      // Seed reels carry no timestamp — space them between the seed posts
+      const ts = timestampOf(v, now) || now - (idx * 5 + 2) * 3600e3;
+      const isText = !v.videoUrl && !v.imageUrl && !v.processing && !v.videoStatus;
+      return {
+        key: 'v_' + v.id,
+        src: 'video',
+        id: v.id,
+        name: (v.creator && v.creator.name) || 'Creator',
+        avatarText: v.creator && v.creator.avatar,
+        verified: !!(v.creator && v.creator.verified),
+        handle: v.creator && v.creator.handle,
+        sub: v.creator && (v.creator.label != null ? v.creator.label || null : v.creator.handle), // online: '@handle' or nothing
+        time: relTime(ts),
+        ts,
+        kind: v.videoUrl || v.processing ? v.category || 'Video' : v.imageUrl ? 'Photo' : v.category || 'Post',
+        text: v.caption || '',
+        images: v.imageUrl ? [v.imageUrl] : [],
+        videoUrl: v.videoUrl || null,
+        duration: v.duration,
+        scripture: v.scripture || '',
+        quoteBg: isText ? v.bg || colors.night : null,
+        likes: Number(v.likes) || 0,
+        liked: !!v.liked,
+        reaction: v.reaction || null,
+        comments: v.commentCount != null ? Math.max(v.commentCount, (v.comments || []).length) : (v.comments || []).length,
+        shares: v.shares,
+        gifts: v.gifts,
+        processing: !!v.processing || v.videoStatus === 'uploading', // online: Cloudflare Stream not ready yet
+        uploadProgress: v.uploadProgress,
+        videoError: !!v.videoError,
+        saved: !!v.saved,
+        mine: !!v.mine,
+        raw: v,
+      };
+    };
+    return [...feed.map(fromPost), ...videos.map(fromVideo)].sort((a, b) => b.ts - a.ts);
+  }, [feed, videos, state.communities]);
+
+  const followedPeople = PEOPLE.filter((x) => follows.includes(x.id)).map((x) => x.name);
+  const joinedCommunities = (state.communities || []).filter((c) => c.joined === true).map((c) => c.name);
+  const joinedChannelNames = (state.channels || CHANNELS_DATA)
+    .filter((c) => (state.joinedChannels || []).includes(c.id) || follows.includes(c.id))
+    .map((c) => c.name);
+  const isFollowed = (it) =>
+    it.mine ||
+    (it.src === 'video'
+      ? follows.includes(it.handle)
+      : (it.handle && follows.includes(it.handle)) || followedPeople.includes(it.name) || joinedCommunities.includes(it.name) || joinedChannelNames.includes(it.name));
+  // Chips port the old Feed filters: Communities = posts by communities / churches / groups / channels,
+  // Events = announcements, celebrations, events and greetings. Hidden posts (⋯ → Hide) are skipped.
+  const hidden = state.hiddenPosts || [];
+  const allChannelNames = (state.channels || CHANNELS_DATA).map((c) => c.name);
+  const isCommunity = (it) => it.src === 'post' && (communityNames.includes(it.name) || allChannelNames.includes(it.name));
+  const passesChip = (it, c = chip) =>
+    c === 'Following' ? isFollowed(it) : c === 'Communities' ? isCommunity(it) : c === 'Events' ? EVENT_KINDS.includes(it.kind) : true;
+  const listItems = allItems.filter((it) => !hidden.includes(it.key) && passesChip(it));
+
+  const activeVideo = videos.find((v) => v.id === selectedId) || reelVideos[activeIndex] || videos[0];
+
+  // ─── Navigation inside the screen ──────────────────────────────
+  const scrollFeedTo = (key) => {
+    const l = layouts.current[key];
+    if (l && feedRef.current) {
+      try { feedRef.current.scrollTo({ y: Math.max(0, l.y - 10), animated: true }); } catch (e) {}
+      pendingScroll.current = null;
+    } else {
+      pendingScroll.current = key; // resolved when the card reports its layout
+    }
+    setHighlightKey(key);
+  };
+
+  const goFeedPost = (key) => {
+    setMainTab('home');
+    setSegment('feed');
+    // Your own posts always show in For You / Following; other chips may filter them out
+    setChip((c) => (c === 'For You' || c === 'Following' ? c : 'For You'));
+    setTimeout(() => scrollFeedTo(key), 60);
+  };
+
+  const openReelAt = (videoId) => {
+    const idx = Math.max(0, reelVideos.findIndex((v) => v.id === videoId));
+    setActiveIndex(idx);
+    setSelectedId(reelVideos[idx] ? reelVideos[idx].id : null);
+    setMainTab('home');
+    setSegment('videos');
+    setTimeout(() => {
+      try { reelsRef.current && reelsRef.current.scrollToIndex({ index: idx, animated: false }); } catch (e) {}
+    }, 60);
+  };
+
+  // Deep links: Profile → creator video, or a specific post (route mode)
+  useEffect(() => {
+    if (p.initialVideoId) {
+      openReelAt(p.initialVideoId);
+      return;
+    }
+    if (p.postId) {
+      const isPost = feed.some((f) => f.id === p.postId);
+      const isVideo = videos.some((v) => v.id === p.postId);
+      if (p.tab === 'videos' && isVideo) openReelAt(p.postId);
+      else if (isPost || isVideo) {
+        if (segment === 'videos') setSegment('feed');
+        const key = (isPost ? 'p_' : 'v_') + p.postId;
+        const target = allItems.find((it) => it.key === key);
+        if (target && !passesChip(target)) setChip('For You');
+        setTimeout(() => scrollFeedTo(key), 350);
+      } else toast.show('That post is no longer available', { icon: 'socials' });
+    }
+  }, [p.initialVideoId, p.postId]);
+
+  const switchSegment = (id) => {
+    if (id === segment) {
+      // Re-tapping the active segment scrolls back to the top
+      if (id === 'videos') {
+        setActiveIndex(0);
+        try { reelsRef.current && reelsRef.current.scrollToOffset({ offset: 0, animated: true }); } catch (e) {}
+      } else {
+        try { feedRef.current && feedRef.current.scrollTo({ y: 0, animated: true }); } catch (e) {}
+      }
+      return;
+    }
+    haptic('select');
+    layouts.current = {};
+    scrollY.current = 0;
+    setVisibleVideoKey(null);
+    setSegment(id);
+  };
+
+  const switchChip = (c) => {
+    if (c === chip) return;
+    haptic('select');
+    setVisibleVideoKey(null);
+    setChip(c);
+    try { feedRef.current && feedRef.current.scrollTo({ y: 0, animated: false }); } catch (e) {}
+  };
+
+  // Which inline video card is most visible (only that one autoplays, muted)
+  const pickVisibleVideo = () => {
+    const top = scrollY.current;
+    const bottom = top + bodyHeight;
+    let best = null;
+    let bestVis = 0;
+    listItems.forEach((it) => {
+      if (!it.videoUrl) return;
+      const l = layouts.current[it.key];
+      if (!l) return;
+      const vis = Math.max(0, Math.min(l.y + l.h, bottom) - Math.max(l.y, top)) / Math.max(1, Math.min(l.h, bodyHeight));
+      if (vis > bestVis) { bestVis = vis; best = it.key; }
+    });
+    const next = bestVis > 0.55 ? best : null;
+    setVisibleVideoKey((cur) => (cur === next ? cur : next));
+  };
+
+  const onCardLayout = (key, e) => {
+    const { y, height } = e.nativeEvent.layout;
+    layouts.current[key] = { y, h: height };
+    if (pendingScroll.current === key) {
+      const k = key;
+      setTimeout(() => scrollFeedTo(k), 30);
+    }
+    pickVisibleVideo();
+  };
+
+  // ─── Reels viewability ─────────────────────────────────────────
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 });
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
     if (viewableItems && viewableItems.length > 0) {
       const active = viewableItems[0];
@@ -805,39 +994,7 @@ export default function SocialsScreen({ params = {} }) {
     }
   });
 
-  // Multi-Media Publishing State
-  const [publishMode, setPublishMode] = useState('upload_videos'); // 'upload_videos' | 'post_video' | 'upload_images' | 'post_content'
-  const [newTitle, setNewTitle] = useState('');
-  const [newScripture, setNewScripture] = useState('');
-  const [newCategory, setNewCategory] = useState('Worship');
-  const [newHashtags, setNewHashtags] = useState('#Faith #Grace #Jesus');
-  const [selectedMediaUrl, setSelectedMediaUrl] = useState(SAMPLE_VIDEOS[0].url);
-  const [selectedImageUrl, setSelectedImageUrl] = useState(SAMPLE_IMAGES[0].url);
-  const [textContent, setTextContent] = useState('');
-  const [contentTheme, setContentTheme] = useState(CONTENT_THEMES[0]);
-
-  const closeGifts = () => { setShowGiftStore(false); setGiftNotice(null); };
-  const closePublish = () => { setShowPublishModal(false); setBounty(null); };
-
-  // Publish sheet: sliding highlight behind the active mode tab
-  const [modeRowW, setModeRowW] = useState(0);
-  const MODE_PAD = 4;
-  const modeTabW = modeRowW > 0 ? (modeRowW - MODE_PAD * 2 - MODE_PAD * (PUBLISH_MODES.length - 1)) / PUBLISH_MODES.length : 0;
-  const modeX = useRef(new Animated.Value(0)).current;
-  const modePlaced = useRef(false);
-  useEffect(() => {
-    if (!modeTabW) return;
-    const i = Math.max(0, PUBLISH_MODES.findIndex((m) => m.id === publishMode));
-    const to = MODE_PAD + i * (modeTabW + MODE_PAD);
-    if (!modePlaced.current || !showPublishModal) {
-      modePlaced.current = true;
-      modeX.setValue(to);
-      return;
-    }
-    Animated.spring(modeX, { toValue: to, useNativeDriver: ND, speed: 20, bounciness: 5 }).start();
-  }, [publishMode, modeTabW, showPublishModal]);
-
-  // Clip Farm guild — messages per channel persist in the store
+  // ─── Guild ─────────────────────────────────────────────────────
   const [guildChannel, setGuildChannel] = useState('#content-rewards');
   const [guildInput, setGuildInput] = useState('');
   const [collapsed, setCollapsed] = useState({});
@@ -856,7 +1013,7 @@ export default function SocialsScreen({ params = {} }) {
     const now = new Date();
     const newM = {
       id: 'm_' + Date.now(),
-      user: state.user?.displayName || 'Believer Creator',
+      user: (state.user && state.user.displayName) || 'Believer Creator',
       role: 'Content Creator',
       time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       text: guildInput.trim(),
@@ -866,8 +1023,10 @@ export default function SocialsScreen({ params = {} }) {
     haptic('light');
   };
 
+  // ─── Actions ───────────────────────────────────────────────────
   const shareText = async (message, okLabel = 'Shared') => {
     try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.share) throw new Error('no web share');
       const res = await Share.share({ message });
       if (!res || res.action !== Share.dismissedAction) {
         toast.show(okLabel, { icon: 'share', haptic: 'success' });
@@ -877,9 +1036,9 @@ export default function SocialsScreen({ params = {} }) {
     } catch (e) {
       // Web without the Web Share API: fall back to copying the text
       try {
-        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(message);
-          toast.show('Copied to clipboard', { icon: 'check' });
+          toast.show('Copied to clipboard', { icon: 'check', haptic: 'success' });
           return true;
         }
       } catch (err) { /* clipboard blocked */ }
@@ -888,38 +1047,24 @@ export default function SocialsScreen({ params = {} }) {
     }
   };
 
-  const videos = state.videos || [];
-  const followedVideos = videos.filter((v) => state.follows?.includes(v.creator?.handle));
-  const filteredVideos = activeTab === 'Following' ? followedVideos : videos;
-  const activeVideo = videos.find((v) => v.id === selectedId) || filteredVideos[activeIndex] || videos[0];
-
   const patchVideo = (id, fn) => {
     dispatch({ type: 'set', patch: { videos: (state.videos || []).map((v) => (v.id === id ? { ...v, ...fn(v) } : v)) } });
   };
-
-  const scrollToTop = () => {
-    setActiveIndex(0);
-    try { flatListRef.current?.scrollToOffset({ offset: 0, animated: false }); } catch (e) {}
+  const patchPost = (id, fn) => {
+    dispatch({ type: 'set', patch: { feed: (state.feed || []).map((f) => (f.id === id ? { ...f, ...fn(f) } : f)) } });
   };
 
-  const switchFeedTab = (tab) => {
-    if (tab === activeTab) return;
-    setActiveTab(tab);
-    setSelectedId(null);
-    scrollToTop();
-  };
-
-  const openScripture = (item) => {
-    const ref = parseScriptureRef(item?.scripture);
-    if (!ref) {
-      toast.show(`Couldn’t find “${item?.scripture || 'that passage'}”`, { tone: 'error' });
+  const openScripture = (ref) => {
+    const passage = typeof ref === 'string' ? parseScriptureRef(ref) : ref;
+    if (!passage) {
+      toast.show(`Couldn’t find “${ref || 'that passage'}”`, { tone: 'error' });
       return;
     }
-    nav.push('Bible', ref);
+    nav.push('Bible', passage);
   };
 
   const listenScripture = (item) => {
-    const ref = parseScriptureRef(item?.scripture);
+    const ref = parseScriptureRef(item && item.scripture);
     if (!ref) {
       toast.show('No scripture to read aloud', { tone: 'error' });
       return;
@@ -929,43 +1074,118 @@ export default function SocialsScreen({ params = {} }) {
     toast.show(`Listening to ${refLabel(ref.bookId, ref.chapter, ref.verse)}`, { icon: 'audio', action: { label: 'Player', onPress: () => nar.openPlayer() } });
   };
 
-  const handleFollow = (item) => {
-    const handle = item.creator?.handle;
+  // Follow a creator (video) or, online, the author of a post — both are keyed by '@handle'
+  const handleFollow = (target) => {
+    const handle = target && (target.creator ? target.creator.handle : target.authorHandle || target.handle);
+    const name = target && (target.creator ? target.creator.name : target.author || target.name);
     if (!handle) return;
-    const was = state.follows?.includes(handle);
+    const was = follows.includes(handle);
     dispatch({ type: 'follow', id: handle });
-    toast.show(was ? `Unfollowed ${item.creator.name}` : `Following ${item.creator.name}`, {
+    toast.show(was ? `Unfollowed ${name}` : `Following ${name}`, {
       icon: was ? 'user' : 'check',
       haptic: was ? 'light' : 'success',
     });
   };
 
-  const handleShare = async (item) => {
-    const ref = item.scripture ? ` (${item.scripture})` : '';
-    const ok = await shareText(`${item.creator?.name} on BibleNestra: “${item.caption}”${ref}`);
-    if (ok) patchVideo(item.id, (v) => ({ shares: (v.shares || 0) + 1 }));
+  const handleShareVideo = async (video) => {
+    const ref = video.scripture ? ` (${video.scripture})` : '';
+    const ok = await shareText(`${video.creator && video.creator.name} on BibleNestra: “${video.caption}”${ref}`);
+    if (ok) dispatch({ type: 'sharePost', src: 'video', id: video.id });
   };
 
-  const handleRepost = (item) => {
-    const postId = 'rp_' + item.id;
-    if (item.reposted) {
+  const handleSharePost = async (f) => {
+    const ok = await shareText(`${f.author}: ${f.text || 'Photo post'}${f.passage ? `\n— ${passageLabel(f.passage)}` : ''}\n\nShared from BibleNestra`);
+    if (ok) dispatch({ type: 'sharePost', src: 'post', id: f.id });
+  };
+
+  const handleRepost = (video) => {
+    const postId = 'rp_' + video.id;
+    if (video.reposted) {
       dispatch({ type: 'deletePost', id: postId });
-      patchVideo(item.id, (v) => ({ reposted: false, reposts: Math.max(0, (v.reposts || 0) - 1) }));
+      patchVideo(video.id, (v) => ({ reposted: false, reposts: Math.max(0, (v.reposts || 0) - 1) }));
       toast.show('Repost removed', { icon: 'repost' });
       return;
     }
-    const passage = parseScriptureRef(item.scripture);
+    const passage = parseScriptureRef(video.scripture);
     dispatch({
       type: 'post',
       post: {
         id: postId,
+        createdAt: Date.now(),
         kind: 'Repost',
-        text: `Reposted from ${item.creator?.name}: “${item.caption}”`,
+        text: `Reposted from ${video.creator && video.creator.name}: “${video.caption}”`,
         ...(passage ? { passage } : {}),
       },
     });
-    patchVideo(item.id, (v) => ({ reposted: true, reposts: (v.reposts || 0) + 1 }));
-    toast.show('Reposted to your feed', { icon: 'repost', haptic: 'success', action: { label: 'View', onPress: () => nav.push('Feed') } });
+    patchVideo(video.id, (v) => ({ reposted: true, reposts: (v.reposts || 0) + 1 }));
+    toast.show('Reposted to your feed', { icon: 'repost', haptic: 'success', action: { label: 'View', onPress: () => goFeedPost('p_' + postId) } });
+  };
+
+  const likeItem = (it, fromDoubleTap) => {
+    if (fromDoubleTap && it.liked) return;
+    haptic(it.liked ? 'light' : 'success');
+    if (it.liked && it.reaction) {
+      // Un-reacting clears the stored reaction too (the plain like actions only flip `liked`)
+      dispatch({ type: 'react', src: it.src, id: it.id, reaction: null });
+      return;
+    }
+    if (it.src === 'video') dispatch({ type: 'likeVideo', id: it.id });
+    else dispatch({ type: 'like', id: it.id });
+  };
+
+  // Long-press reactions (Amen / Love / Praise / Care), persisted on the post or video
+  const reactItem = (it, key) => {
+    const r = reactionOf(key);
+    if (!r) return;
+    const same = it.liked && it.reaction === key;
+    dispatch({ type: 'react', src: it.src, id: it.id, reaction: same ? null : key });
+    haptic(same ? 'light' : 'success');
+    if (!same) toast.show(`${r.emoji}  ${r.label}`, { icon: 'heart' });
+  };
+
+  const hideItem = (it) => {
+    dispatch({ type: 'hidePost', key: it.key, hidden: true });
+    toast.show('Post hidden', {
+      icon: 'x',
+      action: { label: 'Undo', onPress: () => dispatch({ type: 'hidePost', key: it.key, hidden: false }) },
+    });
+  };
+
+  const saveItem = (it) => {
+    dispatch({ type: 'savePost', src: it.src, id: it.id });
+    toast.show(it.saved ? 'Removed from saved' : 'Saved', { icon: 'bookmark', haptic: it.saved ? 'light' : 'success' });
+  };
+
+  const deleteItem = (it) => {
+    if (it.src === 'video') {
+      const list = state.videos || [];
+      const idx = list.findIndex((v) => v.id === it.id);
+      const v = list[idx];
+      dispatch({ type: 'deletePost', src: 'video', id: it.id });
+      toast.show('Video deleted', {
+        icon: 'trash',
+        action: { label: 'Undo', onPress: () => dispatch({ type: 'restorePost', src: 'video', item: v, index: idx }) },
+      });
+      return;
+    }
+    const list = state.feed || [];
+    const idx = list.findIndex((x) => x.id === it.id);
+    const f = list[idx];
+    dispatch({ type: 'deletePost', src: 'post', id: it.id });
+    const repostOf = String((f && f.localId) || it.id);
+    if (repostOf.startsWith('rp_')) patchVideo(repostOf.slice(3), (v) => ({ reposted: false, reposts: Math.max(0, (v.reposts || 0) - 1) }));
+    toast.show('Post deleted', {
+      icon: 'trash',
+      action: { label: 'Undo', onPress: () => dispatch({ type: 'restorePost', src: 'post', item: f, index: idx }) },
+    });
+  };
+
+  const openComments = (src, id) => {
+    if (src === 'video') setSelectedId(id);
+    setReplyingTo(null);
+    setCommentText('');
+    setCommentTarget({ src, id });
+    if (sync.online) sync.loadComments(src, id); // fresh thread from the server
   };
 
   const buyCoins = (amount = 250) => {
@@ -974,7 +1194,13 @@ export default function SocialsScreen({ params = {} }) {
     toast.show(`+${amount} coins added`, { icon: 'coin', haptic: 'success' });
   };
 
-  const handleSendGift = (gift) => {
+  const openGifts = (videoId) => {
+    setSelectedId(videoId);
+    setGiftNotice(null);
+    setShowGiftStore(true);
+  };
+
+  const handleSendGift = async (gift) => {
     if (!activeVideo) return;
     if ((state.coins || 0) < gift.price) {
       const need = gift.price - (state.coins || 0);
@@ -982,117 +1208,112 @@ export default function SocialsScreen({ params = {} }) {
       toast.show(`Not enough coins for ${gift.name}`, { tone: 'error', action: { label: 'Buy 250', onPress: () => buyCoins(250) } });
       return;
     }
-    dispatch({
-      type: 'sendGift',
-      videoId: activeVideo.id,
-      giftName: gift.name,
-      recipient: activeVideo.creator.name,
-      coins: gift.price,
-    });
+    if (sync.online && sync.sendGift) {
+      try {
+        const creatorId = activeVideo.authorId || activeVideo.creator?.userId;
+        if (creatorId) {
+          await sync.sendGift({ toUserId: creatorId, giftId: gift.id, postId: activeVideo.id });
+          setShowGiftStore(false);
+          setGiftNotice(null);
+          toast.show(`Sent ${gift.name} to ${activeVideo.creator.name}`, { icon: 'gift', haptic: 'success' });
+          return;
+        }
+      } catch (e) {
+        toast.show(e.message || 'Could not send gift', { tone: 'error' });
+        return;
+      }
+    }
+    dispatch({ type: 'sendGift', videoId: activeVideo.id, giftName: gift.name, recipient: activeVideo.creator.name, coins: gift.price });
     setShowGiftStore(false);
     setGiftNotice(null);
     toast.show(`Sent ${gift.name} to ${activeVideo.creator.name}`, { icon: 'gift', haptic: 'success' });
   };
 
+  // Comments sheet works for both feed posts and videos
+  const commentSrc = commentTarget && commentTarget.src;
+  const commentItem = commentTarget
+    ? commentSrc === 'video'
+      ? videos.find((v) => v.id === commentTarget.id)
+      : feed.find((f) => f.id === commentTarget.id)
+    : null;
+  const commentList = commentItem ? (commentSrc === 'video' ? commentItem.comments || [] : commentItem.commentList || []) : [];
+  const shownCount = commentList.reduce((n, c) => n + 1 + ((c.replies && c.replies.length) || 0), 0);
+  const commentCount = commentSrc === 'video' ? commentList.length : Math.max((commentItem && commentItem.comments) || 0, shownCount);
+  const earlierCount = commentSrc === 'post' ? Math.max(0, commentCount - shownCount) : 0;
+
   const handleAddComment = () => {
-    if (!commentText.trim() || !activeVideo) return;
-    dispatch({
-      type: 'commentVideo',
-      id: activeVideo.id,
-      text: commentText.trim(),
-      replyTo: replyingTo ? replyingTo.id : null,
-    });
+    const text = commentText.trim();
+    if (!text || !commentItem) return;
+    if (commentSrc === 'video') {
+      dispatch({ type: 'commentVideo', id: commentItem.id, text, replyTo: replyingTo ? replyingTo.id : null });
+    } else {
+      const me = (state.user && state.user.displayName) || 'You';
+      const c = { id: (replyingTo ? 'pr' : 'pc') + Date.now(), from: me, text, time: 'Just now', replies: [], mine: true };
+      dispatch({ type: 'commentPost', id: commentItem.id, text, comment: c, parentId: replyingTo ? replyingTo.id : null });
+    }
     setCommentText('');
     setReplyingTo(null);
-    haptic('success');
+    toast.show(replyingTo ? 'Reply posted' : 'Comment posted', { icon: 'chat', haptic: 'success' });
   };
 
+  // Online: pull-to-refresh reloads the feed, videos and counts from the server
+  const [pulling, setPulling] = useState(false);
+  const pullRefresh = async () => {
+    setPulling(true);
+    try { await sync.refresh(); } finally { setPulling(false); }
+  };
+
+  // ─── Publishing ────────────────────────────────────────────────
   const me = () => ({
-    name: state.user?.displayName || 'You',
-    handle: state.user?.username ? `@${state.user.username}` : '@me',
+    name: (state.user && state.user.displayName) || 'You',
+    handle: state.user && state.user.username ? `@${state.user.username}` : '@me',
     verified: true,
-    avatar: (state.user?.displayName || 'You').slice(0, 2).toUpperCase(),
-    church: state.user?.church?.name || 'Local Church',
+    avatar: initials((state.user && state.user.displayName) || 'You'),
+    church: (state.user && state.user.church && state.user.church.name) || 'Local Church',
   });
 
-  const afterPublish = (newItem, message, viewAction) => {
-    dispatch({ type: 'publishVideo', video: newItem });
-    setShowPublishModal(false);
-    setMainTab('reels');
-    setActiveTab('Recommended');
-    setSelectedId(newItem.id);
-    setNewTitle('');
-    setNewScripture('');
-    setTextContent('');
-    scrollToTop();
-    const forBounty = bounty;
-    setBounty(null);
-    setPublished({
-      key: Date.now(),
-      title: forBounty ? 'Submitted' : 'Published',
-      label: forBounty ? `Your reel is in for the ${forBounty.price} bounty` : 'Live on Socials for the community',
-    });
-    toast.show(forBounty ? `Submitted for the ${forBounty.price} bounty` : message, {
-      icon: 'check',
+  const openComposer = (mode = 'text', extra = {}) => {
+    haptic('light');
+    if (mode === 'verse') {
+      // Verse quick action: a quote-card post pre-filled with today's verse
+      const v = verseOfDay(new Date());
+      const line = (getChapter(state.translation, v.bookId, v.chapter) || [])[v.verse - 1];
+      const text = typeof line === 'string' ? line : (line && line.text) || '';
+      setComposer({ mode: 'text', preset: { verse: { ref: refLabel(v.bookId, v.chapter, v.verse), text: text.trim(), theme: CONTENT_THEMES[0] } } });
+      return;
+    }
+    setComposer({ mode, ...extra });
+  };
+
+  const handleCreatePost = (post) => {
+    const id = 'f' + Date.now();
+    dispatch({ type: 'post', post: { id, createdAt: Date.now(), ...post } });
+    setComposer(null);
+    goFeedPost('p_' + id);
+    const photos = post.images ? post.images.length : 0;
+    toast.show(photos ? (photos > 1 ? `${photos} photos shared` : 'Photo shared') : 'Posted to Socials', {
+      icon: photos ? 'image' : 'check',
       haptic: 'success',
-      ...(viewAction ? { action: viewAction } : {}),
     });
   };
 
-  const handlePublish = () => {
-    if (publishMode === 'post_content') {
-      if (!textContent.trim()) {
-        toast.show('Write your message first', { tone: 'error' });
-        return;
-      }
-      const scripture = newScripture.trim();
-      const passage = parseScriptureRef(scripture);
-      const newPost = {
-        id: 'v' + Date.now(),
-        creator: me(),
-        caption: textContent.trim(),
-        scripture: passage ? refLabel(passage.bookId, passage.chapter, passage.verse) : scripture,
-        category: 'Devotional',
-        hashtags: ['#Faith', '#Devotion'],
-        duration: 'Text Post',
-        sound: `Faith Word · ${me().name}`,
-        videoUrl: null,
-        bg: contentTheme,
-        views: '1',
-        likes: 0,
-        liked: false,
-        shares: 0,
-        reposts: 0,
-        gifts: 0,
-        comments: [],
-        mine: true,
-      };
-      // Text / verse posts also land in the community feed
-      dispatch({ type: 'post', post: { kind: 'Reflection', text: textContent.trim(), ...(passage ? { passage } : {}) } });
-      afterPublish(newPost, 'Faith post published', { label: 'View in feed', onPress: () => nav.push('Feed') });
-      return;
-    }
-
-    if (!newTitle.trim()) {
-      toast.show('Add a caption first', { tone: 'error' });
-      return;
-    }
-
-    const isImage = publishMode === 'upload_images';
-    const scripture = newScripture.trim();
-    const passage = parseScriptureRef(scripture);
+  const handlePublishVideo = ({ caption, scripture, category, url, duration, upload, passage }) => {
+    const id = 'v' + Date.now();
     const newVid = {
-      id: 'v' + Date.now(),
+      id,
+      createdAt: Date.now(),
       creator: me(),
-      caption: newTitle.trim(),
-      scripture: passage ? refLabel(passage.bookId, passage.chapter, passage.verse) : scripture,
-      category: isImage ? 'Photo' : newCategory,
-      hashtags: newHashtags.split(' ').filter(Boolean).map((h) => (h.startsWith('#') ? h : `#${h}`)),
-      duration: isImage ? 'Photo' : (SAMPLE_VIDEOS.find((v) => v.url === selectedMediaUrl)?.duration || '0:45'),
+      caption,
+      scripture,
+      category,
+      hashtags: ['#Faith', `#${String(category).replace(/\s+/g, '')}`],
+      duration,
       sound: `Original Audio · ${me().name}`,
-      videoUrl: isImage ? null : selectedMediaUrl,
-      imageUrl: isImage ? selectedImageUrl : null,
+      videoUrl: url,
+      imageUrl: null,
       bg: colors.night,
+      // online: the picked file is uploaded to Cloudflare Stream by the sync layer
+      ...(upload ? { upload, passage: passage || undefined, videoStatus: 'uploading', uploadProgress: 0 } : {}),
       views: '1',
       likes: 0,
       liked: false,
@@ -1102,7 +1323,24 @@ export default function SocialsScreen({ params = {} }) {
       comments: [],
       mine: true,
     };
-    afterPublish(newVid, isImage ? 'Photo published to Socials' : 'Video published to Socials');
+    const forBounty = composer && composer.bounty;
+    dispatch({ type: 'publishVideo', video: newVid });
+    setComposer(null);
+    setMainTab('home');
+    setSegment('videos');
+    setActiveIndex(0);
+    setSelectedId(id);
+    setTimeout(() => { try { reelsRef.current && reelsRef.current.scrollToOffset({ offset: 0, animated: false }); } catch (e) {} }, 60);
+    setPublished({
+      key: Date.now(),
+      title: forBounty ? 'Submitted' : 'Published',
+      label: forBounty ? `Your reel is in for the ${forBounty.price} bounty` : 'Live on Socials for the community',
+    });
+    toast.show(upload ? 'Uploading your video…' : forBounty ? `Submitted for the ${forBounty.price} bounty` : 'Video published to Socials', {
+      icon: 'check',
+      haptic: 'success',
+      action: { label: 'See in feed', onPress: () => goFeedPost('v_' + id) },
+    });
   };
 
   const visibleCampaigns = cornerCat === 'All' ? CAMPAIGNS : CAMPAIGNS.filter((c) => c.tags.includes(cornerCat));
@@ -1110,13 +1348,7 @@ export default function SocialsScreen({ params = {} }) {
   const renderChannel = (id, icon, label) => {
     const active = guildChannel === id;
     return (
-      <PressScale
-        key={id}
-        onPress={() => openChannel(id)}
-        scaleTo={0.97}
-        style={[styles.channelItem, active && styles.channelItemActive]}
-        accessibilityState={{ selected: active }}
-      >
+      <PressScale key={id} onPress={() => openChannel(id)} scaleTo={0.97} style={[styles.channelItem, active && styles.channelItemActive]} accessibilityState={{ selected: active }}>
         {active ? <ScaleIn from={0.2} style={styles.channelActiveBar} /> : null}
         <Icon name={icon} size={15} color={active ? colors.goldLight : colors.nightMuted} />
         <Text style={[styles.channelName, active && styles.channelNameActive]} numberOfLines={1}>{label}</Text>
@@ -1125,11 +1357,7 @@ export default function SocialsScreen({ params = {} }) {
   };
 
   const renderCategory = (title, unread) => (
-    <Pressable
-      onPress={() => setCollapsed((c) => ({ ...c, [title]: !c[title] }))}
-      style={styles.categoryTitleRow}
-      accessibilityLabel={`${collapsed[title] ? 'Expand' : 'Collapse'} ${title}`}
-    >
+    <Pressable onPress={() => setCollapsed((c) => ({ ...c, [title]: !c[title] }))} style={styles.categoryTitleRow} accessibilityLabel={`${collapsed[title] ? 'Expand' : 'Collapse'} ${title}`}>
       <Text style={styles.categoryTitle}>{title}</Text>
       <TurnChevron collapsed={!!collapsed[title]} />
       <View style={{ flex: 1 }} />
@@ -1155,179 +1383,277 @@ export default function SocialsScreen({ params = {} }) {
     },
   ];
 
-  return (
-    <View
-      style={[styles.container, mainTab !== 'creators' && { backgroundColor: mainTab === 'guild' ? colors.night : '#000000' }]}
-      onLayout={(e) => {
-        const h = e.nativeEvent.layout.height;
-        if (h > 100 && Math.abs(h - containerHeight) > 2) {
-          setContainerHeight(h);
-        }
-      }}
-    >
-      {/* TAB 1: REELS VERTICAL VIDEO FEED (Edge-to-Edge Full Screen) */}
-      {mainTab === 'reels' ? (
-        <View style={{ flex: 1, position: 'relative' }}>
-          {/* Floating Edge-to-Edge Glass Top Bar (Pure Minimalist Mobile Experience) */}
-          <View style={styles.floatingTopBar} pointerEvents="box-none">
-            {/* Left: Guild Shortcut Pill */}
-            <PressScale onPress={() => setMainTab('guild')} scaleTo={0.93} style={styles.floatingGuildPill} accessibilityLabel="Open Clip Farm guild">
-              <View style={styles.onlineDotWrap}>
-                <LiveRing color={colors.goldLight} size={6} />
-              </View>
-              <Text style={styles.floatingGuildText}>Guild</Text>
-              {guildUnread ? (
-                <ScaleIn style={styles.guildNavBadge}>
-                  <Text style={styles.guildNavBadgeText}>{guildUnread}</Text>
-                </ScaleIn>
-              ) : null}
-            </PressScale>
+  const userName = (state.user && state.user.displayName) || 'You';
+  const darkHead = segment === 'videos';
+  // Keep the last composer config while the sheet animates out (no header flicker on close)
+  const lastComposer = useRef({});
+  if (composer) lastComposer.current = composer;
+  const sheetCfg = composer || lastComposer.current;
+  const feedPlaying = focused && mainTab === 'home' && segment !== 'videos' && !composer && !commentTarget && !viewer && !showGiftStore && !menuKey;
+  const menuItem = menuKey ? allItems.find((it) => it.key === menuKey) || null : null;
+  const closeMenu = () => setMenuKey(null);
+  // Run a ⋯ menu action once the sheet has started closing
+  const fromMenu = (fn) => () => {
+    const it = menuItem;
+    setMenuKey(null);
+    if (it) setTimeout(() => fn(it), 120);
+  };
 
-            {/* Center: Following | For You with a sliding underline */}
-            <View style={styles.reelsSubBarCapsule}>
-              <Pressable
-                onPress={() => switchFeedTab('Following')}
-                onLayout={(e) => onFeedTabLayout('Following', e)}
-                style={styles.feedTab}
-                accessibilityState={{ selected: activeTab === 'Following' }}
-              >
-                <Text style={[styles.feedTabText, activeTab === 'Following' && styles.feedTabTextActive]}>
-                  Following
-                </Text>
-              </Pressable>
-              <View style={styles.tabDivider} />
-              <Pressable
-                onPress={() => switchFeedTab('Recommended')}
-                onLayout={(e) => onFeedTabLayout('Recommended', e)}
-                style={styles.feedTab}
-                accessibilityState={{ selected: activeTab === 'Recommended' }}
-              >
-                <Text style={[styles.feedTabText, activeTab === 'Recommended' && styles.feedTabTextActive]}>
-                  For You
-                </Text>
-              </Pressable>
-              <Animated.View
-                pointerEvents="none"
-                style={[styles.feedTabIndicator, { opacity: tabLayouts.Recommended ? 1 : 0, transform: [{ translateX: underlineX }] }]}
+  const CHIP_EMPTY = {
+    'For You': ['Your feed is quiet', 'Be the first to share a word, photo or video with the community.', 'Create a post', () => openComposer('text')],
+    Following: ['Nothing from people you follow yet', 'Follow believers, creators or join communities to see their posts here.', 'Find believers', () => nav.push('People')],
+    Communities: ['No community posts yet', 'Join a church or study group to see its posts here.', 'Explore communities', () => nav.push('Communities')],
+    Events: ['No announcements or celebrations', 'Church announcements, events and celebrations will appear here.', 'Open calendar', () => nav.push('Calendar')],
+  };
+  const CHIP_INTRO = {
+    Following: 'People, creators and communities you follow — plus your own posts.',
+    Communities: 'Posts from churches, groups and channels.',
+    Events: 'Announcements, events and celebrations.',
+  };
+
+  // ─── Feed (light, Facebook-style) ──────────────────────────────
+  const renderCard = (it, i) => (
+    <View key={it.key} onLayout={(e) => onCardLayout(it.key, e)}>
+      <LightPostCard
+        item={it}
+        index={Math.min(i + 2, 6)}
+        playing={feedPlaying && visibleVideoKey === it.key}
+        highlight={highlightKey === it.key}
+        isFollowing={!!it.handle && follows.includes(it.handle)}
+        onLike={(dbl) => likeItem(it, dbl)}
+        onReact={(key) => reactItem(it, key)}
+        onComment={() => openComments(it.src, it.id)}
+        onShare={() => (it.src === 'video' ? handleShareVideo(it.raw) : handleSharePost(it.raw))}
+        onSave={() => saveItem(it)}
+        onMenu={() => { haptic('light'); setMenuKey(it.key); }}
+        onFollow={it.src === 'video' || it.handle ? () => handleFollow(it.raw) : null}
+        onOpenPassage={() => openScripture(it.passage || it.scripture)}
+        onOpenVideo={() => openReelAt(it.id)}
+        onOpenPhoto={(images, start) => setViewer({ images, start })}
+      />
+    </View>
+  );
+
+  const renderFeed = () => {
+    const empty = CHIP_EMPTY[chip];
+    const moreToLoad = sync.online && sync.hasMore;
+    // Creator hub cards sit in the stream after the second post (For You only), like a Facebook module
+    const hubAt = chip === 'For You' ? Math.min(2, listItems.length) : -1;
+    const hub = <HubCards key="hub" guildUnread={guildUnread} onGuild={() => setMainTab('guild')} onCorner={() => setMainTab('creators')} />;
+    return (
+      <ScrollView
+        ref={feedRef}
+        style={{ flex: 1, backgroundColor: colors.screen }}
+        contentContainerStyle={styles.feedContent}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={64}
+        onScroll={(e) => {
+          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+          scrollY.current = contentOffset.y;
+          pickVisibleVideo();
+          // Online: infinite scroll — fetch the next page when nearing the end
+          if (moreToLoad && !sync.loadingMore && contentOffset.y + layoutMeasurement.height > contentSize.height - 900) sync.loadMore();
+        }}
+        refreshControl={sync.online ? (
+          <RefreshControl refreshing={pulling} onRefresh={pullRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+        ) : undefined}
+      >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+          {FEED_CHIPS.map((c) => {
+            const on = chip === c;
+            return (
+              <PressScale key={c} onPress={() => switchChip(c)} scaleTo={0.93} style={[styles.chip, on && styles.chipOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
+                <Text style={[styles.chipText, on && styles.chipTextOn]}>{c}</Text>
+              </PressScale>
+            );
+          })}
+        </ScrollView>
+
+        {chip === 'For You' ? (
+          <>
+            <ComposerCard userName={userName} onOpen={(mode) => openComposer(mode)} />
+            {reelVideos.length ? (
+              <ReelsStrip
+                videos={reelVideos}
+                userName={userName}
+                onOpen={openReelAt}
+                onCreate={() => openComposer('video')}
+                onSeeAll={() => switchSegment('videos')}
               />
-            </View>
+            ) : null}
+          </>
+        ) : (
+          <FadeInUp key={chip} distance={8} style={styles.chipIntro}>
+            <Text style={styles.chipIntroText}>{CHIP_INTRO[chip]}</Text>
+            <Text style={styles.chipIntroCount}>{listItems.length} {listItems.length === 1 ? 'post' : 'posts'}</Text>
+          </FadeInUp>
+        )}
 
-            {/* Right: Creators & Post Actions */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <PressScale
-                onPress={() => setMainTab('creators')}
-                scaleTo={0.9}
-                style={styles.floatingCornerBtn}
-                accessibilityLabel="Creators Corner"
-              >
-                <Icon name="sparkles" size={15} color={colors.goldLight} />
-              </PressScale>
-              <PressScale onPress={() => { setBounty(null); setShowPublishModal(true); }} scaleTo={0.93} style={styles.floatingCreateBtn} accessibilityLabel="Create a post">
-                <PlusGlyph size={11} />
-                <Text style={styles.floatingCreateText}>Post</Text>
-              </PressScale>
-            </View>
+        {listItems.length ? (
+          listItems.map((it, i) => (i === hubAt ? [hub, renderCard(it, i)] : renderCard(it, i)))
+        ) : (
+          <View style={styles.listEmpty}>
+            <ScaleIn key={chip} style={styles.feedEmptyIconLight}>
+              <Icon name={chip === 'Events' ? 'calendar' : chip === 'Communities' ? 'church' : 'users'} size={24} color={colors.primary} />
+            </ScaleIn>
+            <FadeInUp delay={90} style={{ alignItems: 'center' }}>
+              <Text style={styles.feedEmptyTitleLight}>{empty[0]}</Text>
+              <Text style={styles.feedEmptyBodyLight}>{empty[1]}</Text>
+              <Button small label={empty[2]} onPress={empty[3]} style={{ marginTop: 16 }} />
+            </FadeInUp>
           </View>
-
-          <FlatList
-            ref={flatListRef}
-            data={filteredVideos}
-            keyExtractor={(item) => item.id}
-            showsVerticalScrollIndicator={false}
-            snapToInterval={containerHeight}
-            snapToAlignment="start"
-            decelerationRate="fast"
-            disableIntervalMomentum={true}
-            bounces={false}
-            getItemLayout={(data, index) => ({
-              length: containerHeight,
-              offset: containerHeight * index,
-              index,
-            })}
-            viewabilityConfig={viewabilityConfig.current}
-            onViewableItemsChanged={onViewableItemsChanged.current}
-            renderItem={({ item, index }) => (
-              <VideoReelItem
-                item={item}
-                index={index}
-                itemHeight={containerHeight}
-                isActive={index === activeIndex && focused}
-                isLiked={item.liked}
-                isFollowing={state.follows?.includes(item.creator.handle)}
-                onLike={() => dispatch({ type: 'likeVideo', id: item.id })}
-                onComment={() => {
-                  setSelectedId(item.id);
-                  setReplyingTo(null);
-                  setShowComments(true);
-                }}
-                onGift={() => {
-                  setSelectedId(item.id);
-                  setGiftNotice(null);
-                  setShowGiftStore(true);
-                }}
-                onShare={() => handleShare(item)}
-                onRepost={() => handleRepost(item)}
-                onFollow={() => handleFollow(item)}
-                onOpenBible={() => openScripture(item)}
-                onListen={() => listenScripture(item)}
-              />
-            )}
-            ListEmptyComponent={
-              <View style={[styles.feedEmpty, { height: containerHeight }]}>
-                <ScaleIn key={activeTab} style={styles.feedEmptyIcon}>
-                  <Icon name="users" size={26} color={colors.goldLight} />
-                </ScaleIn>
-                <FadeInUp key={`t_${activeTab}`} delay={90} style={{ alignItems: 'center' }}>
-                  <Text style={styles.feedEmptyTitle}>
-                    {activeTab === 'Following' ? 'No one followed yet' : 'Nothing here yet'}
-                  </Text>
-                  <Text style={styles.feedEmptyBody}>
-                    {activeTab === 'Following'
-                      ? 'Follow pastors, worship leaders and creators from For You — their posts will show up here.'
-                      : 'Be the first to share a reel, photo or devotional with the community.'}
-                  </Text>
-                  <PressScale
-                    onPress={() => (activeTab === 'Following' ? switchFeedTab('Recommended') : setShowPublishModal(true))}
-                    scaleTo={0.95}
-                    style={styles.feedEmptyBtn}
-                  >
-                    <Text style={styles.feedEmptyBtnText}>{activeTab === 'Following' ? 'Discover creators' : 'Create a post'}</Text>
-                    <Icon name="arrow-right" size={14} color={colors.night} strokeWidth={2.6} />
-                  </PressScale>
-                </FadeInUp>
-              </View>
-            }
-          />
-
-          {/* Publish success: springs in over the new post, then clears itself */}
-          {published ? (
-            <View style={styles.publishedWrap} pointerEvents="none">
-              <ScaleIn key={published.key} style={styles.publishedCard}>
-                <View style={styles.publishedIconWrap}>
-                  <View style={styles.publishedIcon}>
-                    <Icon name="check" size={22} color={colors.night} strokeWidth={3} />
-                  </View>
-                  <Burst trigger={published.key} radius={44} count={12} />
-                </View>
-                <Text style={styles.publishedTitle}>{published.title}</Text>
-                <Text style={styles.publishedBody} numberOfLines={2}>{published.label}</Text>
-              </ScaleIn>
+        )}
+        {listItems.length && hubAt === listItems.length ? hub : null}
+        {listItems.length && moreToLoad ? (
+          <PressScale onPress={() => sync.loadMore()} scaleTo={0.97} style={styles.feedEnd} accessibilityLabel="Load more posts">
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.feedEndText}>{sync.loadingMore ? 'Loading more posts…' : 'Load more posts'}</Text>
+          </PressScale>
+        ) : listItems.length ? (
+          <View style={styles.feedEnd}>
+            <View style={styles.feedEndLine} />
+            <View style={styles.feedEndBadge}>
+              <Icon name="check" size={11} color={colors.primary} strokeWidth={3} />
             </View>
+            <Text style={styles.feedEndText}>You’re all caught up</Text>
+            <View style={styles.feedEndLine} />
+          </View>
+        ) : null}
+      </ScrollView>
+    );
+  };
+
+  // ─── Videos (full-screen reels) ────────────────────────────────
+  const renderReels = () => (
+    <View style={{ flex: 1, position: 'relative' }}>
+      <View style={styles.reelsTopBar} pointerEvents="box-none">
+        <PressScale onPress={() => setMainTab('guild')} scaleTo={0.93} style={styles.floatingGuildPill} accessibilityLabel="Open Clip Farm guild">
+          <View style={styles.onlineDotWrap}>
+            <LiveRing color={colors.goldLight} size={6} />
+          </View>
+          <Text style={styles.floatingGuildText}>Guild</Text>
+          {guildUnread ? (
+            <ScaleIn style={styles.guildNavBadge}>
+              <Text style={styles.guildNavBadgeText}>{guildUnread}</Text>
+            </ScaleIn>
           ) : null}
+        </PressScale>
+        <PressScale onPress={() => setMainTab('creators')} scaleTo={0.93} style={styles.floatingCornerPill} accessibilityLabel="Creators Corner">
+          <Icon name="sparkles" size={14} color={colors.goldLight} />
+          <Text style={styles.floatingGuildText}>Creators</Text>
+        </PressScale>
+      </View>
+
+      <FlatList
+        ref={reelsRef}
+        data={reelVideos}
+        keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={bodyHeight}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        disableIntervalMomentum
+        bounces={false}
+        initialScrollIndex={reelVideos.length ? Math.min(activeIndex, reelVideos.length - 1) : undefined}
+        getItemLayout={(data, index) => ({ length: bodyHeight, offset: bodyHeight * index, index })}
+        onScrollToIndexFailed={() => {}}
+        viewabilityConfig={viewabilityConfig.current}
+        onViewableItemsChanged={onViewableItemsChanged.current}
+        renderItem={({ item, index }) => (
+          <VideoReelItem
+            item={item}
+            index={index}
+            itemHeight={bodyHeight}
+            isActive={index === activeIndex && focused && mainTab === 'home' && segment === 'videos' && !composer}
+            isLiked={item.liked}
+            isFollowing={follows.includes(item.creator && item.creator.handle)}
+            onLike={() => { haptic(item.liked ? 'light' : 'success'); dispatch({ type: 'likeVideo', id: item.id }); }}
+            onComment={() => openComments('video', item.id)}
+            onGift={() => openGifts(item.id)}
+            onShare={() => handleShareVideo(item)}
+            onRepost={() => handleRepost(item)}
+            onFollow={() => handleFollow(item)}
+            onOpenBible={() => openScripture(item.scripture)}
+            onListen={() => listenScripture(item)}
+          />
+        )}
+        ListEmptyComponent={
+          <View style={[styles.feedEmpty, { height: bodyHeight }]}>
+            <ScaleIn style={styles.feedEmptyIcon}>
+              <Icon name="video" size={26} color={colors.goldLight} />
+            </ScaleIn>
+            <FadeInUp delay={90} style={{ alignItems: 'center' }}>
+              <Text style={styles.feedEmptyTitle}>No videos yet</Text>
+              <Text style={styles.feedEmptyBody}>Share a sermon clip, worship moment or testimony with the community.</Text>
+              <PressScale onPress={() => openComposer('video')} scaleTo={0.95} style={styles.feedEmptyBtn}>
+                <Text style={styles.feedEmptyBtnText}>Post a video</Text>
+                <Icon name="arrow-right" size={14} color={colors.night} strokeWidth={2.6} />
+              </PressScale>
+            </FadeInUp>
+          </View>
+        }
+      />
+
+      {/* Publish success: springs in over the new reel, then clears itself */}
+      {published ? (
+        <View style={styles.publishedWrap} pointerEvents="none">
+          <ScaleIn key={published.key} style={styles.publishedCard}>
+            <View style={styles.publishedIconWrap}>
+              <View style={styles.publishedIcon}>
+                <Icon name="check" size={22} color={colors.night} strokeWidth={3} />
+              </View>
+              <Burst trigger={published.key} radius={44} count={12} />
+            </View>
+            <Text style={styles.publishedTitle}>{published.title}</Text>
+            <Text style={styles.publishedBody} numberOfLines={2}>{published.label}</Text>
+          </ScaleIn>
         </View>
       ) : null}
+    </View>
+  );
 
-      {/* TAB 2: CLIP FARM DISCORD GUILD (Matching Client Screenshot) */}
+  return (
+    <View style={[styles.container, { backgroundColor: mainTab === 'creators' ? colors.screen : mainTab === 'guild' ? colors.night : segment === 'videos' ? SOCIAL.page : colors.screen }]}>
+      {mainTab === 'home' ? (
+        <>
+          {/* Header: title left · create + profile right · Feed / Videos switch.
+              Light on Feed (matches the rest of the app); the Videos reels keep their dark header. */}
+          <View style={[styles.header, !darkHead && styles.headerLight]}>
+            <View style={styles.headerRow}>
+              {routeMode ? (
+                <PressScale onPress={() => nav.pop()} scaleTo={0.9} hitSlop={10} style={[styles.headerBack, !darkHead && styles.headerBackLight]} accessibilityLabel="Back">
+                  <Icon name="chevron-left" size={20} color={darkHead ? colors.nightFg : colors.fg} strokeWidth={2.2} />
+                </PressScale>
+              ) : null}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.headerEyebrow, !darkHead && { color: colors.gold }]}>Community</Text>
+                <Text style={[styles.headerTitle, !darkHead && { color: colors.fg }]} numberOfLines={1}>Socials</Text>
+              </View>
+              <PressScale onPress={() => openComposer(segment === 'videos' ? 'video' : 'text')} scaleTo={0.9} hitSlop={6} style={[styles.headerCreate, !darkHead && styles.headerCreateLight]} accessibilityLabel="Create post">
+                <Icon name="plus" size={18} color={WHITE} strokeWidth={2.4} />
+              </PressScale>
+              <ProfileButton size={36} dark={darkHead} />
+            </View>
+            <SegmentSwitch value={segment} onChange={switchSegment} light={!darkHead} />
+          </View>
+
+          <View
+            style={{ flex: 1 }}
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              if (h > 100 && Math.abs(h - bodyHeight) > 2) setBodyHeight(h);
+            }}
+          >
+            {segment === 'videos' ? renderReels() : renderFeed()}
+          </View>
+        </>
+      ) : null}
+
+      {/* CLIP FARM GUILD */}
       {mainTab === 'guild' ? (
         <View style={styles.guildContainer}>
-          {/* Guild Header */}
           <View style={styles.guildHeader}>
-            <PressScale
-              onPress={() => setMainTab('reels')}
-              scaleTo={0.9}
-              style={styles.backToReelsBtn}
-              accessibilityLabel="Back to Reels"
-            >
+            <PressScale onPress={() => setMainTab('home')} scaleTo={0.9} style={styles.backToReelsBtn} accessibilityLabel="Back to Socials">
               <BackGlyph color={colors.nightFg} size={17} />
             </PressScale>
             <View style={styles.guildLogoCircle}>
@@ -1342,17 +1668,11 @@ export default function SocialsScreen({ params = {} }) {
                 <Text style={styles.guildMeta} numberOfLines={1}>210 online · ★ 4.57 (5,163)</Text>
               </View>
             </View>
-            <PressScale
-              style={styles.guildCopyBtn}
-              scaleTo={0.93}
-              onPress={() => shareText(`Join the Clip Farm creator guild on BibleNestra: ${GUILD_INVITE}`, 'Invite link shared')}
-              accessibilityLabel="Share invite link"
-            >
+            <PressScale style={styles.guildCopyBtn} scaleTo={0.93} onPress={() => shareText(`Join the Clip Farm creator guild on BibleNestra: ${GUILD_INVITE}`, 'Invite link shared')} accessibilityLabel="Share invite link">
               <Text style={styles.guildCopyBtnText}>Invite</Text>
             </PressScale>
           </View>
 
-          {/* Channels & Chat */}
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 28 }} keyboardShouldPersistTaps="handled">
             {GUILD_GROUPS.map((g, gi) => (
               <FadeInUp key={g.title} index={gi} distance={10} style={styles.channelCategory}>
@@ -1365,7 +1685,6 @@ export default function SocialsScreen({ params = {} }) {
               </FadeInUp>
             ))}
 
-            {/* Interactive Guild Chat Stream */}
             <FadeInUp index={GUILD_GROUPS.length} distance={12} style={styles.guildChatBox}>
               <View style={styles.guildChatHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -1381,23 +1700,23 @@ export default function SocialsScreen({ params = {} }) {
 
               {/* Keyed by channel so switching channels re-runs the staggered entrance */}
               <View key={guildChannel}>
-              {guildMessages.map((m, mi) => (
-                <FadeInUp key={m.id} index={mi} distance={10} duration={340} stagger={45} style={styles.guildMessageRow}>
-                  <View style={styles.guildAvatar}>
-                    <Text style={styles.guildAvatarText}>{m.user[0]}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <Text style={styles.guildMessageAuthor}>{m.user}</Text>
-                      <View style={styles.guildRoleBadge}>
-                        <Text style={styles.guildRoleText}>{m.role}</Text>
-                      </View>
-                      <Text style={styles.guildMessageTime}>{m.time}</Text>
+                {guildMessages.map((m, mi) => (
+                  <FadeInUp key={m.id} index={mi} distance={10} duration={340} stagger={45} style={styles.guildMessageRow}>
+                    <View style={styles.guildAvatar}>
+                      <Text style={styles.guildAvatarText}>{m.user[0]}</Text>
                     </View>
-                    <Text style={styles.guildMessageBody}>{m.text}</Text>
-                  </View>
-                </FadeInUp>
-              ))}
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <Text style={styles.guildMessageAuthor}>{m.user}</Text>
+                        <View style={styles.guildRoleBadge}>
+                          <Text style={styles.guildRoleText}>{m.role}</Text>
+                        </View>
+                        <Text style={styles.guildMessageTime}>{m.time}</Text>
+                      </View>
+                      <Text style={styles.guildMessageBody}>{m.text}</Text>
+                    </View>
+                  </FadeInUp>
+                ))}
               </View>
 
               <View style={styles.guildInputRow}>
@@ -1406,15 +1725,10 @@ export default function SocialsScreen({ params = {} }) {
                   placeholderTextColor="rgba(244,239,230,0.4)"
                   value={guildInput}
                   onChangeText={setGuildInput}
+                  onSubmitEditing={handleSendGuildMessage}
                   style={styles.guildTextInput}
                 />
-                <PressScale
-                  onPress={handleSendGuildMessage}
-                  disabled={!guildInput.trim()}
-                  scaleTo={0.88}
-                  style={[styles.guildSendBtn, !guildInput.trim() && { opacity: 0.4 }]}
-                  accessibilityLabel="Send"
-                >
+                <PressScale onPress={handleSendGuildMessage} disabled={!guildInput.trim()} scaleTo={0.88} style={[styles.guildSendBtn, !guildInput.trim() && { opacity: 0.4 }]} accessibilityLabel="Send">
                   <Icon name="arrow-right" size={16} color={colors.night} strokeWidth={2.6} />
                 </PressScale>
               </View>
@@ -1423,23 +1737,14 @@ export default function SocialsScreen({ params = {} }) {
         </View>
       ) : null}
 
-      {/* TAB 3: CREATORS CORNER */}
+      {/* CREATORS CORNER */}
       {mainTab === 'creators' ? (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.cornerScroll}>
           <FadeInUp distance={8} style={styles.cornerHeader}>
-            <PressScale
-              onPress={() => setMainTab('reels')}
-              scaleTo={0.9}
-              style={styles.cornerBackBtn}
-              accessibilityLabel="Back to Reels"
-            >
+            <PressScale onPress={() => setMainTab('home')} scaleTo={0.9} style={styles.cornerBackBtn} accessibilityLabel="Back to Socials">
               <BackGlyph color={colors.fg} size={17} />
             </PressScale>
-            <PressScale
-              style={styles.pitchBtn}
-              scaleTo={0.95}
-              onPress={() => { setBounty(null); setShowPublishModal(true); }}
-            >
+            <PressScale style={styles.pitchBtn} scaleTo={0.95} onPress={() => openComposer('video')}>
               <PlusGlyph size={10} />
               <Text style={styles.pitchBtnText}>Submit work</Text>
             </PressScale>
@@ -1448,24 +1753,15 @@ export default function SocialsScreen({ params = {} }) {
           <FadeInUp index={1}>
             <Text style={styles.cornerEyebrow}>Trending · 20,732 creators</Text>
             <Text style={styles.cornerMainTitle}>Creators Corner</Text>
-            <Text style={styles.cornerIntro}>
-              Paid bounties for editors and storytellers creating faith media. Pick a campaign, submit your reel, earn from escrow.
-            </Text>
+            <Text style={styles.cornerIntro}>Paid bounties for editors and storytellers creating faith media. Pick a campaign, submit your reel, earn from escrow.</Text>
           </FadeInUp>
 
-          {/* Category Chips (filter campaigns) */}
           <FadeInUp index={2}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -18 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 18, paddingBottom: 4 }}>
               {CORNER_CATEGORIES.map((cat) => {
                 const on = cornerCat === cat;
                 return (
-                  <PressScale
-                    key={cat}
-                    onPress={() => { setCornerCat(cat); haptic('select'); }}
-                    scaleTo={0.93}
-                    style={[styles.cornerCatChip, on && styles.cornerCatChipActive]}
-                    accessibilityState={{ selected: on }}
-                  >
+                  <PressScale key={cat} onPress={() => { setCornerCat(cat); haptic('select'); }} scaleTo={0.93} style={[styles.cornerCatChip, on && styles.cornerCatChipActive]} accessibilityState={{ selected: on }}>
                     <Text style={[styles.cornerCatChipText, on && styles.cornerCatChipTextActive]}>{cat}</Text>
                   </PressScale>
                 );
@@ -1475,13 +1771,7 @@ export default function SocialsScreen({ params = {} }) {
 
           {visibleCampaigns.length ? (
             visibleCampaigns.map((c, i) => {
-              const apply = () => {
-                setBounty(c);
-                setNewTitle(c.submission);
-                setNewCategory(c.category);
-                setPublishMode('upload_videos');
-                setShowPublishModal(true);
-              };
+              const apply = () => openComposer('video', { bounty: c, preset: { caption: c.submission, category: c.category } });
               return (
                 // Keyed by filter so switching category re-runs the entrance
                 <FadeInUp key={`${cornerCat}_${c.id}`} index={i + 3} distance={18} style={{ marginTop: i === 0 ? 18 : 16 }}>
@@ -1508,11 +1798,7 @@ export default function SocialsScreen({ params = {} }) {
                           </View>
                         ))}
                       </View>
-                      <Button
-                        label={`Apply for ${c.price} bounty`}
-                        onPress={apply}
-                        style={{ marginTop: 14 }}
-                      />
+                      <Button label={`Apply for ${c.price} bounty`} onPress={apply} style={{ marginTop: 14 }} />
                     </View>
                   </PressScale>
                 </FadeInUp>
@@ -1534,256 +1820,43 @@ export default function SocialsScreen({ params = {} }) {
         </ScrollView>
       ) : null}
 
-      {/* Multi-Media Publishing Suite Modal (Post content, Post video, Upload images, Upload videos) */}
-      <AnimatedModal visible={showPublishModal} onRequestClose={closePublish}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={closePublish} accessibilityLabel="Dismiss" />
-          <View style={styles.publishSheet}>
-            <View style={styles.sheetPad}>
-              <SheetHead
-                eyebrow={bounty ? `Bounty submission · ${bounty.price}` : 'New post'}
-                title={bounty ? bounty.title : 'Create & Upload to Socials'}
-                subtitle={bounty ? 'Your reel is published to Socials and sent to the campaign owner' : 'Post content, videos & photos with live preview'}
-                onClose={closePublish}
-              />
+      {/* One composer for text, photo(s) and video */}
+      <CreatePostSheet
+        visible={!!composer}
+        onClose={() => setComposer(null)}
+        initialMode={sheetCfg.mode || 'text'}
+        bounty={sheetCfg.bounty}
+        preset={sheetCfg.preset}
+        userName={userName}
+        onPost={handleCreatePost}
+        onPublishVideo={handlePublishVideo}
+      />
 
-              {/* 4 Mode Selector: Post Content | Post Video | Upload Images | Upload Videos */}
-              <View style={styles.publishModeRow} onLayout={(e) => setModeRowW(e.nativeEvent.layout.width)}>
-                {modeTabW > 0 ? (
-                  <Animated.View
-                    pointerEvents="none"
-                    style={[styles.publishModeIndicator, { width: modeTabW, transform: [{ translateX: modeX }] }]}
-                  />
-                ) : null}
-                {PUBLISH_MODES.map((m) => {
-                  const on = publishMode === m.id;
-                  return (
-                    <Pressable
-                      key={m.id}
-                      onPress={() => setPublishMode(m.id)}
-                      style={[styles.publishModeTab, on && modeTabW <= 0 && styles.publishModeTabActive]}
-                      accessibilityState={{ selected: on }}
-                    >
-                      <Pop trigger={on} amount={on ? 1.18 : 1}>
-                        <Icon name={m.icon} size={15} color={on ? colors.primary : colors.faint} />
-                      </Pop>
-                      <Text style={[styles.publishModeText, on && styles.publishModeTextActive]} numberOfLines={1}>
-                        {m.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
+      {/* ⋯ post menu */}
+      <PostMenuSheet
+        visible={!!menuItem}
+        item={menuItem}
+        isFollowing={!!(menuItem && menuItem.handle && follows.includes(menuItem.handle))}
+        onClose={closeMenu}
+        onSave={fromMenu(saveItem)}
+        onShare={fromMenu((it) => (it.src === 'video' ? handleShareVideo(it.raw) : handleSharePost(it.raw)))}
+        onComment={fromMenu((it) => openComments(it.src, it.id))}
+        onHide={fromMenu(hideItem)}
+        onDelete={fromMenu(deleteItem)}
+        onFollow={fromMenu((it) => handleFollow(it.raw))}
+        onOpenVideo={fromMenu((it) => openReelAt(it.id))}
+        onGift={fromMenu((it) => openGifts(it.id))}
+      />
 
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.sheetScroll} keyboardShouldPersistTaps="handled">
-              <FadeInUp key={publishMode} distance={10} duration={300}>
-              {/* MODE 1 & 2: UPLOAD VIDEOS & POST VIDEO (WITH LIVE VIDEO PREVIEW) */}
-              {publishMode === 'upload_videos' || publishMode === 'post_video' ? (
-                <>
-                  <Text style={styles.label}>Select video to upload</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                    {SAMPLE_VIDEOS.map((v) => {
-                      const on = selectedMediaUrl === v.url;
-                      return (
-                        <PressScale
-                          key={v.id}
-                          onPress={() => setSelectedMediaUrl(v.url)}
-                          scaleTo={0.94}
-                          style={[styles.mediaOptionCard, on && styles.mediaOptionCardActive]}
-                        >
-                          <Icon name="video" size={15} color={on ? colors.primary : colors.muted} />
-                          <Text style={[styles.mediaOptionText, on && styles.mediaOptionTextActive]}>
-                            {v.title}
-                          </Text>
-                          <Text style={styles.mediaOptionMeta}>{v.duration}</Text>
-                        </PressScale>
-                      );
-                    })}
-                  </ScrollView>
-
-                  {/* LIVE VIDEO PREVIEW PLAYER */}
-                  <UploadVideoPreview videoUrl={selectedMediaUrl} />
-
-                  <Text style={styles.label}>Caption & key message</Text>
-                  <TextInput
-                    placeholder="What is the Holy Spirit speaking through this video?"
-                    placeholderTextColor={colors.faint}
-                    value={newTitle}
-                    onChangeText={setNewTitle}
-                    multiline
-                    style={[styles.input, styles.inputMulti]}
-                  />
-
-                  <Text style={styles.label}>Scripture reference</Text>
-                  <TextInput
-                    placeholder="e.g. Philippians 4:13"
-                    placeholderTextColor={colors.faint}
-                    value={newScripture}
-                    onChangeText={setNewScripture}
-                    style={styles.input}
-                  />
-
-                  <Text style={styles.label}>Category</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                    {['Sermons', 'Worship', 'Testimonies', 'Bible Study', 'Evangelism'].map((cat) => (
-                      <PressScale
-                        key={cat}
-                        onPress={() => setNewCategory(cat)}
-                        scaleTo={0.93}
-                        style={[styles.catChip, newCategory === cat && styles.catChipActive]}
-                        accessibilityState={{ selected: newCategory === cat }}
-                      >
-                        <Text style={[styles.catChipText, newCategory === cat && styles.catChipTextActive]}>{cat}</Text>
-                      </PressScale>
-                    ))}
-                  </ScrollView>
-
-                  <Button
-                    label="Publish video to Socials feed"
-                    icon={<Icon name="check" size={15} color={colors.primaryFg} strokeWidth={2.6} />}
-                    onPress={handlePublish}
-                    disabled={!newTitle.trim()}
-                    style={{ marginTop: 22 }}
-                  />
-                </>
-              ) : null}
-
-              {/* MODE 3: UPLOAD IMAGES (WITH LIVE PHOTO PREVIEW) */}
-              {publishMode === 'upload_images' ? (
-                <>
-                  <Text style={styles.label}>Select photo to upload</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                    {SAMPLE_IMAGES.map((img) => {
-                      const on = selectedImageUrl === img.url;
-                      return (
-                        <PressScale
-                          key={img.id}
-                          onPress={() => setSelectedImageUrl(img.url)}
-                          scaleTo={0.94}
-                          style={[styles.mediaOptionCard, on && styles.mediaOptionCardActive]}
-                        >
-                          <Icon name="sparkles" size={15} color={on ? colors.primary : colors.muted} />
-                          <Text style={[styles.mediaOptionText, on && styles.mediaOptionTextActive]}>
-                            {img.title}
-                          </Text>
-                        </PressScale>
-                      );
-                    })}
-                  </ScrollView>
-
-                  {/* LIVE IMAGE PREVIEW */}
-                  <View style={styles.imagePreviewBox}>
-                    <FadeInUp key={selectedImageUrl} distance={0} duration={320} style={StyleSheet.absoluteFill}>
-                      <Image source={{ uri: selectedImageUrl }} style={styles.imagePreviewImg} />
-                    </FadeInUp>
-                    <View style={styles.modalPreviewBadge}>
-                      <View style={styles.modalPreviewDot} />
-                      <Text style={styles.modalPreviewBadgeText}>PHOTO PREVIEW</Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.label}>Photo caption</Text>
-                  <TextInput
-                    placeholder="Share the inspiration behind this photo..."
-                    placeholderTextColor={colors.faint}
-                    value={newTitle}
-                    onChangeText={setNewTitle}
-                    multiline
-                    style={[styles.input, styles.inputMulti]}
-                  />
-
-                  <Text style={styles.label}>Scripture reference</Text>
-                  <TextInput
-                    placeholder="e.g. Psalm 23:1"
-                    placeholderTextColor={colors.faint}
-                    value={newScripture}
-                    onChangeText={setNewScripture}
-                    style={styles.input}
-                  />
-
-                  <Button
-                    label="Publish photo to Socials feed"
-                    icon={<Icon name="check" size={15} color={colors.primaryFg} strokeWidth={2.6} />}
-                    onPress={handlePublish}
-                    disabled={!newTitle.trim()}
-                    style={{ marginTop: 22 }}
-                  />
-                </>
-              ) : null}
-
-              {/* MODE 4: POST A CONTENT (TEXT / DEVOTIONAL) */}
-              {publishMode === 'post_content' ? (
-                <>
-                  <Text style={styles.label}>Card theme</Text>
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    {CONTENT_THEMES.map((color) => (
-                      <PressScale
-                        key={color}
-                        onPress={() => setContentTheme(color)}
-                        scaleTo={0.88}
-                        style={[styles.themeRing, contentTheme === color && styles.themeRingActive]}
-                        accessibilityLabel="Card theme"
-                        accessibilityState={{ selected: contentTheme === color }}
-                      >
-                        <Pop trigger={contentTheme === color} amount={contentTheme === color ? 1.15 : 1}>
-                          <View style={[styles.themePill, { backgroundColor: color }]} />
-                        </Pop>
-                      </PressScale>
-                    ))}
-                  </View>
-
-                  <View style={[styles.contentPreviewCard, { backgroundColor: contentTheme }]}>
-                    <Text style={styles.contentPreviewQuote}>“</Text>
-                    <Text style={styles.contentPreviewCardText}>
-                      {textContent.trim() || 'Your devotional message or testimony will appear formatted like this in believers’ feeds.'}
-                    </Text>
-                    <Text style={styles.contentPreviewCardRef}>
-                      {newScripture.trim() ? `— ${newScripture}` : '— Scripture'}
-                    </Text>
-                  </View>
-
-                  <Text style={styles.label}>Devotion / faith testimony</Text>
-                  <TextInput
-                    placeholder="Share what the Lord has done or a Scripture meditation..."
-                    placeholderTextColor={colors.faint}
-                    value={textContent}
-                    onChangeText={setTextContent}
-                    multiline
-                    style={[styles.input, styles.inputMulti, { minHeight: 100 }]}
-                  />
-
-                  <Text style={styles.label}>Scripture reference</Text>
-                  <TextInput
-                    placeholder="e.g. Romans 8:28"
-                    placeholderTextColor={colors.faint}
-                    value={newScripture}
-                    onChangeText={setNewScripture}
-                    style={styles.input}
-                  />
-
-                  <Button
-                    label="Publish faith post to feed"
-                    icon={<Icon name="check" size={15} color={colors.primaryFg} strokeWidth={2.6} />}
-                    onPress={handlePublish}
-                    disabled={!textContent.trim()}
-                    style={{ marginTop: 22 }}
-                  />
-                </>
-              ) : null}
-              </FadeInUp>
-            </ScrollView>
-          </View>
-        </View>
-      </AnimatedModal>
+      <PhotoViewer visible={!!viewer} images={(viewer && viewer.images) || []} start={(viewer && viewer.start) || 0} onClose={() => setViewer(null)} />
 
       {/* Virtual Gifts Store Modal */}
-      <AnimatedModal visible={showGiftStore} onRequestClose={closeGifts}>
+      <AnimatedModal visible={showGiftStore} onRequestClose={() => { setShowGiftStore(false); setGiftNotice(null); }}>
         <View style={styles.modalOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={closeGifts} accessibilityLabel="Dismiss" />
+          <Pressable style={{ flex: 1 }} onPress={() => { setShowGiftStore(false); setGiftNotice(null); }} accessibilityLabel="Dismiss" />
           <View style={styles.giftModalSheet}>
             <SheetHead
-              eyebrow={activeVideo?.creator?.name ? `For ${activeVideo.creator.name}` : 'Gifts'}
+              eyebrow={activeVideo && activeVideo.creator && activeVideo.creator.name ? `For ${activeVideo.creator.name}` : 'Gifts'}
               title="Send Virtual Gift"
               subtitle="Bless and support Christian creators"
               right={
@@ -1802,12 +1875,7 @@ export default function SocialsScreen({ params = {} }) {
                 const short = g.price > (state.coins || 0);
                 return (
                   <FadeInUp key={g.id} index={gi} distance={12} duration={340}>
-                    <PressScale
-                      onPress={() => handleSendGift(g)}
-                      accessibilityLabel={`Send ${g.name}`}
-                      scaleTo={0.95}
-                      style={[styles.giftCard, short && styles.giftCardShort]}
-                    >
+                    <PressScale onPress={() => handleSendGift(g)} accessibilityLabel={`Send ${g.name}`} scaleTo={0.95} style={[styles.giftCard, short && styles.giftCardShort]}>
                       <View style={[styles.giftIconCircle, { backgroundColor: alpha(iconMeta.color, 0.12) }]}>
                         <Icon name={iconMeta.name} size={22} color={iconMeta.color} />
                       </View>
@@ -1825,12 +1893,7 @@ export default function SocialsScreen({ params = {} }) {
 
             {giftNotice ? (
               <ScaleIn key={giftNotice.text} from={0.92} style={[styles.giftNotice, giftNotice.tone === 'error' ? styles.giftNoticeError : styles.giftNoticeOk]}>
-                <Icon
-                  name={giftNotice.tone === 'error' ? 'coin' : 'check'}
-                  size={14}
-                  color={giftNotice.tone === 'error' ? colors.negative : colors.primary}
-                  strokeWidth={2.4}
-                />
+                <Icon name={giftNotice.tone === 'error' ? 'coin' : 'check'} size={14} color={giftNotice.tone === 'error' ? colors.negative : colors.primary} strokeWidth={2.4} />
                 <Text style={[styles.giftNoticeText, giftNotice.tone === 'error' && { color: colors.negative }]}>{giftNotice.text}</Text>
               </ScaleIn>
             ) : null}
@@ -1838,53 +1901,53 @@ export default function SocialsScreen({ params = {} }) {
             <View style={styles.refillRow}>
               <Button
                 small
-                kind={giftNotice?.tone === 'error' ? 'primary' : 'ghost'}
+                kind={giftNotice && giftNotice.tone === 'error' ? 'primary' : 'ghost'}
                 label="Buy 250 coins · $2.99"
-                icon={<Icon name="coin" size={14} color={giftNotice?.tone === 'error' ? colors.goldLight : colors.gold} />}
+                icon={<Icon name="coin" size={14} color={giftNotice && giftNotice.tone === 'error' ? colors.goldLight : colors.gold} />}
                 onPress={() => buyCoins(250)}
               />
-              <Button small kind="ghost" label="Close" onPress={closeGifts} />
+              <Button small kind="ghost" label="Close" onPress={() => { setShowGiftStore(false); setGiftNotice(null); }} />
             </View>
           </View>
         </View>
       </AnimatedModal>
 
-      {/* Comments & Replies Modal */}
-      <AnimatedModal visible={showComments} onRequestClose={() => setShowComments(false)}>
+      {/* Comments & replies (feed posts and videos) */}
+      <AnimatedModal visible={!!commentTarget} onRequestClose={() => setCommentTarget(null)}>
         <View style={styles.modalOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={() => setShowComments(false)} accessibilityLabel="Dismiss" />
+          <Pressable style={{ flex: 1 }} onPress={() => setCommentTarget(null)} accessibilityLabel="Dismiss" />
           <View style={styles.commentsSheet}>
             <View style={styles.sheetPad}>
               <SheetHead
-                eyebrow="Conversation"
-                title={`${activeVideo?.comments?.length || 0} Comments`}
-                onClose={() => setShowComments(false)}
+                eyebrow={commentItem ? `On ${commentSrc === 'video' ? (commentItem.creator && commentItem.creator.name) || 'video' : commentItem.author}'s post` : 'Conversation'}
+                title={`${commentCount} ${commentCount === 1 ? 'Comment' : 'Comments'}`}
+                onClose={() => setCommentTarget(null)}
               />
             </View>
 
             <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.sheetScroll} keyboardShouldPersistTaps="handled">
-              {activeVideo?.comments?.length ? null : (
+              {earlierCount ? <Text style={styles.commentsNote}>{earlierCount} earlier {earlierCount === 1 ? 'comment' : 'comments'} in this thread</Text> : null}
+              {commentList.length ? null : (
                 <ScaleIn style={styles.commentsEmpty}>
                   <View style={styles.commentsEmptyIcon}>
                     <Icon name="chat" size={22} color={colors.primary} />
                   </View>
-                  <Text style={styles.commentsEmptyTitle}>Start the conversation</Text>
-                  <Text style={styles.commentsEmptyText}>Be the first to share an encouraging word.</Text>
+                  <Text style={styles.commentsEmptyTitle}>{earlierCount ? 'Add your voice' : 'Start the conversation'}</Text>
+                  <Text style={styles.commentsEmptyText}>Share an encouraging word.</Text>
                 </ScaleIn>
               )}
-              {activeVideo?.comments?.map((c, ci) => (
+              {commentList.map((c, ci) => (
                 <FadeInUp key={c.id} index={ci} distance={10} duration={340} style={styles.commentBlock}>
                   <View style={styles.commentAvatar}>
-                    <Text style={styles.commentAvatarText}>{c.from.slice(0, 2).toUpperCase()}</Text>
+                    <Text style={styles.commentAvatarText}>{initials(c.from)}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.commentAuthor}>{c.from}<Text style={styles.commentTime}>  ·  {c.time}</Text></Text>
                     <Text style={styles.commentBody}>{c.text}</Text>
                     <PressScale onPress={() => setReplyingTo(c)} hitSlop={8} scaleTo={0.92} style={{ marginTop: 6, alignSelf: 'flex-start' }} accessibilityLabel={`Reply to ${c.from}`}>
-                      <Text style={[styles.replyActionText, replyingTo?.id === c.id && { color: colors.primary }]}>Reply</Text>
+                      <Text style={[styles.replyActionText, replyingTo && replyingTo.id === c.id && { color: colors.primary }]}>Reply</Text>
                     </PressScale>
-
-                    {c.replies?.map((r) => (
+                    {(c.replies || []).map((r) => (
                       <FadeInUp key={r.id} distance={8} duration={320} style={styles.replyItem}>
                         <Text style={styles.replyAuthor}>{r.from}<Text style={styles.commentTime}>  ·  {r.time}</Text></Text>
                         <Text style={styles.replyBody}>{r.text}</Text>
@@ -1904,13 +1967,14 @@ export default function SocialsScreen({ params = {} }) {
                   </Pressable>
                 </FadeInUp>
               ) : null}
-
               <View style={styles.commentInputRow}>
                 <TextInput
-                  placeholder={replyingTo ? `Reply to ${replyingTo.from}...` : "Add thoughtful Christian comment..."}
+                  placeholder={replyingTo ? `Reply to ${replyingTo.from}...` : 'Add a kind comment…'}
                   placeholderTextColor={colors.faint}
                   value={commentText}
                   onChangeText={setCommentText}
+                  onSubmitEditing={handleAddComment}
+                  returnKeyType="send"
                   style={styles.commentInput}
                 />
                 <Button small label="Post" onPress={handleAddComment} disabled={!commentText.trim()} />
@@ -1923,11 +1987,116 @@ export default function SocialsScreen({ params = {} }) {
   );
 }
 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.screen,
   },
+
+  // ─── Header + segment switch ────────────────────────────────
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
+    backgroundColor: SOCIAL.page,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    zIndex: 40,
+  },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  headerBack: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.goldLight, marginBottom: 1 },
+  headerTitle: { fontFamily: fonts.display, fontSize: 28, lineHeight: 33, letterSpacing: -0.6, color: colors.nightFg },
+  headerCreate: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.nightRaised,
+    borderRadius: radius.pill,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: colors.nightBorder,
+  },
+  segPill: { position: 'absolute', top: 3, bottom: 3, left: 0, borderRadius: radius.pill, backgroundColor: colors.nightFg },
+  segTab: { flex: 1, height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
+  segText: { fontSize: 13, fontWeight: '600', color: colors.nightMuted },
+  segTextOn: { color: colors.night, fontWeight: '800' },
+
+  // Light variants (Feed segment)
+  headerLight: { backgroundColor: colors.screen, borderBottomColor: colors.border },
+  headerBackLight: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  headerCreateLight: { borderColor: colors.primary, ...shadow.sm },
+  segRowLight: { backgroundColor: colors.raised, borderColor: colors.border },
+  segPillLight: { backgroundColor: colors.surface, ...shadow.sm },
+  segTextLight: { color: colors.muted },
+  segTextLightOn: { color: colors.primary, fontWeight: '800' },
+
+  // ─── Light feed ─────────────────────────────────────────────
+  feedContent: { paddingBottom: 28 },
+  chipRow: { gap: 8, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 12 },
+  chip: {
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipOn: { backgroundColor: colors.fg, borderColor: colors.fg },
+  chipText: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  chipTextOn: { color: colors.screen, fontWeight: '700' },
+  chipIntro: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginHorizontal: 16, marginBottom: 12 },
+  chipIntroText: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.muted },
+  chipIntroCount: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: colors.gold },
+  listEmpty: { alignItems: 'center', paddingHorizontal: 36, paddingTop: 40, paddingBottom: 24 },
+  feedEmptyIconLight: { width: 60, height: 60, borderRadius: 30, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  feedEmptyTitleLight: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 25, color: colors.fg, textAlign: 'center', letterSpacing: -0.3 },
+  feedEmptyBodyLight: { fontSize: 13.5, lineHeight: 19, color: colors.muted, textAlign: 'center', marginTop: 6 },
+  feedEnd: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 28, marginTop: 10 },
+  feedEndLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  feedEndBadge: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  feedEndText: { fontSize: 12, color: colors.muted, fontWeight: '600' },
+  reelsTopBar: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 30,
+  },
+  floatingCornerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 32,
+    backgroundColor: GLASS,
+    borderWidth: 1,
+    borderColor: alpha(colors.goldLight, 0.45),
+    paddingLeft: 10,
+    paddingRight: 7,
+    borderRadius: radius.pill,
+  },
+  commentsNote: { fontSize: 12, color: colors.faint, textAlign: 'center', marginTop: 4, marginBottom: 4 },
 
   // ─── Reel card ──────────────────────────────────────────────
   videoCard: {
@@ -2248,23 +2417,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  musicDiscText: {
-    fontSize: 8.5,
-    fontWeight: '800',
-    color: WHITE,
-  },
 
   // ─── Floating top bar ───────────────────────────────────────
-  floatingTopBar: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    right: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    zIndex: 30,
-  },
   floatingGuildPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2299,102 +2453,8 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: '800',
   },
-  reelsSubBarCapsule: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 32,
-    paddingHorizontal: 10,
-  },
-  feedTab: {
-    alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingTop: 2,
-    paddingBottom: 6,
-  },
-  feedTabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.62)',
-    ...TEXT_SHADOW,
-  },
-  feedTabTextActive: {
-    color: WHITE,
-    fontWeight: '800',
-  },
-  feedTabIndicator: {
-    position: 'absolute',
-    left: 0,
-    bottom: 0,
-    width: 18,
-    height: 2.5,
-    borderRadius: 2,
-    backgroundColor: colors.goldLight,
-  },
-  tabDivider: {
-    width: 1,
-    height: 12,
-    marginTop: -2,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    marginHorizontal: 4,
-  },
-  floatingCornerBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: GLASS,
-    borderWidth: 1,
-    borderColor: alpha(colors.goldLight, 0.45),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  floatingCreateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    height: 32,
-    backgroundColor: colors.primary,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
-  },
-  floatingCreateText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: WHITE,
-  },
 
   // Gift toast
-  giftToast: {
-    position: 'absolute',
-    top: 58,
-    alignSelf: 'center',
-    zIndex: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.night,
-    borderWidth: 1,
-    borderColor: alpha(colors.goldLight, 0.45),
-    paddingLeft: 6,
-    paddingRight: 14,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    ...shadow.lg,
-  },
-  giftToastIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.goldLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  giftToastText: {
-    fontSize: 12.5,
-    color: colors.nightFg,
-    fontWeight: '600',
-  },
 
   // ─── Sheets (parchment) ─────────────────────────────────────
   modalOverlay: {
@@ -2418,14 +2478,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingTop: 8,
     height: '68%',
-    ...shadow.lg,
-  },
-  publishSheet: {
-    backgroundColor: colors.screen,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 8,
-    height: '88%',
     ...shadow.lg,
   },
   sheetPad: {
@@ -2679,225 +2731,6 @@ const styles = StyleSheet.create({
   },
 
   // Publish form
-  label: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    color: colors.muted,
-    marginTop: 18,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 14.5,
-    color: colors.fg,
-  },
-  inputMulti: {
-    minHeight: 76,
-    textAlignVertical: 'top',
-    lineHeight: 20,
-  },
-  catChip: {
-    paddingHorizontal: 14,
-    height: 34,
-    justifyContent: 'center',
-    borderRadius: radius.pill,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  catChipActive: {
-    backgroundColor: colors.fg,
-    borderColor: colors.fg,
-  },
-  catChipText: {
-    fontSize: 12.5,
-    fontWeight: '500',
-    color: colors.muted,
-  },
-  catChipTextActive: {
-    color: WHITE,
-    fontWeight: '600',
-  },
-  publishModeRow: {
-    flexDirection: 'row',
-    gap: 4,
-    backgroundColor: colors.raised,
-    padding: 4,
-    borderRadius: radius.md,
-    marginBottom: 2,
-  },
-  publishModeIndicator: {
-    position: 'absolute',
-    top: 4,
-    bottom: 4,
-    left: 0,
-    borderRadius: 10,
-    backgroundColor: colors.surface,
-    ...shadow.sm,
-  },
-  publishModeTab: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 10,
-  },
-  publishModeTabActive: {
-    backgroundColor: colors.surface,
-    ...shadow.sm,
-  },
-  publishModeText: {
-    fontSize: 10.5,
-    fontWeight: '500',
-    color: colors.muted,
-  },
-  publishModeTextActive: {
-    fontWeight: '700',
-    color: colors.fg,
-  },
-  modalPreviewBox: {
-    height: 170,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    position: 'relative',
-    marginTop: 12,
-    backgroundColor: colors.night,
-  },
-  modalPreviewPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalPreviewPlaceholderText: {
-    color: colors.nightMuted,
-    fontSize: 12,
-    marginTop: 8,
-  },
-  modalPreviewScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  modalPreviewBadge: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(21,23,43,0.72)',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-  },
-  modalPreviewDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.goldLight,
-  },
-  modalPreviewBadgeText: {
-    color: colors.goldLight,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  mediaOptionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    paddingHorizontal: 13,
-    height: 38,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  mediaOptionCardActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  mediaOptionText: {
-    fontSize: 12.5,
-    fontWeight: '500',
-    color: colors.muted,
-  },
-  mediaOptionTextActive: {
-    color: colors.primary,
-    fontWeight: '700',
-  },
-  mediaOptionMeta: {
-    fontSize: 11,
-    color: colors.faint,
-  },
-  imagePreviewBox: {
-    height: 190,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    position: 'relative',
-    marginTop: 12,
-    backgroundColor: colors.raised,
-  },
-  imagePreviewImg: {
-    width: '100%',
-    height: '100%',
-  },
-  themeRing: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  themeRingActive: {
-    borderColor: colors.gold,
-  },
-  themePill: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-  },
-  contentPreviewCard: {
-    paddingHorizontal: 22,
-    paddingTop: 14,
-    paddingBottom: 20,
-    borderRadius: radius.lg,
-    marginTop: 14,
-    minHeight: 140,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  contentPreviewQuote: {
-    fontFamily: fonts.serifBold,
-    fontSize: 38,
-    lineHeight: 38,
-    color: colors.goldLight,
-    marginBottom: -4,
-  },
-  contentPreviewCardText: {
-    color: WHITE,
-    fontFamily: fonts.serifItalic,
-    fontSize: 17,
-    lineHeight: 24,
-    textAlign: 'center',
-  },
-  contentPreviewCardRef: {
-    color: colors.goldLight,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    marginTop: 12,
-  },
 
   // ─── Guild (night) ──────────────────────────────────────────
   guildContainer: {

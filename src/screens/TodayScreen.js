@@ -7,6 +7,8 @@ import { colors, fonts, radius, shadow } from '../theme';
 import { Icon } from '../components/Icons';
 import { NightGlow, alpha } from '../components/ui';
 import VerseImageSheet from '../components/VerseImageSheet';
+import ProfileButton from '../components/ProfileButton';
+import SupportAdsCard from '../components/SupportAdsCard';
 import { FadeInUp, ScaleIn, Pop, Pulse, Burst, AnimatedBar, AnimatedNumber, PressScale } from '../components/Motion';
 import { useToast } from '../components/Toast';
 import { useNarration } from '../audio/Narration';
@@ -39,13 +41,20 @@ export default function TodayScreen() {
   const [streakOpen, setStreakOpen] = useState(false);
   const [reflection, setReflection] = useState('');
 
-  const markDone = (step) => {
-    if (isDone(step)) return;
-    const next = { ...(state.rhythm || {}), [key]: [...doneToday, step] };
+  const markDone = (step, reflectionText) => {
+    if (isDone(step) && !reflectionText) return;
+    const nextSteps = isDone(step) ? doneToday : [...doneToday, step];
+    const next = { ...(state.rhythm || {}), [key]: nextSteps };
     const s = computeStreak(next, today).streak;
-    dispatch({ type: 'set', patch: { rhythm: next, bestStreak: Math.max(state.bestStreak || 0, s) } });
-    const left = STEPS.filter((x) => x !== step && !doneToday.includes(x)).length;
-    toast.show(left ? `${STEP_META[step].label} done · ${left} to go` : 'Today’s rhythm complete ✦', { icon: left ? 'check' : 'star', haptic: left ? 'light' : 'success' });
+    const patch = { rhythm: next, bestStreak: Math.max(state.bestStreak || 0, s) };
+    if (reflectionText) {
+      patch.reflection = { day: key, text: reflectionText };
+    }
+    dispatch({ type: 'set', patch });
+    if (!isDone(step)) {
+      const left = STEPS.filter((x) => x !== step && !doneToday.includes(x)).length;
+      toast.show(left ? `${STEP_META[step].label} done · ${left} to go` : 'Today’s rhythm complete ✦', { icon: left ? 'check' : 'star', haptic: left ? 'light' : 'success' });
+    }
   };
 
   // Verse of the day
@@ -89,6 +98,7 @@ export default function TodayScreen() {
               <Pop trigger={streak}><AnimatedNumber value={streak} style={styles.streakChipText} /></Pop>
             </Pressable>
           ) : null}
+          <ProfileButton />
         </FadeInUp>
 
         {/* Week strip */}
@@ -243,10 +253,13 @@ export default function TodayScreen() {
                   />
                   <Pressable
                     onPress={() => {
-                      if (reflection.trim()) {
-                        dispatch({ type: 'note', n: { bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: reflection.trim(), label: 'Reflection' } });
+                      const text = reflection.trim();
+                      if (text) {
+                        dispatch({ type: 'note', n: { bookId: v.bookId, chapter: v.chapter, verse: v.verse, text, label: 'Reflection' } });
+                        markDone('reflect', text);
+                      } else {
+                        markDone('reflect');
                       }
-                      markDone('reflect');
                       setReflection('');
                     }}
                     style={({ pressed }) => [styles.reflectBtn, pressed && { opacity: 0.85 }]}
@@ -272,6 +285,23 @@ export default function TodayScreen() {
             </Text>
           </ScaleIn>
         ) : null}
+
+        {/* Support us — four 🔥 rewarded ads a day */}
+        <FadeInUp index={6}>
+          <SupportAdsCard />
+        </FadeInUp>
+
+        {/* Scripture pop-ups entry */}
+        <FadeInUp index={6} style={[styles.block, { marginTop: 14 }]}>
+          <PressScale onPress={() => nav.push('ScripturePop')} scaleTo={0.98} style={styles.popRow}>
+            <View style={styles.popIcon}><Icon name="bell" size={18} color={colors.primary} fill={state.scripturePop?.enabled ? 'solid' : 'none'} /></View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.cardTitle}>Scripture pop-ups</Text>
+              <Text style={styles.cardSub} numberOfLines={1}>{state.scripturePop?.enabled ? 'On · verses & prayers through your day' : 'Get a verse or prayer on your screen through the day'}</Text>
+            </View>
+            <Text style={[styles.popState, state.scripturePop?.enabled && { color: colors.primary }]}>{state.scripturePop?.enabled ? 'On' : 'Set up'}</Text>
+          </PressScale>
+        </FadeInUp>
 
         {/* Continue reading */}
         <FadeInUp index={7} style={styles.block}>
@@ -418,6 +448,9 @@ const styles = StyleSheet.create({
   weekDotToday: { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.primary },
   weekNum: { fontSize: 12.5, fontWeight: '700', color: colors.muted },
 
+  popRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginTop: 4 },
+  popIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  popState: { fontSize: 13, fontWeight: '700', color: colors.muted },
   rhythmHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: 18, marginTop: 26 },
   sectionEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', color: colors.gold, marginBottom: 2 },
   sectionTitle: { fontFamily: fonts.serifBold, fontSize: 22, letterSpacing: -0.3, color: colors.fg },

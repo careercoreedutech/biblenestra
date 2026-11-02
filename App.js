@@ -10,6 +10,10 @@ import MiniPlayer from './src/components/MiniPlayer';
 import NowPlayingSheet from './src/components/NowPlayingSheet';
 import { ToastProvider } from './src/components/Toast';
 import { NarrationProvider } from './src/audio/Narration';
+import { AdsProvider } from './src/ads/Ads';
+import { AuthGate } from './src/api/auth';
+import { SyncProvider } from './src/api/sync';
+import { SignInPreviewScreen } from './src/screens/SignInScreen';
 import { colors, fonts, FONT_ASSETS, readerThemes } from './src/theme';
 
 import HomeScreen from './src/screens/HomeScreen';
@@ -21,6 +25,9 @@ import PrayerScreen, { PrayerDetailScreen, NewPrayerScreen } from './src/screens
 import { LearnScreen, PlanScreen, LessonScreen, SermonStudioScreen, TranscriptScreen, CreateScreen, ProfileScreen, OnboardingScreen } from './src/screens/MoreScreens';
 import SocialsScreen from './src/screens/SocialsScreen';
 import ConcordanceScreen from './src/screens/ConcordanceScreen';
+import ScripturePopScreen from './src/screens/ScripturePopScreen';
+import { useScripturePop } from './src/notifications/scripturePop';
+import { useSocialsDark } from './src/ui/chrome';
 import JobsScreen from './src/screens/JobsScreen';
 
 class ErrorBoundary extends Component {
@@ -58,11 +65,13 @@ const ROUTES = {
   Reading: ReadingScreen, BibleChat: BibleChatScreen, Companion: CompanionScreen,
   Prayer: PrayerDetailScreen, NewPrayer: NewPrayerScreen, PrayerTab: PrayerScreen, PrayerWall: PrayerScreen,
   Communities: CommunitiesScreen, Group: GroupScreen, ChatList: ChatListScreen, Chat: ChatScreen, Calendar: CalendarScreen,
-  People: PeopleScreen, Person: PersonScreen, Care: CareScreen, Wishes: WishesScreen, Live: LiveScreen, Feed: FeedScreen,
+  People: PeopleScreen, Person: PersonScreen, Care: CareScreen, Wishes: WishesScreen, Live: LiveScreen, Feed: SocialsScreen, // Feed is merged into Socials
   Learn: LearnScreen, Plan: PlanScreen, Lesson: LessonScreen, SermonStudio: SermonStudioScreen, Transcript: TranscriptScreen,
   Create: CreateScreen, Profile: ProfileScreen, Onboarding: OnboardingScreen,
-  Today: TodayScreen, Socials: SocialsScreen, Concordance: ConcordanceScreen, Jobs: JobsScreen, Chats: ChatListScreen,
+  Today: TodayScreen, Socials: SocialsScreen, Concordance: ConcordanceScreen, ScripturePop: ScripturePopScreen, Jobs: JobsScreen, Chats: ChatListScreen,
 };
+// Dev-only: preview the online sign-in design without a Clerk key (/?route=SignInPreview)
+if (__DEV__) ROUTES.SignInPreview = SignInPreviewScreen;
 
 // Gentle enter animation: pushed screens slide in from the right, tab switches cross-fade up.
 function Transition({ kind, children, skip }) {
@@ -115,8 +124,11 @@ const TABS = {
   Bible: BibleScreen,
   Discover: DiscoverScreen,
   Socials: SocialsScreen,
-  Profile: ProfileScreen,
 };
+
+
+
+
 
 
 
@@ -126,7 +138,10 @@ const TABS = {
 function Root() {
   const { state, ready } = useStore();
   const nav = useNav();
+  const socialsDark = useSocialsDark();
   const [tab, setTab] = useState('Today');
+  // Scripture pop-ups: keep the next couple of days scheduled; open the verse when one is tapped
+  useScripturePop(ready ? state.scripturePop : null, nav);
   // Android hardware back pops the in-app stack before leaving the app
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -170,14 +185,17 @@ function Root() {
       })}
     </View>
   );
-  const isSocials = tab === 'Socials' && !top;
+  const socialRoute = top && (top.name === 'Socials' || top.name === 'Feed');
+  // Socials: light Facebook-style feed, dark only while the full-screen Videos reels are showing
+  const isSocials = ((tab === 'Socials' && !top) || socialRoute) && socialsDark;
   // The Bible tab follows the reader theme (Paper / Sepia / Night) so the chrome matches the page.
   const reader = tab === 'Bible' && !top ? readerThemes[state.readerTheme] : null;
   const pageBg = isSocials ? '#000000' : reader ? reader.bg : colors.screen;
   const variant = isSocials ? 'dark' : reader && reader.key !== 'paper' ? reader.key : 'light';
   const lightStatus = isSocials || (reader && reader.dark);
+  // (a pushed Socials/Feed route keeps the dark chrome; the tab bar is hidden under pushed routes anyway)
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: pageBg }]} edges={isSocials ? ['top'] : ['top', 'bottom']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: pageBg }]} edges={isSocials && !socialRoute ? ['top'] : ['top', 'bottom']}>
       <StatusBar style={lightStatus ? 'light' : 'dark'} />
       <View style={{ flex: 1, backgroundColor: pageBg }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -203,7 +221,14 @@ export default function App() {
           <NavProvider>
             <NarrationProvider>
               <ToastProvider>
-                <Root />
+                <AdsProvider>
+                  {/* online mode: Clerk sign-in gate + API sync (local mode: pass-through) */}
+                  <AuthGate>
+                    <SyncProvider>
+                      <Root />
+                    </SyncProvider>
+                  </AuthGate>
+                </AdsProvider>
               </ToastProvider>
             </NarrationProvider>
           </NavProvider>

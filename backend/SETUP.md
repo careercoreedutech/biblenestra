@@ -91,3 +91,45 @@ prayer wall (anonymous, audiences, praying, updates), jobs & bids (20-coin fee, 
 rewarded ads (support flames 4/day, 5 job ads → 20 coins), daily game rewards.
 **Still on the device (next phase):** chats & groups, communities, calendar/events, gifts, notes/highlights sync,
 reading plans, push notifications (the `push_tokens` table is ready).
+
+---
+
+## Phase 2 Setup & Real-time Durable Objects
+
+### 1. Real-time WebSockets Secret
+Generate a random secret (32+ characters) for WebSocket tickets:
+```bash
+cd backend
+# generate or pick a 32+ character string
+npx wrangler secret put REALTIME_SECRET
+```
+And locally in `backend/.dev.vars`:
+```
+REALTIME_SECRET=biblenestra-dev-realtime-secret-32-chars
+```
+
+### 2. Durable Objects Deployment
+Phase 2 uses a Cloudflare Durable Object class `Hub` (SQLite-backed, WebSocket Hibernation API).
+The configuration is already defined in `wrangler.toml`:
+```toml
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub"]
+```
+When running `npm run deploy`, Cloudflare will apply the migration and register the `Hub` Durable Object on the free tier.
+
+### 3. Push Notifications Setup (Expo Push Service)
+1. **EAS Project ID**:
+   - Ensure your Expo project has an `extra.eas.projectId` configured in `app.json`.
+2. **Android (FCM V1 Credentials)**:
+   - Go to Google Firebase Console → Project settings → Service accounts.
+   - Generate a new private key (JSON).
+   - In your terminal run `eas credentials` (or in expo.dev dashboard) → Android → Push Notifications → Upload Google Services JSON (FCM V1).
+3. **iOS (Apple Push Notification service)**:
+   - In Apple Developer Account → Keys → Create APNs Key (.p8).
+   - Upload via `eas credentials` → iOS → Push Notifications.
+

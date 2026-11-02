@@ -10,11 +10,17 @@ import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { useToast } from '../components/Toast';
 import { useNarration } from '../audio/Narration';
-import { PressScale, FadeInUp, ScaleIn, Pop, Burst, Pulse, LiveRing, AnimatedNumber, AnimatedBar, EASE_OUT } from '../components/Motion';
+import { PressScale, FadeInUp, ScaleIn, Pop, Burst, Pulse, LiveRing, AnimatedNumber, AnimatedBar, AnimatedModal, EASE_OUT } from '../components/Motion';
 import { DEVOTIONALS, MEMORY_DECK, COURSES, CHURCHES } from '../data/seed';
 import { TRANSLATIONS, BOOKS, getChapter, refLabel } from '../data/bible';
 import { dayKey } from '../data/rhythm';
-import { TRIVIA_QUESTIONS, WHO_SAID_IT_QUESTIONS, VERSE_SCRAMBLE_DATA } from '../data/games';
+import { GAME_BANKS, DAILY_SIZE, GAME_TITLES, dailyQuestions, dateKey as gameDateKey, resetLabel } from '../data/games';
+import { useAds } from '../ads/Ads';
+import { AD_RULES } from '../ads/config';
+import ProfileButton from '../components/ProfileButton';
+import { useSync } from '../api/sync';
+import { MODE_LABEL } from '../api/config';
+import { relTime } from '../components/social/shared';
 
 // ---------- Local building blocks ----------
 
@@ -454,42 +460,114 @@ function matchScore(typed, target) {
 }
 
 const GAMES = [
-  { id: 'trivia', title: 'Bible trivia', sub: `${TRIVIA_QUESTIONS.length} questions · with references`, icon: 'quiz', tint: colors.primary },
-  { id: 'who', title: 'Who said it?', sub: `${WHO_SAID_IT_QUESTIONS.length} quotes · identify the speaker`, icon: 'chat', tint: colors.gold },
-  { id: 'scramble', title: 'Verse scramble', sub: `${VERSE_SCRAMBLE_DATA.length} verses · tap words in order`, icon: 'sparkles', tint: colors.sage },
+  { id: 'trivia', title: 'Bible trivia', icon: 'quiz', tint: colors.primary, unit: 'questions' },
+  { id: 'who', title: 'Who said it?', icon: 'chat', tint: colors.gold, unit: 'quotes' },
+  { id: 'scramble', title: 'Verse scramble', icon: 'sparkles', tint: colors.sage, unit: 'verses' },
+  { id: 'chronology', title: 'Bible timeline', icon: 'calendar', tint: colors.sky, unit: 'challenges' },
   { id: 'memory', title: 'Memory-verse practice', sub: 'Your memory deck', icon: 'book', tint: colors.lavender },
 ];
 
-// Multiple-choice round (trivia / who-said-it) — real questions with references.
+// "New questions every day · resets in 7h" — shown at the top of every game card.
+function DailyLine({ gameId }) {
+  const { state } = useStore();
+  const d = (state.gameDaily || {})[gameId];
+  const played = d && d.date === gameDateKey();
+  return (
+    <View style={styles.dailyLine}>
+      <Icon name="calendar" size={12} color={colors.faint} />
+      <Text style={styles.dailyLineText} numberOfLines={1}>New questions every day · resets in {resetLabel()}</Text>
+      {played ? <Text style={styles.dailyLineScore}>Today {d.correct}/{d.total}</Text> : null}
+    </View>
+  );
+}
+
+// Supported-by-ads break shown after every AD_RULES.gameInterstitialEvery questions. The round's
+// progress lives in the parent game, so skipping or watching never loses anything.
+function AdBreak({ done, total, correct, onContinue }) {
+  const ads = useAds();
+  const toast = useToast();
+  const [left, setLeft] = useState(3);
+  const [playing, setPlaying] = useState(false);
+  const watch = async () => {
+    if (playing) return;
+    setPlaying(true);
+    let shown = false;
+    try { shown = !!(await ads.showInterstitial()).shown; } catch (e) { shown = false; }
+    if (shown) toast.show('Thank you for supporting BibleNestra 🙏', { icon: 'heart', haptic: 'success' });
+    onContinue();
+  };
+  // Plays the ad automatically after ~3s unless the player skips.
+  useEffect(() => {
+    if (playing) return undefined;
+    if (left <= 0) { watch(); return undefined; }
+    const id = setTimeout(() => setLeft((n) => n - 1), 1000);
+    return () => clearTimeout(id);
+  }, [left, playing]);
+  return (
+    <ScaleIn from={0.92} style={styles.adCard}>
+      <NightGlow />
+      <View style={styles.adCardIcon}>
+        <Pulse min={0.92} max={1.08} active={!playing}><Icon name="heart" size={24} color={colors.night} /></Pulse>
+      </View>
+      <Eyebrow tint={colors.goldLight} style={{ marginTop: 14 }}>Supported by ads</Eyebrow>
+      <Text style={styles.adCardTitle}>Watch this ad to support this great platform 🙏</Text>
+      <Text style={styles.adCardSub}>Your progress is saved — {done} of {total} done, {correct} correct.</Text>
+      <Button
+        label={playing ? 'Playing ad…' : `Watch ad${left > 0 ? ` · ${left}s` : ''}`}
+        icon={<Icon name="play" size={13} color="#FFFFFF" />}
+        disabled={playing}
+        onPress={watch}
+        style={{ alignSelf: 'stretch', marginTop: 16 }}
+      />
+      <Pressable onPress={onContinue} disabled={playing} hitSlop={10} accessibilityRole="button" accessibilityLabel="Skip ad" style={({ pressed }) => [styles.adSkip, pressed && { opacity: 0.6 }]}>
+        <Text style={styles.adSkipText}>Skip</Text>
+      </Pressable>
+    </ScaleIn>
+  );
+}
+
+// Results card shared by the games
+function RoundResult({ icon, correct, total, unit, gameId, onReplay, onExit }) {
+  const { state } = useStore();
+  const best = ((state.gameStats || {})[gameId] || {}).best || 0;
+  return (
+    <ScaleIn style={styles.card}>
+      <View style={styles.resultHead}>
+        <View style={styles.resultMedal}>
+          <Icon name={icon} size={22} color={colors.goldLight} />
+          <MountBurst radius={40} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Eyebrow>Round complete</Eyebrow>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 4 }}>
+            <CountUp value={correct} style={styles.resultScore} delay={200} />
+            <Text style={styles.resultOf}> of {total} {unit}</Text>
+          </View>
+        </View>
+      </View>
+      <Progress value={total ? correct / total : 0} delay={260} style={{ marginTop: 14 }} />
+      <Text style={styles.cardMeta}>Best {best.toLocaleString()} pts · a new set arrives in {resetLabel()}</Text>
+      <View style={styles.btnRow}>
+        <Button small label="Replay today's set" onPress={onReplay} />
+        <Button small kind="ghost" label="All games" onPress={onExit} />
+      </View>
+    </ScaleIn>
+  );
+}
+
+// Multiple-choice round (trivia / who-said-it / timeline) — today's questions, with references.
 function QuizGame({ kind, onExit, onFinish }) {
-  const qs = kind === 'who' ? WHO_SAID_IT_QUESTIONS : TRIVIA_QUESTIONS;
+  const [qs, setQs] = useState(() => dailyQuestions(kind));
   const [i, setI] = useState(0);
   const [pick, setPick] = useState(null);
   const [score, setScore] = useState(0);
+  const [adAt, setAdAt] = useState(null); // index of the next question while an ad break is showing
   const q = qs[i];
   const done = i >= qs.length;
   if (done) {
     return (
-      <ScaleIn style={styles.card}>
-        <View style={styles.resultHead}>
-          <View style={styles.resultMedal}>
-            <Icon name="star" size={22} color={colors.goldLight} />
-            <MountBurst radius={40} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Eyebrow>Round complete</Eyebrow>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 4 }}>
-              <CountUp value={score} style={styles.resultScore} delay={200} />
-              <Text style={styles.resultOf}> of {qs.length} correct</Text>
-            </View>
-          </View>
-        </View>
-        <Progress value={qs.length ? score / qs.length : 0} delay={260} style={{ marginTop: 14 }} />
-        <View style={styles.btnRow}>
-          <Button small label="Play again" onPress={() => { setI(0); setPick(null); setScore(0); }} />
-          <Button small kind="ghost" label="All games" onPress={onExit} />
-        </View>
-      </ScaleIn>
+      <RoundResult icon="star" correct={score} total={qs.length} unit="correct" gameId={kind}
+        onReplay={() => { setQs(dailyQuestions(kind)); setI(0); setPick(null); setScore(0); }} onExit={onExit} />
     );
   }
   const answer = (k) => {
@@ -498,14 +576,19 @@ function QuizGame({ kind, onExit, onFinish }) {
     if (k === q.correctIndex) setScore((s) => s + 1);
   };
   const next = () => {
-    const last = i + 1 >= qs.length;
-    if (last) onFinish(score);
-    setI(i + 1); setPick(null);
+    const n = i + 1;
+    if (n >= qs.length) { onFinish(score, qs.length); setI(n); setPick(null); return; }
+    if (n % AD_RULES.gameInterstitialEvery === 0) { setAdAt(n); return; }
+    setI(n); setPick(null);
   };
+  if (adAt != null) {
+    return <AdBreak done={adAt} total={qs.length} correct={score} onContinue={() => { setI(adAt); setPick(null); setAdAt(null); }} />;
+  }
+  const isWho = kind === 'who';
   return (
     <View style={styles.card}>
       <View style={styles.cardHead}>
-        <Eyebrow tint={colors.muted} style={{ flex: 1 }}>{kind === 'who' ? 'Who said it?' : (q.categoryLabel || 'Bible trivia')} · {i + 1}/{qs.length}</Eyebrow>
+        <Eyebrow tint={colors.muted} style={{ flex: 1 }}>{isWho ? 'Who said it?' : (q.categoryLabel || 'Bible trivia')} · {i + 1}/{qs.length}</Eyebrow>
         <View style={styles.scoreChip}>
           <Pop trigger={score} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Icon name="star" size={11} color={colors.gold} />
@@ -515,8 +598,9 @@ function QuizGame({ kind, onExit, onFinish }) {
         </View>
       </View>
       <Progress value={(i + (pick != null ? 1 : 0)) / qs.length} height={3} tint={colors.primary} delay={0} style={{ marginTop: 10 }} />
+      <DailyLine gameId={kind} />
       <FadeInUp key={i} distance={10} duration={320}>
-        <Text style={[kind === 'who' ? styles.reflectText : styles.cardTitle, { marginTop: 14 }]}>{kind === 'who' ? q.quote : q.question}</Text>
+        <Text style={[isWho ? styles.reflectText : styles.cardTitle, { marginTop: 14 }]}>{isWho ? q.quote : q.question}</Text>
         <View style={{ gap: 8, marginTop: 14 }}>
           {q.options.map((o, k) => {
             const right = pick != null && k === q.correctIndex;
@@ -549,48 +633,39 @@ function QuizGame({ kind, onExit, onFinish }) {
 }
 
 function ScrambleGame({ onExit, onFinish }) {
+  const [set, setSet] = useState(() => dailyQuestions('scramble'));
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState([]);
   const [solved, setSolved] = useState(0);
-  const v = VERSE_SCRAMBLE_DATA[i];
+  const [adAt, setAdAt] = useState(null);
+  const v = set[i];
   if (!v) {
     return (
-      <ScaleIn style={styles.card}>
-        <View style={styles.resultHead}>
-          <View style={styles.resultMedal}>
-            <Icon name="sparkles" size={22} color={colors.goldLight} />
-            <MountBurst radius={40} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Eyebrow>Round complete</Eyebrow>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 4 }}>
-              <CountUp value={solved} style={styles.resultScore} delay={200} />
-              <Text style={styles.resultOf}> of {VERSE_SCRAMBLE_DATA.length} verses solved</Text>
-            </View>
-          </View>
-        </View>
-        <Progress value={solved / VERSE_SCRAMBLE_DATA.length} delay={260} style={{ marginTop: 14 }} />
-        <View style={styles.btnRow}>
-          <Button small label="Play again" onPress={() => { setI(0); setPicked([]); setSolved(0); }} />
-          <Button small kind="ghost" label="All games" onPress={onExit} />
-        </View>
-      </ScaleIn>
+      <RoundResult icon="sparkles" correct={solved} total={set.length} unit="verses solved" gameId="scramble"
+        onReplay={() => { setSet(dailyQuestions('scramble')); setI(0); setPicked([]); setSolved(0); }} onExit={onExit} />
     );
+  }
+  if (adAt != null) {
+    return <AdBreak done={adAt} total={set.length} correct={solved} onContinue={() => { setI(adAt); setPicked([]); setAdAt(null); }} />;
   }
   const complete = picked.length === v.correctOrder.length;
   const correct = complete && picked.every((k, n) => v.scrambledWords[k] === v.correctOrder[n]);
   const next = (gotIt) => {
-    const s = solved + (gotIt ? 1 : 0);
-    if (i + 1 >= VERSE_SCRAMBLE_DATA.length) onFinish(s);
-    setSolved(s); setI(i + 1); setPicked([]);
+    const s2 = solved + (gotIt ? 1 : 0);
+    const n = i + 1;
+    setSolved(s2);
+    if (n >= set.length) { onFinish(s2, set.length); setI(n); setPicked([]); return; }
+    if (n % AD_RULES.gameInterstitialEvery === 0) { setAdAt(n); return; }
+    setI(n); setPicked([]);
   };
   return (
     <View style={styles.card}>
       <View style={styles.cardHead}>
-        <Eyebrow tint={colors.muted} style={{ flex: 1 }}>Verse scramble · {i + 1}/{VERSE_SCRAMBLE_DATA.length}</Eyebrow>
+        <Eyebrow tint={colors.muted} style={{ flex: 1 }}>Verse scramble · {i + 1}/{set.length}</Eyebrow>
         <Text style={styles.confLabel}>{v.reference}</Text>
       </View>
-      <Progress value={(i + (complete ? 1 : 0)) / VERSE_SCRAMBLE_DATA.length} height={3} tint={colors.primary} delay={0} style={{ marginTop: 10 }} />
+      <Progress value={(i + (complete ? 1 : 0)) / set.length} height={3} tint={colors.primary} delay={0} style={{ marginTop: 10 }} />
+      <DailyLine gameId="scramble" />
       <View style={[styles.verseBox, { minHeight: 64 }, complete && correct && { borderColor: alpha(colors.positive, 0.45) }]}>
         {picked.length ? (
           <View style={styles.pickedWrap}>
@@ -613,12 +688,12 @@ function ScrambleGame({ onExit, onFinish }) {
       </FadeInUp>
       {complete ? (
         <ScaleIn from={0.92} style={styles.reflectBox}>
-          <Text style={[styles.itemTitle, { color: correct ? colors.positive : colors.negative }]}>{correct ? 'Correct!' : 'Not quite'}</Text>
+          <Text style={[styles.itemTitle, { color: correct ? colors.positive : colors.negative }]}>{correct ? 'Correct!' : 'Not quite'} · {v.reference}</Text>
           <Text style={[styles.cardBody, { marginTop: 4 }]}>{v.verseText}</Text>
         </ScaleIn>
       ) : null}
       <View style={styles.btnRow}>
-        {complete ? <Button small label="Next verse" onPress={() => next(correct)} /> : null}
+        {complete ? <Button small label={i + 1 >= set.length ? 'See score' : 'Next verse'} onPress={() => next(correct)} /> : null}
         {picked.length && !complete ? <Button small kind="ghost" label="Undo" onPress={() => setPicked(picked.slice(0, -1))} /> : null}
         {picked.length ? <Button small kind="ghost" label="Clear" onPress={() => setPicked([])} /> : null}
         <Button small kind="ghost" label="Quit" onPress={onExit} />
@@ -654,15 +729,26 @@ export function LearnScreen({ params = {} }) {
     dispatch({ type: 'set', patch: { plans: [...state.plans, plan] } });
     toast.show(`Started “${pp.name}”`, { icon: 'book', haptic: 'success', action: { label: 'Open', onPress: () => nav.push('Plan', { id: plan.id }) } });
   };
-  const finishGame = (id, score) => {
-    const best = (state.gameScores || {})[id] || 0;
-    if (score > best) dispatch({ type: 'set', patch: { gameScores: { ...(state.gameScores || {}), [id]: score } } });
-    toast.show(score > best ? `New best: ${score}` : `Score: ${score}`, { icon: 'star', haptic: 'success' });
+  // Record a finished round: stats (dispatch gameResult), today's best, and coins once per game per day.
+  const finishGame = (id, correct, total) => {
+    const date = gameDateKey();
+    const points = correct * 100;
+    const daily = state.gameDaily || {};
+    const prev = daily[id];
+    const firstToday = !(prev && prev.date === date);
+    const prevBest = ((state.gameStats || {})[id] || {}).best || 0;
+    dispatch({ type: 'gameResult', gameId: id, date, correct, total, score: points });
+    if (firstToday || points > (prev.score || 0)) {
+      dispatch({ type: 'set', patch: { gameDaily: { ...daily, [id]: { date, correct, total, score: points } } } });
+    }
+    const prize = firstToday ? correct * 5 : 0;
+    if (prize > 0) dispatch({ type: 'earnCoins', amount: prize, reason: `${GAME_TITLES[id] || 'Bible game'} · ${correct}/${total}` });
+    toast.show(prize > 0 ? `${correct}/${total} correct · +${prize} coins` : points > prevBest ? `New best: ${correct}/${total}` : `Score saved · ${correct}/${total}`, { icon: prize > 0 ? 'coin' : 'star', haptic: 'success' });
   };
   const memorized = MEMORY_DECK.filter((m) => conf(m) >= 5).length;
   const gospel = state.plans.find((p) => p.id === 'pl1');
   return (
-    <Screen back title="Learn" subtitle="Plans · devotionals · memory · courses">
+    <Screen back title="Learn" subtitle="Plans · devotionals · memory · courses" right={<ProfileButton size={34} />}>
       <Pills items={['Plans', 'Devotionals', 'Memorize', 'Courses', 'Games', 'Badges']} value={tab} onChange={(t) => { setTab(t); setGame(null); }} />
       {tab === 'Plans' ? (
         <View style={{ marginTop: 6 }}>
@@ -824,18 +910,20 @@ export function LearnScreen({ params = {} }) {
       }) : null}
       {tab === 'Games' ? (
         <View>
-          {game === 'trivia' || game === 'who' ? <FadeInUp key={game} distance={10}><QuizGame kind={game} onExit={() => setGame(null)} onFinish={(s) => finishGame(game, s)} /></FadeInUp> : null}
-          {game === 'scramble' ? <FadeInUp key="scramble" distance={10}><ScrambleGame onExit={() => setGame(null)} onFinish={(s) => finishGame('scramble', s)} /></FadeInUp> : null}
+          {game === 'trivia' || game === 'who' || game === 'chronology' ? <FadeInUp key={game} distance={10}><QuizGame kind={game} onExit={() => setGame(null)} onFinish={(c, t) => finishGame(game, c, t)} /></FadeInUp> : null}
+          {game === 'scramble' ? <FadeInUp key="scramble" distance={10}><ScrambleGame onExit={() => setGame(null)} onFinish={(c, t) => finishGame('scramble', c, t)} /></FadeInUp> : null}
           {!game ? (
             <View style={styles.grid}>
               {GAMES.map((g, idx) => {
-                const best = (state.gameScores || {})[g.id];
+                const daily = (state.gameDaily || {})[g.id];
+                const today = daily && daily.date === gameDateKey() ? daily : null;
+                const best = today ? today.correct : null;
                 return (
                   <FadeInUp key={g.id} index={idx} style={styles.gameCell}>
                     <PressScale scaleTo={0.96} onPress={() => (g.id === 'memory' ? setTab('Memorize') : setGame(g.id))} style={styles.gameTile}>
                       <IconBadge name={g.icon} tint={g.tint} />
                       <Text style={styles.gameTitle} numberOfLines={2}>{g.title}</Text>
-                      <Text style={styles.gameSub}>{g.id === 'memory' ? `${memorized} of ${MEMORY_DECK.length} memorized` : best != null ? `Best: ${best}` : g.sub}</Text>
+                      <Text style={styles.gameSub}>{g.id === 'memory' ? `${memorized} of ${MEMORY_DECK.length} memorized` : today ? `Today ${today.correct}/${today.total} · new set in ${resetLabel()}` : `${DAILY_SIZE[g.id]} new today · ${GAME_BANKS[g.id].length} ${g.unit}`}</Text>
                       {best != null && g.id !== 'memory' ? <View style={styles.bestDot}><Icon name="star" size={10} color={colors.gold} /></View> : null}
                     </PressScale>
                   </FadeInUp>
@@ -843,7 +931,7 @@ export function LearnScreen({ params = {} }) {
               })}
             </View>
           ) : null}
-          <Notice text="Scores stay private on this device. Every question carries a source reference." />
+          <Notice text={`Fresh questions every day (resets in ${resetLabel()}). Scores stay private on this device, and every question carries a KJV reference.`} />
           <Group style={{ marginTop: 14 }}>
             <Item icon="shield" tint={colors.teal} title="Child & family mode" subtitle="Child profiles, guardian controls, no open messaging" onPress={() => nav.push('Profile', { tab: 'Family' })} />
           </Group>
@@ -1767,6 +1855,66 @@ const LANG_DEPTH = ['Basic', 'Intermediate', 'Advanced'];
 const COMMENTARY = ['All', 'Protestant', 'Catholic', 'Orthodox', 'Off'];
 const READ_SPEEDS = [0.75, 1, 1.25, 1.5];
 
+// Profile → Settings: which mode the app runs in, who's signed in, last sync, "Sync now" and "Sign out".
+function AccountSync() {
+  const sync = useSync();
+  const toast = useToast();
+  const nav = useNav();
+  const [confirmOut, setConfirmOut] = useState(false);
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30000); return () => clearInterval(t); }, []); // keep "x min ago" fresh
+  if (!sync.online) {
+    return (
+      <Group>
+        <Item icon="lock" tint={colors.sage} title="Local mode" subtitle="Everything is stored on this device — no account needed" right={<Badge label="Local" tint={colors.sage} />} />
+      </Group>
+    );
+  }
+  const last = sync.lastSyncedAt ? Date.parse(sync.lastSyncedAt) : 0;
+  const syncing = sync.status === 'syncing';
+  const statusLine = syncing ? 'Syncing…' : sync.status === 'error' ? `Last sync failed · ${sync.error || 'try again'}` : last ? `Last synced ${relTime(last) === 'Just now' ? 'just now' : `${relTime(last)} ago`}` : 'Not synced yet';
+  const syncNow = async () => {
+    await sync.refresh();
+    toast.show('Synced with BibleNestra', { icon: 'check', haptic: 'success' });
+  };
+  const signOut = async () => {
+    setConfirmOut(false);
+    nav.reset();
+    await sync.signOut();
+  };
+  return (
+    <Group>
+      <Item
+        icon="globe"
+        tint={colors.primary}
+        title={sync.email || 'Signed in'}
+        subtitle={sync.mode === 'dev-online' ? 'Development user · X-Dev-User header' : 'Signed in · your posts, prayers and coins sync to every device'}
+        right={<Badge label={MODE_LABEL[sync.mode] || 'Online'} tint={colors.primary} />}
+      />
+      <Item
+        icon="clock"
+        tint={sync.status === 'error' ? colors.negative : colors.teal}
+        title="Sync"
+        subtitle={statusLine}
+        right={<Button small kind="ghost" label={syncing ? 'Syncing…' : 'Sync now'} disabled={syncing} onPress={syncNow} />}
+      />
+      {sync.mode === 'online' ? (
+        confirmOut ? (
+          <View style={styles.signOutConfirm}>
+            <Text style={styles.itemSub}>Sign out of BibleNestra on this device? Your Bible notes and highlights stay here.</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <Button small kind="ghost" label="Cancel" onPress={() => setConfirmOut(false)} />
+              <Button small kind="danger" label="Sign out" onPress={signOut} />
+            </View>
+          </View>
+        ) : (
+          <Item icon="arrow-right" tint={colors.negative} title="Sign out" titleStyle={{ color: colors.negative }} onPress={() => setConfirmOut(true)} />
+        )
+      ) : null}
+    </Group>
+  );
+}
+
 export function ProfileScreen({ params = {} }) {
   const nav = useNav();
   const toast = useToast();
@@ -1780,6 +1928,11 @@ export function ProfileScreen({ params = {} }) {
   const [childName, setChildName] = useState('');
   const [addingChild, setAddingChild] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
+  const [coinSheet, setCoinSheet] = useState(false);
+  const pop = state.scripturePop || {};
+  const popEvery = pop.every >= 60 ? `${Math.round((pop.every / 60) * 10) / 10}h` : `${pop.every || 0} min`;
+  const popSub = pop.enabled ? `On · a verse every ${popEvery}` : 'Off · gentle verses through your day';
+  const coinLog = state.coinLog || [];
   const set = (patch, msg, icon = 'check') => { dispatch({ type: 'user', user: patch }); if (msg) toast.show(msg, { icon, haptic: 'select' }); };
   const setPrefT = (k, v, msg, icon = 'check') => { setPref(k, v); if (msg) toast.show(msg, { icon, haptic: 'select' }); };
   const setNotif = (k, v, label) => {
@@ -1890,6 +2043,34 @@ export function ProfileScreen({ params = {} }) {
                 </View>
               </View>
             </PressScale>
+          </Section>
+          </FadeInUp>
+
+          <FadeInUp index={2} delay={80}>
+          <Section title="Settings">
+            <Group>
+              <Item icon="bell" tint={colors.lavender} title="Scripture pop-ups" subtitle={popSub} chevron onPress={() => nav.push('ScripturePop')} />
+              <Item
+                icon="coin"
+                tint={colors.gold}
+                title="Coins & rewards"
+                subtitle={coinLog.length ? `Last: ${coinLog[0].amount > 0 ? '+' : ''}${coinLog[0].amount} · ${coinLog[0].reason}` : 'Earn coins from daily games'}
+                right={(
+                  <View style={styles.coinRowRight}>
+                    <Icon name="coin" size={13} color={colors.gold} />
+                    <AnimatedNumber value={state.coins || 0} style={styles.coinRowText} />
+                    <Chevron />
+                  </View>
+                )}
+                onPress={() => setCoinSheet(true)}
+              />
+            </Group>
+          </Section>
+          </FadeInUp>
+
+          <FadeInUp index={2} delay={100}>
+          <Section title="Account & sync">
+            <AccountSync />
           </Section>
           </FadeInUp>
 
@@ -2137,6 +2318,9 @@ export function ProfileScreen({ params = {} }) {
 
       {tab === 'Notifications' ? (
         <View style={{ marginTop: 18 }}>
+          <Group style={{ marginBottom: 14 }}>
+            <Item icon="bell" tint={colors.lavender} title="Scripture pop-ups" subtitle={popSub} chevron onPress={() => nav.push('ScripturePop')} />
+          </Group>
           <Group>
             {[['push', 'Push'], ['email', 'Email'], ['bible', 'Bible reminders & plan progress'], ['groups', 'Group messages, mentions, replies'], ['prayer', 'Prayer responses'], ['events', 'Events, livestreams, celebrations'], ['gifts', 'Gifts & creator support'], ['jobs', 'Jobs & proposals']].map(([k, l]) => <Item key={k} title={l} right={<Toggle value={!!state.notifications[k]} onChange={(v) => setNotif(k, v, l)} />} />)}
             <Item title="Safety & security" subtitle="Login alerts and safety notices can't be turned off" right={<LockedToggle onPress={() => toast.show('Safety alerts are always on', { icon: 'lock' })} />} />
@@ -2201,6 +2385,51 @@ export function ProfileScreen({ params = {} }) {
         </View>
       ) : null}
       </FadeInUp>
+
+      {/* Coins & rewards: balance + recent coin activity (state.coinLog) */}
+      <AnimatedModal visible={coinSheet} onRequestClose={() => setCoinSheet(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <Pressable style={{ flex: 1 }} onPress={() => setCoinSheet(false)} accessibilityLabel="Close" />
+          <View style={styles.coinSheet}>
+            <View style={styles.sheetGrabber} />
+            <View style={styles.cardHead}>
+              <IconBadge name="coin" tint={colors.gold} />
+              <View style={{ flex: 1 }}>
+                <Eyebrow>Coins & rewards</Eyebrow>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                  <AnimatedNumber value={state.coins || 0} style={styles.coinSheetBalance} />
+                  <Text style={styles.cardMeta}>coins</Text>
+                </View>
+              </View>
+              <Button small kind="ghost" label="Wallet" onPress={() => { setCoinSheet(false); setTab('Wallet & Gifts'); }} />
+            </View>
+            <Text style={[styles.cardBody, { marginTop: 12 }]}>Earn 5 coins for every correct answer in your first round of each daily game. Spend coins on gifts and job bids.</Text>
+            <ScrollView style={{ marginTop: 12, maxHeight: 340 }} showsVerticalScrollIndicator={false}>
+              {coinLog.length ? (
+                <Group>
+                  {coinLog.slice(0, 30).map((c, idx) => (
+                    <FadeInUp key={c.id || idx} index={idx} distance={6}>
+                      <Item
+                        icon={c.amount > 0 ? 'star' : 'gift'}
+                        tint={c.amount > 0 ? colors.gold : colors.rose}
+                        title={c.reason || (c.amount > 0 ? 'Reward' : 'Spent')}
+                        subtitle={c.time ? new Date(c.time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null}
+                        right={<Text style={[styles.txAmount, c.amount > 0 && { color: colors.positive }]}>{c.amount > 0 ? '+' : '−'}{Math.abs(c.amount)}</Text>}
+                      />
+                    </FadeInUp>
+                  ))}
+                </Group>
+              ) : (
+                <Empty title="No coin activity yet" body="Play today's Bible games to earn your first coins." />
+              )}
+            </ScrollView>
+            <View style={[styles.btnRow, { marginBottom: 6 }]}>
+              <Button small label="Play today's games" onPress={() => { setCoinSheet(false); nav.push('Learn', { tab: 'Games' }); }} />
+              <Button small kind="ghost" label="Close" onPress={() => setCoinSheet(false)} />
+            </View>
+          </View>
+        </View>
+      </AnimatedModal>
     </Screen>
   );
 }
@@ -2393,6 +2622,7 @@ export function OnboardingScreen({ params }) {
 }
 
 const styles = StyleSheet.create({
+  signOutConfirm: { paddingHorizontal: 16, paddingVertical: 14 },
   // Cards
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: 16, marginTop: 12, ...shadow.sm },
   cardPressed: { backgroundColor: colors.raised },
@@ -2521,7 +2751,21 @@ const styles = StyleSheet.create({
   optRight: { borderColor: alpha(colors.positive, 0.5), backgroundColor: colors.positiveFaint },
   optWrong: { borderColor: alpha(colors.negative, 0.45), backgroundColor: colors.negativeFaint },
 
+  coinRowRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  coinRowText: { fontSize: 14, fontWeight: '700', color: colors.fg },
+  coinSheet: { backgroundColor: colors.screen, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 26, ...shadow.lg },
+  sheetGrabber: { alignSelf: 'center', width: 38, height: 4.5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: 14 },
+  coinSheetBalance: { fontFamily: fonts.serifBold, fontSize: 26, color: colors.fg, letterSpacing: -0.4 },
   // Games
+  dailyLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  dailyLineText: { flex: 1, fontSize: 11.5, color: colors.faint },
+  dailyLineScore: { fontSize: 11.5, fontWeight: '700', color: colors.goldMuted },
+  adCard: { backgroundColor: colors.night, borderRadius: radius.lg, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10, marginTop: 12, alignItems: 'center', overflow: 'hidden', ...shadow.md },
+  adCardIcon: { width: 54, height: 54, borderRadius: 27, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
+  adCardTitle: { fontFamily: fonts.serifBold, fontSize: 21, lineHeight: 27, color: colors.nightFg, textAlign: 'center', marginTop: 6, letterSpacing: -0.3 },
+  adCardSub: { fontSize: 13, lineHeight: 18, color: colors.nightMuted, textAlign: 'center', marginTop: 8 },
+  adSkip: { paddingVertical: 10, paddingHorizontal: 18, marginTop: 4 },
+  adSkipText: { fontSize: 13, fontWeight: '600', color: colors.nightMuted, textDecorationLine: 'underline' },
   gameCell: { width: '48.5%' },
   gameTile: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 14, minHeight: 128, ...shadow.sm },
   gameTitle: { fontFamily: fonts.serifBold, fontSize: 16, lineHeight: 20, color: colors.fg, marginTop: 12, letterSpacing: -0.2 },

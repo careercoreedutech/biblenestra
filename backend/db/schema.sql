@@ -467,4 +467,18 @@ CREATE INDEX IF NOT EXISTS notifications_user_created ON notifications (user_id,
 
 -- Column additions
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify jsonb NOT NULL DEFAULT '{"messages":true,"groups":true,"prayer":true,"events":true,"gifts":true,"jobs":true}'::jsonb;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS best_streak integer NOT NULL DEFAULT 0;
+ALTER TABLE users DROP COLUMN IF EXISTS streak;
+
+-- ---------- 8. Daily Rhythm & Streaks ----------
+CREATE TABLE IF NOT EXISTS rhythm_days (
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day         date NOT NULL,
+  steps       text[] NOT NULL DEFAULT '{}',
+  reflection  text,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, day)
+);
+CREATE INDEX IF NOT EXISTS rhythm_days_user_day ON rhythm_days (user_id, day DESC);
+
 

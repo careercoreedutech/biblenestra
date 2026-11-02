@@ -44,7 +44,7 @@ const icons = {
   ),
 };
 
-export const TABS = ['Today', 'Bible', 'Discover', 'Socials', 'Profile'];
+export const TABS = ['Today', 'Bible', 'Discover', 'Socials'];
 
 const VARIANTS = {
   light: { page: colors.screen, dock: colors.surface, border: colors.border, on: colors.primary, onLabel: colors.fg, off: colors.faint, pill: colors.primarySoft },
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   iconWrap: {
-    width: 52,
+    width: 58,
     height: 30,
     alignItems: 'center',
     justifyContent: 'center',
