@@ -1,0 +1,24 @@
+{
+  "name": "biblenestra-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "BibleNestra API — Cloudflare Worker (Hono) + Neon Postgres + Clerk + R2 + Cloudflare Stream",
+  "scripts": {
+    "dev": "node dev/server.mjs",
+    "dev:wrangler": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:schema": "psql \"$DATABASE_URL\" -f db/schema.sql",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@clerk/backend": "^3.26.5",
+    "@neondatabase/serverless": "^1.2.0",
+    "hono": "^4.13.16"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.14",
+    "@hono/node-server": "^1.19.0",
+    "wrangler": "^4.156.0"
+  }
+}

@@ -1,0 +1,35 @@
+# Cloudflare Worker for the BibleNestra API — see SETUP.md
+name = "biblenestra-api"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Photos and videos (720p MP4) are stored in R2 (create once: npx wrangler r2 bucket create biblenestra-media)
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "biblenestra-media"
+
+# Real-time WebSockets & Presence via Durable Objects (SQLite-backed, WebSocket Hibernation API)
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub"]
+
+[vars]
+# Comma-separated list of allowed web origins ("*" is fine for the mobile app; restrict when you ship a website)
+CORS_ORIGINS = "*"
+# Recommended for production: connect a custom domain to the R2 bucket (e.g. https://media.biblenestra.com)
+# so photos/videos are served and cached by Cloudflare's CDN directly. Empty = served through the Worker at /media/…
+PUBLIC_MEDIA_BASE = ""
+# Keep these "false" in production:
+AUTH_DEV_MODE = "false"     # "true" accepts X-Dev-User instead of a Clerk token (local testing only)
+ADS_CLIENT_CLAIM = "false"  # "true" trusts the app's ad claims (demo ads); production uses AdMob SSV
+
+# Secrets (set with `npx wrangler secret put NAME`, never commit them):
+#   DATABASE_URL            Neon connection string (postgresql://…?sslmode=require)
+#   CLERK_SECRET_KEY        sk_live_… from the Clerk dashboard
+#   CLERK_JWT_KEY           (optional) PEM public key from Clerk → API keys → JWT public key (faster, networkless verification)
+#   CLERK_AUTHORIZED_PARTIES (optional) comma-separated allowed origins for web sign-in

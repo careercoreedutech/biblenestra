@@ -1,0 +1,5 @@
+# Copy to .dev.vars for `npm run dev:wrangler` (wrangler dev against your real Neon/Clerk/Stream).
+DATABASE_URL=postgresql://user:password@ep-xxxx.region.aws.neon.tech/neondb?sslmode=require
+CLERK_SECRET_KEY=sk_test_xxx
+AUTH_DEV_MODE=true
+ADS_CLIENT_CLAIM=true
