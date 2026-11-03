@@ -12,6 +12,10 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://biblenestra-api.lightddarkness.workers.dev",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_YmVsb3ZlZC1mb3hob3VuZC04NDU1LmNsZXJrLmFjY291bnRzLmRldiQ"
       }
     },
     "production": {
