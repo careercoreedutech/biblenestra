@@ -54,6 +54,7 @@ export function createApp() {
   app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
   // public endpoints
+  app.get('/', (c) => c.redirect('/admin'));
   app.get('/health', async (c) => {
     let db = false;
     try { db = !!(await one(c.env, 'SELECT 1 AS ok')); } catch (e) { db = false; }
