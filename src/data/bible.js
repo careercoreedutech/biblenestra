@@ -217,7 +217,7 @@ export function getChapter(translation, bookId, chapter) {
   return getCachedChapter(translation, bookId, chapter) || getCachedChapter('KJV', bookId, chapter);
 }
 
-export function searchBible(query, translation = 'KJV', scope = 'ALL', limit = 40) {
+export function searchBible(query, translation = 'KJV', scope = 'ALL', limit = Infinity) {
   if (!query || !query.trim() || query.trim().length < 2) return [];
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const qClean = query.trim().toLowerCase();

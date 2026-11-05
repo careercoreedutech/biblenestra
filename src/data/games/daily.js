@@ -95,3 +95,49 @@ export function dailySelection(gameId, items, mix, date = new Date(), { shuffleC
   picked = shuffled(picked, hash(`${gameId}@${day}`));
   return shuffleChoices ? picked.map((q) => shuffleOptions(q, hash(`${q.id}@${day}`))) : picked;
 }
+
+// ---------- Endless practice ("Keep playing") ----------
+// Walks a seeded permutation of the WHOLE bank. No item repeats until every item has been served
+// (a "lap"); then the next lap uses a fresh permutation, so the order changes every time round.
+// `exclude` (e.g. today's daily set) is skipped. The whole state is { seed, position }, so a session
+// can be saved and resumed later.
+const lapCache = new Map();
+function lapOrder(n, seed, lap) {
+  const key = `${n}:${seed}:${lap}`;
+  if (lapCache.has(key)) return lapCache.get(key);
+  const perm = shuffled(Array.from({ length: n }, (_, i) => i), hash(`endless:${seed}#${lap}`));
+  if (lap > 0 && n > 1) {
+    // never serve the same item twice in a row across a lap boundary
+    const prev = lapOrder(n, seed, lap - 1);
+    if (perm[0] === prev[n - 1]) [perm[0], perm[1]] = [perm[1], perm[0]];
+  }
+  if (lapCache.size > 24) lapCache.delete(lapCache.keys().next().value);
+  lapCache.set(key, perm);
+  return perm;
+}
+
+export function createEndless(items, { seed = 1, start = 0, exclude = [] } = {}) {
+  const L = items.length;
+  const ex = new Set(exclude);
+  const skipAll = L > 0 && items.every((it) => ex.has(it.id));
+  let k = Math.max(0, start | 0);
+  return {
+    // -> { item, lap, served } or null for an empty bank
+    next() {
+      if (!L) return null;
+      for (let guard = 0; guard <= L; guard += 1) {
+        const lap = Math.floor(k / L);
+        const item = items[lapOrder(L, seed, lap)[k % L]];
+        k += 1;
+        if (skipAll || !ex.has(item.id)) return { item, lap, served: k };
+      }
+      return null;
+    },
+    get position() { return k; },
+    get size() { return L; },
+  };
+}
+
+export function newSeed() {
+  return (Math.floor(Math.random() * 0x7fffffff) ^ Date.now()) >>> 0;
+}

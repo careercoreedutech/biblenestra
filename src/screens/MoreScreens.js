@@ -14,13 +14,16 @@ import { PressScale, FadeInUp, ScaleIn, Pop, Burst, Pulse, LiveRing, AnimatedNum
 import { DEVOTIONALS, MEMORY_DECK, COURSES, CHURCHES } from '../data/seed';
 import { TRANSLATIONS, BOOKS, getChapter, refLabel } from '../data/bible';
 import { dayKey } from '../data/rhythm';
-import { GAME_BANKS, DAILY_SIZE, GAME_TITLES, dailyQuestions, dateKey as gameDateKey, resetLabel } from '../data/games';
+import { GAME_COUNTS, DAILY_SIZE, GAME_TITLES, dailyQuestions, practiceSession, dateKey as gameDateKey, resetLabel } from '../data/games';
 import { useAds } from '../ads/Ads';
 import { AD_RULES } from '../ads/config';
 import ProfileButton from '../components/ProfileButton';
 import { useSync } from '../api/sync';
 import { MODE_LABEL } from '../api/config';
 import { relTime } from '../components/social/shared';
+import { BannerImage, AvatarImage, EditProfileButton, AvatarEditBadge, FollowSummary } from '../components/social/ProfileMedia'; // SOCIAL (round 3)
+import { useCloudRecordings, uploadRecording, SERMON_RECORDING, MAX_MINUTES } from '../api/recordings'; // DISCOVER TOOLS (round 3)
+import { CloudRecordingList } from './RecordScreens'; // DISCOVER TOOLS (round 3)
 
 // ---------- Local building blocks ----------
 
@@ -511,7 +514,7 @@ function AdBreak({ done, total, correct, onContinue }) {
       </View>
       <Eyebrow tint={colors.goldLight} style={{ marginTop: 14 }}>Supported by ads</Eyebrow>
       <Text style={styles.adCardTitle}>Watch this ad to support this great platform 🙏</Text>
-      <Text style={styles.adCardSub}>Your progress is saved — {done} of {total} done, {correct} correct.</Text>
+      <Text style={styles.adCardSub}>{total == null ? `Practice continues — ${done} answered, ${correct} correct.` : `Your progress is saved — ${done} of ${total} done, ${correct} correct.`}</Text>
       <Button
         label={playing ? 'Playing ad…' : `Watch ad${left > 0 ? ` · ${left}s` : ''}`}
         icon={<Icon name="play" size={13} color="#FFFFFF" />}
@@ -527,7 +530,7 @@ function AdBreak({ done, total, correct, onContinue }) {
 }
 
 // Results card shared by the games
-function RoundResult({ icon, correct, total, unit, gameId, onReplay, onExit }) {
+function RoundResult({ icon, correct, total, unit, gameId, onReplay, onExit, onKeepPlaying }) {
   const { state } = useStore();
   const best = ((state.gameStats || {})[gameId] || {}).best || 0;
   return (
@@ -547,26 +550,76 @@ function RoundResult({ icon, correct, total, unit, gameId, onReplay, onExit }) {
       </View>
       <Progress value={total ? correct / total : 0} delay={260} style={{ marginTop: 14 }} />
       <Text style={styles.cardMeta}>Best {best.toLocaleString()} pts · a new set arrives in {resetLabel()}</Text>
+      {onKeepPlaying ? (
+        <View style={{ marginTop: 14 }}>
+          <Button label="Keep playing" icon={<Icon name="play" size={13} color="#FFFFFF" />} onPress={onKeepPlaying} />
+          <Text style={[styles.cardMeta, { textAlign: 'center' }]}>Endless practice · {(GAME_COUNTS[gameId] || 0).toLocaleString()} in the bank, no repeats · no coins</Text>
+        </View>
+      ) : null}
       <View style={styles.btnRow}>
-        <Button small label="Replay today's set" onPress={onReplay} />
+        <Button small kind={onKeepPlaying ? 'ghost' : 'primary'} label="Replay today's set" onPress={onReplay} />
         <Button small kind="ghost" label="All games" onPress={onExit} />
       </View>
     </ScaleIn>
   );
 }
 
+// Endless practice after the daily set ("Keep playing"): questions from the whole bank, no repeats
+// until it's exhausted, position saved per game so the next session continues. No coins, no server call.
+function usePractice(kind) {
+  const { state, dispatch } = useStore();
+  const ref = useRef(null);
+  const start = () => {
+    const saved = (state.gamePractice || {})[kind] || {};
+    ref.current = practiceSession(kind, { seed: saved.seed, start: saved.pos || 0 });
+  };
+  const next = () => {
+    const s = ref.current;
+    const item = s && s.next();
+    if (item) dispatch({ type: 'set', patch: { gamePractice: { ...(state.gamePractice || {}), [kind]: { seed: s.seed, pos: s.position } } } });
+    return item;
+  };
+  return { start, next };
+}
+
+function PracticeBar({ answered, correct, onEnd }) {
+  return (
+    <View style={styles.practiceBar}>
+      <View style={styles.practiceTag}><Text style={styles.practiceTagText}>Practice · no coins</Text></View>
+      <Text style={styles.practiceScore}>{correct}/{answered} correct</Text>
+      <Pressable onPress={onEnd} hitSlop={8} accessibilityRole="button"><Text style={styles.practiceEnd}>End</Text></Pressable>
+    </View>
+  );
+}
+
 // Multiple-choice round (trivia / who-said-it / timeline) — today's questions, with references.
-function QuizGame({ kind, onExit, onFinish }) {
+function QuizGame({ kind, onExit, onFinish, todayResult }) {
+  const toast = useToast();
   const [qs, setQs] = useState(() => dailyQuestions(kind));
-  const [i, setI] = useState(0);
+  // Today's set already played: open on its result card (Keep playing / Replay) instead of replaying.
+  const [i, setI] = useState(() => (todayResult ? qs.length : 0));
   const [pick, setPick] = useState(null);
-  const [score, setScore] = useState(0);
+  const [score, setScore] = useState(() => (todayResult ? todayResult.correct : 0));
   const [adAt, setAdAt] = useState(null); // index of the next question while an ad break is showing
+  const [daily, setDaily] = useState(null); // finished daily round { qs, score } while practising
+  const prac = usePractice(kind);
   const q = qs[i];
   const done = i >= qs.length;
-  if (done) {
+  const keepPlaying = () => {
+    prac.start();
+    const first = prac.next();
+    if (!first) return;
+    setDaily({ qs, score });
+    setQs([first]); setI(0); setPick(null); setScore(0); setAdAt(null);
+  };
+  const endPractice = () => {
+    const answered = i + (pick != null ? 1 : 0);
+    toast.show(`Practice · ${score}/${answered} correct · no coins`, { icon: 'star', haptic: 'success' });
+    setQs(daily.qs); setScore(daily.score); setI(daily.qs.length); setPick(null); setAdAt(null); setDaily(null);
+  };
+  if (done && !daily) {
     return (
-      <RoundResult icon="star" correct={score} total={qs.length} unit="correct" gameId={kind}
+      <RoundResult icon="star" correct={score} total={qs.length} unit="correct" gameId={kind} onKeepPlaying={keepPlaying}
         onReplay={() => { setQs(dailyQuestions(kind)); setI(0); setPick(null); setScore(0); }} onExit={onExit} />
     );
   }
@@ -577,18 +630,23 @@ function QuizGame({ kind, onExit, onFinish }) {
   };
   const next = () => {
     const n = i + 1;
-    if (n >= qs.length) { onFinish(score, qs.length); setI(n); setPick(null); return; }
+    if (daily && n >= qs.length) {
+      const nq = prac.next();
+      if (!nq) { endPractice(); return; }
+      setQs((list) => [...list, nq]);
+    } else if (n >= qs.length) { onFinish(score, qs.length); setI(n); setPick(null); return; }
     if (n % AD_RULES.gameInterstitialEvery === 0) { setAdAt(n); return; }
     setI(n); setPick(null);
   };
   if (adAt != null) {
-    return <AdBreak done={adAt} total={qs.length} correct={score} onContinue={() => { setI(adAt); setPick(null); setAdAt(null); }} />;
+    return <AdBreak done={adAt} total={daily ? null : qs.length} correct={score} onContinue={() => { setI(adAt); setPick(null); setAdAt(null); }} />;
   }
   const isWho = kind === 'who';
   return (
     <View style={styles.card}>
+      {daily ? <PracticeBar answered={i + (pick != null ? 1 : 0)} correct={score} onEnd={endPractice} /> : null}
       <View style={styles.cardHead}>
-        <Eyebrow tint={colors.muted} style={{ flex: 1 }}>{isWho ? 'Who said it?' : (q.categoryLabel || 'Bible trivia')} · {i + 1}/{qs.length}</Eyebrow>
+        <Eyebrow tint={colors.muted} style={{ flex: 1 }}>{isWho ? 'Who said it?' : (q.categoryLabel || 'Bible trivia')} · {daily ? `practice ${i + 1}` : `${i + 1}/${qs.length}`}</Eyebrow>
         <View style={styles.scoreChip}>
           <Pop trigger={score} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Icon name="star" size={11} color={colors.gold} />
@@ -597,8 +655,8 @@ function QuizGame({ kind, onExit, onFinish }) {
           <Burst trigger={score} radius={30} size={10} color={colors.gold} />
         </View>
       </View>
-      <Progress value={(i + (pick != null ? 1 : 0)) / qs.length} height={3} tint={colors.primary} delay={0} style={{ marginTop: 10 }} />
-      <DailyLine gameId={kind} />
+      {daily ? null : <Progress value={(i + (pick != null ? 1 : 0)) / qs.length} height={3} tint={colors.primary} delay={0} style={{ marginTop: 10 }} />}
+      {daily ? null : <DailyLine gameId={kind} />}
       <FadeInUp key={i} distance={10} duration={320}>
         <Text style={[isWho ? styles.reflectText : styles.cardTitle, { marginTop: 14 }]}>{isWho ? q.quote : q.question}</Text>
         <View style={{ gap: 8, marginTop: 14 }}>
@@ -625,47 +683,67 @@ function QuizGame({ kind, onExit, onFinish }) {
         </FadeInUp>
       ) : null}
       <View style={styles.btnRow}>
-        {pick != null ? <Button small label={i + 1 >= qs.length ? 'See score' : 'Next question'} onPress={next} /> : null}
-        <Button small kind="ghost" label="Quit" onPress={onExit} />
+        {pick != null ? <Button small label={!daily && i + 1 >= qs.length ? 'See score' : 'Next question'} onPress={next} /> : null}
+        {daily ? <Button small kind="ghost" label="End practice" onPress={endPractice} /> : <Button small kind="ghost" label="Quit" onPress={onExit} />}
       </View>
     </View>
   );
 }
 
-function ScrambleGame({ onExit, onFinish }) {
+function ScrambleGame({ onExit, onFinish, todayResult }) {
+  const toast = useToast();
   const [set, setSet] = useState(() => dailyQuestions('scramble'));
-  const [i, setI] = useState(0);
+  const [i, setI] = useState(() => (todayResult ? set.length : 0));
   const [picked, setPicked] = useState([]);
-  const [solved, setSolved] = useState(0);
+  const [solved, setSolved] = useState(() => (todayResult ? todayResult.correct : 0));
   const [adAt, setAdAt] = useState(null);
+  const [daily, setDaily] = useState(null); // finished daily round { set, solved } while practising
+  const prac = usePractice('scramble');
   const v = set[i];
-  if (!v) {
+  const keepPlaying = () => {
+    prac.start();
+    const first = prac.next();
+    if (!first) return;
+    setDaily({ set, solved });
+    setSet([first]); setI(0); setPicked([]); setSolved(0); setAdAt(null);
+  };
+  const endPractice = () => {
+    toast.show(`Practice · ${solved}/${i} verses solved · no coins`, { icon: 'star', haptic: 'success' });
+    setSet(daily.set); setSolved(daily.solved); setI(daily.set.length); setPicked([]); setAdAt(null); setDaily(null);
+  };
+  if (!v && !daily) {
     return (
-      <RoundResult icon="sparkles" correct={solved} total={set.length} unit="verses solved" gameId="scramble"
+      <RoundResult icon="sparkles" correct={solved} total={set.length} unit="verses solved" gameId="scramble" onKeepPlaying={keepPlaying}
         onReplay={() => { setSet(dailyQuestions('scramble')); setI(0); setPicked([]); setSolved(0); }} onExit={onExit} />
     );
   }
   if (adAt != null) {
-    return <AdBreak done={adAt} total={set.length} correct={solved} onContinue={() => { setI(adAt); setPicked([]); setAdAt(null); }} />;
+    return <AdBreak done={adAt} total={daily ? null : set.length} correct={solved} onContinue={() => { setI(adAt); setPicked([]); setAdAt(null); }} />;
   }
+  if (!v) return null;
   const complete = picked.length === v.correctOrder.length;
   const correct = complete && picked.every((k, n) => v.scrambledWords[k] === v.correctOrder[n]);
   const next = (gotIt) => {
     const s2 = solved + (gotIt ? 1 : 0);
     const n = i + 1;
     setSolved(s2);
-    if (n >= set.length) { onFinish(s2, set.length); setI(n); setPicked([]); return; }
+    if (daily && n >= set.length) {
+      const nv = prac.next();
+      if (!nv) { endPractice(); return; }
+      setSet((list) => [...list, nv]);
+    } else if (n >= set.length) { onFinish(s2, set.length); setI(n); setPicked([]); return; }
     if (n % AD_RULES.gameInterstitialEvery === 0) { setAdAt(n); return; }
     setI(n); setPicked([]);
   };
   return (
     <View style={styles.card}>
+      {daily ? <PracticeBar answered={i + (complete ? 1 : 0)} correct={solved + (complete && correct ? 1 : 0)} onEnd={endPractice} /> : null}
       <View style={styles.cardHead}>
-        <Eyebrow tint={colors.muted} style={{ flex: 1 }}>Verse scramble · {i + 1}/{set.length}</Eyebrow>
+        <Eyebrow tint={colors.muted} style={{ flex: 1 }}>Verse scramble · {daily ? `practice ${i + 1}` : `${i + 1}/${set.length}`}</Eyebrow>
         <Text style={styles.confLabel}>{v.reference}</Text>
       </View>
-      <Progress value={(i + (complete ? 1 : 0)) / set.length} height={3} tint={colors.primary} delay={0} style={{ marginTop: 10 }} />
-      <DailyLine gameId="scramble" />
+      {daily ? null : <Progress value={(i + (complete ? 1 : 0)) / set.length} height={3} tint={colors.primary} delay={0} style={{ marginTop: 10 }} />}
+      {daily ? null : <DailyLine gameId="scramble" />}
       <View style={[styles.verseBox, { minHeight: 64 }, complete && correct && { borderColor: alpha(colors.positive, 0.45) }]}>
         {picked.length ? (
           <View style={styles.pickedWrap}>
@@ -693,10 +771,10 @@ function ScrambleGame({ onExit, onFinish }) {
         </ScaleIn>
       ) : null}
       <View style={styles.btnRow}>
-        {complete ? <Button small label={i + 1 >= set.length ? 'See score' : 'Next verse'} onPress={() => next(correct)} /> : null}
+        {complete ? <Button small label={!daily && i + 1 >= set.length ? 'See score' : 'Next verse'} onPress={() => next(correct)} /> : null}
         {picked.length && !complete ? <Button small kind="ghost" label="Undo" onPress={() => setPicked(picked.slice(0, -1))} /> : null}
         {picked.length ? <Button small kind="ghost" label="Clear" onPress={() => setPicked([])} /> : null}
-        <Button small kind="ghost" label="Quit" onPress={onExit} />
+        {daily ? <Button small kind="ghost" label="End practice" onPress={endPractice} /> : <Button small kind="ghost" label="Quit" onPress={onExit} />}
       </View>
     </View>
   );
@@ -747,6 +825,7 @@ export function LearnScreen({ params = {} }) {
   };
   const memorized = MEMORY_DECK.filter((m) => conf(m) >= 5).length;
   const gospel = state.plans.find((p) => p.id === 'pl1');
+  const todayGame = (id) => { const d = (state.gameDaily || {})[id]; return d && d.date === gameDateKey() ? d : null; };
   return (
     <Screen back title="Learn" subtitle="Plans · devotionals · memory · courses" right={<ProfileButton size={34} />}>
       <Pills items={['Plans', 'Devotionals', 'Memorize', 'Courses', 'Games', 'Badges']} value={tab} onChange={(t) => { setTab(t); setGame(null); }} />
@@ -910,8 +989,8 @@ export function LearnScreen({ params = {} }) {
       }) : null}
       {tab === 'Games' ? (
         <View>
-          {game === 'trivia' || game === 'who' || game === 'chronology' ? <FadeInUp key={game} distance={10}><QuizGame kind={game} onExit={() => setGame(null)} onFinish={(c, t) => finishGame(game, c, t)} /></FadeInUp> : null}
-          {game === 'scramble' ? <FadeInUp key="scramble" distance={10}><ScrambleGame onExit={() => setGame(null)} onFinish={(c, t) => finishGame('scramble', c, t)} /></FadeInUp> : null}
+          {game === 'trivia' || game === 'who' || game === 'chronology' ? <FadeInUp key={game} distance={10}><QuizGame kind={game} todayResult={todayGame(game)} onExit={() => setGame(null)} onFinish={(c, t) => finishGame(game, c, t)} /></FadeInUp> : null}
+          {game === 'scramble' ? <FadeInUp key="scramble" distance={10}><ScrambleGame todayResult={todayGame('scramble')} onExit={() => setGame(null)} onFinish={(c, t) => finishGame('scramble', c, t)} /></FadeInUp> : null}
           {!game ? (
             <View style={styles.grid}>
               {GAMES.map((g, idx) => {
@@ -923,7 +1002,7 @@ export function LearnScreen({ params = {} }) {
                     <PressScale scaleTo={0.96} onPress={() => (g.id === 'memory' ? setTab('Memorize') : setGame(g.id))} style={styles.gameTile}>
                       <IconBadge name={g.icon} tint={g.tint} />
                       <Text style={styles.gameTitle} numberOfLines={2}>{g.title}</Text>
-                      <Text style={styles.gameSub}>{g.id === 'memory' ? `${memorized} of ${MEMORY_DECK.length} memorized` : today ? `Today ${today.correct}/${today.total} · new set in ${resetLabel()}` : `${DAILY_SIZE[g.id]} new today · ${GAME_BANKS[g.id].length} ${g.unit}`}</Text>
+                      <Text style={styles.gameSub}>{g.id === 'memory' ? `${memorized} of ${MEMORY_DECK.length} memorized` : today ? `Today ${today.correct}/${today.total} · keep playing in practice` : `${DAILY_SIZE[g.id]} new today · ${(GAME_COUNTS[g.id] || 0).toLocaleString()} ${g.unit}`}</Text>
                       {best != null && g.id !== 'memory' ? <View style={styles.bestDot}><Icon name="star" size={10} color={colors.gold} /></View> : null}
                     </PressScale>
                   </FadeInUp>
@@ -931,7 +1010,7 @@ export function LearnScreen({ params = {} }) {
               })}
             </View>
           ) : null}
-          <Notice text={`Fresh questions every day (resets in ${resetLabel()}). Scores stay private on this device, and every question carries a KJV reference.`} />
+          <Notice text={`Fresh questions every day (resets in ${resetLabel()}) — coins for your first round of each game. Then keep playing in endless practice (no coins). Every question carries a KJV reference.`} />
           <Group style={{ marginTop: 14 }}>
             <Item icon="shield" tint={colors.teal} title="Child & family mode" subtitle="Child profiles, guardian controls, no open messaging" onPress={() => nav.push('Profile', { tab: 'Family' })} />
           </Group>
@@ -1210,13 +1289,18 @@ const fmtMs = (ms) => {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 const WAVE_BARS = 28;
-const TRANSCRIBE_UNAVAILABLE = 'Transcription needs a server connection, which isn’t set up in this build yet. Your audio is safe and was not changed.';
+const TRANSCRIBE_UNAVAILABLE = 'Sign in to get transcripts & notes. Your audio is safe and was not changed.';
 
 export function SermonStudioScreen() {
   const nav = useNav();
   const toast = useToast();
   const { state, dispatch } = useStore();
   const [prefs, setPref] = usePrefs();
+  // Online: recordings upload to the API for a transcript + AI sermon notes (src/api/recordings.js, RecordScreens.js)
+  const cloud = useCloudRecordings();
+  const online = cloud.online;
+  const cloudSeen = useRef(null);
+  if (cloudSeen.current == null && cloud.items) cloudSeen.current = new Set(cloud.items.map((x) => x.id));
   const [rec, setRec] = useState('idle'); // idle | starting | recording | paused | saving
   const [ms, setMs] = useState(0);
   const [levels, setLevels] = useState(() => Array(WAVE_BARS).fill(0));
@@ -1231,7 +1315,7 @@ export function SermonStudioScreen() {
   const soundRef = useRef(null);
   const timers = useRef([]);
   const live = useRef({});
-  live.current = { title, passage, privacy, ms, user: state.user.displayName };
+  live.current = { title, passage, privacy, ms, user: state.user.displayName, online, request: cloud.request };
   const consent = !!prefs.micConsent;
   const recordings = state.recordings || [];
   // Recordings present when the screen opened fade in; ones saved during this visit spring in.
@@ -1255,7 +1339,10 @@ export function SermonStudioScreen() {
       r.stopAndUnloadAsync().then(() => {
         const uri = r.getURI();
         const L = live.current;
-        if (uri && L.ms > 0) {
+        if (uri && L.ms > 0 && L.online) {
+          // Online: a take left running uploads in the background (it is never lost)
+          uploadRecording(L.request, { uri, durationMs: L.ms, title: L.title, passage: L.passage.trim(), speaker: L.user }).catch(() => {});
+        } else if (uri && L.ms > 0) {
           dispatch({ type: 'recording', r: { title: L.title.trim() || 'Untitled recording', speaker: L.user, passage: L.passage.trim() || '—', duration: fmtMs(L.ms), durationMs: L.ms, privacy: L.privacy, uri } });
         }
       }).catch(() => {});
@@ -1306,7 +1393,7 @@ export function SermonStudioScreen() {
     if (!ok) { setRec('idle'); return; }
     try {
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY, onRecStatus, 200);
+      const { recording } = await Audio.Recording.createAsync(online ? SERMON_RECORDING : Audio.RecordingOptionsPresets.HIGH_QUALITY, onRecStatus, 200);
       recRef.current = recording;
       setMs(0); setLevels(Array(WAVE_BARS).fill(0));
       setRec('recording');
@@ -1318,6 +1405,14 @@ export function SermonStudioScreen() {
       toast.show('Couldn’t start the microphone', { tone: 'error', icon: 'mic' });
     }
   };
+
+  // Online uploads are capped at 60 minutes: stop and save automatically when the limit is reached.
+  useEffect(() => {
+    if (online && rec === 'recording' && ms >= MAX_MINUTES * 60 * 1000) {
+      toast.show('60-minute limit reached · saving', { icon: 'mic' });
+      finish(true);
+    }
+  }, [ms >= MAX_MINUTES * 60 * 1000]);
 
   const pause = async () => {
     try { await recRef.current.pauseAsync(); setRec('paused'); toast.show('Recording paused', { icon: 'pause' }); }
@@ -1345,7 +1440,14 @@ export function SermonStudioScreen() {
     recRef.current = null;
     Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(() => {});
     if (keep) {
-      if (uri) {
+      if (uri && online) {
+        // Upload privately → the server transcribes it and writes sermon notes in the background
+        cloud.upload({ uri, durationMs: dur, title, passage: passage.trim(), speaker: state.user.displayName })
+          .then(() => toast.show('Uploaded · transcribing now', { icon: 'check', haptic: 'success' }))
+          .catch((e) => toast.show(e && e.message ? e.message : 'Upload failed — your take is kept, try again', { tone: 'error', icon: 'mic' }));
+        toast.show('Saved · uploading privately', { icon: 'check', haptic: 'success' });
+        setTitle(''); setPassage('');
+      } else if (uri) {
         dispatch({ type: 'recording', r: { title: title.trim() || 'Untitled recording', speaker: state.user.displayName, passage: passage.trim() || '—', duration: fmtMs(dur), durationMs: dur, privacy, uri } });
         toast.show('Saved as a private draft', { icon: 'check', haptic: 'success' });
         setTitle(''); setPassage('');
@@ -1409,12 +1511,12 @@ export function SermonStudioScreen() {
   const statusLabel = { transcribed: 'Transcribed', draft: 'Draft', failed: 'Not transcribed', transcribing: 'Transcribing…' };
   const busy = rec === 'starting' || rec === 'saving';
   return (
-    <Screen back title="Sermon Studio" subtitle="Record · play back · share safely">
+    <Screen back title="Sermon Studio" subtitle={online ? 'Record · transcribe · sermon notes' : 'Record · play back · share safely'}>
       {!consent ? (
         <FadeInUp style={styles.card}>
           <ScaleIn delay={120} style={{ alignSelf: 'flex-start' }}><IconBadge name="mic" tint={colors.primary} size={46} iconSize={21} /></ScaleIn>
           <Text style={[styles.cardTitleLg, { marginTop: 14 }]}>Before you record</Text>
-          <Text style={styles.cardBody}>Recording other people may require their permission under local law. Recordings stay private drafts on this device until you choose what to do with them. The app never publishes automatically.</Text>
+          <Text style={styles.cardBody}>{online ? 'Recording other people may require their permission under local law. Recordings upload privately to your account so you get a transcript and sermon notes — only you can listen to them. The app never publishes automatically.' : 'Recording other people may require their permission under local law. Recordings stay private drafts on this device until you choose what to do with them. The app never publishes automatically.'}</Text>
           <Button small label="I understand · allow microphone" style={{ alignSelf: 'flex-start', marginTop: 16 }} onPress={allow} icon={<Icon name="mic" size={13} color="#FFFFFF" />} />
         </FadeInUp>
       ) : (
@@ -1428,12 +1530,12 @@ export function SermonStudioScreen() {
             </View>
             <Blink active={rec === 'paused'}><Text style={styles.recTime}>{fmtMs(ms)}</Text></Blink>
             <View style={styles.wave}>{levels.map((l, i) => <WaveBar key={i} level={l} live={rec === 'recording'} />)}</View>
-            <Text style={styles.recMeta}>{micError === 'denied' ? 'Microphone permission denied · enable it in Settings' : micError === 'unavailable' ? 'Microphone unavailable on this device' : `Mic: ${rec === 'recording' ? 'live' : 'ready'} · Saved privately on this device`}</Text>
+            <Text style={styles.recMeta}>{micError === 'denied' ? 'Microphone permission denied · enable it in Settings' : micError === 'unavailable' ? 'Microphone unavailable on this device' : `Mic: ${rec === 'recording' ? 'live' : 'ready'} · ${online ? 'Uploads privately for a transcript & notes · up to 60 min' : 'Saved privately on this device'}`}</Text>
             <View style={styles.recBtns}>
               {rec === 'idle' || rec === 'starting' ? <NightBtn kind="gold" icon="mic" label={rec === 'starting' ? 'Starting…' : 'Record'} onPress={busy ? undefined : start} /> : null}
               {rec === 'recording' ? <NightBtn icon="pause" label="Pause" onPress={pause} /> : null}
               {rec === 'paused' ? <NightBtn kind="gold" icon="play" label="Resume" onPress={resume} /> : null}
-              {rec === 'recording' || rec === 'paused' ? <NightBtn icon="check" label="Stop & save draft" onPress={() => finish(true)} /> : null}
+              {rec === 'recording' || rec === 'paused' ? <NightBtn icon="check" label={online ? 'Stop & get notes' : 'Stop & save draft'} onPress={() => finish(true)} /> : null}
               {rec === 'recording' || rec === 'paused' ? <NightBtn icon="trash" label="Discard" onPress={() => finish(false)} /> : null}
             </View>
           </ScaleIn>
@@ -1448,11 +1550,15 @@ export function SermonStudioScreen() {
             <FieldLabel>Details</FieldLabel>
             <Input placeholder="Title" value={title} onChangeText={setTitle} />
             <Input placeholder="Bible passage (e.g. Matthew 1)" value={passage} onChangeText={setPassage} style={{ marginTop: 10 }} />
+            {online ? <Text style={[styles.cardMeta, { marginTop: 12 }]}>Private to you · only you can play it, read the transcript and the notes.</Text> : (<>
             <FieldLabel style={{ marginTop: 16 }}>Who can access</FieldLabel>
             <Chips items={['Private', 'Selected people', 'Church', 'Public']} value={privacy} onChange={setPrivacy} />
+            </>)}
           </FadeInUp>
+          {!online ? <Notice text="Sign in to get transcripts & notes — recordings stay on this device in local mode." /> : null}
         </View>
       )}
+      {online ? <CloudRecordingList cloud={cloud} seen={cloudSeen.current} /> : (
       <Section title="Your recordings">
         {recordings.length ? recordings.map((r, idx) => {
           const mine = player && player.id === r.id;
@@ -1523,6 +1629,7 @@ export function SermonStudioScreen() {
           </ScaleIn>
         )}
       </Section>
+      )}
     </Screen>
   );
 }
@@ -1958,16 +2065,22 @@ export function ProfileScreen({ params = {} }) {
     <Screen back={nav.stack.length > 0} title="Profile" subtitle={`@${u.username}`}>
       {tab === 'Profile' ? (
         <FadeInUp distance={10} style={styles.heroCard}>
-          <View style={styles.cover}><NightGlow />
-            <Text style={styles.coverMark}>✦</Text>
+          <View style={[styles.cover, u.bannerUrl && { height: 124 }]}>{u.bannerUrl ? <BannerImage uri={u.bannerUrl} /> : <><NightGlow />
+            <Text style={styles.coverMark}>✦</Text></>}
+            <EditProfileButton onPress={() => nav.push('EditProfile')} />
           </View>
           <ScaleIn delay={140} from={0.6} style={styles.avatarRing}>
-            <View style={styles.avatar}><Text style={styles.avatarText}>{initial}</Text></View>
+            <PressScale onPress={() => nav.push('EditProfile')} scaleTo={0.94} accessibilityLabel="Change profile photo">
+              {u.avatarUrl ? <AvatarImage uri={u.avatarUrl} size={84} /> : <View style={styles.avatar}><Text style={styles.avatarText}>{initial}</Text></View>}
+              <AvatarEditBadge />
+            </PressScale>
           </ScaleIn>
           <FadeInUp delay={220} distance={8} style={styles.heroBody}>
             <Text style={styles.heroName}>{u.displayName}</Text>
             <Text style={styles.heroHandle}>@{u.username}</Text>
             {u.headline ? <Text style={styles.heroMeta}>{u.headline}</Text> : null}
+            {u.bio ? <Text style={[styles.heroMetaFaint, { color: colors.muted, textAlign: 'center', marginTop: 6 }]}>{u.bio}</Text> : null}
+            <FollowSummary />
             <Text style={styles.heroMetaFaint}>{[u.country, (u.languages || []).join(', ')].filter(Boolean).join('  ·  ')}</Text>
             <View style={styles.heroChips}>
               {u.church?.visible ? (
@@ -1991,7 +2104,7 @@ export function ProfileScreen({ params = {} }) {
         </FadeInUp>
       ) : (
         <View style={styles.compactId}>
-          <View style={[styles.avatar, styles.avatarSm]}><Text style={[styles.avatarText, { fontSize: 19 }]}>{initial}</Text></View>
+          {u.avatarUrl ? <AvatarImage uri={u.avatarUrl} size={46} /> : <View style={[styles.avatar, styles.avatarSm]}><Text style={[styles.avatarText, { fontSize: 19 }]}>{initial}</Text></View>}
           <View style={{ flex: 1 }}>
             <Text style={styles.compactName}>{u.displayName}</Text>
             <Text style={styles.cardMeta}>@{u.username} · {cap(u.profileVisibility)}</Text>
@@ -2760,6 +2873,11 @@ const styles = StyleSheet.create({
   dailyLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
   dailyLineText: { flex: 1, fontSize: 11.5, color: colors.faint },
   dailyLineScore: { fontSize: 11.5, fontWeight: '700', color: colors.goldMuted },
+  practiceBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderStrong },
+  practiceTag: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.goldFaint },
+  practiceTagText: { fontSize: 11, fontWeight: '700', color: colors.goldMuted, letterSpacing: 0.3 },
+  practiceScore: { flex: 1, fontSize: 12.5, fontWeight: '600', color: colors.fg },
+  practiceEnd: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
   adCard: { backgroundColor: colors.night, borderRadius: radius.lg, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10, marginTop: 12, alignItems: 'center', overflow: 'hidden', ...shadow.md },
   adCardIcon: { width: 54, height: 54, borderRadius: 27, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
   adCardTitle: { fontFamily: fonts.serifBold, fontSize: 21, lineHeight: 27, color: colors.nightFg, textAlign: 'center', marginTop: 6, letterSpacing: -0.3 },

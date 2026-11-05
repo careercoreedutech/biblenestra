@@ -23,13 +23,21 @@ import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
 import { useSync } from '../api/sync';
 import { useNav, useIsFocused } from '../navigation';
-import { GIFTS, PEOPLE, CHANNELS_DATA } from '../data/seed';
+import { PEOPLE, CHANNELS_DATA } from '../data/seed';
 import ProfileButton from '../components/ProfileButton';
 import { PhotoViewer } from '../components/social/FeedCard';
 import { LightPostCard, ComposerCard, ReelsStrip, HubCards, PostMenuSheet, reactionOf } from '../components/social/LightFeed';
 import CreatePostSheet from '../components/social/CreatePostSheet';
 import { SOCIAL, CONTENT_THEMES, parseScriptureRef, passageLabel, timestampOf, relTime, initials } from '../components/social/shared';
 import { setSocialsDark } from '../ui/chrome';
+// SOCIAL (round 3): profile links, comment likes, gifts from comments, who-liked lists, activity inbox
+import { useApi } from '../api/auth';
+import { splitPosts, mapNotification } from '../api/mappers';
+import { toggleCommentLike, getCommentLikers, getPostReactors, isServerId } from '../api/social';
+import { useOpenProfile } from '../components/social/profileNav';
+import GiftSheet from '../components/social/GiftSheet';
+import PeopleSheet from '../components/social/PeopleSheet';
+import { SocialAvatar } from '../components/social/FeedCard';
 import { Button, alpha } from '../components/ui';
 import { useToast, haptic } from '../components/Toast';
 import { useNarration } from '../audio/Narration';
@@ -330,6 +338,7 @@ function VideoReelItem({
   onFollow,
   onOpenBible,
   onListen,
+  onOpenCreator,
 }) {
   const isTextPost = !item.videoUrl && !item.imageUrl && item.duration === 'Text Post';
   const cardBg = isTextPost && item.bg ? item.bg : VIDEO_THEMES[index % VIDEO_THEMES.length];
@@ -522,12 +531,20 @@ function VideoReelItem({
 
         {/* Creator Row */}
         <View style={styles.creatorRow}>
-          <View style={styles.creatorAvatar}>
-            <Text style={styles.creatorAvatarText}>{item.creator?.avatar}</Text>
-          </View>
+          <PressScale onPress={onOpenCreator} disabled={!onOpenCreator} scaleTo={0.9} hitSlop={6} accessibilityLabel={`Open ${item.mine ? 'your' : `${item.creator.name}'s`} profile`}>
+            {item.creator && item.creator.avatarUrl ? (
+              <Image source={{ uri: item.creator.avatarUrl }} style={styles.creatorAvatar} />
+            ) : (
+              <View style={styles.creatorAvatar}>
+                <Text style={styles.creatorAvatarText}>{item.creator?.avatar}</Text>
+              </View>
+            )}
+          </PressScale>
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              <Text style={styles.creatorName} numberOfLines={1}>{item.creator.name}</Text>
+              <Pressable onPress={onOpenCreator} disabled={!onOpenCreator} hitSlop={4} style={{ flexShrink: 1 }} accessibilityRole="link">
+                <Text style={styles.creatorName} numberOfLines={1}>{item.creator.name}</Text>
+              </Pressable>
               {item.creator.verified ? (
                 <View style={styles.verifiedDot}>
                   <Icon name="check" size={8} color={colors.night} strokeWidth={3.4} />
@@ -717,8 +734,10 @@ function SegmentSwitch({ value, onChange, light }) {
 export default function SocialsScreen({ params }) {
   const routeMode = params != null; // pushed as a route (vs. the Socials tab, which gets no params)
   const p = params || {};
-  const { state, dispatch } = useStore();
+  const { state, dispatch, getState } = useStore();
   const sync = useSync(); // online mode: pull-to-refresh, pagination, comments from the API
+  const api = useApi();
+  const openProfile = useOpenProfile();
   const nav = useNav();
   const toast = useToast();
   const nar = useNarration();
@@ -733,7 +752,11 @@ export default function SocialsScreen({ params }) {
   const [selectedId, setSelectedId] = useState(null); // video the gift sheet is for
   const [commentTarget, setCommentTarget] = useState(null); // { src: 'post' | 'video', id }
   const [showGiftStore, setShowGiftStore] = useState(false);
-  const [giftNotice, setGiftNotice] = useState(null); // inline feedback inside the gift sheet
+  const [giftTarget, setGiftTarget] = useState(null); // { userId, name, videoId?, postId?, commentId? }
+  const [likers, setLikers] = useState(null); // { title, eyebrow, load, footer } — "who liked" sheet
+  const [focusComment, setFocusComment] = useState(null); // comment opened from a notification
+  const reopenComments = useRef(null); // comments sheet to restore after a gift / likes sheet closes
+  const commentScroll = useRef(null);
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
   const [composer, setComposer] = useState(null); // null | { mode, bounty?, preset? }
@@ -786,6 +809,7 @@ export default function SocialsScreen({ params }) {
   const reelVideos = useMemo(() => videos.filter((v) => v.videoUrl), [videos]);
   const communityNames = (state.communities || []).map((c) => c.name);
 
+  const myAvatar = (state.user && state.user.avatarUrl) || null;
   const allItems = useMemo(() => {
     const now = Date.now();
     const fromPost = (f) => {
@@ -800,6 +824,8 @@ export default function SocialsScreen({ params }) {
         verified: !!f.authorVerified || !!(person && person.verified && person.verified.length),
         sub: f.mine ? null : f.authorSub || (person ? person.username : communityNames.includes(f.author) ? 'Community' : null),
         handle: f.authorHandle || null, // online: '@handle' of the server author (followable)
+        authorId: f.authorId || null,
+        avatarUrl: f.mine ? myAvatar : f.authorAvatarUrl || null,
         time: f.createdAt ? relTime(ts) : f.time,
         ts,
         kind: f.kind || 'Post',
@@ -830,6 +856,8 @@ export default function SocialsScreen({ params }) {
         avatarText: v.creator && v.creator.avatar,
         verified: !!(v.creator && v.creator.verified),
         handle: v.creator && v.creator.handle,
+        authorId: (v.creator && v.creator.userId) || v.authorId || null,
+        avatarUrl: v.mine ? myAvatar : (v.creator && v.creator.avatarUrl) || null,
         sub: v.creator && (v.creator.label != null ? v.creator.label || null : v.creator.handle), // online: '@handle' or nothing
         time: relTime(ts),
         ts,
@@ -855,7 +883,7 @@ export default function SocialsScreen({ params }) {
       };
     };
     return [...feed.map(fromPost), ...videos.map(fromVideo)].sort((a, b) => b.ts - a.ts);
-  }, [feed, videos, state.communities]);
+  }, [feed, videos, state.communities, myAvatar]);
 
   const followedPeople = PEOPLE.filter((x) => follows.includes(x.id)).map((x) => x.name);
   const joinedCommunities = (state.communities || []).filter((c) => c.joined === true).map((c) => c.name);
@@ -916,18 +944,44 @@ export default function SocialsScreen({ params }) {
       return;
     }
     if (p.postId) {
-      const isPost = feed.some((f) => f.id === p.postId);
-      const isVideo = videos.some((v) => v.id === p.postId);
-      if (p.tab === 'videos' && isVideo) openReelAt(p.postId);
-      else if (isPost || isVideo) {
-        if (segment === 'videos') setSegment('feed');
-        const key = (isPost ? 'p_' : 'v_') + p.postId;
-        const target = allItems.find((it) => it.key === key);
-        if (target && !passesChip(target)) setChip('For You');
-        setTimeout(() => scrollFeedTo(key), 350);
-      } else toast.show('That post is no longer available', { icon: 'socials' });
+      let alive = true;
+      const go = () => {
+        const s = getState();
+        const isPost = (s.feed || []).some((f) => f.id === p.postId);
+        const isVideo = (s.videos || []).some((v) => v.id === p.postId);
+        if (p.tab === 'videos' && isVideo) openReelAt(p.postId);
+        else if (isPost || isVideo) {
+          if (segment === 'videos') setSegment('feed');
+          const key = (isPost ? 'p_' : 'v_') + p.postId;
+          const target = allItems.find((it) => it.key === key);
+          if (target && !passesChip(target)) setChip('For You');
+          setTimeout(() => scrollFeedTo(key), 350);
+          // From a notification: open the thread with that comment highlighted
+          if (p.commentId) {
+            setTimeout(() => {
+              if (!alive) return;
+              setFocusComment(p.commentId);
+              openComments(isPost ? 'post' : 'video', p.postId);
+            }, 650);
+          }
+        } else toast.show('That post is no longer available', { icon: 'socials' });
+      };
+      const s0 = getState();
+      const known = (s0.feed || []).some((f) => f.id === p.postId) || (s0.videos || []).some((v) => v.id === p.postId);
+      if (!known && sync.online && isServerId(p.postId)) {
+        // Older posts (not on the first feed page) are fetched on demand
+        api.request('GET', `/posts/${p.postId}`).then((post) => {
+          if (!alive) return;
+          const sp = splitPosts([post]);
+          if (sp.feed.length) dispatch({ type: 'appendItems', slice: 'feed', items: sp.feed, local: true });
+          if (sp.videos.length) dispatch({ type: 'appendItems', slice: 'videos', items: sp.videos, local: true });
+          setTimeout(() => { if (alive) go(); }, 60);
+        }).catch(() => { if (alive) toast.show('That post is no longer available', { icon: 'socials' }); });
+      } else go();
+      return () => { alive = false; };
     }
-  }, [p.initialVideoId, p.postId]);
+    return undefined;
+  }, [p.initialVideoId, p.postId, p.commentId]);
 
   const switchSegment = (id) => {
     if (id === segment) {
@@ -1188,45 +1242,130 @@ export default function SocialsScreen({ params }) {
     if (sync.online) sync.loadComments(src, id); // fresh thread from the server
   };
 
-  const buyCoins = (amount = 250) => {
-    dispatch({ type: 'buyCoins', amount });
-    setGiftNotice({ tone: 'ok', text: `+${amount} coins added to your balance` });
-    toast.show(`+${amount} coins added`, { icon: 'coin', haptic: 'success' });
-  };
-
   const openGifts = (videoId) => {
     setSelectedId(videoId);
-    setGiftNotice(null);
+    const v = videos.find((x) => x.id === videoId);
+    if (!v || !v.creator) return;
+    if (v.mine) { toast.show('You can’t send a gift to yourself', { icon: 'gift' }); return; }
+    setGiftTarget({ userId: v.authorId || v.creator.userId || null, name: v.creator.name, videoId: v.id, postId: v.id });
     setShowGiftStore(true);
   };
 
-  const handleSendGift = async (gift) => {
-    if (!activeVideo) return;
-    if ((state.coins || 0) < gift.price) {
-      const need = gift.price - (state.coins || 0);
-      setGiftNotice({ tone: 'error', text: `You need ${need} more coins for ${gift.name}.`, need });
-      toast.show(`Not enough coins for ${gift.name}`, { tone: 'error', action: { label: 'Buy 250', onPress: () => buyCoins(250) } });
-      return;
+  // ─── Profiles, comment likes & comment gifts (SOCIAL r3) ───────
+  const openItemAuthor = (it) => openProfile({ userId: it.authorId, name: it.name, handle: it.handle, mine: it.mine });
+  // Modals can't stack on native: close the comments sheet first, restore it after a sub-sheet closes
+  const fromComments = (fn) => {
+    reopenComments.current = commentTarget;
+    setCommentTarget(null);
+    setTimeout(fn, 240);
+  };
+  const restoreComments = () => {
+    const t = reopenComments.current;
+    reopenComments.current = null;
+    if (t) setTimeout(() => setCommentTarget(t), 240);
+  };
+  const openCommenter = (c) => {
+    reopenComments.current = null;
+    setCommentTarget(null);
+    setTimeout(() => openProfile({ userId: c.authorId, name: c.from, mine: c.mine }), 200);
+  };
+  const commentSlice = () => (commentTarget && commentTarget.src === 'video' ? ['videos', 'comments'] : ['feed', 'commentList']);
+  const patchComment = (postId, commentId, fn) => {
+    const [slice, field] = commentSlice();
+    const item = (getState()[slice] || []).find((x) => x.id === postId);
+    if (!item) return;
+    const list = (item[field] || []).map((x) => (x.id === commentId ? fn(x) : x.replies && x.replies.some((r) => r.id === commentId) ? { ...x, replies: x.replies.map((r) => (r.id === commentId ? fn(r) : r)) } : x));
+    dispatch({ type: 'patchItem', slice, id: postId, patch: { [field]: list }, local: true });
+  };
+  const likeComment = async (c) => {
+    if (!commentItem) return;
+    const postId = commentItem.id;
+    const was = !!c.liked;
+    haptic(was ? 'light' : 'success');
+    patchComment(postId, c.id, (x) => ({ ...x, liked: !was, likes: Math.max(0, (Number(x.likes) || 0) + (was ? -1 : 1)) }));
+    if (!sync.online) return;
+    if (!isServerId(c.id)) return; // still being posted
+    try {
+      const r = await toggleCommentLike(api.request, c.id);
+      patchComment(postId, c.id, (x) => ({ ...x, liked: !!r.liked, likes: r.likes }));
+    } catch (e) {
+      patchComment(postId, c.id, (x) => ({ ...x, liked: was, likes: Math.max(0, (Number(x.likes) || 0) + (was ? 1 : -1)) }));
+      toast.show(`Couldn’t update your like${e && e.code === 'NETWORK' ? ' — you seem to be offline' : ''}`, { tone: 'error' });
     }
-    if (sync.online && sync.sendGift) {
-      try {
-        const creatorId = activeVideo.authorId || activeVideo.creator?.userId;
-        if (creatorId) {
-          await sync.sendGift({ toUserId: creatorId, giftId: gift.id, postId: activeVideo.id });
-          setShowGiftStore(false);
-          setGiftNotice(null);
-          toast.show(`Sent ${gift.name} to ${activeVideo.creator.name}`, { icon: 'gift', haptic: 'success' });
-          return;
-        }
-      } catch (e) {
-        toast.show(e.message || 'Could not send gift', { tone: 'error' });
-        return;
-      }
-    }
-    dispatch({ type: 'sendGift', videoId: activeVideo.id, giftName: gift.name, recipient: activeVideo.creator.name, coins: gift.price });
+  };
+  const meName = (state.user && state.user.displayName) || 'You';
+  const localLikers = (liked, total, reaction) => async () => (liked ? [{ id: 'me', name: meName, isMe: true, avatarUrl: myAvatar, reaction }] : []);
+  const othersNote = (liked, total) => {
+    const others = Math.max(0, (Number(total) || 0) - (liked ? 1 : 0));
+    return others ? `${liked ? 'And ' : ''}${others} ${liked ? (others === 1 ? 'other' : 'others') : others === 1 ? 'person' : 'people'}` : null;
+  };
+  const openCommentLikers = (c) => fromComments(() => setLikers({
+    title: `${c.likes || 0} ${(c.likes || 0) === 1 ? 'like' : 'likes'}`,
+    eyebrow: `On ${c.mine ? 'your' : `${c.from}'s`} comment`,
+    load: sync.online && isServerId(c.id) ? () => getCommentLikers(api.request, c.id) : localLikers(c.liked, c.likes),
+    footer: sync.online ? null : othersNote(c.liked, c.likes),
+  }));
+  const openPostLikers = (it) => setLikers({
+    title: `${it.likes} ${it.likes === 1 ? 'reaction' : 'reactions'}`,
+    eyebrow: `On ${it.mine ? 'your' : `${it.name}'s`} post`,
+    load: sync.online && isServerId(it.id) ? () => getPostReactors(api.request, it.id) : localLikers(it.liked, it.likes, it.reaction),
+    footer: sync.online ? null : othersNote(it.liked, it.likes),
+  });
+  const giftComment = (c) => {
+    if (!commentItem) return;
+    const postId = commentItem.id;
+    fromComments(() => {
+      setGiftTarget({ userId: c.authorId || null, name: c.from, postId, commentId: c.id });
+      setShowGiftStore(true);
+    });
+  };
+  const closeGifts = () => {
     setShowGiftStore(false);
-    setGiftNotice(null);
-    toast.show(`Sent ${gift.name} to ${activeVideo.creator.name}`, { icon: 'gift', haptic: 'success' });
+    restoreComments();
+  };
+
+  // Activity inbox badge: refresh the in-app notifications while Socials is on screen (online)
+  const unreadActivity = (state.notificationsList || []).filter((n) => !n.read).length;
+  useEffect(() => {
+    if (!sync.online || !focused) return undefined;
+    let alive = true;
+    const pull = () => api.request('GET', '/me/notifications?limit=30').then((r) => {
+      if (alive) dispatch({ type: 'serverSync', patch: { notificationsList: (r.items || []).map(mapNotification) }, local: true });
+    }).catch(() => {});
+    pull();
+    const t = setInterval(pull, 45000);
+    return () => { alive = false; clearInterval(t); };
+  }, [sync.online, focused]);
+
+  // Reply · ♥ like (count → who liked) · Gift (not on your own comments)
+  const renderCommentBar = (c, root) => {
+    const likes = Number(c.likes) || 0;
+    const pending = sync.online && !isServerId(c.id);
+    return (
+      <View style={styles.commentBar}>
+        {root ? (
+          <PressScale onPress={() => setReplyingTo(c)} hitSlop={8} scaleTo={0.92} accessibilityLabel={`Reply to ${c.from}`}>
+            <Text style={[styles.replyActionText, replyingTo && replyingTo.id === c.id && { color: colors.primary }]}>Reply</Text>
+          </PressScale>
+        ) : null}
+        <View style={styles.commentLike}>
+          <PressScale onPress={() => likeComment(c)} disabled={pending} hitSlop={8} scaleTo={0.8} accessibilityLabel={c.liked ? 'Unlike comment' : 'Like comment'} accessibilityState={{ selected: !!c.liked }}>
+            <Pop trigger={!!c.liked} amount={1.35}>
+              <Icon name="heart" size={14} color={c.liked ? colors.rose : colors.muted} fill={c.liked ? colors.rose : 'none'} />
+            </Pop>
+          </PressScale>
+          <Pressable onPress={() => openCommentLikers(c)} disabled={!likes} hitSlop={8} accessibilityLabel={likes ? `${likes} ${likes === 1 ? 'like' : 'likes'} · see who liked` : 'No likes yet'}>
+            <AnimatedNumber value={likes} duration={300} style={[styles.commentLikeCount, c.liked && { color: colors.rose }, !likes && { color: colors.faint }]} />
+          </Pressable>
+        </View>
+        {!c.mine ? (
+          <PressScale onPress={() => giftComment(c)} disabled={pending} hitSlop={8} scaleTo={0.9} style={styles.commentGift} accessibilityLabel={`Send ${c.from} a gift`}>
+            <Icon name="gift" size={13} color={colors.gold} />
+            <Text style={styles.commentGiftText}>Gift</Text>
+          </PressScale>
+        ) : null}
+      </View>
+    );
   };
 
   // Comments sheet works for both feed posts and videos
@@ -1430,6 +1569,8 @@ export default function SocialsScreen({ params }) {
         onOpenPassage={() => openScripture(it.passage || it.scripture)}
         onOpenVideo={() => openReelAt(it.id)}
         onOpenPhoto={(images, start) => setViewer({ images, start })}
+        onOpenAuthor={() => openItemAuthor(it)}
+        onOpenLikes={() => openPostLikers(it)}
       />
     </View>
   );
@@ -1471,14 +1612,16 @@ export default function SocialsScreen({ params }) {
 
         {chip === 'For You' ? (
           <>
-            <ComposerCard userName={userName} onOpen={(mode) => openComposer(mode)} />
+            <ComposerCard userName={userName} avatarUri={myAvatar} onOpen={(mode) => openComposer(mode)} />
             {reelVideos.length ? (
               <ReelsStrip
                 videos={reelVideos}
                 userName={userName}
+                userAvatar={myAvatar}
                 onOpen={openReelAt}
                 onCreate={() => openComposer('video')}
                 onSeeAll={() => switchSegment('videos')}
+                onOpenCreator={(v) => openProfile({ userId: v.creator && v.creator.userId, name: v.creator && v.creator.name, handle: v.creator && v.creator.handle, mine: v.mine })}
               />
             ) : null}
           </>
@@ -1575,6 +1718,7 @@ export default function SocialsScreen({ params }) {
             onFollow={() => handleFollow(item)}
             onOpenBible={() => openScripture(item.scripture)}
             onListen={() => listenScripture(item)}
+            onOpenCreator={() => openProfile({ userId: item.creator && item.creator.userId, name: item.creator && item.creator.name, handle: item.creator && item.creator.handle, mine: item.mine })}
           />
         )}
         ListEmptyComponent={
@@ -1629,6 +1773,14 @@ export default function SocialsScreen({ params }) {
                 <Text style={[styles.headerEyebrow, !darkHead && { color: colors.gold }]}>Community</Text>
                 <Text style={[styles.headerTitle, !darkHead && { color: colors.fg }]} numberOfLines={1}>Socials</Text>
               </View>
+              <PressScale onPress={() => nav.push('Activity')} scaleTo={0.9} hitSlop={6} style={[styles.headerBack, !darkHead && styles.headerBackLight]} accessibilityLabel={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'}>
+                <Icon name="bell" size={17} color={darkHead ? colors.nightFg : colors.fg} />
+                {unreadActivity ? (
+                  <ScaleIn key={unreadActivity} style={styles.bellBadge}>
+                    <Text style={styles.bellBadgeText}>{unreadActivity > 9 ? '9+' : unreadActivity}</Text>
+                  </ScaleIn>
+                ) : null}
+              </PressScale>
               <PressScale onPress={() => openComposer(segment === 'videos' ? 'video' : 'text')} scaleTo={0.9} hitSlop={6} style={[styles.headerCreate, !darkHead && styles.headerCreateLight]} accessibilityLabel="Create post">
                 <Icon name="plus" size={18} color={WHITE} strokeWidth={2.4} />
               </PressScale>
@@ -1846,76 +1998,33 @@ export default function SocialsScreen({ params }) {
         onFollow={fromMenu((it) => handleFollow(it.raw))}
         onOpenVideo={fromMenu((it) => openReelAt(it.id))}
         onGift={fromMenu((it) => openGifts(it.id))}
+        onProfile={fromMenu(openItemAuthor)}
       />
 
       <PhotoViewer visible={!!viewer} images={(viewer && viewer.images) || []} start={(viewer && viewer.start) || 0} onClose={() => setViewer(null)} />
 
-      {/* Virtual Gifts Store Modal */}
-      <AnimatedModal visible={showGiftStore} onRequestClose={() => { setShowGiftStore(false); setGiftNotice(null); }}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={() => { setShowGiftStore(false); setGiftNotice(null); }} accessibilityLabel="Dismiss" />
-          <View style={styles.giftModalSheet}>
-            <SheetHead
-              eyebrow={activeVideo && activeVideo.creator && activeVideo.creator.name ? `For ${activeVideo.creator.name}` : 'Gifts'}
-              title="Send Virtual Gift"
-              subtitle="Bless and support Christian creators"
-              right={
-                <Pop trigger={state.coins} amount={1.12}>
-                  <View style={styles.coinBalanceBadge}>
-                    <Icon name="coin" size={14} color={colors.gold} />
-                    <AnimatedNumber value={state.coins || 0} style={styles.coinBalanceText} />
-                  </View>
-                </Pop>
-              }
-            />
+      {/* Virtual gifts (reels, comments) — coins only move on the server when online */}
+      <GiftSheet visible={showGiftStore} target={giftTarget} onClose={closeGifts} />
 
-            <View style={styles.giftGrid}>
-              {GIFTS.map((g, gi) => {
-                const iconMeta = GIFT_ICONS[g.id] || { name: 'sparkles', color: colors.gold };
-                const short = g.price > (state.coins || 0);
-                return (
-                  <FadeInUp key={g.id} index={gi} distance={12} duration={340}>
-                    <PressScale onPress={() => handleSendGift(g)} accessibilityLabel={`Send ${g.name}`} scaleTo={0.95} style={[styles.giftCard, short && styles.giftCardShort]}>
-                      <View style={[styles.giftIconCircle, { backgroundColor: alpha(iconMeta.color, 0.12) }]}>
-                        <Icon name={iconMeta.name} size={22} color={iconMeta.color} />
-                      </View>
-                      <Text style={styles.giftNameText}>{g.name}</Text>
-                      <Text style={styles.giftDescText} numberOfLines={2}>{g.desc}</Text>
-                      <View style={styles.giftPricePill}>
-                        <Icon name="coin" size={12} color={colors.gold} />
-                        <Text style={styles.giftPriceText}>{g.price} coins</Text>
-                      </View>
-                    </PressScale>
-                  </FadeInUp>
-                );
-              })}
-            </View>
-
-            {giftNotice ? (
-              <ScaleIn key={giftNotice.text} from={0.92} style={[styles.giftNotice, giftNotice.tone === 'error' ? styles.giftNoticeError : styles.giftNoticeOk]}>
-                <Icon name={giftNotice.tone === 'error' ? 'coin' : 'check'} size={14} color={giftNotice.tone === 'error' ? colors.negative : colors.primary} strokeWidth={2.4} />
-                <Text style={[styles.giftNoticeText, giftNotice.tone === 'error' && { color: colors.negative }]}>{giftNotice.text}</Text>
-              </ScaleIn>
-            ) : null}
-
-            <View style={styles.refillRow}>
-              <Button
-                small
-                kind={giftNotice && giftNotice.tone === 'error' ? 'primary' : 'ghost'}
-                label="Buy 250 coins · $2.99"
-                icon={<Icon name="coin" size={14} color={giftNotice && giftNotice.tone === 'error' ? colors.goldLight : colors.gold} />}
-                onPress={() => buyCoins(250)}
-              />
-              <Button small kind="ghost" label="Close" onPress={() => { setShowGiftStore(false); setGiftNotice(null); }} />
-            </View>
-          </View>
-        </View>
-      </AnimatedModal>
+      {/* Who liked a post / comment */}
+      <PeopleSheet
+        visible={!!likers}
+        title={likers ? likers.title : ''}
+        eyebrow={likers ? likers.eyebrow : ''}
+        load={likers ? likers.load : null}
+        footer={likers ? likers.footer : null}
+        onClose={() => { setLikers(null); restoreComments(); }}
+        onOpenPerson={(person) => {
+          reopenComments.current = null;
+          setLikers(null);
+          setTimeout(() => openProfile({ userId: person.id, name: person.name, handle: person.followKey, mine: person.isMe }), 200);
+        }}
+      />
 
       {/* Comments & replies (feed posts and videos) */}
-      <AnimatedModal visible={!!commentTarget} onRequestClose={() => setCommentTarget(null)}>
+      <AnimatedModal visible={!!commentTarget} onRequestClose={() => { setCommentTarget(null); setFocusComment(null); }}>
         <View style={styles.modalOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={() => setCommentTarget(null)} accessibilityLabel="Dismiss" />
+          <Pressable style={{ flex: 1 }} onPress={() => { setCommentTarget(null); setFocusComment(null); }} accessibilityLabel="Dismiss" />
           <View style={styles.commentsSheet}>
             <View style={styles.sheetPad}>
               <SheetHead
@@ -1925,7 +2034,7 @@ export default function SocialsScreen({ params }) {
               />
             </View>
 
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.sheetScroll} keyboardShouldPersistTaps="handled">
+            <ScrollView ref={commentScroll} style={{ flex: 1 }} contentContainerStyle={styles.sheetScroll} keyboardShouldPersistTaps="handled">
               {earlierCount ? <Text style={styles.commentsNote}>{earlierCount} earlier {earlierCount === 1 ? 'comment' : 'comments'} in this thread</Text> : null}
               {commentList.length ? null : (
                 <ScaleIn style={styles.commentsEmpty}>
@@ -1936,26 +2045,45 @@ export default function SocialsScreen({ params }) {
                   <Text style={styles.commentsEmptyText}>Share an encouraging word.</Text>
                 </ScaleIn>
               )}
-              {commentList.map((c, ci) => (
-                <FadeInUp key={c.id} index={ci} distance={10} duration={340} style={styles.commentBlock}>
-                  <View style={styles.commentAvatar}>
-                    <Text style={styles.commentAvatarText}>{initials(c.from)}</Text>
+              {commentList.map((c, ci) => {
+                const focusHere = focusComment && (c.id === focusComment || (c.replies || []).some((r) => r.id === focusComment));
+                return (
+                  <View
+                    key={c.id}
+                    onLayout={focusHere ? (e) => { const y = e.nativeEvent.layout.y; setTimeout(() => { try { commentScroll.current && commentScroll.current.scrollTo({ y: Math.max(0, y - 12), animated: true }); } catch (err) { /* ignore */ } }, 120); } : undefined}
+                  >
+                    <FadeInUp index={ci} distance={10} duration={340} style={[styles.commentBlock, c.id === focusComment && styles.commentFocus]}>
+                      <PressScale onPress={() => openCommenter(c)} scaleTo={0.9} hitSlop={4} accessibilityLabel={`Open ${c.mine ? 'your' : `${c.from}'s`} profile`}>
+                        {c.avatarUrl || (c.mine && myAvatar) ? (
+                          <SocialAvatar name={c.from} uri={c.avatarUrl || myAvatar} size={34} />
+                        ) : (
+                          <View style={styles.commentAvatar}>
+                            <Text style={styles.commentAvatarText}>{initials(c.from)}</Text>
+                          </View>
+                        )}
+                      </PressScale>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.commentAuthor}>
+                          <Text onPress={() => openCommenter(c)} accessibilityRole="link">{c.from}</Text>
+                          <Text style={styles.commentTime}>  ·  {c.time}</Text>
+                        </Text>
+                        <Text style={styles.commentBody}>{c.text}</Text>
+                        {renderCommentBar(c, true)}
+                        {(c.replies || []).map((r) => (
+                          <FadeInUp key={r.id} distance={8} duration={320} style={[styles.replyItem, r.id === focusComment && styles.commentFocus]}>
+                            <Text style={styles.replyAuthor}>
+                              <Text onPress={() => openCommenter(r)} accessibilityRole="link">{r.from}</Text>
+                              <Text style={styles.commentTime}>  ·  {r.time}</Text>
+                            </Text>
+                            <Text style={styles.replyBody}>{r.text}</Text>
+                            {renderCommentBar(r, false)}
+                          </FadeInUp>
+                        ))}
+                      </View>
+                    </FadeInUp>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.commentAuthor}>{c.from}<Text style={styles.commentTime}>  ·  {c.time}</Text></Text>
-                    <Text style={styles.commentBody}>{c.text}</Text>
-                    <PressScale onPress={() => setReplyingTo(c)} hitSlop={8} scaleTo={0.92} style={{ marginTop: 6, alignSelf: 'flex-start' }} accessibilityLabel={`Reply to ${c.from}`}>
-                      <Text style={[styles.replyActionText, replyingTo && replyingTo.id === c.id && { color: colors.primary }]}>Reply</Text>
-                    </PressScale>
-                    {(c.replies || []).map((r) => (
-                      <FadeInUp key={r.id} distance={8} duration={320} style={styles.replyItem}>
-                        <Text style={styles.replyAuthor}>{r.from}<Text style={styles.commentTime}>  ·  {r.time}</Text></Text>
-                        <Text style={styles.replyBody}>{r.text}</Text>
-                      </FadeInUp>
-                    ))}
-                  </View>
-                </FadeInUp>
-              ))}
+                );
+              })}
             </ScrollView>
 
             <View style={styles.commentFooter}>
@@ -2638,6 +2766,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.rule,
   },
+  commentFocus: { backgroundColor: alpha(colors.gold, 0.1), borderRadius: 12, marginHorizontal: -8, paddingHorizontal: 8 },
+  commentBar: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 7 },
+  commentLike: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  commentLikeCount: { fontSize: 12, fontWeight: '700', color: colors.muted, minWidth: 8 },
+  commentGift: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  commentGiftText: { fontSize: 12, fontWeight: '700', color: colors.goldMuted },
+  bellBadge: { position: 'absolute', top: -3, right: -3, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, backgroundColor: colors.rose, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.surface },
+  bellBadgeText: { fontSize: 9.5, fontWeight: '800', color: WHITE },
   commentAvatar: {
     width: 34,
     height: 34,

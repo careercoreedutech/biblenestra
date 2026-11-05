@@ -36,8 +36,20 @@ communities.get('/communities', async (c) => {
     );
   }
 
+  // ROUND 4: channels ride along so the app can open group chats without another request
+  const ids = rows.map((r) => r.id);
+  const chRows = ids.length
+    ? await q(c.env, `SELECT id, community_id, name, conversation_id FROM community_channels WHERE community_id = ANY($1::uuid[]) ORDER BY position ASC`, [ids])
+    : [];
+  const chBy = new Map();
+  for (const ch of chRows) {
+    if (!chBy.has(ch.community_id)) chBy.set(ch.community_id, []);
+    chBy.get(ch.community_id).push({ id: ch.id, name: ch.name, conversationId: ch.conversation_id });
+  }
+
   return c.json({
     items: rows.map((r) => ({
+      channels: chBy.get(r.id) || [],
       id: r.id,
       name: r.name,
       slug: r.slug,
@@ -298,6 +310,17 @@ communities.post('/communities/:id/pin', async (c) => {
 
   const convId = b.conversationId;
   const messageId = b.messageId || null;
+  // the conversation must be one of this community's channels
+  const ch = await one(c.env, `SELECT 1 FROM community_channels WHERE community_id = $1 AND conversation_id = $2`, [id, convId]);
+  if (!ch) throw notFound('Channel not found');
+  if (messageId) {
+    const msg = await one(c.env, `SELECT 1 FROM messages WHERE id = $1 AND conversation_id = $2 AND deleted = false`, [messageId, convId]);
+    if (!msg) throw notFound('Message not found');
+    await q(c.env, `INSERT INTO conversation_pins (conversation_id, message_id, pinned_by) VALUES ($1, $2, $3)
+                    ON CONFLICT (conversation_id, message_id) DO UPDATE SET pinned_at = now()`, [convId, messageId, me.id]);
+  } else {
+    await q(c.env, `DELETE FROM conversation_pins WHERE conversation_id = $1`, [convId]);
+  }
   await q(c.env, `UPDATE conversations SET pinned_message_id = $1 WHERE id = $2`, [messageId, convId]);
   return c.json({ ok: true, pinnedMessageId: messageId });
 });

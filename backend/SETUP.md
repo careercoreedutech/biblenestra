@@ -71,7 +71,25 @@ EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_…
 ```
 Then build with EAS (`eas build`). Without these two values the app runs in **local mode** (everything stored on the phone).
 
+## Round 3 (v8) — what to do when deploying this version
+1. **Database first.** In Neon create a backup branch (Branches → Create branch from `main`), then open the SQL Editor on
+   `main` and run the whole `schema.sql`. It is idempotent (safe to run again) and adds: `comment_likes`,
+   `users.banner_url`, `users.role`, `recordings`, `reminders`, `reminder_settings`, `youtube_channels`,
+   `admin_actions`, `fundraisers`, `fundraiser_media`, `donations`, `fundme_payout_accounts`, and (v8.1 message actions)
+   `message_reactions`, `message_hides`, `conversation_pins`, `messages.deleted_by`.
+2. **Workers AI** (sermon transcription + notes): `wrangler.toml` already has `[ai] binding = "AI"`. Nothing else to buy —
+   Workers AI has a daily free allowance; after that it's billed per use. `NOTES_MODEL` picks the notes model.
+3. **Deploy:** `cd backend && npx wrangler deploy`. Check `/health`.
+4. **Make yourself admin** (for `/admin` — YouTube channels, Fund Me review, reports):
+   `UPDATE users SET role = 'admin' WHERE clerk_id = 'user_…';` (your Clerk user id, from the Clerk dashboard).
+   Optionally set `CLERK_PUBLISHABLE_KEY` in `wrangler.toml` so the admin page can sign you in.
+5. **Payments:** leave `PAYMENTS_MODE` **unset** in production. `PAYMENTS_MODE=test` is only for local testing (fake
+   checkout). Until a Stripe Connect or Paystack account is connected, fundraisers can be created, reviewed and shared,
+   but Donate replies "Donations open soon".
+6. Rebuild the app: `eas build --profile preview --platform android` (new native packages: webview, document picker, clipboard).
+
 ## Production checklist
+- `PAYMENTS_MODE` not set (never `test`) in production.
 - `AUTH_DEV_MODE="false"` and `ADS_CLIENT_CLAIM="false"` in `wrangler.toml` (they are by default).
 - Add Cloudflare **rate limiting** rules for `/posts`, `/uploads/*`, `/ads/*` (Security → WAF → Rate limiting).
 - Neon: enable **point-in-time restore** / branch backups.

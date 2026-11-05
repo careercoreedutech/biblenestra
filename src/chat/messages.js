@@ -1,0 +1,183 @@
+// Shared chat message logic for direct chats and group channels (ROUND 4: message actions).
+// Pure functions only (no React) — used by the store reducer, the sync layer and the chat screens.
+//
+// A "scope" says where a thread's messages live in the store:
+//   'dm:<chatId>'            → state.chats[i].messages
+//   'grp:<groupId>:<channel>' → state.groupMessages[groupId][channel]
+
+export const REACTIONS = ['🙏', '❤️', '🙌', '👍', '😂', '😢', '🔥', '🕊️'];
+export const EDIT_WINDOW_MS = 24 * 3600e3;
+export const MAX_PINS = 3;
+
+export const isServerId = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ''));
+
+export const dmScope = (chatId) => `dm:${chatId}`;
+export const groupScope = (gid, channel) => `grp:${gid}:${channel}`;
+
+export function parseScope(scope = '') {
+  if (scope.startsWith('dm:')) return { kind: 'dm', chatId: scope.slice(3) };
+  if (scope.startsWith('grp:')) {
+    const rest = scope.slice(4);
+    const i = rest.indexOf(':');
+    return { kind: 'grp', gid: rest.slice(0, i), channel: rest.slice(i + 1) };
+  }
+  return { kind: 'none' };
+}
+
+export function getScopeMsgs(s, scope) {
+  const p = parseScope(scope);
+  if (p.kind === 'dm') return ((s.chats || []).find((c) => c.id === p.chatId) || {}).messages || [];
+  if (p.kind === 'grp') return ((s.groupMessages || {})[p.gid] || {})[p.channel] || [];
+  return [];
+}
+
+const previewOf = (m) => (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.audio ? 'Voice message' : ''));
+
+// Returns a store patch that writes `msgs` (and optional extra chat fields) into the scope.
+export function scopePatch(s, scope, msgs, chatExtra = {}) {
+  const p = parseScope(scope);
+  if (p.kind === 'dm') {
+    return {
+      chats: (s.chats || []).map((c) => {
+        if (c.id !== p.chatId) return c;
+        const lastMsg = msgs[msgs.length - 1];
+        return { ...c, messages: msgs, ...(lastMsg ? { last: previewOf(lastMsg) } : {}), ...chatExtra };
+      }),
+    };
+  }
+  if (p.kind === 'grp') {
+    const g = (s.groupMessages || {})[p.gid] || {};
+    return { groupMessages: { ...(s.groupMessages || {}), [p.gid]: { ...g, [p.channel]: msgs } } };
+  }
+  return {};
+}
+
+// Server conversation id behind a scope (null in local mode / for device-only threads).
+export function scopeConversationId(s, scope) {
+  const p = parseScope(scope);
+  if (p.kind === 'dm') return isServerId(p.chatId) ? p.chatId : null;
+  if (p.kind === 'grp') {
+    const g = (s.communities || []).find((c) => c.id === p.gid);
+    const ch = g && (g.channels || []).find((x) => x.name === p.channel);
+    return ch && isServerId(ch.conversationId) ? ch.conversationId : null;
+  }
+  return null;
+}
+
+// Every scope that shows a server conversation (a channel can be open as a group and in the chat list).
+export function scopesForConversation(s, convId) {
+  const out = [];
+  if ((s.chats || []).some((c) => c.id === convId)) out.push(dmScope(convId));
+  for (const g of s.communities || []) {
+    for (const ch of g.channels || []) if (ch.conversationId === convId) out.push(groupScope(g.id, ch.name));
+  }
+  return out;
+}
+
+export function fmtClock(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const now = new Date();
+  const hm = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return hm;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return `Yesterday ${hm}`;
+  if (now - d < 6 * 864e5) return `${d.toLocaleDateString([], { weekday: 'short' })} ${hm}`;
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
+// Server message → the shape the chat screens render.
+export function mapServerMessage(m, prev) {
+  const createdAt = Date.parse(m.createdAt) || Date.now();
+  const meta = m.meta || {};
+  return {
+    id: m.id,
+    from: m.isMe ? 'You' : (m.sender && m.sender.displayName) || 'Friend',
+    senderId: m.senderId,
+    avatarUrl: m.sender && m.sender.avatarUrl,
+    mine: !!m.isMe,
+    createdAt,
+    time: fmtClock(createdAt),
+    kind: m.kind,
+    text: m.deleted ? '' : m.text,
+    passage: !m.deleted && meta.passage ? meta.passage : undefined,
+    prayer: !m.deleted && m.kind === 'prayer' ? true : undefined,
+    event: !m.deleted && m.kind === 'event' ? (meta.event || true) : undefined,
+    praying: prev ? prev.praying : undefined,
+    prayedByMe: prev ? prev.prayedByMe : undefined,
+    status: prev && prev.status === 'read' ? 'read' : 'sent',
+    edited: !!m.editedAt,
+    deleted: !!m.deleted,
+    deletedByModerator: !!m.deletedByModerator,
+    pinned: !!m.pinned,
+    pinnedAt: m.pinnedAt ? Date.parse(m.pinnedAt) : prev ? prev.pinnedAt : undefined,
+    reactions: m.reactions || [],
+    reply: m.reply ? { id: m.reply.id, from: m.reply.senderName || 'Message', text: m.reply.text, deleted: !!m.reply.deleted } : null,
+  };
+}
+
+// Merge a server page (oldest→newest) with what's on screen, keeping just-sent messages still in flight.
+export function mergeServerPage(current, serverMsgs) {
+  const byId = new Map(current.map((m) => [m.id, m]));
+  const mapped = serverMsgs.map((m) => mapServerMessage(m, byId.get(m.id)));
+  const ids = new Set(mapped.map((m) => m.id));
+  const recent = Date.now() - 2 * 60e3;
+  const pending = current.filter((m) => !isServerId(m.id) && m.mine && (m.createdAt || 0) > recent && !ids.has(m.id));
+  return [...mapped, ...pending];
+}
+
+export function upsertMessage(list, msg, localId) {
+  const i = list.findIndex((m) => m.id === msg.id || (localId && m.id === localId));
+  if (i === -1) return [...list, msg];
+  const next = list.slice();
+  next[i] = { ...list[i], ...msg };
+  // the server echo can arrive twice (send response + realtime) — drop duplicates
+  return next.filter((m, j) => j === i || m.id !== msg.id);
+}
+
+export function canEditMessage(m) {
+  if (!m || !m.mine || m.deleted) return false;
+  if (m.audio || (m.kind && !['text', 'verse', 'prayer'].includes(m.kind))) return false;
+  if (!m.text) return false;
+  return !m.createdAt || Date.now() - m.createdAt < EDIT_WINDOW_MS;
+}
+
+// Optimistic message operation. op: 'edit' | 'delete' | 'deleteMe' | 'pin' | 'unpin' | 'react'
+export function applyMessageOp(list, { id, op, text, emoji }) {
+  if (op === 'deleteMe') return list.filter((m) => m.id !== id);
+  if (op === 'pin') {
+    const out = list.map((m) => (m.id === id ? { ...m, pinned: true, pinnedAt: Date.now() } : m));
+    const pinned = out.filter((m) => m.pinned).sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0));
+    const keep = new Set(pinned.slice(0, MAX_PINS).map((m) => m.id));
+    return out.map((m) => (m.pinned && !keep.has(m.id) ? { ...m, pinned: false } : m));
+  }
+  return list.map((m) => {
+    if (m.id !== id) return m;
+    if (op === 'edit') return { ...m, text, edited: true };
+    if (op === 'delete') return { ...m, deleted: true, text: '', passage: undefined, prayer: undefined, event: undefined, audio: null, pinned: false, reactions: [] };
+    if (op === 'unpin') return { ...m, pinned: false };
+    if (op === 'react') {
+      const rs = (m.reactions || []).map((r) => ({ ...r }));
+      const prevMine = rs.find((r) => r.mine);
+      if (prevMine) { prevMine.count -= 1; prevMine.mine = false; }
+      if (emoji && (!prevMine || prevMine.emoji !== emoji)) {
+        const r = rs.find((x) => x.emoji === emoji);
+        if (r) { r.count += 1; r.mine = true; } else rs.push({ emoji, count: 1, mine: true });
+      }
+      return { ...m, reactions: rs.filter((r) => r.count > 0).sort((a, b) => b.count - a.count) };
+    }
+    return m;
+  });
+}
+
+export const pinnedOf = (list) => list.filter((m) => m.pinned && !m.deleted).sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0));
+
+// What to send to POST /conversations/:id/messages for a local message.
+export function outgoingBody(m) {
+  const body = { kind: 'text', text: m.text || '', clientId: m.id };
+  if (m.passage) { body.kind = 'verse'; body.meta = { passage: m.passage }; }
+  else if (m.prayer) body.kind = 'prayer';
+  else if (m.event) { body.kind = 'event'; body.meta = { event: m.event === true ? {} : m.event }; }
+  if (m.reply && isServerId(m.reply.id)) body.replyTo = m.reply.id;
+  return body;
+}

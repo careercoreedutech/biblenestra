@@ -35,6 +35,7 @@ export function mapFeedPost(p, prev) {
     authorHandle: followKeyOf(a),
     authorSub: a.handle ? '@' + a.handle : a.kind === 'church' ? 'Church' : a.kind === 'community' ? 'Community' : null,
     authorVerified: !!a.verified,
+    authorAvatarUrl: a.avatarUrl ? absoluteUrl(a.avatarUrl) : null,
     kind: p.kind || 'Reflection',
     text: p.text || '',
     createdAt: toMs(p.createdAt),
@@ -72,6 +73,7 @@ export function mapVideoPost(p, prev) {
       avatar: initials(a.displayName || 'C'),
       church: a.church || '',
       userId: a.id || null,
+      avatarUrl: a.avatarUrl ? absoluteUrl(a.avatarUrl) : null,
     },
     caption: p.text || '',
     scripture: p.passage ? passageLabel(p.passage) : '',
@@ -120,7 +122,11 @@ export function mapComments(items) {
   const byId = new Map();
   const roots = [];
   (items || []).forEach((c) => {
-    const m = { id: c.id, from: (c.author && c.author.displayName) || 'Believer', text: c.text, time: ago(c.createdAt), likes: 0, replies: [], mine: !!c.mine, parentId: c.parentId || null };
+    const au = c.author || {};
+    const m = {
+      id: c.id, from: au.displayName || 'Believer', text: c.text, time: ago(c.createdAt), likes: c.likes || 0, liked: !!c.likedByMe, replies: [], mine: !!c.mine, parentId: c.parentId || null,
+      authorId: au.id || null, avatarUrl: au.avatarUrl ? absoluteUrl(au.avatarUrl) : null, // SOCIAL r3: profile links + comment likes
+    };
     byId.set(c.id, m);
   });
   byId.forEach((m) => {
@@ -223,12 +229,13 @@ export function mapMeToUser(me, prevUser = {}) {
     headline: me.headline || prevUser.headline || '',
     bio: me.bio || '',
     country: me.country || '',
-    church: { ...(prevUser.church || {}), name: me.church || '', visible: me.church ? (prevUser.church ? prevUser.church.visible !== false : true) : false },
+    church: { ...(prevUser.church || {}), name: me.church || '', visible: me.church ? (prevUser.church && prevUser.church.name ? prevUser.church.visible !== false : true) : false },
     translation: me.translation || prevUser.translation || 'KJV',
     verified: !!me.verified,
     followers: me.followers || 0,
     following: me.following || 0,
     avatarUrl: me.avatarUrl ? absoluteUrl(me.avatarUrl) : null,
+    bannerUrl: me.bannerUrl ? absoluteUrl(me.bannerUrl) : null,
   };
 }
 
@@ -239,6 +246,9 @@ export function mapConversation(c, prev) {
     id: c.id,
     kind: c.kind,
     title: c.title,
+    // the chat screens show `with` / `type` (local shape) — SOCIAL r3: DMs opened from a profile
+    with: (prev && prev.with) || c.title || (c.otherUser && c.otherUser.displayName) || 'Chat',
+    type: (prev && prev.type) || (c.kind === 'dm' ? 'Direct message' : 'Group chat'),
     avatarKey: c.avatarKey,
     otherUser: c.otherUser,
     role: c.role || 'member',
@@ -286,6 +296,13 @@ export function mapCommunity(c) {
     avatarKey: c.avatarKey,
     ownerId: c.ownerId,
     membersCount: c.membersCount || 1,
+    // ROUND 4: fields the community screens render (server communities don't have them yet)
+    members: c.membersCount || 1,
+    category: c.category || 'Community',
+    region: c.region || 'Global',
+    language: c.language || 'English',
+    verified: !!c.verified,
+    rules: c.rules || 'Be kind, pray for one another and keep conversations about faith and fellowship.',
     myStatus: c.myStatus || null,
     myRole: c.myRole || null,
     channels: (c.channels || []).map((ch) => ({

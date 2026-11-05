@@ -27,7 +27,38 @@ The app now has a real backend in `backend/` — no server to buy. **Full setup 
   - Notifications inbox and Expo push notification delivery.
   - Safe on-device fallback: when `EXPO_PUBLIC_API_URL` is empty, everything continues to operate locally.
 
-## New in this version (v6)
+## New in v8.1 — message actions (chats and groups)
+
+Press and hold any message in a direct chat or a group channel: react (🙏 ❤️ 🙌 👍 😂 😢 🔥 🕊️), **Reply** (quoted in
+the bubble, tap the quote to jump), **Copy**, **Edit** (your own text messages, 24 hours, shows "Edited"), **Pin / Unpin**
+(up to 3, pinned bar at the top; in groups only owners/admins can pin) and **Delete** — for me, or for everyone (your own
+messages; group admins can also remove anyone's message, shown as "Removed by a group admin"). Group channels now sync
+through the server in online mode (before, group messages stayed on the phone). The chat header no longer claims
+end-to-end encryption, because messages are stored on the server, not end-to-end encrypted.
+Code: `src/components/chat/MessageKit.js`, `src/chat/messages.js`, `backend/src/routes/messages.js`. Run `schema.sql` again on deploy.
+
+## New in this version (v8 — client corrections round 3)
+
+| Request | What was built | Where |
+|---|---|---|
+| Open a person's profile from the feed | Tap any name/avatar (posts, comments, reels, chats, search, followers) → public profile with posts, followers/following, follow, message, gift | `src/screens/UserProfileScreen.js`, `src/components/social/profileNav.js` |
+| Edit profile | Pencil on Profile → avatar, wide banner, name, handle, headline, bio, church, location | `src/screens/EditProfileScreen.js` (`PUT /me` with `avatarUrl`, `bannerUrl`) |
+| Bible book picker covered/stuck | Fixed-height sheet, full scroll to the last book, safe-area padding | `src/components/BookChapterPicker.js` |
+| Search shows all results | Bible search and lexicon/concordance return every match, with counts per book, OT/NT filters, whole-word option, paged list | `src/bible/searchCore.js`, `src/screens/BibleSearchScreen.js` |
+| Unlimited games | "Keep playing" practice mode after the daily set (no coins; an ad every 4th round); each game bank now ~1,500+ questions | `src/games/*` |
+| Record on Discover | Discover order: Prayer, Chats, Record, Learn, Ask AI, Calendar, Reminder, Library, Jobs, Care, Fund Me. Sermon Studio records, uploads privately, transcribes (Workers AI Whisper) and writes sermon notes with Scripture references | `src/screens/RecordScreens.js`, `backend/src/routes/recordings.js` |
+| Reminders + daily verse | Reminders with a purpose (read, pray, call, study) and time; daily Bible verse at a chosen time — local notifications, no Firebase | `src/screens/RemindersScreen.js`, `src/notifications/reminders.js` |
+| Fund Me | Fundraisers with heading, goal, story with images, photos & PDFs, review before going live, public share page `/f/:slug`, donate with message or anonymously, progress bar, organiser management. **Payments are in test mode** until a Stripe/Paystack account is connected | `src/screens/FundMeScreens.js`, `backend/src/routes/fundme.js` |
+| Comment likes + gifts | Like a comment → the author sees it in Activity (bell); gift coins from a comment | `src/screens/ActivityScreen.js`, `src/components/social/GiftSheet.js` |
+| YouTube channels | Watch section with live/latest videos of channels added in the admin dashboard (`/admin`, users with `role='admin'`) | `src/screens/WatchScreens.js`, `backend/src/routes/youtube.js`, `backend/src/routes/admin.js` |
+
+New packages: `react-native-webview`, `expo-document-picker`, `expo-clipboard` — rebuild the APK (not an OTA update).
+
+Still blocked (need accounts/licences): real Fund Me payouts (Stripe Connect or Paystack account), copyrighted Bible
+versions (NIV/ESV/TPT licences), push notifications while the app is closed (Firebase — skipped for now), the client's
+list of YouTube channels, iOS build (Apple developer account), real AdMob ad unit ids.
+
+## v6
 
 | Request | What was built | Where |
 |---|---|---|

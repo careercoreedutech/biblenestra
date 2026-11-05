@@ -347,6 +347,7 @@ export function LightPostCard({
   onOpenVideo,
   onOpenPhoto,
   onOpenAuthor,
+  onOpenLikes,
 }) {
   const [expanded, setExpanded] = useState(false);
   const [picker, setPicker] = useState(false);
@@ -379,11 +380,13 @@ export function LightPostCard({
       {/* Author row */}
       <View style={styles.head}>
         <PressScale onPress={onOpenAuthor} disabled={!onOpenAuthor} scaleTo={0.92} accessibilityLabel={item.name}>
-          <SocialAvatar name={item.name} label={item.avatarText} size={42} ring={item.mine} />
+          <SocialAvatar name={item.name} label={item.avatarText} uri={item.avatarUrl} size={42} ring={item.mine} />
         </PressScale>
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={styles.nameRow}>
-            <Text style={styles.name} numberOfLines={1}>{item.mine ? `${item.name} (you)` : item.name}</Text>
+            <Pressable onPress={onOpenAuthor} disabled={!onOpenAuthor} hitSlop={4} style={{ flexShrink: 1 }} accessibilityRole="link" accessibilityLabel={`Open ${item.mine ? 'your' : `${item.name}'s`} profile`}>
+              <Text style={styles.name} numberOfLines={1}>{item.mine ? `${item.name} (you)` : item.name}</Text>
+            </Pressable>
             {item.verified ? <VerifiedTick /> : null}
             {showFollow ? (
               <PressScale onPress={onFollow} hitSlop={8} scaleTo={0.9} accessibilityLabel={`Follow ${item.name}`}>
@@ -441,7 +444,7 @@ export function LightPostCard({
       {likes || comments || shares ? (
         <View style={styles.counts}>
           {likes ? (
-            <View style={styles.countsLeft}>
+            <Pressable onPress={onOpenLikes} disabled={!onOpenLikes} hitSlop={6} style={styles.countsLeft} accessibilityLabel={`${likes} ${likes === 1 ? 'like' : 'likes'} · see who liked`}>
               <View style={styles.reactStack}>
                 <View style={[styles.reactBubble, { backgroundColor: colors.rose }]}>
                   <Icon name="heart" size={9} color={WHITE} fill={WHITE} strokeWidth={2} />
@@ -453,7 +456,7 @@ export function LightPostCard({
                 ) : null}
               </View>
               <AnimatedNumber value={likes} format={countFormat} duration={400} style={styles.countsText} />
-            </View>
+            </Pressable>
           ) : (
             <View />
           )}
@@ -513,7 +516,7 @@ export function LightPostCard({
 }
 
 // ─── Composer card: "What's on your heart, Aviral?" ──────────────
-export function ComposerCard({ userName, onOpen }) {
+export function ComposerCard({ userName, onOpen, avatarUri }) {
   const first = String(userName || 'friend').trim().split(/\s+/)[0] || 'friend';
   const QUICK = [
     { mode: 'photo', icon: 'image', label: 'Photo', tint: colors.sage },
@@ -523,7 +526,7 @@ export function ComposerCard({ userName, onOpen }) {
   return (
     <FadeInUp distance={10} style={styles.composer}>
       <PressScale onPress={() => onOpen('text')} scaleTo={0.985} style={styles.composerTop} accessibilityLabel="Create a post">
-        <SocialAvatar name={userName} size={40} ring />
+        <SocialAvatar name={userName} uri={avatarUri} size={40} ring />
         <View style={styles.composerInput}>
           <Text style={styles.composerPlaceholder} numberOfLines={1}>What’s on your heart, {first}?</Text>
         </View>
@@ -546,7 +549,7 @@ export function ComposerCard({ userName, onOpen }) {
 const TILE_W = 108;
 const TILE_H = Math.round((TILE_W * 16) / 9);
 
-function ReelThumb({ video, onPress, index }) {
+function ReelThumb({ video, onPress, index, onOpenCreator }) {
   // Uploaded videos have a poster image (cheap); older/demo ones use a paused, muted player for the first frame
   const player = useVideoPlayer(video.poster ? null : video.videoUrl || null, (p) => {
     p.muted = true;
@@ -577,9 +580,15 @@ function ReelThumb({ video, onPress, index }) {
             <Rect x="0" y="0" width="100%" height="100%" fill={`url(#rt_${video.id})`} />
           </Svg>
         </View>
-        <View style={styles.tileAvatar} pointerEvents="none">
-          <SocialAvatar name={c.name} label={c.avatar} size={30} />
-        </View>
+        {onOpenCreator ? (
+          <PressScale onPress={onOpenCreator} scaleTo={0.88} hitSlop={6} style={styles.tileAvatar} accessibilityLabel={`Open ${c.name}'s profile`}>
+            <SocialAvatar name={c.name} label={c.avatar} uri={c.avatarUrl} size={30} />
+          </PressScale>
+        ) : (
+          <View style={styles.tileAvatar} pointerEvents="none">
+            <SocialAvatar name={c.name} label={c.avatar} uri={c.avatarUrl} size={30} />
+          </View>
+        )}
         <View style={styles.tileFoot} pointerEvents="none">
           <Text style={styles.tileName} numberOfLines={2}>{c.name}</Text>
           <View style={styles.tileViews}>
@@ -592,7 +601,7 @@ function ReelThumb({ video, onPress, index }) {
   );
 }
 
-export function ReelsStrip({ videos = [], userName, onOpen, onCreate, onSeeAll }) {
+export function ReelsStrip({ videos = [], userName, userAvatar, onOpen, onCreate, onSeeAll, onOpenCreator }) {
   return (
     <FadeInUp index={1} distance={10} style={styles.reelsCard}>
       <View style={styles.reelsHead}>
@@ -611,7 +620,7 @@ export function ReelsStrip({ videos = [], userName, onOpen, onCreate, onSeeAll }
         <FadeInUp distance={10} duration={360}>
           <PressScale onPress={onCreate} scaleTo={0.95} style={styles.createTile} accessibilityLabel="Create a reel">
             <View style={styles.createTop}>
-              <SocialAvatar name={userName} size={52} />
+              <SocialAvatar name={userName} uri={userAvatar} size={52} />
             </View>
             <View style={styles.createPlus}>
               <Icon name="plus" size={16} color={WHITE} strokeWidth={2.8} />
@@ -620,7 +629,7 @@ export function ReelsStrip({ videos = [], userName, onOpen, onCreate, onSeeAll }
           </PressScale>
         </FadeInUp>
         {videos.map((v, i) => (
-          <ReelThumb key={v.id} video={v} index={i + 1} onPress={() => onOpen(v.id)} />
+          <ReelThumb key={v.id} video={v} index={i + 1} onPress={() => onOpen(v.id)} onOpenCreator={onOpenCreator ? () => onOpenCreator(v) : undefined} />
         ))}
       </ScrollView>
     </FadeInUp>
@@ -679,7 +688,7 @@ function MenuRow({ icon, label, sub, onPress, tone, index }) {
   );
 }
 
-export function PostMenuSheet({ visible, item, isFollowing, onClose, onSave, onShare, onHide, onDelete, onFollow, onOpenVideo, onGift, onComment }) {
+export function PostMenuSheet({ visible, item, isFollowing, onClose, onSave, onShare, onHide, onDelete, onFollow, onOpenVideo, onGift, onComment, onProfile }) {
   // Keep the last item while the sheet animates out
   const last = useRef(null);
   if (item) last.current = item;
@@ -689,6 +698,7 @@ export function PostMenuSheet({ visible, item, isFollowing, onClose, onSave, onS
     rows.push({ icon: 'bookmark', label: it.saved ? 'Remove from saved' : 'Save post', sub: it.saved ? 'Take it out of your saved items' : 'Find it later in your saved items', onPress: onSave });
     rows.push({ icon: 'share', label: 'Share', sub: 'Send it to a friend or another app', onPress: onShare });
     rows.push({ icon: 'chat', label: 'Comment', sub: 'Join the conversation', onPress: onComment });
+    if (onProfile) rows.push({ icon: 'user', label: it.mine ? 'View your profile' : `View ${it.name}'s profile`, sub: it.mine ? 'Your posts, photo and details' : 'Their posts, videos and details', onPress: onProfile });
     if (it.src !== 'video' && it.handle && !it.mine) {
       // online: follow the author of a text / photo post
       rows.push({ icon: isFollowing ? 'user' : 'users', label: isFollowing ? `Unfollow ${it.name}` : `Follow ${it.name}`, sub: isFollowing ? 'Stop seeing their posts in Following' : 'See their posts in Following', onPress: onFollow });

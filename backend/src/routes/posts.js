@@ -142,12 +142,15 @@ r.post('/posts/:id/view', async (c) => {
   return c.json({ views: row.views_count });
 });
 
-const commentShape = (x, me) => ({ id: x.id, postId: x.post_id, parentId: x.parent_id, author: x.author, text: x.body, createdAt: new Date(x.created_at).toISOString(), mine: x.author_id === me.id });
+const commentShape = (x, me) => ({ id: x.id, postId: x.post_id, parentId: x.parent_id, author: x.author, text: x.body, createdAt: new Date(x.created_at).toISOString(), mine: x.author_id === me.id, likes: x.likes_count || 0, likedByMe: !!x.liked_by_me });
 
 r.get('/posts/:id/comments', async (c) => {
   const me = c.get('user');
-  const rows = await q(c.env, `SELECT c.*, ${userJson('u')} AS author FROM comments c JOIN users u ON u.id = c.author_id
-      WHERE c.post_id = $1 AND NOT u.banned ORDER BY c.created_at LIMIT 500`, [uuidParam(c)]);
+  const rows = await q(c.env, `SELECT c.*, ${userJson('u')} AS author,
+      (SELECT count(*)::int FROM comment_likes l WHERE l.comment_id = c.id) AS likes_count,
+      EXISTS (SELECT 1 FROM comment_likes l WHERE l.comment_id = c.id AND l.user_id = $2) AS liked_by_me
+      FROM comments c JOIN users u ON u.id = c.author_id
+      WHERE c.post_id = $1 AND NOT u.banned ORDER BY c.created_at LIMIT 500`, [uuidParam(c), me.id]);
   return c.json({ items: rows.map((x) => commentShape(x, me)) });
 });
 

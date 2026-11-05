@@ -5,27 +5,11 @@ import { q, one } from '../lib/db.js';
 import { userJson } from '../lib/shape.js';
 import { notifyUser } from '../hub.js';
 import { sendNotification } from '../lib/push.js';
+import { MSG_SELECT, messageShape, loadMessage, pinsFor } from '../lib/messages.js';
 
 const conversations = new Hono();
 
-export function messageShape(row, meId) {
-  return {
-    id: row.id,
-    conversationId: row.conversation_id,
-    senderId: row.sender_id,
-    sender: row.sender ? (typeof row.sender === 'string' ? JSON.parse(row.sender) : row.sender) : null,
-    isMe: row.sender_id === meId,
-    kind: row.kind,
-    text: row.deleted ? 'This message was deleted' : row.body,
-    mediaKey: row.deleted ? null : row.media_key,
-    meta: row.meta ? (typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta) : null,
-    replyTo: row.reply_to,
-    clientId: row.client_id,
-    createdAt: new Date(row.created_at).toISOString(),
-    editedAt: row.edited_at ? new Date(row.edited_at).toISOString() : null,
-    deleted: !!row.deleted,
-  };
-}
+export { messageShape } from '../lib/messages.js';
 
 // GET /conversations — list user conversations with last message + unread count
 conversations.get('/conversations', async (c) => {
@@ -38,6 +22,7 @@ conversations.get('/conversations', async (c) => {
                'senderId', msg.sender_id, 'createdAt', msg.created_at, 'deleted', msg.deleted
              )
              FROM messages msg WHERE msg.conversation_id = c.id
+               AND NOT EXISTS (SELECT 1 FROM message_hides h WHERE h.message_id = msg.id AND h.user_id = $1)
              ORDER BY msg.created_at DESC LIMIT 1) AS last_message,
             (SELECT COUNT(*)::int FROM messages unread
              WHERE unread.conversation_id = c.id
@@ -171,12 +156,9 @@ conversations.get('/conversations/:id/messages', async (c) => {
     // Polling mode: messages strictly created after timestamp
     const afterDate = new Date(after).toISOString();
     rows = await q(c.env,
-      `SELECT m.*, ${userJson('u')} AS sender
-       FROM messages m
-       JOIN users u ON u.id = m.sender_id
-       WHERE m.conversation_id = $1 AND m.created_at > $2
-       ORDER BY m.created_at ASC LIMIT $3`,
-      [convId, afterDate, limit]
+      `${MSG_SELECT} AND m.conversation_id = $2 AND m.created_at > $3
+       ORDER BY m.created_at ASC LIMIT $4`,
+      [me.id, convId, afterDate, limit]
     );
     return c.json({ items: rows.map((r) => messageShape(r, me.id)) });
   }
@@ -184,29 +166,26 @@ conversations.get('/conversations/:id/messages', async (c) => {
   // Keyset cursor pagination (newest first)
   if (cursor) {
     rows = await q(c.env,
-      `SELECT m.*, ${userJson('u')} AS sender
-       FROM messages m
-       JOIN users u ON u.id = m.sender_id
-       WHERE m.conversation_id = $1 AND (m.created_at, m.id) < ($2, $3)
-       ORDER BY m.created_at DESC, m.id DESC LIMIT $4`,
-      [convId, cursor.ts, cursor.id, limit + 1]
+      `${MSG_SELECT} AND m.conversation_id = $2 AND (m.created_at, m.id) < ($3, $4)
+       ORDER BY m.created_at DESC, m.id DESC LIMIT $5`,
+      [me.id, convId, cursor.ts, cursor.id, limit + 1]
     );
   } else {
     rows = await q(c.env,
-      `SELECT m.*, ${userJson('u')} AS sender
-       FROM messages m
-       JOIN users u ON u.id = m.sender_id
-       WHERE m.conversation_id = $1
-       ORDER BY m.created_at DESC, m.id DESC LIMIT $2`,
-      [convId, limit + 1]
+      `${MSG_SELECT} AND m.conversation_id = $2
+       ORDER BY m.created_at DESC, m.id DESC LIMIT $3`,
+      [me.id, convId, limit + 1]
     );
   }
 
   const hasMore = rows.length > limit;
   const items = (hasMore ? rows.slice(0, limit) : rows).map((r) => messageShape(r, me.id));
   const nextCursor = hasMore && items.length > 0 ? encodeCursor(rows[limit - 1]) : null;
+  // ROUND 4: pinned messages ride along with the first page
+  const pins = cursor ? undefined : await pinsFor(c.env, convId, me.id);
+  const myRole = member.role;
 
-  return c.json({ items, cursor: nextCursor, hasMore });
+  return c.json({ items, cursor: nextCursor, hasMore, pins, myRole });
 });
 
 // POST /conversations/:id/messages — send message
@@ -220,7 +199,7 @@ conversations.post('/conversations/:id/messages', async (c) => {
   const text = str(b.text || '', { max: 5000, optional: true }) || '';
   const mediaKey = b.mediaKey ? str(b.mediaKey, { max: 500 }) : null;
   const meta = b.meta && typeof b.meta === 'object' ? b.meta : null;
-  const replyTo = b.replyTo || null;
+  const replyTo = b.replyTo ? String(b.replyTo) : null;
   const clientId = b.clientId ? str(b.clientId, { max: 100 }) : null;
 
   if (!text && !mediaKey && !meta) throw bad('Message content required', 'EMPTY_MESSAGE');
@@ -264,12 +243,18 @@ conversations.post('/conversations/:id/messages', async (c) => {
   // Idempotency check with clientId
   if (clientId) {
     const existing = await one(c.env,
-      `SELECT m.*, ${userJson('u')} AS sender
-       FROM messages m JOIN users u ON u.id = m.sender_id
-       WHERE m.conversation_id = $1 AND m.sender_id = $2 AND m.client_id = $3`,
+      `SELECT id FROM messages WHERE conversation_id = $1 AND sender_id = $2 AND client_id = $3`,
       [convId, me.id, clientId]
     );
-    if (existing) return c.json(messageShape(existing, me.id));
+    if (existing) return c.json(await loadMessage(c.env, existing.id, me.id));
+  }
+
+  // ROUND 4: a reply must point at a message in the same conversation
+  if (replyTo) {
+    const target = /^[0-9a-f-]{36}$/i.test(replyTo)
+      ? await one(c.env, `SELECT 1 FROM messages WHERE id = $1 AND conversation_id = $2`, [replyTo, convId])
+      : null;
+    if (!target) throw bad('The message you replied to is not in this conversation', 'BAD_REPLY');
   }
 
   // Insert message and touch conversation timestamps in a single atomic CTE query
@@ -291,7 +276,7 @@ conversations.post('/conversations/:id/messages', async (c) => {
     [convId, me.id, kind, text, mediaKey, meta ? JSON.stringify(meta) : null, replyTo, clientId]
   );
 
-  const formatted = messageShape(row, me.id);
+  const formatted = replyTo ? await loadMessage(c.env, row.id, me.id) : messageShape(row, me.id);
 
   // Notify all other members in parallel
   await Promise.all(
@@ -343,21 +328,7 @@ conversations.post('/conversations/:id/mute', async (c) => {
   return c.json({ ok: true, muted: updated.muted });
 });
 
-// POST /messages/:id/delete — soft delete own message
-conversations.post('/messages/:id/delete', async (c) => {
-  const me = c.get('user');
-  const msgId = uuidParam(c, 'id');
-  const msg = await one(c.env, `SELECT * FROM messages WHERE id = $1`, [msgId]);
-  if (!msg) throw notFound('Message not found');
-  if (msg.sender_id !== me.id) throw forbidden('You can only delete your own messages');
-
-  await q(c.env, `UPDATE messages SET deleted = true, body = '' WHERE id = $1`, [msgId]);
-  const others = await q(c.env, `SELECT user_id FROM conversation_members WHERE conversation_id = $1`, [msg.conversation_id]);
-  for (const o of others) {
-    await notifyUser(c.env, o.user_id, { type: 'message.deleted', messageId: msgId, conversationId: msg.conversation_id });
-  }
-  return c.json({ ok: true });
-});
+// POST /messages/:id/delete moved to routes/messages.js (ROUND 4: delete for me / for everyone, moderators)
 
 // Message Requests
 conversations.get('/me/requests', async (c) => {
@@ -366,7 +337,7 @@ conversations.get('/me/requests', async (c) => {
     `SELECT mr.from_id, mr.to_id, mr.conversation_id, mr.status, mr.created_at,
             ${userJson('u')} AS from_user,
             (SELECT json_build_object('body', msg.body, 'createdAt', msg.created_at)
-             FROM messages msg WHERE msg.conversation_id = mr.conversation_id
+             FROM messages msg WHERE msg.conversation_id = mr.conversation_id AND msg.deleted = false
              ORDER BY msg.created_at DESC LIMIT 1) AS last_message
      FROM message_requests mr
      JOIN users u ON u.id = mr.from_id

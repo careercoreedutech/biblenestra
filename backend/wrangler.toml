@@ -9,6 +9,10 @@ compatibility_flags = ["nodejs_compat"]
 binding = "MEDIA"
 bucket_name = "biblenestra-media"
 
+# Workers AI (free daily allocation): sermon transcription (Whisper) + AI sermon notes
+[ai]
+binding = "AI"
+
 # Real-time WebSockets & Presence via Durable Objects (SQLite-backed, WebSocket Hibernation API)
 [[durable_objects.bindings]]
 name = "HUB"
@@ -27,6 +31,11 @@ PUBLIC_MEDIA_BASE = ""
 # Keep these "false" in production:
 AUTH_DEV_MODE = "false"     # "true" accepts X-Dev-User instead of a Clerk token (local testing only)
 ADS_CLIENT_CLAIM = "false"  # "true" trusts the app's ad claims (demo ads); production uses AdMob SSV
+# Admin dashboard (/admin) sign-in: the Clerk *publishable* key (pk_live_…/pk_test_…; public, not a secret).
+# Add the Worker's origin to Clerk's allowed origins (and to CLERK_AUTHORIZED_PARTIES if you set it).
+CLERK_PUBLISHABLE_KEY = ""
+# Sermon notes model (Workers AI text generation). Transcription uses @cf/openai/whisper-large-v3-turbo.
+NOTES_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 
 # Secrets (set with `npx wrangler secret put NAME`, never commit them):
 #   DATABASE_URL            Neon connection string (postgresql://…?sslmode=require)

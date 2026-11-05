@@ -29,6 +29,14 @@ import ScripturePopScreen from './src/screens/ScripturePopScreen';
 import { useScripturePop } from './src/notifications/scripturePop';
 import { useSocialsDark } from './src/ui/chrome';
 import JobsScreen from './src/screens/JobsScreen';
+import UserProfileScreen from './src/screens/UserProfileScreen'; // SOCIAL (round 3)
+import EditProfileScreen from './src/screens/EditProfileScreen'; // SOCIAL (round 3)
+import ActivityScreen from './src/screens/ActivityScreen'; // SOCIAL (round 3)
+import { RecordingDetailScreen } from './src/screens/RecordScreens'; // DISCOVER TOOLS (round 3)
+import RemindersScreen from './src/screens/RemindersScreen'; // DISCOVER TOOLS (round 3)
+import { WatchScreen, YouTubeChannelScreen } from './src/screens/WatchScreens'; // DISCOVER TOOLS (round 3)
+import { useReminders } from './src/notifications/reminders'; // DISCOVER TOOLS (round 3)
+import { FundMeHomeScreen, FundraiserScreen, FundraiserEditScreen, FundraiserDonationsScreen } from './src/screens/FundMeScreens'; // FUND ME (round 3)
 
 class ErrorBoundary extends Component {
   state = { hasError: false, error: null };
@@ -69,6 +77,9 @@ const ROUTES = {
   Learn: LearnScreen, Plan: PlanScreen, Lesson: LessonScreen, SermonStudio: SermonStudioScreen, Transcript: TranscriptScreen,
   Create: CreateScreen, Profile: ProfileScreen, Onboarding: OnboardingScreen,
   Today: TodayScreen, Socials: SocialsScreen, Concordance: ConcordanceScreen, ScripturePop: ScripturePopScreen, Jobs: JobsScreen, Chats: ChatListScreen,
+  UserProfile: UserProfileScreen, EditProfile: EditProfileScreen, Activity: ActivityScreen, // SOCIAL (round 3)
+  RecordingDetail: RecordingDetailScreen, Reminders: RemindersScreen, Watch: WatchScreen, YouTubeChannel: YouTubeChannelScreen, // DISCOVER TOOLS (round 3)
+  FundMe: FundMeHomeScreen, Fundraiser: FundraiserScreen, FundraiserEdit: FundraiserEditScreen, FundraiserDonations: FundraiserDonationsScreen, // FUND ME (round 3)
 };
 // Dev-only: preview the online sign-in design without a Clerk key (/?route=SignInPreview)
 if (__DEV__) ROUTES.SignInPreview = SignInPreviewScreen;
@@ -135,6 +146,9 @@ const TABS = {
 
 
 
+
+
+
 function Root() {
   const { state, ready } = useStore();
   const nav = useNav();
@@ -142,6 +156,7 @@ function Root() {
   const [tab, setTab] = useState('Today');
   // Scripture pop-ups: keep the next couple of days scheduled; open the verse when one is tapped
   useScripturePop(ready ? state.scripturePop : null, nav);
+  useReminders(nav); // DISCOVER TOOLS (round 3): reminders + daily verse (local notifications)
   // Android hardware back pops the in-app stack before leaving the app
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {

@@ -155,7 +155,7 @@ export function answerBibleChat(question, context, translation = 'KJV') {
   // Topic search ("which passages discuss ...")
   if (q.startsWith('which') || q.includes('passages') || q.includes('where does the bible')) {
     const term = q.replace(/which passages (discuss|talk about|mention)?|where does the bible (say|talk) about|passages about|\?/g, '').trim().split(' ').pop();
-    const hits = searchBible(term, translation).slice(0, 4);
+    const hits = searchBible(term, translation, 'ALL', 4);
     if (hits.length) {
       hits.forEach((h) => blocks.push({ type: 'Scripture', ref: refLabel(h.bookId, h.chapter, h.verse), bookId: h.bookId, chapter: h.chapter, verse: h.verse, text: h.text, translation }));
       blocks.push({ type: 'Further study', text: `Search the concordance for "${term}" to see every occurrence in ${translation}.` });
@@ -195,7 +195,7 @@ export function answerBibleChat(question, context, translation = 'KJV') {
   }
 
   // No context: general
-  const hits = searchBible(q.split(' ').filter((w) => w.length > 4)[0] || 'love', translation).slice(0, 3);
+  const hits = searchBible(q.split(' ').filter((w) => w.length > 4)[0] || 'love', translation, 'ALL', 3);
   if (hits.length) {
     blocks.push({ type: 'Explanation', text: 'Here are passages related to your question. Open one to make it the context for this conversation.' });
     hits.forEach((h) => blocks.push({ type: 'Scripture', ref: refLabel(h.bookId, h.chapter, h.verse), bookId: h.bookId, chapter: h.chapter, verse: h.verse, text: h.text, translation }));

@@ -6,3 +6,4 @@ ios/
 scratch/
 .env
 .env.local
+__pycache__/

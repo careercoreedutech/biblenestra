@@ -1,11 +1,22 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { colors, fonts, radius, shadow } from '../theme';
 
-export default function AskBar({ placeholder = 'Ask anything in scripture…', onSend, initial }) {
+// prefill + prefillKey: put text in the box (e.g. editing a message); focusKey: focus the box (e.g. replying).
+export default function AskBar({ placeholder = 'Ask anything in scripture…', onSend, initial, prefill, prefillKey, focusKey, sendLabel = 'Send' }) {
   const [text, setText] = useState(initial || '');
   const [focused, setFocused] = useState(false);
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (prefillKey == null) return;
+    setText(prefill || '');
+    setTimeout(() => inputRef.current && inputRef.current.focus(), 60);
+  }, [prefillKey]);
+  useEffect(() => {
+    if (focusKey == null) return;
+    setTimeout(() => inputRef.current && inputRef.current.focus(), 60);
+  }, [focusKey]);
 
   const send = () => {
     if (!text.trim()) return;
@@ -30,6 +41,7 @@ export default function AskBar({ placeholder = 'Ask anything in scripture…', o
       </View>
 
       <TextInput
+        ref={inputRef}
         value={text}
         onChangeText={setText}
         onSubmitEditing={send}
@@ -45,7 +57,7 @@ export default function AskBar({ placeholder = 'Ask anything in scripture…', o
         onPress={send}
         disabled={!hasText}
         style={({ pressed }) => [styles.sendBtn, hasText ? styles.sendBtnActive : styles.sendBtnDisabled, pressed && { opacity: 0.8 }]}
-        accessibilityLabel="Send"
+        accessibilityLabel={sendLabel}
       >
         <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
           <Path

@@ -24,6 +24,9 @@ import {
   splitPosts, mapFeedPost, mapVideoPost, mapComments, mapPrayer, mapJob, mapBid, mapLedger, mapMeToUser, followKeyOf,
   mapConversation, mapMessage, mapCommunity, mapEvent, mapWish, mapNotification,
 } from './mappers';
+import {
+  dmScope, groupScope, getScopeMsgs, mapServerMessage, outgoingBody, scopeConversationId, scopesForConversation,
+} from '../chat/messages';
 
 const SyncCtx = createContext(null);
 const OFF = {
@@ -41,6 +44,7 @@ const OFF = {
   creditAd: null,
   sendGift: null,
   loadChatMessages: async () => {},
+  loadThread: null,
   markChatRead: async () => {},
   signOut: async () => {},
   me: null,
@@ -103,28 +107,32 @@ function OnlineSync({ api, children }) {
 
     client.onEvent((ev) => {
       if (ev.type === 'message.new') {
+        // ROUND 4: a conversation can be open as a direct chat and/or a group channel — update every place it shows.
         const msg = ev.message;
         const s = getState();
-        const convId = ev.conversationId;
-        const existingChat = (s.chats || []).find((c) => c.id === convId);
-        if (existingChat) {
-          const updatedMessages = [...(existingChat.messages || []), {
-            id: msg.id,
-            from: msg.sender?.displayName || 'Friend',
-            mine: msg.isMe,
-            time: 'Just now',
-            text: msg.text,
-            status: 'delivered',
-          }];
-          local({
-            type: 'set',
-            patch: {
-              chats: s.chats.map((c) => c.id === convId ? { ...c, last: msg.text, time: 'Just now', messages: updatedMessages, unread: msg.isMe ? 0 : (c.unread || 0) + 1 } : c),
-            },
-          });
-        } else {
-          refresh({ quiet: true });
+        const scopes = scopesForConversation(s, ev.conversationId);
+        if (!scopes.length) { refresh({ quiet: true }); return; }
+        for (const scope of scopes) {
+          const prevMsg = getScopeMsgs(s, scope).find((m) => m.id === msg.id);
+          local({ type: 'msgUpsert', scope, message: mapServerMessage(msg, prevMsg), unreadBump: !msg.isMe && !prevMsg && scope.startsWith('dm:') });
         }
+      } else if (ev.type === 'message.changed') {
+        // edited / deleted / pinned / reacted — fetch the message as this viewer sees it
+        const s = getState();
+        const scopes = scopesForConversation(s, ev.conversationId);
+        if (!scopes.length) return;
+        request('GET', `/messages/${ev.messageId}`)
+          .then((m) => {
+            const cur = getState();
+            for (const scope of scopes) {
+              if (!getScopeMsgs(cur, scope).some((x) => x.id === m.id)) continue;
+              local({ type: 'msgUpsert', scope, message: mapServerMessage(m, getScopeMsgs(cur, scope).find((x) => x.id === m.id)) });
+              if (ev.change === 'pinned') local({ type: 'msgOp', scope, id: m.id, op: 'pin' }); // keep max-3 order locally
+            }
+          })
+          .catch((e) => {
+            if (e && e.status === 404) for (const scope of scopes) local({ type: 'msgRemove', scope, id: ev.messageId });
+          });
       } else if (ev.type === 'gift.received') {
         const s = getState();
         local({
@@ -460,6 +468,21 @@ function OnlineSync({ api, children }) {
   };
 
   // ───────────── outgoing effects ─────────────
+  // ROUND 4: send a just-dispatched local message to its conversation and swap in the server copy.
+  const sendThreadMessage = (scope, convId, localId) => {
+    const s = getState();
+    const list = getScopeMsgs(s, scope);
+    const m = localId ? list.find((x) => x.id === localId) : list[list.length - 1];
+    if (!m) return;
+    request('POST', `/conversations/${convId}/messages`, outgoingBody(m))
+      .then((res) => local({ type: 'msgUpsert', scope, localId: m.id, message: mapServerMessage(res, m) }))
+      .catch((e) => {
+        const cur = getScopeMsgs(getState(), scope).find((x) => x.id === m.id);
+        if (cur) local({ type: 'msgUpsert', scope, localId: m.id, message: { ...cur, status: 'failed' } });
+        fail(e, `Message not sent: ${errorMessage(e)}`);
+      });
+  };
+
   const effects = useCallback((a, prev, next) => {
     const run = (fn) => { fn().catch(() => {}); };
     switch (a.type) {
@@ -710,15 +733,36 @@ function OnlineSync({ api, children }) {
       case 'dm': {
         const cid = a.cid;
         if (!isServerId(cid)) return;
+        sendThreadMessage(dmScope(cid), cid, a.localId);
+        return;
+      }
+      case 'groupMessage': {
+        // ROUND 4: group channels are server conversations when the community comes from the server
+        const scope = groupScope(a.gid, a.channel);
+        const convId = scopeConversationId(next, scope);
+        if (!convId) return;
+        sendThreadMessage(scope, convId, a.localId);
+        return;
+      }
+      case 'msgOp': {
+        const convId = scopeConversationId(next, a.scope);
+        if (!convId || !isServerId(a.id)) return; // device-only thread or message still sending
+        const before = getScopeMsgs(prev, a.scope);
+        const rollback = (e, what) => { local({ type: 'msgSet', scope: a.scope, messages: before, merge: false }); fail(e, `${what}: ${errorMessage(e)}`); };
         run(async () => {
           try {
-            await request('POST', `/conversations/${cid}/messages`, {
-              kind: 'text',
-              text: a.text,
-              clientId: 'c_' + Date.now(),
-            });
+            if (a.op === 'edit') await request('PATCH', `/messages/${a.id}`, { text: a.text });
+            else if (a.op === 'delete') await request('POST', `/messages/${a.id}/delete`, { for: 'everyone' });
+            else if (a.op === 'deleteMe') await request('POST', `/messages/${a.id}/delete`, { for: 'me' });
+            else if (a.op === 'pin' || a.op === 'unpin') await request('POST', `/messages/${a.id}/pin`, { pinned: a.op === 'pin' });
+            else if (a.op === 'react') {
+              const r = await request('POST', `/messages/${a.id}/react`, { emoji: a.emoji });
+              const cur = getScopeMsgs(getState(), a.scope).find((m) => m.id === a.id);
+              if (cur) local({ type: 'msgUpsert', scope: a.scope, message: { ...cur, reactions: r.reactions || [] } });
+            }
           } catch (e) {
-            fail(e, 'Could not deliver message');
+            const what = { edit: 'Couldn’t edit the message', delete: 'Couldn’t delete the message', deleteMe: 'Couldn’t delete the message', pin: 'Couldn’t pin the message', unpin: 'Couldn’t unpin the message', react: 'Couldn’t add your reaction' }[a.op] || 'Couldn’t update the message';
+            rollback(e, what);
           }
         });
         return;
@@ -1051,8 +1095,8 @@ function OnlineSync({ api, children }) {
     await api.signOut();
   }, [api.signOut]);
 
-  const sendGift = useCallback(async ({ toUserId, giftId, postId }) => {
-    const res = await request('POST', '/gifts', { toUserId, giftId, postId });
+  const sendGift = useCallback(async ({ toUserId, giftId, postId, commentId }) => {
+    const res = await request('POST', '/gifts', { toUserId, giftId, postId, ...(commentId ? { commentId } : {}) });
     local({
       type: 'serverSync',
       patch: {
@@ -1068,6 +1112,17 @@ function OnlineSync({ api, children }) {
       ? `/conversations/${conversationId}/messages?after=${encodeURIComponent(after)}`
       : `/conversations/${conversationId}/messages`;
     return request('GET', url);
+  }, []);
+
+  // ROUND 4: load a thread's newest page (+ pins and my role) into the store.
+  const loadThread = useCallback(async (scope, conversationId) => {
+    const res = await request('GET', `/conversations/${conversationId}/messages?limit=50`);
+    const items = (res.items || []).slice().reverse();
+    const pins = res.pins || [];
+    const pinAt = new Map(pins.map((p) => [p.id, Date.parse(p.pinnedAt) || 0]));
+    const withPins = items.map((m) => (pinAt.has(m.id) ? { ...m, pinnedAt: new Date(pinAt.get(m.id)).toISOString() } : m));
+    local({ type: 'msgSet', scope, messages: withPins });
+    return { myRole: res.myRole || 'member', pins, hasMore: !!res.hasMore };
   }, []);
 
   const markChatRead = useCallback(async (conversationId) => {
@@ -1097,6 +1152,7 @@ function OnlineSync({ api, children }) {
     creditAd,
     sendGift,
     loadChatMessages,
+    loadThread,
     markChatRead,
     signOut,
   }), [api.mode, api.email, status, realtimeStatus, error, me, hasMore, loadingMore, state.account && state.account.lastSyncedAt]);

@@ -9,6 +9,7 @@ import VerseImageSheet from '../components/VerseImageSheet';
 import { useToast } from '../components/Toast';
 import ProfileButton from '../components/ProfileButton';
 import TranslationPicker from '../components/TranslationPicker';
+import BookChapterPicker from '../components/BookChapterPicker';
 import { useChapter, useChapters, prefetchChapter } from '../bible/loader';
 import { translationInfo, resolveTranslationId } from '../bible/catalog';
 import { useNarration } from '../audio/Narration';
@@ -567,95 +568,15 @@ export default function BibleScreen({ params: routeParams }) {
       <AnimatedModal visible={picker === 'book'} onRequestClose={() => setPicker(null)}>
         <View style={styles.modalBackdrop}>
           <Pressable style={{ flex: 1 }} onPress={() => setPicker(null)} />
-          <View style={styles.modalSheet}>
-            <View style={styles.grabber} />
-            <View style={styles.modalHead}>
-              <Text style={styles.modalTitle}>Books & chapters</Text>
-              <Pressable onPress={() => setPicker(null)} hitSlop={12} style={styles.modalClose}>
-                <Text style={styles.modalCloseText}>Done</Text>
-              </Pressable>
-            </View>
-
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 6, paddingBottom: 50 }}>
-              {book ? (
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={styles.modalSub}>{`${book.name} · ${book.chapters} chapters`}</Text>
-                  <View style={styles.chapterGrid}>
-                    {Array.from({ length: book.chapters }, (_, i) => i + 1).map((ch) => {
-                      const isSel = ch === pos.chapter;
-                      return (
-                        <Pressable
-                          key={ch}
-                          style={({ pressed }) => [styles.chapterCell, isSel && styles.chapterCellActive, pressed && { opacity: 0.7 }]}
-                          onPress={() => {
-                            setPos({ bookId: pos.bookId, chapter: ch });
-                            setSelected(null);
-                            setPicker(null);
-                          }}
-                        >
-                          <Text style={[styles.chapterCellText, isSel && { color: colors.primaryFg }]}>{ch}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              ) : null}
-
-              {['OT', 'NT'].map((t) => (
-                <View key={t} style={{ marginTop: 10 }}>
-                  <Text style={styles.testamentLabel}>{t === 'OT' ? 'Old Testament' : 'New Testament'}</Text>
-                  <Text style={styles.testamentCount}>{t === 'OT' ? '39 books' : '27 books'}</Text>
-                  <View style={styles.bookGrid}>
-                    {BOOKS.filter((b) => b.testament === t).map((b) => {
-                      const isSel = b.id === pos.bookId;
-                      return (
-                        <Pressable
-                          key={b.id}
-                          style={({ pressed }) => [styles.bookGridItem, isSel && styles.bookGridItemActive, pressed && { opacity: 0.7 }]}
-                          onPress={() => {
-                            setPos({ bookId: b.id, chapter: 1 });
-                            setSelected(null);
-                            setPicker(null);
-                          }}
-                        >
-                          <Text style={[styles.bookGridName, isSel && styles.bookGridNameActive]} numberOfLines={1}>{b.name}</Text>
-                          <Text style={[styles.bookGridChCount, isSel && { color: 'rgba(255,255,255,0.7)' }]}>{b.chapters} ch</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              ))}
-
-              <Text style={[styles.testamentLabel, { marginTop: 26 }]}>Featured passages</Text>
-              <View style={{ gap: 8, marginTop: 10 }}>
-                {availableChapters().map((c) => {
-                  const chTitle = CHAPTER_TITLES[`${c.bookId}:${c.chapter}`] || `${bookName(c.bookId)} Chapter ${c.chapter}`;
-                  const isCurrent = c.bookId === pos.bookId && c.chapter === pos.chapter;
-                  return (
-                    <Pressable
-                      key={c.bookId + c.chapter}
-                      style={({ pressed }) => [styles.availChapterCard, isCurrent && styles.availChapterActive, pressed && { opacity: 0.8 }]}
-                      onPress={() => {
-                        setPos({ bookId: c.bookId, chapter: c.chapter });
-                        setSelected(null);
-                        setPicker(null);
-                      }}
-                    >
-                      <View style={[styles.availChapterIcon, isCurrent && { backgroundColor: colors.primary }]}>
-                        <Icon name="book" size={15} color={isCurrent ? colors.primaryFg : colors.primary} />
-                      </View>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={styles.availChapterRef}>{refLabel(c.bookId, c.chapter)}</Text>
-                        <Text style={styles.availChapterTitle} numberOfLines={1}>{chTitle}</Text>
-                      </View>
-                      {isCurrent ? <Badge label="Reading" tint={colors.primary} /> : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </ScrollView>
-          </View>
+          <BookChapterPicker
+            pos={pos}
+            onClose={() => setPicker(null)}
+            onSelect={(p) => {
+              setPos(p);
+              setSelected(null);
+              setPicker(null);
+            }}
+          />
         </View>
       </AnimatedModal>
 

@@ -10,7 +10,8 @@ import { createApp } from '../src/index.js';
 import { makeDb, makeBucket } from './local-env.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(here, '.data');
+// DATA_DIR lets several local servers run side by side (each needs its own PGlite folder)
+const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(here, '.data');
 const fresh = !existsSync(path.join(dataDir, 'db'));
 await mkdir(dataDir, { recursive: true });
 const db = await makeDb(path.join(dataDir, 'db'));
@@ -24,6 +25,8 @@ const env = {
   AUTH_DEV_MODE: 'true',
   ADS_CLIENT_CLAIM: 'true',
   CORS_ORIGINS: '*',
+  // Fund Me: simulated payments locally (PAYMENTS_MODE=off → "Donations open soon")
+  PAYMENTS_MODE: process.env.PAYMENTS_MODE === 'off' ? '' : (process.env.PAYMENTS_MODE || 'test'),
 };
 const app = createApp();
 const port = Number(process.env.PORT || 8787);

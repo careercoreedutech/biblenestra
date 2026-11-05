@@ -12,8 +12,17 @@ import { ND, WHITE, SOCIAL, countFormat, initials, tintFor, kindTint } from './s
 
 // ─── Small pieces ────────────────────────────────────────────────
 
-export function SocialAvatar({ name = '', label, size = 40, ring }) {
+export function SocialAvatar({ name = '', label, size = 40, ring, uri }) {
   const tint = tintFor(name);
+  if (uri) {
+    return (
+      <Image
+        source={{ uri }}
+        accessibilityIgnoresInvertColors
+        style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: tint }, ring && { borderWidth: 2, borderColor: colors.goldLight }]}
+      />
+    );
+  }
   return (
     <View
       style={[

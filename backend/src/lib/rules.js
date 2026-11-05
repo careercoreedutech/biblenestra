@@ -19,3 +19,15 @@ export const GIFTS = [
   { id: 'g_crown', name: 'Royal Crown', price: 500, icon: 'coin', desc: 'High-value creator-support gift' },
 ];
 export const GIFT_MAP = new Map(GIFTS.map((g) => [g.id, g]));
+
+// Fund Me (round 3): donation limits in minor units per currency, preset buttons, platform fee (basis points).
+export const FUNDME = {
+  platformFeeBps: 0, // 0 = no platform fee (e.g. 250 = 2.5%, taken as a Stripe application fee)
+  currencies: {
+    GBP: { min: 100, max: 1000000, goalMax: 100000000, presets: [1000, 2500, 5000, 10000] },
+    USD: { min: 100, max: 1000000, goalMax: 100000000, presets: [1000, 2500, 5000, 10000] },
+    EUR: { min: 100, max: 1000000, goalMax: 100000000, presets: [1000, 2500, 5000, 10000] },
+    NGN: { min: 50000, max: 500000000, goalMax: 50000000000, presets: [200000, 500000, 1000000, 2500000] },
+  },
+  donationsPer10Min: 10, // per signed-in user / per IP
+};

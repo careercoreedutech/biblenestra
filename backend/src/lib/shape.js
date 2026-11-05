@@ -50,6 +50,7 @@ export function meShape(u, extra = {}) {
   return {
     id: u.id, displayName: u.display_name, handle: u.handle, avatarUrl: u.avatar_url, headline: u.headline, bio: u.bio,
     church: u.church, country: u.country, translation: u.translation, kind: u.kind, verified: u.verified, isMe: true,
+    bannerUrl: u.banner_url || null,
     coins: u.coins, jobAdCredits: u.job_ad_credits,
     ...extra,
   };

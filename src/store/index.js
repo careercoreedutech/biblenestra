@@ -10,6 +10,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as seed from '../data/seed';
 import { seedRhythm } from '../data/rhythm';
+import { applyMessageOp, fmtClock, getScopeMsgs, mergeServerPage, scopePatch, upsertMessage } from '../chat/messages';
 import { API_CONFIG } from '../api/config';
 
 const ONLINE = API_CONFIG.online;
@@ -294,11 +295,23 @@ function reducer(s, a) {
     case 'groupMessage': {
       const g = s.groupMessages[a.gid] || {};
       const ch = g[a.channel] || [];
-      return bump({ groupMessages: { ...s.groupMessages, [a.gid]: { ...g, [a.channel]: [...ch, { id: 'm' + Date.now(), from: s.user.displayName, mine: true, time: 'Just now', ...a.m }] } } });
+      return bump({ groupMessages: { ...s.groupMessages, [a.gid]: { ...g, [a.channel]: [...ch, { id: a.localId || 'm' + Date.now(), from: s.user.displayName, mine: true, time: fmtClock(Date.now()), createdAt: Date.now(), ...a.m }] } } });
     }
     case 'dm': return bump({
-      chats: s.chats.map((c) => (c.id === a.cid ? { ...c, last: a.text, time: 'Just now', messages: [...c.messages, { id: 'x' + Date.now(), from: s.user.displayName, mine: true, time: 'Just now', text: a.text, status: 'sent', audio: a.audio || null }] } : c)),
+      chats: s.chats.map((c) => (c.id === a.cid ? { ...c, last: a.text, time: 'Just now', messages: [...c.messages, { id: a.localId || 'x' + Date.now(), from: s.user.displayName, mine: true, time: fmtClock(Date.now()), createdAt: Date.now(), text: a.text, status: 'sent', audio: a.audio || null, reply: a.reply || null }] } : c)),
     });
+    // ROUND 4 — message actions (DMs + group channels). `scope` comes from src/chat/messages.js.
+    case 'msgOp': {
+      const list = getScopeMsgs(s, a.scope);
+      if (!list.some((m) => m.id === a.id)) return s;
+      return bump(scopePatch(s, a.scope, applyMessageOp(list, a)));
+    }
+    case 'msgSet': return bump(scopePatch(s, a.scope, a.merge === false ? a.messages : mergeServerPage(getScopeMsgs(s, a.scope), a.messages)));
+    case 'msgUpsert': {
+      const list = getScopeMsgs(s, a.scope);
+      return bump(scopePatch(s, a.scope, upsertMessage(list, a.message, a.localId), a.unreadBump ? { unread: ((s.chats.find((c) => `dm:${c.id}` === a.scope) || {}).unread || 0) + 1, time: 'Just now' } : {}));
+    }
+    case 'msgRemove': return bump(scopePatch(s, a.scope, getScopeMsgs(s, a.scope).filter((m) => m.id !== a.id)));
     case 'newChat': return bump({
       chats: [{ id: 'd' + Date.now(), with: a.name, username: a.username || '@user', avatar: a.avatar || a.name.slice(0, 2).toUpperCase(), type: a.kind || 'Direct', last: a.text || 'Started a conversation', time: 'Just now', unread: 0, messages: a.text ? [{ id: 'x' + Date.now(), from: s.user.displayName, mine: true, time: 'Just now', text: a.text, status: 'sent' }] : [] }, ...s.chats],
     });

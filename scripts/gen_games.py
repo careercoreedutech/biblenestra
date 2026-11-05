@@ -7,7 +7,8 @@ Inputs (read-only):
   scripts/games_curated.py  hand-curated trivia / quotes / events / famous verse list
 
 Outputs (src/data/games/):
-  trivia.json  who.json  scramble.json  chronology.json
+  trivia.json  who.json  scramble.json  chronology.json  meta.json (bank sizes)
+  Each bank has >= 1,500 items (endless practice mode draws from the whole bank).
 
 Every generated item cites a KJV reference and is built from the KJV text itself, so
 answers are correct by construction. Curated items are cross-checked against the cited
@@ -184,11 +185,11 @@ def chapter_pool(bid, c):
 
 
 # --- Which book contains this verse?
-for r in famous:
+def which_book_item(r):
     bid, c, v, _ = parse_ref(r)
     t = verses(r)[0]
     if len(t) > 230:
-        continue
+        return None
     w = norm(t).split()
     sh = {' '.join(w[i:i + 5]) for i in range(len(w) - 4)}
     i = IDX[bid]
@@ -196,20 +197,21 @@ for r in famous:
     rng.shuffle(window)
     dis = [b for b in window if not (sh & SHINGLES[b])][:3]
     if len(dis) < 3:
-        continue
+        return None
     o, a = mc(rng, bname(bid), [bname(b) for b in dis])
-    trivia.append({'id': f'tb-{bid}{c}.{v}', 'c': 'verses', 'q': f'In which book is this verse found?\n“{t}”', 'o': o, 'a': a,
+    return ({'id': f'tb-{bid}{c}.{v}', 'c': 'verses', 'q': f'In which book is this verse found?\n“{t}”', 'o': o, 'a': a,
                    'r': ref_label(r), 'x': t, 'k': 'verse'})
 
+
 # --- Complete the verse (fill in the blank)
-for r in famous:
+def complete_item(r):
     bid, c, v, _ = parse_ref(r)
     t = verses(r)[0]
     if len(t) > 220:
-        continue
+        return None
     cands = [w for w in content_words(t) if len(re.findall(r'\b' + re.escape(w) + r'\b', t)) == 1]
     if not cands:
-        continue
+        return None
     cands.sort(key=lambda w: (-len(w), w))
     ans = rng.choice(cands[:3])
     in_verse = {x.lower() for x in words(t)}
@@ -229,11 +231,51 @@ for r in famous:
         if len(dis) == 3:
             break
     if len(dis) < 3:
-        continue
+        return None
     blank = re.sub(r'\b' + re.escape(ans) + r'\b', '_____', t, count=1)
     o, a = mc(rng, ans, dis)
-    trivia.append({'id': f'tf-{bid}{c}.{v}', 'c': 'verses', 'q': f'Complete the verse ({ref_label(r)}):\n“{blank}”', 'o': o, 'a': a,
+    return ({'id': f'tf-{bid}{c}.{v}', 'c': 'verses', 'q': f'Complete the verse ({ref_label(r)}):\n“{blank}”', 'o': o, 'a': a,
                    'r': ref_label(r), 'x': t, 'k': 'verse'})
+
+
+for make in (which_book_item, complete_item):
+    for r in famous:
+        it = make(r)
+        if it:
+            trivia.append(it)
+
+# --- More verse questions from a wider pool of well-known, devotional verses (round-robin across books
+# so practice stays varied). Same construction and checks as above, so answers stay correct by construction.
+TRIVIA_TARGET = 1470
+NOTABLE = re.compile(r"\b(LORD|God|Lord|Christ|Jesus|love|faith|grace|mercy|wisdom|righteous|righteousness|peace|joy|hope|praise|salvation|truth|light|Spirit|blessed|Blessed|trust|heart|heaven|soul|life|word)\b")
+UNNOTABLE = re.compile(r"\b(begat|cubits|saith|said|spake|slew|smote|Moreover)\b|\[")
+famous_set = set(famous)
+book_streams = []
+for b in ORDER:
+    refs = []
+    for c in range(1, BOOK[b]['chapters'] + 1):
+        for v, t in enumerate(KJV[f'{b}:{c}'], 1):
+            t = t.strip()
+            r = f'{b} {c}:{v}'
+            if r in famous_set or not (60 <= len(t) <= 200) or not NOTABLE.search(t) or UNNOTABLE.search(t):
+                continue
+            if t.startswith(('And ', 'But ', 'Then ', 'So ', 'Now ', 'For ', 'Therefore ', 'Wherefore ')):
+                continue
+            refs.append(r)
+    rng.shuffle(refs)
+    book_streams.append(refs)
+extra_verse_refs = []
+while any(book_streams):
+    for st in book_streams:
+        if st:
+            extra_verse_refs.append(st.pop(0))
+for r in extra_verse_refs:
+    if len(trivia) >= TRIVIA_TARGET:
+        break
+    make = which_book_item if len(trivia) % 2 else complete_item
+    it = make(r) or (complete_item(r) if make is which_book_item else which_book_item(r))
+    if it:
+        trivia.append(it)
 
 # --- How many chapters?
 for b in META:
@@ -349,8 +391,45 @@ def era(bid):
 
 ERAS = ['patriarchs', 'exodus', 'judges', 'kings', 'exile', 'gospels', 'church']
 
+def clip_quote(q):
+    """A quote that reads as a complete saying: the whole clause if it ends a sentence, else cut at the
+    last sentence end, else (for a long clause ending in ; : ,) the clause with an ellipsis."""
+    q = q.strip()
+    if re.search(r'[.?!]$', q):
+        return q
+    ends = [m.end() for m in re.finditer(r'[.?!](?= )', q)]
+    ends = [e for e in ends if e >= 28]
+    if ends:
+        return q[:ends[-1]]
+    if re.search(r'[;:,]$', q) and len(q) >= 40:
+        return q[:-1].rstrip() + '…'
+    return None
+
+
 who_raw = []  # (label, quote, ref, full verse)
 seen_q = set()
+
+
+def add_who(label, q, bid, c, v, full, span=0, name=None):
+    """Shared filters for every who-said-it source. Returns True when the quote was added."""
+    q = clip_quote(q or '')
+    if not q or not q[0].isupper():
+        return False
+    if NARR.search(q) or len(q) < 28 or len(q) > 175:
+        return False
+    if label.split(',')[0].split(' ')[0] in q or (name and name in q):
+        return False
+    key = norm(q)
+    if key in seen_q:
+        return False
+    ref = f'{bid} {c}:{v}' + (f'-{v + 1}' if span else '')
+    if appears_elsewhere(q, f'{bid} {c}:{v + span}'):
+        return False
+    seen_q.add(key)
+    who_raw.append((label, q, ref, full))
+    return True
+
+
 for (bid, c, v, t) in ALL_VERSES:
     m = P1.match(t) or P2.match(t) or P3.match(t)
     q = None
@@ -371,24 +450,77 @@ for (bid, c, v, t) in ALL_VERSES:
         continue
     if name == 'Mary' and c not in LUK_MARY:
         continue
-    q = q.strip()
-    if not q[0].isupper() or not re.search(r'[.?!]$', q):
+    add_who(label, q, bid, c, v, full, span, name)
+
+# --- God speaking through the prophets: "Thus saith the LORD, <quote>" and "<quote>, saith the LORD."
+# The text itself names the speaker, so the answer is certain; distractors never include a prophet.
+P5 = re.compile(r"^(?:For |And |But |Therefore |Wherefore |Moreover )?[Tt]hus saith the (?:LORD|Lord GOD)(?: of hosts| God)?(?:, the God of Israel)?[;,:] (.+)$")
+P6 = re.compile(r"^(.+?),? saith the (?:LORD|Lord GOD)(?: of hosts)?\.$")
+for (bid, c, v, t) in ALL_VERSES:
+    if bid not in OT_BOOKS:
         continue
-    if NARR.search(q) or len(q) < 28 or len(q) > 175:
+    m = P5.match(t)
+    if m:
+        add_who('God', m.group(1), bid, c, v, t)
         continue
-    if label.split(',')[0].split(' ')[0] in q or name in q:
-        continue
-    key = norm(q)
-    if key in seen_q:
-        continue
-    ref = f'{bid} {c}:{v}' + (f'-{v + 1}' if span else '')
-    if appears_elsewhere(q, f'{bid} {c}:{v + span}'):
-        continue
-    seen_q.add(key)
-    who_raw.append((label, q, ref, full))
+    m = P6.match(t)
+    if m and not re.search(r"\b(saith|said|spake)\b", m.group(1)):
+        add_who('God', m.group(1).rstrip(',;:') + '.', bid, c, v, t)
+
+# --- Long speeches whose speaker is fixed by the narrative (every verse in the range is the speaker's
+# own words; ranges were chosen to avoid interruptions and quoted dialogue).
+SPEECHES = [
+    ('Jesus', 'MAT', 5, 3, 7, 27),    # Sermon on the Mount
+    ('Jesus', 'MAT', 10, 5, 10, 42),  # sending out the twelve
+    ('Jesus', 'MAT', 23, 2, 23, 39),  # woes to the scribes and Pharisees
+    ('Jesus', 'MAT', 24, 4, 24, 51),  # Olivet discourse
+    ('Jesus', 'LUK', 6, 20, 6, 49),   # Sermon on the plain
+    ('Jesus', 'JHN', 15, 1, 15, 27),  # the true vine
+    ('Jesus', 'JHN', 14, 9, 14, 21),
+    ('Jesus', 'JHN', 14, 23, 14, 31),
+    ('Jesus', 'JHN', 16, 1, 16, 16),
+    ('Jesus', 'JHN', 17, 1, 17, 26),  # the high-priestly prayer
+    ('God', 'EXO', 20, 2, 20, 17),    # the ten commandments
+    ('Moses', 'DEU', 6, 1, 6, 25),
+    ('Moses', 'DEU', 8, 1, 8, 20),
+    ('Moses', 'DEU', 10, 12, 10, 22),
+    ('Moses', 'DEU', 30, 11, 30, 20),
+    ('Moses', 'DEU', 7, 1, 7, 26),
+    ('Moses', 'DEU', 11, 1, 11, 32),
+    ('Moses', 'DEU', 28, 1, 28, 68),
+    ('Jesus', 'MAT', 13, 4, 13, 9),
+    ('Jesus', 'MAT', 13, 12, 13, 23),
+    ('Jesus', 'MAT', 13, 37, 13, 50),
+    ('Jesus', 'MAT', 25, 31, 25, 36),
+    ('Jesus', 'MRK', 13, 5, 13, 37),
+    ('Jesus', 'LUK', 12, 22, 12, 40),
+    ('Jesus', 'JHN', 5, 20, 5, 47),
+    ('Jesus', 'JHN', 10, 8, 10, 18),
+    ('God', 'EXO', 22, 21, 23, 13),   # the book of the covenant: justice for the stranger, widow and poor
+    ('God', 'LEV', 19, 2, 19, 37),
+    ('God', 'LEV', 26, 1, 26, 46),
+    ('God', 'JOB', 38, 2, 39, 30),    # the LORD answers Job out of the whirlwind
+    ('God', 'JOB', 40, 7, 41, 34),
+    ('Job', 'JOB', 3, 3, 3, 26),
+    ('Job', 'JOB', 6, 2, 7, 21),
+    ('Job', 'JOB', 9, 2, 10, 22),
+    ('Job', 'JOB', 12, 2, 14, 22),
+    ('Job', 'JOB', 16, 2, 17, 16),
+    ('Job', 'JOB', 19, 2, 19, 29),
+    ('Job', 'JOB', 23, 2, 24, 25),
+    ('Job', 'JOB', 29, 2, 31, 40),
+]
+for lab, bid, c1, v1, c2, v2 in SPEECHES:
+    for c in range(c1, c2 + 1):
+        vs = KJV[f'{bid}:{c}']
+        for v in range((v1 if c == c1 else 1), (v2 if c == c2 else len(vs)) + 1):
+            t = vs[v - 1].strip()
+            if re.search(r"\b(said|saith|saying|spake|answered)\b|\b(they|he|she|They|He|She) say\b", t):
+                continue
+            add_who(lab, t, bid, c, v, t)
 
 # cap the two most frequent voices so other speakers get airtime
-CAPS = {'Jesus': 140, 'God': 90}
+CAPS = {'Jesus': 420, 'God': 420, 'Job': 300}
 by = defaultdict(list)
 for w in who_raw:
     by[w[0]].append(w)
@@ -408,6 +540,9 @@ for lab, quote, ref, full in who_auto:
 NEVER_WITH = {('God', 'Jesus'), ('Jesus', 'God'), ('Satan', 'The serpent'), ('The serpent', 'Satan'),
               ('Mary, mother of Jesus', 'Elisabeth'), ('God', 'The angel Gabriel')}
 DIVINE = {'God', 'Jesus', 'Satan', 'The serpent', 'The angel Gabriel'}
+# People who relayed God's words — never offered as a wrong answer when the answer is God.
+MOUTHPIECES = {'Moses', 'Aaron', 'Samuel', 'Nathan', 'Elijah', 'Elisha', 'Micaiah', 'Isaiah', 'Jeremiah', 'Daniel',
+               'Jonah', 'Balaam', 'Ezra', 'Nehemiah', 'Joshua', 'Deborah', 'Gad'}
 
 
 def speaker_distractors(answer, ref, quote):
@@ -418,6 +553,7 @@ def speaker_distractors(answer, ref, quote):
         eras = {ERAS[j] for j in (ei - radius, ei + radius) if 0 <= j < len(ERAS)}
         pool = sorted(s for s, es in spk_eras.items() if es & eras and s != answer and s not in picked
                       and (answer, s) not in NEVER_WITH and s not in DIVINE
+                      and not (answer == 'God' and s in MOUTHPIECES)
                       and s.split(',')[0].split(' ')[-1] not in quote)
         rng.shuffle(pool)
         for s in pool:
@@ -467,6 +603,7 @@ def chips(seg):
     return out
 
 
+SCRAMBLE_TARGET = 1600
 scramble = []
 seen_s = set()
 scr_refs = famous[:]
@@ -475,7 +612,8 @@ scr_refs = famous[:]
 GOODWORD = re.compile(r"\b(LORD|God|Lord|Christ|Jesus|love|loveth|faith|grace|mercy|wisdom|righteous|righteousness|peace|joy|hope|praise|salvation|truth|light|Spirit|blessed|Blessed|trust|heart)\b")
 BADWORD = re.compile(r"\b(saith|saying|said|Moreover|consume|hate|hateth|destroy|wrath|curse|cursed|slay|abomination)\b")
 streams = []
-for bid in ['PSA', 'PRO', 'ISA', 'JHN', 'MAT', 'ROM', 'ECC', '1JN', 'JAS', 'EPH', 'PHP', 'HEB', 'LUK', 'COL', 'GAL', '1PE', '1CO', '2CO', 'JOS', '2TI', 'MRK']:
+for bid in ['PSA', 'PRO', 'ISA', 'JHN', 'MAT', 'ROM', 'ECC', '1JN', 'JAS', 'EPH', 'PHP', 'HEB', 'LUK', 'COL', 'GAL', '1PE', '1CO', '2CO', 'JOS', '2TI', 'MRK',
+            'DEU', 'JER', 'LAM', 'HOS', 'MIC', 'HAB', 'ZEP', 'ACT', '1TH', '2TH', 'TIT', '2PE', 'JUD', 'REV', '1TI', 'PHM', '2JN', 'JOB', 'SNG', 'JOL', 'NAM', 'ZEC', 'MAL', '1SA', '2SA', '1CH', '2CH', 'NEH', 'GEN', 'EXO']:
     refs = []
     for c in range(1, BOOK[bid]['chapters'] + 1):
         for v in range(1, len(KJV[f'{bid}:{c}']) + 1):
@@ -500,7 +638,7 @@ for r in scr_refs:
     seen_s.add(norm(seg))
     bid, c, v, _ = parse_ref(r)
     scramble.append({'id': f's-{bid}{c}.{v}', 'r': ref_label(r), 'w': w, 'x': t, 'k': 'famous' if r in famous else 'more'})
-    if len(scramble) >= 560:
+    if len(scramble) >= SCRAMBLE_TARGET:
         break
 
 # ================================================================= CHRONOLOGY
@@ -516,7 +654,9 @@ def before(a, b):
 
 seen_c = set()
 tries = 0
-while len([c for c in chron if c['k'] == 'events']) < 330 and tries < 200000:
+CHRONO_EVENTS = 960
+n_events = 0
+while n_events < CHRONO_EVENTS and tries < 400000:
     tries += 1
     pick = rng.sample(EV, 4)
     ok = all(before(a, b) or before(b, a) for i, a in enumerate(pick) for b in pick[i + 1:])
@@ -536,6 +676,7 @@ while len([c for c in chron if c['k'] == 'events']) < 330 and tries < 200000:
     x = 'In order: ' + ' → '.join(f"{e['l']} ({ref_label(e['r'])})" for e in order)
     chron.append({'id': f'ce{len(seen_c)}', 'q': f'Which of these happened {mode.upper()}?', 'o': o, 'a': a,
                   'r': ref_label(ans['r']), 'x': x, 'k': 'events'})
+    n_events += 1
 
 for i, bid in enumerate(ORDER):
     if i + 1 < len(ORDER):
@@ -551,7 +692,7 @@ for i, bid in enumerate(ORDER):
         chron.append({'id': f'cp-{bid}', 'q': f'Which book comes right before {bname(bid)}?', 'o': o, 'a': a, 'r': f'{bname(ans)} → {bname(bid)}',
                       'x': ' → '.join(bname(ORDER[j]) for j in range(max(0, i - 2), min(66, i + 2))), 'k': 'books'})
 seen_b = set()
-while len([c for c in chron if c['id'].startswith('cf')]) < 90:
+while len(seen_b) < 420:
     pick = sorted(rng.sample(range(66), 4))
     if pick[-1] - pick[0] > 20 or tuple(pick) in seen_b:
         continue
@@ -561,6 +702,14 @@ while len([c for c in chron if c['id'].startswith('cf')]) < 90:
     o, a = mc(rng, bname(ans), [bname(ORDER[j]) for j in pick if ORDER[j] != ans])
     chron.append({'id': f'cf{len(seen_b)}', 'q': f'Which of these books comes {mode.upper()} in the Bible?', 'o': o, 'a': a,
                   'r': 'Order of the books', 'x': 'In order: ' + ' → '.join(bname(ORDER[j]) for j in pick), 'k': 'books'})
+# Which book sits between two others? (X → ? → Z)
+for i in range(1, 65):
+    ans = ORDER[i]
+    pool = [ORDER[j] for j in (i + 2, i - 2, i + 3, i - 3, i + 4, i - 4) if 0 <= j < 66][:3]
+    o, a = mc(rng, bname(ans), [bname(b) for b in pool])
+    chron.append({'id': f'cb-{ans}', 'q': f'Which book comes between {bname(ORDER[i - 1])} and {bname(ORDER[i + 1])}?', 'o': o, 'a': a,
+                  'r': f'{bname(ORDER[i - 1])} → {bname(ans)} → {bname(ORDER[i + 1])}',
+                  'x': ' → '.join(bname(ORDER[j]) for j in range(max(0, i - 2), min(66, i + 3))), 'k': 'books'})
 for it in chron:
     check_options(it, 'chron')
 
@@ -573,6 +722,9 @@ def dump(name, items):
 
 
 sizes = {n: dump(n + '.json', it) for n, it in [('trivia', trivia), ('who', who), ('scramble', scramble), ('chronology', chron)]}
+# Bank sizes for the game list (lets the app show counts without loading the banks themselves)
+with open(os.path.join(OUT, 'meta.json'), 'w') as f:
+    json.dump({'trivia': len(trivia), 'who': len(who), 'scramble': len(scramble), 'chronology': len(chron)}, f)
 kinds = lambda xs: dict(sorted(((k, sum(1 for x in xs if x['k'] == k)) for k in {x['k'] for x in xs})))  # noqa: E731
 print('trivia', len(trivia), kinds(trivia), sizes['trivia'])
 print('who', len(who), kinds(who), sizes['who'])

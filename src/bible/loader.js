@@ -221,6 +221,22 @@ export async function downloadTranslation(trId, onProgress = () => {}) {
   return true;
 }
 
+// The whole text of a downloaded translation as { 'GEN:1': [verse, …] } (used by full-Bible search),
+// or null when it isn't stored on this device. KJV is bundled, so it's always available.
+export async function readDownloadedText(trId) {
+  const tr = resolveTranslationId(trId);
+  if (tr === 'KJV') return kjv();
+  if (!(await isDownloaded(tr))) return null;
+  const out = {};
+  for (let i = 0; i < BOOKS.length; i++) {
+    // eslint-disable-next-line no-await-in-loop
+    const byChapter = await readFile(bookPath(tr, BOOKS[i].id));
+    if (!byChapter) return null;
+    Object.keys(byChapter).forEach((ch) => { out[`${BOOKS[i].id}:${ch}`] = byChapter[ch]; });
+  }
+  return out;
+}
+
 export async function removeDownload(trId) {
   const tr = resolveTranslationId(trId);
   if (!ROOT || tr === 'KJV') return;

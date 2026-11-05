@@ -117,7 +117,7 @@ export function searchLexicon(q) {
   if (/^[GH]\d{1,4}$/i.test(s)) return loadStrong(s).then((e) => (e ? [e] : []));
   return cached(`q_${s.toLowerCase()}`, async () => {
     const arr = await getJson(`${LEXICON_API}/dictionary-definition/BDBT/${encodeURIComponent(s)}/`);
-    return (arr || []).slice(0, 40).map(normalise);
+    return (arr || []).map(normalise); // every entry the lexicon returns (the screen pages them)
   });
 }
 

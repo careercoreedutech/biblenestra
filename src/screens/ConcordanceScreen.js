@@ -12,10 +12,13 @@ import { colors, fonts, radius, shadow } from '../theme';
 import { useNav } from '../navigation';
 import { useStore } from '../store';
 import { useToast } from '../components/Toast';
-import { CONCORDANCE, refLabel, searchBible } from '../data/bible';
+import { CONCORDANCE, refLabel } from '../data/bible';
+import { useBibleSearch, groupRows } from '../bible/search';
+import { BookHeaderRow, PagedList, ProgressLine, VerseResultRow, resultStyles, usePaged } from '../components/VerseResults';
 import { loadStrong, loadTaggedChapter, parseDefinition, searchLexicon, useAsync } from '../bible/study';
 import { PressScale, FadeInUp, ScaleIn, Shimmer } from '../components/Motion';
 
+const LEX_PAGE = 20;
 const POPULAR = CONCORDANCE.map((c) => ({ strong: c.strong, translit: c.translit, lemma: c.lemma, gloss: (c.definition || '').split(/[,.;]/)[0] }));
 
 export default function ConcordanceScreen({ params = {} }) {
@@ -65,8 +68,23 @@ export default function ConcordanceScreen({ params = {} }) {
 
   const e = entry.data;
   const blocks = useMemo(() => (e ? parseDefinition(e.html) : []), [e]);
-  const findWord = (word || (e && e.gloss) || '').replace(/[^A-Za-z' -]/g, '').trim();
-  const occurrences = useMemo(() => (findWord.length >= 3 ? searchBible(findWord, 'KJV', e && e.lang === 'Hebrew' ? 'OT' : e ? 'NT' : 'ALL', 12) : []), [findWord, e]);
+  // The KJV word to look for: the word tapped in a verse; else the English word the user searched
+  // for (when this entry's gloss uses it); else the first sense of the gloss ("to love, be fond of" -> "love").
+  const searchedWord = /^[A-Za-z']{3,}$/.test(debounced) && e && new RegExp(`\\b${debounced}`, 'i').test(`${e.gloss} ${e.html}`) ? debounced : null;
+  const findWord = (word || searchedWord || ((e && e.gloss) || '').split(/[,;:(]/)[0].replace(/^\s*(to|a|an|the)\s+/i, ''))
+    .replace(/[^A-Za-z' -]/g, '').replace(/\s+/g, ' ').trim();
+  // "Where it appears": EVERY KJV verse containing the word (no cap). The lexicon source (bolls.life)
+  // can't list verses by Strong's number, so this is an English-word search of the bundled KJV,
+  // limited to the entry's testament by default (Hebrew → OT, Greek → NT).
+  const entryScope = e ? (e.lang === 'Hebrew' ? 'OT' : 'NT') : 'ALL';
+  const [occScope, setOccScope] = useState(null); // null = follow the entry's testament
+  const [occWhole, setOccWhole] = useState(false);
+  const scopeNow = occScope || entryScope;
+  const occ = useBibleSearch(findWord.length >= 3 ? findWord : '', { translation: 'KJV', wholeWord: occWhole, debounce: 50 });
+  const occGrouped = useMemo(() => groupRows(occ.index, occ.result, { testament: scopeNow }), [occ.index, occ.result, scopeNow]);
+  const occPaged = usePaged(occGrouped.rows, `${findWord}|${scopeNow}|${occWhole}|${strong}`);
+  useEffect(() => { setOccScope(null); }, [strong]);
+  const [lexShown, setLexShown] = useState(0); // 0 = carousel; >0 = list view showing this many entries
 
   const save = () => {
     if (!e) return;
@@ -79,6 +97,16 @@ export default function ConcordanceScreen({ params = {} }) {
   };
 
   const listItems = results.data || (debounced.length >= 2 ? [] : POPULAR);
+  const occFooter = e && occGrouped.count ? (
+    <View style={resultStyles.footer}>
+      {occPaged.hasMore ? <ActivityIndicator size="small" color={colors.muted} /> : null}
+      <Text style={resultStyles.footerText}>
+        {occPaged.hasMore
+          ? `Showing ${occGrouped.rows.slice(0, occPaged.shown).filter((r) => r.type === 'verse').length.toLocaleString()} of ${occGrouped.count.toLocaleString()} verses`
+          : `All ${occGrouped.count.toLocaleString()} verses shown`}
+      </Text>
+    </View>
+  ) : null;
 
   return (
     <Screen back title="Concordance & Lexicon" subtitle="Strong's Greek & Hebrew · in-app" scroll={false} padded={false}>
@@ -106,7 +134,19 @@ export default function ConcordanceScreen({ params = {} }) {
         </View>
       </View>
 
-      <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 48 }}>
+      <PagedList
+        paged={occPaged}
+        data={e && findWord.length >= 3 ? occPaged.visible : []}
+        keyExtractor={(r) => r.key}
+        renderItem={({ item }) => (
+          <View style={{ paddingHorizontal: 18 }}>
+            {item.type === 'book' ? <BookHeaderRow row={item} /> : <VerseResultRow row={item} terms={[findWord.toLowerCase()]} showTag={false} onPress={(v) => nav.push('Bible', { bookId: v.bookId, chapter: v.chapter, verse: v.verse })} />}
+          </View>
+        )}
+        footer={occFooter}
+        contentContainerStyle={{ paddingBottom: 48 }}
+        header={(
+      <View>
         {hasVerse ? (
           <FadeInUp style={styles.verseBox}>
             <Text style={styles.verseBoxRef}>{refLabel(params.bookId, params.chapter, params.verse)} · KJV with Strong's</Text>
@@ -132,6 +172,32 @@ export default function ConcordanceScreen({ params = {} }) {
         <Text style={styles.colHeader}>
           {debounced.length >= 2 ? (results.loading ? 'Searching the lexicon…' : `${listItems.length} ${listItems.length === 1 ? 'entry' : 'entries'} for “${debounced}”`) : 'Popular word studies'}
         </Text>
+        {listItems.length > 3 ? (
+          <Pressable onPress={() => setLexShown((n) => (n ? 0 : LEX_PAGE))} hitSlop={8} style={styles.viewToggle} accessibilityRole="button">
+            <Text style={styles.viewToggleText}>{lexShown ? 'Show as carousel' : `See all ${listItems.length} as a list`}</Text>
+          </Pressable>
+        ) : null}
+        {lexShown ? (
+          <View style={{ paddingHorizontal: 18, gap: 8 }}>
+            {listItems.slice(0, lexShown).map((item, index) => {
+              const active = strong === item.strong;
+              return (
+                <PressScale key={item.strong + index} onPress={() => open(item.strong)} scaleTo={0.98} style={[styles.wordRow, active && styles.wordItemActive]} accessibilityLabel={`${item.translit}, ${item.strong}`}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[styles.wordTranslit, active && { color: colors.nightFg }]} numberOfLines={1}>{item.translit} <Text style={[styles.lemmaText, active && { color: colors.nightMuted }]}>{item.lemma}</Text></Text>
+                    <Text style={[styles.countText, active && { color: colors.nightMuted }]} numberOfLines={2}>{item.gloss}</Text>
+                  </View>
+                  <Text style={[styles.strongNumberBadge, active && { color: colors.goldLight }]}>{item.strong}</Text>
+                </PressScale>
+              );
+            })}
+            {lexShown < listItems.length ? (
+              <PressScale onPress={() => setLexShown((n) => n + LEX_PAGE)} scaleTo={0.97} style={[styles.actBtn, { alignSelf: 'center' }]}>
+                <Text style={styles.actBtnText}>{`Show ${Math.min(LEX_PAGE, listItems.length - lexShown)} more of ${listItems.length - lexShown}`}</Text>
+              </PressScale>
+            ) : null}
+          </View>
+        ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, gap: 10, paddingBottom: 6 }}>
           {listItems.map((item, index) => {
             const active = strong === item.strong;
@@ -149,6 +215,7 @@ export default function ConcordanceScreen({ params = {} }) {
             );
           })}
         </ScrollView>
+        )}
         {results.error ? <Text style={[styles.offline, { marginHorizontal: 18 }]}>You're offline — the lexicon search needs a connection. Words you've already opened still work.</Text> : null}
         {!results.loading && results.data && !results.data.length ? (
           <Text style={[styles.offline, { marginHorizontal: 18 }]}>No entries match “{debounced}”. Try another English word (e.g. grace) or a Strong's number like G5485.</Text>
@@ -203,24 +270,27 @@ export default function ConcordanceScreen({ params = {} }) {
                 </View>
               </View>
 
-              {occurrences.length ? (
+              {findWord.length >= 3 ? (
                 <View style={styles.versesSection}>
                   <Text style={styles.versesHead}>Where “{findWord}” appears</Text>
-                  <Text style={styles.versesSub}>King James Version · {e.lang === 'Hebrew' ? 'Old' : 'New'} Testament</Text>
-                  {occurrences.map((v, i) => (
-                    <FadeInUp key={`${v.bookId}${v.chapter}${v.verse}`} index={Math.min(i, 6)} delay={100} distance={8}>
-                      <PressScale onPress={() => nav.push('Bible', { bookId: v.bookId, chapter: v.chapter, verse: v.verse })} scaleTo={0.98} style={styles.verseCard}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={styles.verseRefText}>{refLabel(v.bookId, v.chapter, v.verse)}</Text>
-                          <View style={styles.tapToStudyBtn}><Text style={styles.tapToStudyText}>Open</Text><Icon name="chevron-right" size={12} color={colors.primary} /></View>
-                        </View>
-                        <Text style={styles.verseBodyText}>{v.text}</Text>
-                      </PressScale>
-                    </FadeInUp>
-                  ))}
-                  <PressScale onPress={() => nav.push('Search', { query: findWord })} scaleTo={0.97} style={[styles.actBtn, { alignSelf: 'center', marginTop: 6 }]}>
-                    <Text style={styles.actBtnText}>See every occurrence</Text>
-                  </PressScale>
+                  <Text style={styles.versesSub}>
+                    {occ.result
+                      ? `${occGrouped.count.toLocaleString()} verse${occGrouped.count === 1 ? '' : 's'} in the King James Version · ${scopeNow === 'OT' ? 'Old Testament' : scopeNow === 'NT' ? 'New Testament' : 'whole Bible'}`
+                      : 'Searching every verse of the King James Version…'}
+                  </Text>
+                  {occ.status === 'searching' ? <ProgressLine progress={occ.progress} /> : null}
+                  <View style={styles.occFilters}>
+                    {[['OT', 'Old Testament'], ['NT', 'New Testament'], ['ALL', 'Whole Bible']].map(([k, label]) => (
+                      <Pressable key={k} onPress={() => setOccScope(k)} style={[styles.occChip, scopeNow === k && styles.occChipOn]} accessibilityRole="button" accessibilityState={{ selected: scopeNow === k }}>
+                        <Text style={[styles.occChipText, scopeNow === k && { color: '#FFFFFF' }]}>{label}</Text>
+                      </Pressable>
+                    ))}
+                    <Pressable onPress={() => setOccWhole((v) => !v)} style={[styles.occChip, occWhole && styles.occChipOn]} accessibilityRole="switch" accessibilityState={{ checked: occWhole }}>
+                      <Text style={[styles.occChipText, occWhole && { color: '#FFFFFF' }]}>Whole word</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.occNote}>Matched by the English word in the KJV — the lexicon can't list verses by Strong's number, so a few verses may translate a different {e.lang} word.</Text>
+                  {occ.result && !occGrouped.count ? <Text style={styles.offline}>No verses in this part of the Bible contain “{findWord}”.</Text> : null}
                 </View>
               ) : null}
             </FadeInUp>
@@ -231,7 +301,9 @@ export default function ConcordanceScreen({ params = {} }) {
             </View>
           ) : null}
         </View>
-      </ScrollView>
+      </View>
+        )}
+      />
     </Screen>
   );
 }
@@ -276,6 +348,14 @@ const styles = StyleSheet.create({
   actBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.primarySoft },
   actBtnText: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
   versesSection: { marginTop: 22 },
+  viewToggle: { alignSelf: 'flex-start', marginHorizontal: 18, marginTop: -4, marginBottom: 10 },
+  viewToggleText: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
+  wordRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  occFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  occChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  occChipOn: { backgroundColor: colors.fg, borderColor: colors.fg },
+  occChipText: { fontSize: 12, fontWeight: '600', color: colors.fg },
+  occNote: { fontSize: 11.5, lineHeight: 16, color: colors.faint, marginTop: 10 },
   versesHead: { fontFamily: fonts.serifBold, fontSize: 19, color: colors.fg },
   versesSub: { fontSize: 12, color: colors.muted, marginTop: 2, marginBottom: 12 },
   verseCard: { padding: 14, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 10 },

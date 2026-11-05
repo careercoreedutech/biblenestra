@@ -1,7 +1,7 @@
 // Local environment for development and tests: an in-process Postgres (PGlite) instead of Neon and an
 // R2 stand-in on disk, so the Worker code runs unchanged with `node dev/server.mjs` — no accounts needed.
 import { PGlite } from '@electric-sql/pglite';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +46,11 @@ export function makeBucket(dir) {
       await writeFile(`${f}.meta.json`, JSON.stringify(meta));
     },
     async head(key) { const m = await load(key); return m ? obj(m, null) : null; },
+    async delete(key) {
+      if (!dir) { memory.delete(key); return; }
+      const f = path.join(dir, key);
+      await rm(f, { force: true }); await rm(`${f}.meta.json`, { force: true });
+    },
     async get(key, opts = {}) {
       const m = await load(key);
       if (!m) return null;

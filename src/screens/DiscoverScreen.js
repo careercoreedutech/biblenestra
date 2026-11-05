@@ -12,11 +12,17 @@ import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS, C
 import { refLabel, BOOKS } from '../data/bible';
 import { useToast, haptic } from '../components/Toast';
 import { useNarration } from '../audio/Narration';
-import { BIBLE_GAMES, GAME_TITLES, dailyQuestions, scrambleAsChoice, dateKey, resetLabel } from '../data/games';
+import { BIBLE_GAMES, GAME_TITLES, GAME_COUNTS, dailyQuestions, practiceSession, scrambleAsChoice, dateKey, resetLabel } from '../data/games';
 import { useAds } from '../ads/Ads';
 import { AD_RULES } from '../ads/config';
 import ProfileButton from '../components/ProfileButton';
 import { useSync } from '../api/sync';
+import { API_CONFIG } from '../api/config'; // DISCOVER TOOLS (round 3)
+import { YouTubeSection } from './WatchScreens'; // DISCOVER TOOLS (round 3)
+import { PersonSocial } from './UserProfileScreen'; // SOCIAL (round 3)
+import { ChatMessage, PinnedBar, useMessageActions } from '../components/chat/MessageKit'; // ROUND 4: message actions
+import { dmScope, groupScope, scopeConversationId } from '../chat/messages';
+import { useThreadLoader } from '../chat/useThread';
 
 // ---------- Discover Hub (Sanctuary Paper) ----------
 const DEVOTIONALS_AUDIO = [
@@ -54,6 +60,9 @@ export default function DiscoverScreen() {
   const [coinsEarned, setCoinsEarned] = useState(0);
   // Ad break between questions: { next, left, playing } — the round's progress stays in the state above.
   const [adBreak, setAdBreak] = useState(null);
+  // Endless practice after the daily set ("Keep playing"): no coins, nothing sent to the server.
+  const [practice, setPractice] = useState(false);
+  const practiceRef = useRef(null); // { type, session }
   const gameStats = state.gameStats || {};
   const gameDaily = state.gameDaily || {};
   const today = dateKey();
@@ -65,12 +74,77 @@ export default function DiscoverScreen() {
     return dailyQuestions(type);
   };
 
+  // Next practice question (scramble rounds are shown as "pick the right order" here).
+  const nextPracticeQ = () => {
+    const p = practiceRef.current;
+    const q = p && p.session.next();
+    if (!q) return null;
+    const saved = state.gamePractice || {};
+    dispatch({ type: 'set', patch: { gamePractice: { ...saved, [p.type]: { seed: p.session.seed, pos: p.session.position } } } });
+    return p.type === 'scramble' ? scrambleAsChoice(q, q.id.length + p.session.position) : q;
+  };
+
+  const startPractice = (type) => {
+    const saved = (state.gamePractice || {})[type] || {};
+    // remember the finished daily round so its result card comes back when practice ends
+    const restore = gameOver && type === activeGameType ? { questions: gameQuestions, correct: correctCount, score: gameScore, coins: coinsEarned } : null;
+    practiceRef.current = { type, restore, session: practiceSession(type, { seed: saved.seed, start: saved.pos || 0 }) };
+    const first = nextPracticeQ();
+    if (!first) return;
+    setPractice(true);
+    setActiveGameType(type);
+    setGameDate(dateKey());
+    setGameQuestions([first]);
+    setActiveQuestionIdx(0);
+    setSelectedOption(null);
+    setHasAnswered(false);
+    setGameScore(0);
+    setCorrectCount(0);
+    setStreak(0);
+    setGameOver(false);
+    setCoinsEarned(0);
+    setAdBreak(null);
+    setShowGameModal(true);
+  };
+
+  const endPractice = () => {
+    const answered = activeQuestionIdx + (hasAnswered ? 1 : 0);
+    setPractice(false);
+    setAdBreak(null);
+    setGameOver(true);
+    // back to the daily result card: practice never changes coins or today's best
+    const r = practiceRef.current && practiceRef.current.restore;
+    if (r) { setGameQuestions(r.questions); setCorrectCount(r.correct); setGameScore(r.score); setCoinsEarned(r.coins); setActiveQuestionIdx(Math.max(0, r.questions.length - 1)); }
+    else setShowGameModal(false);
+    toast.show(`Practice · ${correctCount}/${answered} correct · no coins`, { icon: 'star', haptic: 'success' });
+  };
+
   const startGame = (type, { fresh = false } = {}) => {
     // Re-opening a round that is still in progress today resumes it (nothing is lost).
     if (!fresh && type === activeGameType && gameDate === dateKey() && gameQuestions.length && !gameOver) {
       setShowGameModal(true);
       return;
     }
+    // Today's set already played: open on its results (Keep playing / Replay) instead of replaying it.
+    const done = gameDaily[type];
+    if (!fresh && done && done.date === dateKey()) {
+      setPractice(false);
+      setActiveGameType(type);
+      setGameDate(dateKey());
+      setGameQuestions(buildQuestions(type));
+      setActiveQuestionIdx(0);
+      setSelectedOption(null);
+      setHasAnswered(false);
+      setGameScore(done.score || 0);
+      setCorrectCount(done.correct || 0);
+      setStreak(0);
+      setGameOver(true);
+      setCoinsEarned(0);
+      setAdBreak(null);
+      setShowGameModal(true);
+      return;
+    }
+    setPractice(false);
     setActiveGameType(type);
     setGameDate(dateKey());
     setGameQuestions(buildQuestions(type));
@@ -130,7 +204,11 @@ export default function DiscoverScreen() {
 
   const handleNextQuestion = () => {
     const next = activeQuestionIdx + 1;
-    if (next >= gameQuestions.length) { finishRound(); return; }
+    if (practice && next >= gameQuestions.length) {
+      const q = nextPracticeQ();
+      if (!q) { endPractice(); return; }
+      setGameQuestions((qs) => [...qs, q]);
+    } else if (next >= gameQuestions.length) { finishRound(); return; }
     // After every Nth question (4, 8, …) pause for a short, skippable supported-by-ads break.
     if (next % AD_RULES.gameInterstitialEvery === 0) {
       setAdBreak({ next, left: 3, playing: false });
@@ -262,12 +340,15 @@ export default function DiscoverScreen() {
           {[
             { label: 'Prayer', icon: 'prayer', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('PrayerWall') },
             { label: 'Chats', icon: 'chat', tint: colors.primary, bg: colors.cardIndigo, go: () => nav.push('ChatList') },
+            { label: 'Record', icon: 'mic', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('SermonStudio') },
             { label: 'Learn', icon: 'book', tint: colors.sage, bg: colors.cardSage, go: () => nav.push('Learn') },
             { label: 'Ask AI', icon: 'sparkles', tint: colors.gold, bg: colors.cardGold, go: () => nav.push('BibleChat') },
             { label: 'Calendar', icon: 'calendar', tint: colors.sky, bg: colors.cardSky, go: () => nav.push('Calendar') },
+            { label: 'Reminder', icon: 'bell', tint: colors.amber, bg: colors.cardGold, go: () => nav.push('Reminders') },
             { label: 'Library', icon: 'bookmark', tint: colors.lavender, bg: colors.cardLavender, go: () => nav.push('Library') },
             { label: 'Jobs', icon: 'briefcase', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('Jobs') },
             { label: 'Care', icon: 'heart', tint: colors.teal, bg: colors.cardSage, go: () => nav.push('Care') },
+            { label: 'Fund Me', icon: 'gift', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('FundMe') },
           ].map((q, i) => (
             <FadeInUp key={q.label} index={i} distance={10} stagger={40}>
               <PressScale onPress={q.go} scaleTo={0.93} accessibilityRole="button" accessibilityLabel={q.label} style={styles.quickItem}>
@@ -542,7 +623,8 @@ export default function DiscoverScreen() {
           ))}
         </View>
 
-        {/* 8. Channels & Broadcasts */}
+        {/* 8. Channels & Broadcasts — online: curated YouTube channels (Watch); local: the demo channels */}
+        {API_CONFIG.online ? <YouTubeSection /> : (<>
         <SectionHead eyebrow="Tune in" title="Channels & Broadcasts" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bleed} contentContainerStyle={styles.hScroll}>
           {(state.channels || CHANNELS_DATA).map((ch) => {
@@ -577,6 +659,7 @@ export default function DiscoverScreen() {
             );
           })}
         </ScrollView>
+        </>)}
 
         <View style={styles.createCard}>
           <View style={{ flex: 1 }}>
@@ -601,10 +684,10 @@ export default function DiscoverScreen() {
             <View style={styles.sheetTopBar}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.sheetEyebrow} numberOfLines={1}>
-                  {adBreak ? 'Short break' : gameOver ? (GAME_TITLES[activeGameType] || 'Bible game') : (currentQ?.categoryLabel || 'Bible trivia')}
+                  {adBreak ? 'Short break' : gameOver ? (GAME_TITLES[activeGameType] || 'Bible game') : practice ? `Practice · no coins · ${currentQ?.categoryLabel || 'Bible trivia'}` : (currentQ?.categoryLabel || 'Bible trivia')}
                 </Text>
                 <Text style={styles.sheetTitle}>
-                  {gameOver ? 'Your results' : adBreak ? `${adBreak.next} of ${gameQuestions.length} done` : `Question ${activeQuestionIdx + 1} of ${gameQuestions.length}`}
+                  {gameOver ? 'Your results' : practice ? (adBreak ? `${correctCount}/${adBreak.next} correct` : `Question ${activeQuestionIdx + 1} · ${correctCount}/${activeQuestionIdx + (hasAnswered ? 1 : 0)} correct`) : adBreak ? `${adBreak.next} of ${gameQuestions.length} done` : `Question ${activeQuestionIdx + 1} of ${gameQuestions.length}`}
                 </Text>
               </View>
               <View style={styles.gameScoreBadges}>
@@ -622,10 +705,10 @@ export default function DiscoverScreen() {
                 <CloseButton onPress={() => setShowGameModal(false)} />
               </View>
             </View>
-            <AnimatedBar progress={gameOver ? 1 : progressPct / 100} delay={60} style={styles.progressTrack} fillStyle={styles.progressFill} />
+            <AnimatedBar progress={gameOver ? 1 : practice && practiceRef.current ? (practiceRef.current.session.position % practiceRef.current.session.size) / practiceRef.current.session.size : progressPct / 100} delay={60} style={styles.progressTrack} fillStyle={styles.progressFill} />
             <View style={styles.dailyLine}>
               <Icon name="calendar" size={12} color={colors.faint} />
-              <Text style={styles.dailyLineText} numberOfLines={1}>New questions every day · resets in {resetLabel()}</Text>
+              <Text style={styles.dailyLineText} numberOfLines={1}>{practice ? `Practice mode · ${GAME_COUNTS[activeGameType] ? GAME_COUNTS[activeGameType].toLocaleString() : 'all'} in the bank, no repeats` : `New questions every day · resets in ${resetLabel()}`}</Text>
               {gameDaily[activeGameType] && gameDaily[activeGameType].date === today ? (
                 <Text style={styles.dailyLineScore}>Today {gameDaily[activeGameType].correct}/{gameDaily[activeGameType].total}</Text>
               ) : null}
@@ -643,7 +726,7 @@ export default function DiscoverScreen() {
                   <Text style={styles.adCardEyebrow}>Supported by ads</Text>
                   <Text style={styles.adCardTitle}>Watch this ad to support this great platform 🙏</Text>
                   <Text style={styles.adCardSub}>
-                    Your progress is saved — {adBreak.next} of {gameQuestions.length} answered, {correctCount} correct. Question {adBreak.next + 1} is up next.
+                    {practice ? `Practice continues — ${adBreak.next} answered, ${correctCount} correct. Question ${adBreak.next + 1} is up next.` : `Your progress is saved — ${adBreak.next} of ${gameQuestions.length} answered, ${correctCount} correct. Question ${adBreak.next + 1} is up next.`}
                   </Text>
                   <Button
                     label={adBreak.playing ? 'Playing ad…' : `Watch ad${adBreak.left > 0 ? ` · ${adBreak.left}s` : ''}`}
@@ -736,11 +819,12 @@ export default function DiscoverScreen() {
                       <Text style={styles.gameExplanationText}>{currentQ?.explanation}</Text>
 
                       <Button
-                        label={activeQuestionIdx + 1 < gameQuestions.length ? 'Next question' : 'View final score'}
-                        icon={activeQuestionIdx + 1 < gameQuestions.length ? null : <Icon name="star" size={14} color={colors.goldLight} />}
+                        label={practice || activeQuestionIdx + 1 < gameQuestions.length ? 'Next question' : 'View final score'}
+                        icon={practice || activeQuestionIdx + 1 < gameQuestions.length ? null : <Icon name="star" size={14} color={colors.goldLight} />}
                         onPress={handleNextQuestion}
                         style={{ marginTop: 14 }}
                       />
+                      {practice ? <Button kind="ghost" label="End practice" onPress={endPractice} style={{ marginTop: 8 }} /> : null}
                     </FadeInUp>
                   ) : null}
                 </View>
@@ -788,8 +872,17 @@ export default function DiscoverScreen() {
                       </View>
                     </View>
                   </FadeInUp>
-                  <FadeInUp delay={360} distance={10} style={{ flexDirection: 'row', gap: 10, marginTop: 24, alignSelf: 'stretch' }}>
-                    <Button label="Replay today's set" onPress={() => startGame(activeGameType, { fresh: true })} style={{ flex: 1 }} />
+                  <FadeInUp delay={340} distance={10} style={{ marginTop: 24, alignSelf: 'stretch' }}>
+                    <Button
+                      label="Keep playing"
+                      icon={<Icon name="play" size={14} color="#FFFFFF" />}
+                      onPress={() => startPractice(activeGameType)}
+                      accessibilityLabel="Keep playing in practice mode, no coins"
+                    />
+                    <Text style={styles.practiceHint}>Endless practice · new questions from all {GAME_COUNTS[activeGameType] ? GAME_COUNTS[activeGameType].toLocaleString() : ''} in the bank · no coins</Text>
+                  </FadeInUp>
+                  <FadeInUp delay={380} distance={10} style={{ flexDirection: 'row', gap: 10, marginTop: 12, alignSelf: 'stretch' }}>
+                    <Button kind="ghost" label="Replay today's set" onPress={() => startGame(activeGameType, { fresh: true })} style={{ flex: 1 }} />
                     <Button kind="ghost" label="Done" onPress={() => setShowGameModal(false)} style={{ flex: 1 }} />
                   </FadeInUp>
                 </View>
@@ -1271,6 +1364,19 @@ export function GroupScreen({ params = {} }) {
   const [channel, setChannel] = useState('General');
   const [tab, setTab] = useState('Chat');
   const stick = useStickToBottom();
+  const sync = useSync();
+  // ROUND 4: group channels are server conversations online; message actions work the same as in direct chats
+  const gScope = groupScope(g ? g.id : 'none', channel);
+  const gConvId = scopeConversationId(state, gScope);
+  const { myRole: convRole } = useThreadLoader(gScope, gConvId);
+  const isGroupAdmin = !!g && (['owner', 'admin'].includes(g.myRole) || ['owner', 'admin'].includes(convRole));
+  const gActions = useMessageActions({
+    scope: gScope,
+    isGroup: true,
+    canPin: !sync.online || isGroupAdmin,
+    canModerate: isGroupAdmin,
+    onSend: (t, reply) => dispatch({ type: 'groupMessage', gid: g.id, channel, localId: 'm' + Date.now(), m: { text: t, reply } }),
+  });
   if (!g) {
     return (
       <Screen back title="Group">
@@ -1280,7 +1386,6 @@ export function GroupScreen({ params = {} }) {
   }
   const groupMsgs = state.groupMessages[g.id] || {};
   const msgs = groupMsgs[channel] || [];
-  const pinned = Object.values(groupMsgs).flat().filter((m) => m.pinned);
   const canPost = g.joined === true;
   const muted = (state.mutedGroups || []).includes(g.id);
 
@@ -1305,7 +1410,7 @@ export function GroupScreen({ params = {} }) {
     if (!canPost) { toast.show('Join this group to share here', { tone: 'error' }); return; }
     if (a === 'Passage') {
       const pos = state.lastPosition || { bookId: 'MAT', chapter: 1 };
-      dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: `Let's read ${refLabel(pos.bookId, pos.chapter)} together.`, passage: pos } });
+      dispatch({ type: 'groupMessage', gid: g.id, channel, localId: 'm' + Date.now(), m: { text: `Let's read ${refLabel(pos.bookId, pos.chapter)} together.`, passage: pos } });
       toast.show(`Shared ${refLabel(pos.bookId, pos.chapter)} in #${channel}`, { icon: 'book' });
     }
     if (a === 'Prayer') nav.push('NewPrayer');
@@ -1360,18 +1465,21 @@ export function GroupScreen({ params = {} }) {
           <View style={styles.channelBar}>
             <Pills small items={CHANNELS} value={channel} onChange={setChannel} style={{ paddingHorizontal: 18, flexGrow: 0 }} />
           </View>
-          {pinned.length && channel === 'General' ? (
-            <FadeInUp distance={8} style={styles.pinned}>
-              <Text style={styles.pinnedLabel}>✦  Pinned</Text>
-              <Text style={styles.pinnedText} numberOfLines={2}>{pinned[0].text}</Text>
-            </FadeInUp>
-          ) : null}
-          <ScrollView ref={stick.ref} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }} showsVerticalScrollIndicator={false}>
+          <PinnedBar pins={gActions.pins} onOpen={(p) => gActions.jumpTo(p.id)} />
+          <ScrollView ref={(r) => { stick.ref.current = r; gActions.scrollRef.current = r; }} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 12 }} showsVerticalScrollIndicator={false}>
+            {msgs.length && canPost && gActions.tipVisible ? <Text style={styles.chatTip}>Tip: press and hold a message to reply, react, copy, edit, pin or delete.</Text> : null}
             {!msgs.length ? <ScaleIn key={channel} from={0.92}><Empty title={`No messages in #${channel} yet`} body={canPost ? 'Start the conversation below.' : null} /></ScaleIn> : null}
             {msgs.map((m) => (
-              <Bubble key={m.id} mine={m.mine}>
-                {!m.mine ? <Text style={styles.msgFrom}>{m.from}</Text> : null}
-                <Text style={[styles.msgText, m.mine && { color: '#FFFFFF' }]}>{m.text}</Text>
+              <ChatMessage
+                key={m.id}
+                m={m}
+                showSender
+                highlighted={gActions.highlight === m.id}
+                onLayout={gActions.layoutFor(m.id)}
+                onLongPress={canPost ? () => gActions.open(m) : undefined}
+                onReact={canPost ? (e) => gActions.react(m, e) : undefined}
+                onOpenReply={gActions.jumpTo}
+              >
                 {m.passage ? (
                   <PassageChip mine={m.mine} icon="book" label={`${refLabel(m.passage.bookId, m.passage.chapter)} · Open`} onPress={() => nav.push('Bible', m.passage)} />
                 ) : null}
@@ -1381,8 +1489,7 @@ export function GroupScreen({ params = {} }) {
                 {m.event ? (
                   <PassageChip mine={m.mine} icon="calendar" label="RSVP in calendar" onPress={() => nav.push('Calendar')} />
                 ) : null}
-                <Text style={[styles.msgTime, m.mine && styles.msgTimeMine]}>{m.time}{m.mine ? ' · Delivered' : ''}</Text>
-              </Bubble>
+              </ChatMessage>
             ))}
           </ScrollView>
           <View style={styles.composerWrap}>
@@ -1402,8 +1509,9 @@ export function GroupScreen({ params = {} }) {
                 ))}
               </View>
             ) : null}
+            {canPost ? gActions.banner : null}
             {canPost ? (
-              <AskBar placeholder={`Message #${channel}`} onSend={(t) => dispatch({ type: 'groupMessage', gid: g.id, channel, m: { text: t } })} />
+              <AskBar placeholder={gActions.editing ? 'Edit your message' : `Message #${channel}`} {...gActions.composer} />
             ) : (
               <View style={{ gap: 10 }}>
                 <Notice text={g.joined === 'requested' ? 'Your request is waiting for approval.' : 'Join this group to post.'} />
@@ -1411,6 +1519,7 @@ export function GroupScreen({ params = {} }) {
               </View>
             )}
           </View>
+          {gActions.sheet}
         </View>
       )}
     </Screen>
@@ -1512,37 +1621,18 @@ export function ChatScreen({ params = {} }) {
   let chat = state.chats.find((c) => c.id === params.id) || state.chats.find((c) => c.with === params.to);
   const [kindMenu, setKindMenu] = useState(false);
   const stick = useStickToBottom();
-
-  useEffect(() => {
-    if (chat && chat.id && sync.online) {
-      if (sync.markChatRead) sync.markChatRead(chat.id);
-      if (sync.realtimeStatus !== 'connected' && sync.loadChatMessages) {
-        const interval = setInterval(() => {
-          sync.loadChatMessages(chat.id).then((res) => {
-            if (res && res.items) {
-              dispatch({
-                type: 'set',
-                patch: {
-                  chats: state.chats.map((c) => c.id === chat.id ? {
-                    ...c,
-                    messages: res.items.map((m) => ({
-                      id: m.id,
-                      from: m.sender?.displayName || 'Friend',
-                      mine: m.isMe,
-                      time: 'Just now',
-                      text: m.text,
-                      status: 'delivered',
-                    })),
-                  } : c),
-                },
-              });
-            }
-          }).catch(() => {});
-        }, 5000);
-        return () => clearInterval(interval);
-      }
-    }
-  }, [chat?.id, sync.online, sync.realtimeStatus]);
+  // ROUND 4: load the thread from the server (online) and give every message reply / react / copy / edit / pin / delete
+  const cScope = dmScope(chat ? chat.id : 'none');
+  const { myRole: chatRole } = useThreadLoader(cScope, scopeConversationId(state, cScope));
+  const isGroupChat = !!chat && chat.kind === 'group';
+  const chatAdmin = ['owner', 'admin'].includes(chatRole);
+  const cActions = useMessageActions({
+    scope: cScope,
+    isGroup: isGroupChat,
+    canPin: !isGroupChat || chatAdmin || !sync.online,
+    canModerate: chatAdmin,
+    onSend: (t, reply) => dispatch({ type: 'dm', cid: chat.id, text: t, reply, localId: 'x' + Date.now() }),
+  });
   if (!chat && params.to) {
     return (
       <Screen back title={params.to} subtitle="New conversation" scroll={false}>
@@ -1602,22 +1692,32 @@ export function ChatScreen({ params = {} }) {
           <Text style={styles.menuFoot}>Conversions need both people's consent.</Text>
         </FadeInUp>
       ) : null}
-      <ScrollView ref={stick.ref} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 10 }} showsVerticalScrollIndicator={false}>
+      <PinnedBar pins={cActions.pins} onOpen={(p) => cActions.jumpTo(p.id)} />
+      <ScrollView ref={(r) => { stick.ref.current = r; cActions.scrollRef.current = r; }} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 12 }} showsVerticalScrollIndicator={false}>
         <FadeInUp distance={6} style={styles.encryptPill}>
-          <Icon name="shield" size={11} color={colors.muted} />
-          <Text style={styles.encryptText}>Private conversation · end-to-end encrypted</Text>
+          <Icon name="lock" size={11} color={colors.muted} />
+          <Text style={styles.encryptText}>{isGroupChat ? 'Group chat · visible to its members' : 'Private chat · only the two of you see it'}</Text>
         </FadeInUp>
+        {chat.messages.length && cActions.tipVisible ? <Text style={styles.chatTip}>Tip: press and hold a message to reply, react, copy, edit, pin or delete.</Text> : null}
         {!chat.messages.length ? <ScaleIn from={0.92}><Empty title="No messages yet" body={`Say hello to ${chat.with}.`} /></ScaleIn> : null}
         {chat.messages.map((m) => (
-          <Bubble key={m.id} mine={m.mine}>
-            <Text style={[styles.msgText, m.mine && { color: '#FFFFFF' }]}>{m.text}</Text>
-            <Text style={[styles.msgTime, m.mine && styles.msgTimeMine]}>{m.time}{m.mine ? (m.status === 'read' ? ' · Read ✓✓' : ' · Sent ✓') : ''}</Text>
-          </Bubble>
+          <ChatMessage
+            key={m.id}
+            m={m}
+            showSender={isGroupChat}
+            highlighted={cActions.highlight === m.id}
+            onLayout={cActions.layoutFor(m.id)}
+            onLongPress={() => cActions.open(m)}
+            onReact={(e) => cActions.react(m, e)}
+            onOpenReply={cActions.jumpTo}
+          />
         ))}
       </ScrollView>
       <View style={styles.composerWrap}>
-        <AskBar placeholder="Message..." onSend={(t) => dispatch({ type: 'dm', cid: chat.id, text: t })} />
+        {cActions.banner}
+        <AskBar placeholder={cActions.editing ? 'Edit your message' : 'Message...'} {...cActions.composer} />
       </View>
+      {cActions.sheet}
     </Screen>
   );
 }
@@ -1871,6 +1971,7 @@ export function PersonScreen({ params = {} }) {
           </View>
         )}
       </FadeInUp>
+      {!blocked ? <PersonSocial person={p} /> /* SOCIAL (round 3): gift + their posts & videos */ : null}
       <FadeInUp index={1}>
         <Section title="Accepts"><View style={styles.tagWrap}>{p.accepts.map((a) => <Badge key={a} label={a} tint={colors.teal} />)}</View></Section>
       </FadeInUp>
@@ -2796,6 +2897,7 @@ const styles = StyleSheet.create({
   gameOverTitle: { fontFamily: fonts.serifBold, fontSize: 26, color: colors.fg, marginTop: 18, letterSpacing: -0.5 },
   gameOverScoreText: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.gold, marginTop: 4 },
   gameOverSub: { fontSize: 13.5, lineHeight: 19, color: colors.muted, textAlign: 'center', marginTop: 8, paddingHorizontal: 24 },
+  practiceHint: { fontSize: 11.5, color: colors.faint, textAlign: 'center', marginTop: 6 },
 
   wishHeroCard: { height: 150, borderRadius: radius.lg, overflow: 'hidden', marginTop: 4, marginBottom: 6, backgroundColor: colors.night },
   wishHeroImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
@@ -3034,6 +3136,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   encryptText: { fontSize: 11, color: colors.muted },
+  chatTip: { alignSelf: 'center', textAlign: 'center', fontSize: 11.5, color: colors.faint, marginTop: -4, marginBottom: 2, paddingHorizontal: 18 },
 
   // Calendar
   event: {

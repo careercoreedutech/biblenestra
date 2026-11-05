@@ -4,6 +4,7 @@ import { body, bad, notFound, str, uuidParam, today } from '../lib/http.js';
 import { meShape, userJson } from '../lib/shape.js';
 import { RULES } from '../lib/rules.js';
 import { getUserStreak } from '../lib/rhythm.js';
+import { profileImage } from './social.js';
 
 const r = new Hono();
 
@@ -31,7 +32,9 @@ r.put('/me', async (c) => {
   const fields = {
     display_name: b.displayName !== undefined ? str(b.displayName, { min: 1, max: 60, field: 'Name' }) : undefined,
     handle: b.handle !== undefined ? (str(b.handle, { max: 30, field: 'Handle', optional: true }) || '').replace(/^@/, '').toLowerCase() || null : undefined,
-    avatar_url: b.avatarUrl !== undefined ? str(b.avatarUrl, { max: 500, optional: true }) : undefined,
+    // avatar / banner: only images this user uploaded (POST /uploads/image) — see social.js
+    avatar_url: b.avatarUrl !== undefined ? await profileImage(c, b.avatarUrl, me.avatar_url, 'avatarUrl') : undefined,
+    banner_url: b.bannerUrl !== undefined ? await profileImage(c, b.bannerUrl, me.banner_url, 'bannerUrl') : undefined,
     headline: b.headline !== undefined ? str(b.headline, { max: 120, optional: true }) : undefined,
     bio: b.bio !== undefined ? str(b.bio, { max: 1000, optional: true }) : undefined,
     church: b.church !== undefined ? str(b.church, { max: 120, optional: true }) : undefined,
@@ -63,13 +66,17 @@ r.post('/me/push-token', async (c) => {
 r.get('/users/:id', async (c) => {
   const me = c.get('user');
   const id = uuidParam(c);
-  const row = await one(c.env, `SELECT ${userJson('u')} AS u,
+  const row = await one(c.env, `SELECT ${userJson('u')} AS u, u.bio, u.country, u.banner_url,
+      (SELECT count(*)::int FROM posts p WHERE p.author_id = u.id AND NOT p.removed) AS posts_count,
+      EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = $2 AND b.blocked_id = u.id) AS blocked_by_me,
       (SELECT count(*)::int FROM follows WHERE followee_id = u.id) AS followers,
       (SELECT count(*)::int FROM follows WHERE follower_id = u.id) AS following,
       EXISTS (SELECT 1 FROM follows WHERE follower_id = $2 AND followee_id = u.id) AS is_following
-    FROM users u WHERE u.id = $1 AND NOT u.banned`, [id, me.id]);
+    FROM users u WHERE u.id = $1 AND NOT u.banned
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = u.id AND b.blocked_id = $2)`, [id, me.id]);
   if (!row) throw notFound('User not found');
-  return c.json({ ...row.u, followers: row.followers, following: row.following, isFollowing: row.is_following, isMe: id === me.id });
+  return c.json({ ...row.u, bio: row.bio, country: row.country, bannerUrl: row.banner_url, posts: row.posts_count, blocked: row.blocked_by_me,
+    followers: row.followers, following: row.following, isFollowing: row.is_following, isMe: id === me.id });
 });
 
 r.post('/users/:id/follow', async (c) => {

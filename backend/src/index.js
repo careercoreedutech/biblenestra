@@ -17,6 +17,7 @@ import { rewards, ssv } from './routes/rewards.js';
 
 // Phase 2 routes
 import conversations from './routes/conversations.js';
+import messages from './routes/messages.js'; // ROUND 4: message actions
 import communities from './routes/communities.js';
 import events from './routes/events.js';
 import wishes from './routes/wishes.js';
@@ -24,6 +25,12 @@ import study from './routes/study.js';
 import gifts from './routes/gifts.js';
 import notifications from './routes/notifications.js';
 import rhythm from './routes/rhythm.js';
+import social from './routes/social.js'; // SOCIAL (round 3)
+import { fundme, fundmePublic } from './routes/fundme.js'; // FUND ME (round 3)
+import recordings from './routes/recordings.js'; // DISCOVER TOOLS (round 3)
+import reminders from './routes/reminders.js'; // DISCOVER TOOLS (round 3)
+import youtube from './routes/youtube.js'; // DISCOVER TOOLS (round 3)
+import { adminPage, adminApi } from './routes/admin.js'; // DISCOVER TOOLS (round 3)
 
 export function createApp() {
   const app = new Hono();
@@ -34,7 +41,7 @@ export function createApp() {
       return allowed.includes('*') || allowed.includes(o) ? o || '*' : null;
     },
     allowHeaders: ['Authorization', 'Content-Type', 'X-Dev-User', 'X-TZ-Offset', 'X-Conversation-Id'],
-    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     maxAge: 86400,
   }));
 
@@ -72,6 +79,9 @@ export function createApp() {
 
   app.route('/', media);
   app.route('/', ssv);
+  app.route('/', fundmePublic); // FUND ME (round 3): public page, donations (guests too), test checkout, webhooks
+  app.route('/', youtube); // DISCOVER TOOLS (round 3): public channel list + RSS videos
+  app.route('/', adminPage); // DISCOVER TOOLS (round 3): GET /admin dashboard page (its /admin/api/* calls need an admin)
 
   // everything below needs a signed-in user
   app.use('*', requireUser());
@@ -95,6 +105,7 @@ export function createApp() {
   // Phase 2 routes
   app.route('/', chatMedia);
   app.route('/', conversations);
+  app.route('/', messages); // ROUND 4
   app.route('/', communities);
   app.route('/', events);
   app.route('/', wishes);
@@ -102,6 +113,11 @@ export function createApp() {
   app.route('/', gifts);
   app.route('/', notifications);
   app.route('/', rhythm);
+  app.route('/', social); // SOCIAL (round 3)
+  app.route('/', fundme); // FUND ME (round 3)
+  app.route('/', recordings); // DISCOVER TOOLS (round 3)
+  app.route('/', reminders); // DISCOVER TOOLS (round 3)
+  app.route('/', adminApi); // DISCOVER TOOLS (round 3): /admin/api/* (role = 'admin' checked inside)
 
   return app;
 }
