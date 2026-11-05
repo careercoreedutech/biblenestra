@@ -22,7 +22,7 @@ import { RealtimeClient } from './realtime';
 import { registerForPushNotificationsAsync } from '../notifications/push';
 import {
   splitPosts, mapFeedPost, mapVideoPost, mapComments, mapPrayer, mapJob, mapBid, mapLedger, mapMeToUser, followKeyOf,
-  mapConversation, mapMessage, mapCommunity, mapEvent, mapWish, mapNotification,
+  mapConversation, mapMessage, mapCommunity, mapEvent, mapWish, mapNotification, ago,
 } from './mappers';
 import {
   dmScope, groupScope, getScopeMsgs, mapServerMessage, outgoingBody, scopeConversationId, scopesForConversation,

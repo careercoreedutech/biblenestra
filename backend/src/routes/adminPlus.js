@@ -525,9 +525,144 @@ adminPlus.delete('/admin/api/announcements/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// =====================================================================
-// Announcements (app side) — any signed-in user
-// =====================================================================
+// Seed initial communities, events, prayers, jobs & faith posts into production Neon
+adminPlus.post('/admin/api/seed', async (c) => {
+  const me = c.get('user');
+  try {
+    const getOrCreate = async (clerkId, name, handle, kind, church) => {
+      let u = await one(c.env, 'SELECT id FROM users WHERE clerk_id = $1 OR (handle IS NOT NULL AND handle = $2)', [clerkId, handle]);
+      if (!u) {
+        try {
+          u = await one(c.env, 'INSERT INTO users (clerk_id, display_name, handle, kind, verified, church) VALUES ($1, $2, $3, $4, true, $5) RETURNING id', [clerkId, name, handle, kind, church]);
+        } catch (e) {
+          u = await one(c.env, 'SELECT id FROM users WHERE clerk_id = $1 OR (handle IS NOT NULL AND handle = $2)', [clerkId, handle]);
+        }
+      }
+      return u || me;
+    };
+
+    const graceUser = await getOrCreate('demo_grace_chapel', 'Grace Chapel Lagos', 'gracechapel', 'church', 'Grace Chapel Lagos');
+    const tundeUser = await getOrCreate('demo_pastor_tunde', 'Pastor Tunde', 'pastortunde', 'person', 'Grace Chapel Lagos');
+    const nightWatchUser = await getOrCreate('demo_night_watch', 'Night Watch Prayer Room', 'nightwatch', 'community', 'Global Prayer Watch');
+    const wycliffeUser = await getOrCreate('demo_wycliffe', 'Wycliffe Global Partners', 'wycliffepartners', 'person', 'Faith Missions Alliance');
+    const zionUser = await getOrCreate('demo_zion_sound', 'Zion Sound Records', 'zionsound', 'person', 'Redeemed Music Ministry');
+
+    const commDefs = [
+      { name: 'Lagos Bible Fellowship', slug: 'lagos-bible-fellowship', description: 'Weekly scripture study, discipleship, and prayer for believers in Lagos and across West Africa.', privacy: 'Public', ownerId: graceUser.id },
+      { name: 'Morning Prayer Watch', slug: 'morning-prayer-watch', description: 'Daily prayer vigil for family restoration, healing, guidance, and global revival.', privacy: 'Public', ownerId: nightWatchUser.id },
+      { name: 'Young Adults & Campus Fellowship', slug: 'young-adults-fellowship', description: 'Faith, career, purpose, and community for university students and young professionals.', privacy: 'Public', ownerId: tundeUser.id },
+      { name: 'Worship Leaders & Musicians Guild', slug: 'worship-musicians-guild', description: 'Praise teams, vocalists, songwriters, and instrumentalists growing in ministry excellence.', privacy: 'Public', ownerId: zionUser.id },
+    ];
+
+    const defaultChs = ['General', 'Prayer', 'Bible Study', 'Announcements', 'Events'];
+    let seededComms = 0;
+    for (const cDef of commDefs) {
+      const exists = await one(c.env, 'SELECT id FROM communities WHERE slug = $1', [cDef.slug]);
+      if (!exists) {
+        const comm = await one(c.env, 'INSERT INTO communities (name, slug, description, privacy, owner_id) VALUES ($1, $2, $3, $4, $5) RETURNING *', [cDef.name, cDef.slug, cDef.description, cDef.privacy, cDef.ownerId]);
+        await q(c.env, "INSERT INTO community_members (community_id, user_id, role, status) VALUES ($1, $2, 'owner', 'member') ON CONFLICT DO NOTHING", [comm.id, cDef.ownerId]);
+        if (me.id !== cDef.ownerId) {
+          await q(c.env, "INSERT INTO community_members (community_id, user_id, role, status) VALUES ($1, $2, 'member', 'member') ON CONFLICT DO NOTHING", [comm.id, me.id]);
+        }
+        for (let i = 0; i < defaultChs.length; i++) {
+          const chName = defaultChs[i];
+          const conv = await one(c.env, "INSERT INTO conversations (kind, title) VALUES ('group', $1) RETURNING id", [`${cDef.name} - ${chName}`]);
+          await q(c.env, "INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'owner')", [conv.id, cDef.ownerId]);
+          await q(c.env, 'INSERT INTO community_channels (community_id, name, conversation_id, position) VALUES ($1, $2, $3, $4)', [comm.id, chName, conv.id, i]);
+        }
+        seededComms++;
+      }
+    }
+
+    const commRow = await one(c.env, "SELECT id FROM communities WHERE slug = 'lagos-bible-fellowship'");
+    const commId = commRow ? commRow.id : null;
+    const eventCount = await one(c.env, 'SELECT count(*)::int as count FROM events');
+    let seededEvents = 0;
+    if (!eventCount || eventCount.count < 2) {
+      const nextSunday = new Date();
+      nextSunday.setDate(nextSunday.getDate() + ((7 - nextSunday.getDay()) % 7 || 7));
+      nextSunday.setHours(9, 0, 0, 0);
+      const sundayEnd = new Date(nextSunday.getTime() + 3 * 3600000);
+      const friday = new Date();
+      friday.setDate(friday.getDate() + ((5 - friday.getDay() + 7) % 7 || 7));
+      friday.setHours(20, 0, 0, 0);
+      const fridayEnd = new Date(friday.getTime() + 2 * 3600000);
+
+      await q(c.env, `INSERT INTO events (community_id, host_id, title, description, starts_at, ends_at, location, online_url) VALUES
+        ($1, $2, 'Sunday Morning Celebration & Word', 'Continuing our journey through the Gospel of John. Fellowship and communion following the service.', $3, $4, 'Grace Sanctuary, Lagos & Online Stream', 'https://biblenestra.org/live'),
+        ($1, $5, 'Global Night of Intercession & Worship', 'United night vigil lifting prayers for families, healing, and spiritual renewal across all nations.', $6, $7, 'Online Live Room', 'https://biblenestra.org/prayer')`,
+        [commId, graceUser.id, nextSunday.toISOString(), sundayEnd.toISOString(), tundeUser.id, friday.toISOString(), fridayEnd.toISOString()]
+      );
+      seededEvents = 2;
+    }
+
+    const prayerCount = await one(c.env, 'SELECT count(*)::int as count FROM prayers');
+    let seededPrayers = 0;
+    if (!prayerCount || prayerCount.count < 3) {
+      await q(c.env, `INSERT INTO prayers (author_id, title, body, audience, anonymous, verse, status) VALUES
+        ($1, 'Complete recovery and healing for sister Mary', 'Please join us in believing God for swift healing and complete strength following surgery.', 'Public', false, 'PSA 103:2-3', 'active'),
+        ($2, 'Wisdom and clarity for university final examinations', 'Praying for students in our fellowship entering finals week — peace that surpasses understanding.', 'Public', false, 'JAM 1:5', 'active'),
+        ($3, 'Breakthrough for church community outreach and food pantry', 'Believing for provision to feed and bless 300 underserved families this month.', 'Public', false, 'PHI 4:19', 'active')`,
+        [graceUser.id, tundeUser.id, nightWatchUser.id]
+      );
+      seededPrayers = 3;
+    }
+
+    const jobCount = await one(c.env, 'SELECT count(*)::int as count FROM jobs');
+    let seededJobs = 0;
+    if (!jobCount || jobCount.count < 3) {
+      await q(c.env, `INSERT INTO jobs (client_id, kind, title, description, category, budget, deadline, skills) VALUES
+        ($1, 'job', 'Senior Mobile App Developer for Scripture Delivery', 'Expanding mobile Scripture delivery platform to reach regional languages with offline Bibles and devotionals.', 'Software & Web Development', '$3,500 – $4,500 / mo', 'Full-time · Remote', ARRAY['React Native','Expo','TypeScript','Offline Storage']::text[]),
+        ($2, 'task', 'Edit 5 Sermon Video Reels for Social Media', 'Cut 5 high-impact vertical clips (30-60s) with burned-in subtitles, scripture citations, and audio cleanup.', 'Graphic Design & Video Editing', '$250 Fixed', '5 Days Delivery', ARRAY['Video Editing','CapCut','Premiere Pro','Subtitles']::text[]),
+        ($3, 'job', 'Worship Music EP Mixing & Atmospheric Production', 'Atmospheric acoustic worship EP (3 tracks). Seeking experienced mixing engineer with heart for sacred worship.', 'Worship Musicians & Producers', '$800 Fixed', 'Contract · 3 Tracks', ARRAY['Logic Pro','Pro Tools','Mixing','Mastering']::text[])`,
+        [wycliffeUser.id, graceUser.id, zionUser.id]
+      );
+      seededJobs = 3;
+    }
+
+    const wishCount = await one(c.env, 'SELECT count(*)::int as count FROM wishes');
+    let seededWishes = 0;
+    if (!wishCount || wishCount.count < 3) {
+      await q(c.env, `INSERT INTO wishes (author_id, title, body, category, visibility, anonymous) VALUES
+        ($1, 'Healing & restoration in our homes', 'Lord, bring peace, unity, and healing to families walking through grief or division.', 'Family', 'Public', false),
+        ($2, 'Spiritual awakening in African universities', 'Father, pour out Your Holy Spirit on young believers and campus ministries.', 'Revival', 'Public', false),
+        ($3, 'Divine guidance in career transitions and open doors', 'Trusting the Lord to direct our paths according to Proverbs 3:5-6.', 'Guidance', 'Public', false)`,
+        [graceUser.id, tundeUser.id, nightWatchUser.id]
+      );
+      seededWishes = 3;
+    }
+
+    const curPosts = await one(c.env, 'SELECT count(*)::int as count FROM posts');
+    let seededPosts = 0;
+    if (!curPosts || curPosts.count < 8) {
+      await q(c.env, `INSERT INTO posts (author_id, kind, body, passage_book, passage_ch, passage_verse, likes_count, comments_count, created_at) VALUES
+        ($1, 'Reflection', '“The Lord is my shepherd; I shall not want.” Wanting less is not the same as having less. Today, take a moment to rest in His sufficiency and peace.', 'PSA', 23, 1, 14, 2, now() - interval '4 hours'),
+        ($2, 'Verse', '“Trust in the Lord with all your heart, and do not lean on your own understanding. In all your ways acknowledge him, and he will make straight your paths.”', 'PRO', 3, 5, 28, 4, now() - interval '8 hours'),
+        ($3, 'Announcement', 'Night Watch Prayer room opens tonight at 9:00 PM UTC. Submit your petitions or join silently in worship and intercession.', NULL, NULL, NULL, 35, 1, now() - interval '14 hours'),
+        ($1, 'Celebration', 'Testimony Sunday! God answered our prayer for the mission clinic in Badagry — medical supplies and clean water have arrived!', NULL, NULL, NULL, 62, 7, now() - interval '1 day')`,
+        [graceUser.id, tundeUser.id, nightWatchUser.id]
+      );
+      seededPosts = 4;
+    }
+
+    await audit(c.env, me, 'database.seed', 'database', 'seed', { seededComms, seededEvents, seededPrayers, seededJobs, seededWishes, seededPosts });
+
+    return c.json({
+      ok: true,
+      seeded: {
+        communities: seededComms,
+        events: seededEvents,
+        prayers: seededPrayers,
+        jobs: seededJobs,
+        wishes: seededWishes,
+        posts: seededPosts,
+      }
+    });
+  } catch (err) {
+    return c.json({ error: err.message, stack: err.stack }, 500);
+  }
+});
+
 export const announcementsPublic = new Hono();
 announcementsPublic.get('/announcements', async (c) => {
   const rows = await q(c.env, `SELECT * FROM announcements WHERE active AND starts_at <= now() AND (ends_at IS NULL OR ends_at > now())

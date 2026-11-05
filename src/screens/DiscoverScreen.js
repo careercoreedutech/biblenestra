@@ -1641,7 +1641,7 @@ export function ChatScreen({ params = {} }) {
     isGroup: isGroupChat,
     canPin: !isGroupChat || chatAdmin || !sync.online,
     canModerate: chatAdmin,
-    onSend: (t, reply) => dispatch({ type: 'dm', cid: chat.id, text: t, reply, localId: 'x' + Date.now() }),
+    onSend: (t, reply) => dispatch({ type: 'dm', cid: chat.id, with: chat.with || params.to, text: t, reply, localId: 'x' + Date.now() }),
   });
   if (!chat && params.to) {
     return (

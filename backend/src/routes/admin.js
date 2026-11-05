@@ -45,7 +45,7 @@ adminPage.post('/admin/api/login', async (c) => {
     return c.json({ error: 'Incorrect username or password', code: 'INVALID_CREDENTIALS' }, 401);
   }
 
-  const secret = c.env.REALTIME_SECRET || validPass;
+  const secret = c.env.REALTIME_SECRET || c.env.ADMIN_PASSWORD || 'biblenestra-admin-secret';
   const token = await createAdminToken(secret, username, 30 * 86400);
 
   return c.json({

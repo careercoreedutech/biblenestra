@@ -37,8 +37,24 @@ const previewOf = (m) => (m.deleted ? 'This message was deleted' : m.text || (m.
 export function scopePatch(s, scope, msgs, chatExtra = {}) {
   const p = parseScope(scope);
   if (p.kind === 'dm') {
+    const list = s.chats || [];
+    const exists = list.some((c) => c.id === p.chatId);
+    if (!exists) {
+      const lastMsg = msgs[msgs.length - 1];
+      const newChat = {
+        id: p.chatId,
+        with: chatExtra.with || 'Direct message',
+        type: 'Direct message',
+        messages: msgs,
+        last: lastMsg ? previewOf(lastMsg) : '',
+        time: 'Just now',
+        unread: 0,
+        ...chatExtra,
+      };
+      return { chats: [newChat, ...list] };
+    }
     return {
-      chats: (s.chats || []).map((c) => {
+      chats: list.map((c) => {
         if (c.id !== p.chatId) return c;
         const lastMsg = msgs[msgs.length - 1];
         return { ...c, messages: msgs, ...(lastMsg ? { last: previewOf(lastMsg) } : {}), ...chatExtra };
@@ -70,6 +86,9 @@ export function scopesForConversation(s, convId) {
   if ((s.chats || []).some((c) => c.id === convId)) out.push(dmScope(convId));
   for (const g of s.communities || []) {
     for (const ch of g.channels || []) if (ch.conversationId === convId) out.push(groupScope(g.id, ch.name));
+  }
+  if (!out.length && isServerId(convId)) {
+    out.push(dmScope(convId));
   }
   return out;
 }

@@ -98,7 +98,6 @@ const ONLINE_BLANK = {
   highlights: [],
   notes: [],
   bookmarks: [],
-  plans: [],
   reflections: [],
   rhythm: {},
   bestStreak: 0,
@@ -297,9 +296,26 @@ function reducer(s, a) {
       const ch = g[a.channel] || [];
       return bump({ groupMessages: { ...s.groupMessages, [a.gid]: { ...g, [a.channel]: [...ch, { id: a.localId || 'm' + Date.now(), from: s.user.displayName, mine: true, time: fmtClock(Date.now()), createdAt: Date.now(), ...a.m }] } } });
     }
-    case 'dm': return bump({
-      chats: s.chats.map((c) => (c.id === a.cid ? { ...c, last: a.text, time: 'Just now', messages: [...c.messages, { id: a.localId || 'x' + Date.now(), from: s.user.displayName, mine: true, time: fmtClock(Date.now()), createdAt: Date.now(), text: a.text, status: 'sent', audio: a.audio || null, reply: a.reply || null }] } : c)),
-    });
+    case 'dm': {
+      const exists = (s.chats || []).some((c) => c.id === a.cid);
+      const newMsg = { id: a.localId || 'x' + Date.now(), from: s.user.displayName, mine: true, time: fmtClock(Date.now()), createdAt: Date.now(), text: a.text, status: 'sent', audio: a.audio || null, reply: a.reply || null };
+      if (!exists) {
+        return bump({
+          chats: [{
+            id: a.cid,
+            with: a.with || 'Direct message',
+            type: 'Direct message',
+            last: a.text,
+            time: 'Just now',
+            unread: 0,
+            messages: [newMsg],
+          }, ...(s.chats || [])],
+        });
+      }
+      return bump({
+        chats: (s.chats || []).map((c) => (c.id === a.cid ? { ...c, last: a.text, time: 'Just now', messages: [...(c.messages || []), newMsg] } : c)),
+      });
+    }
     // ROUND 4 — message actions (DMs + group channels). `scope` comes from src/chat/messages.js.
     case 'msgOp': {
       const list = getScopeMsgs(s, a.scope);
