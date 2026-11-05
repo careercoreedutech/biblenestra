@@ -362,9 +362,12 @@ export default function UserProfileScreen({ params = {} }) {
     if (busy) return;
     setBusy(true);
     try {
-      const cid = await openDm(api.request, person.id);
+      const res = await openDm(api.request, person.id);
+      const cid = typeof res === 'object' && res ? res.id : res;
+      const otherFollowsMe = typeof res === 'object' && res ? res.otherFollowsMe : false;
+      const canMessage = typeof res === 'object' && res ? res.canMessage : false;
       await sync.refresh({ quiet: true });
-      nav.push('Chat', { id: cid, to: person.name, userId: person.id });
+      nav.push('Chat', { id: cid, to: person.name, userId: person.id, otherFollowsMe, canMessage });
     } catch (e) {
       toast.show(e && e.code === 'BLOCKED' ? 'You can’t message this person' : `Couldn’t open a chat${e && e.message ? ` — ${e.message}` : ''}`, { tone: 'error' });
     } finally {

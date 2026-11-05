@@ -256,6 +256,9 @@ export function mapConversation(c, prev) {
     muted: !!c.muted,
     unreadCount: c.unreadCount || 0,
     isRequest: !!c.isRequest,
+    otherFollowsMe: c.otherFollowsMe !== undefined ? !!c.otherFollowsMe : (prev?.otherFollowsMe ?? false),
+    iFollowOther: c.iFollowOther !== undefined ? !!c.iFollowOther : (prev?.iFollowOther ?? false),
+    canMessage: c.canMessage !== undefined ? !!c.canMessage : (c.kind !== 'dm' || !!c.otherFollowsMe || (prev?.canMessage ?? false)),
     lastMessage: c.lastMessage ? {
       id: c.lastMessage.id,
       kind: c.lastMessage.kind,

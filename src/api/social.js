@@ -62,10 +62,10 @@ export async function getFollowList(request, userId, which) {
   return (r.items || []).map(mapPerson);
 }
 
-/** Open (or create) a DM with a server user → conversation id */
+/** Open (or create) a DM with a server user → conversation object */
 export async function openDm(request, userId) {
   const r = await request('POST', '/conversations/dm', { userId });
-  return r.id;
+  return r;
 }
 
 // ─── Profile images ─────────────────────────────────────────────

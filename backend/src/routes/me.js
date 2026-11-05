@@ -5,6 +5,7 @@ import { meShape, userJson } from '../lib/shape.js';
 import { RULES } from '../lib/rules.js';
 import { getUserStreak } from '../lib/rhythm.js';
 import { profileImage } from './social.js';
+import { notifyUser } from '../hub.js';
 
 const r = new Hono();
 
@@ -87,7 +88,24 @@ r.post('/users/:id/follow', async (c) => {
   if (del.length) return c.json({ following: false });
   const ins = await q(c.env, `INSERT INTO follows (follower_id, followee_id) SELECT $1, id FROM users WHERE id = $2 RETURNING 1`, [me.id, id]);
   if (!ins.length) throw notFound('User not found');
-  return c.json({ following: true });
+
+  // Check if target user also follows me (mutual follow)
+  const isMutual = await one(c.env, `SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2`, [id, me.id]);
+
+  const title = isMutual ? `${me.display_name} followed you back!` : `${me.display_name} started following you`;
+  const bodyText = isMutual ? `You both follow each other. You can now chat!` : `Follow them back to unlock direct messaging.`;
+
+  await q(c.env, `INSERT INTO notifications (user_id, kind, title, body, data) VALUES ($1, 'follow', $2, $3, $4::jsonb)`,
+    [id, title, bodyText, JSON.stringify({ fromId: me.id, fromName: me.display_name, isMutual: !!isMutual })]
+  );
+
+  await notifyUser(c.env, id, {
+    type: 'follow.new',
+    from: { id: me.id, displayName: me.display_name, handle: me.handle, avatarUrl: me.avatar_url },
+    isMutual: !!isMutual,
+  });
+
+  return c.json({ following: true, isMutual: !!isMutual });
 });
 
 r.get('/me/following', async (c) => {

@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
-import { Screen, Empty, alpha } from '../components/ui';
+import { Screen, Empty, alpha, Button, Badge } from '../components/ui';
 import { FadeInUp, PressScale } from '../components/Motion';
 import { useToast } from '../components/Toast';
 import { useStore } from '../store';
@@ -25,6 +25,7 @@ const KIND = {
   event: { icon: 'calendar', tint: colors.sky, label: 'Event' },
   job: { icon: 'briefcase', tint: colors.sky, label: 'Jobs' },
   announcement: { icon: 'bell', tint: colors.gold, label: 'BibleNestra' }, // ROUND 5
+  follow: { icon: 'user', tint: colors.teal, label: 'New follower' },
 };
 
 /** Unread count of the in-app inbox (for header badges). */
@@ -73,7 +74,7 @@ export default function ActivityScreen() {
       nav.push('Socials', { postId: d.postId, commentId: d.commentId || undefined });
       return;
     }
-    if (n.kind === 'gift' && isServerId(d.fromId)) { nav.push('UserProfile', { id: d.fromId, name: d.fromName }); return; }
+    if ((n.kind === 'gift' || n.kind === 'follow') && isServerId(d.fromId)) { nav.push('UserProfile', { id: d.fromId, name: d.fromName }); return; }
     if (n.kind === 'message' || n.kind === 'request') { nav.push('ChatList'); return; }
     if (n.kind === 'prayer') { nav.push('PrayerWall'); return; }
     if (n.kind === 'event') { nav.push('Calendar'); return; }
@@ -94,6 +95,10 @@ export default function ActivityScreen() {
       ) : items.map((n, i) => {
         const k = KIND[n.kind] || { icon: 'bell', tint: colors.primary, label: 'Update' };
         const from = (n.data && n.data.fromName) || null;
+        const isFollow = n.kind === 'follow';
+        const fromId = n.data && n.data.fromId;
+        const isFollowingThem = fromId ? (state.follows || []).includes(fromId) : false;
+
         return (
           <FadeInUp key={n.id} index={i} distance={8} duration={320}>
             <PressScale onPress={() => open(n)} scaleTo={0.98} style={[styles.row, !n.read && styles.rowUnread]} accessibilityLabel={n.body}>
@@ -110,7 +115,29 @@ export default function ActivityScreen() {
                 <Text style={styles.body} numberOfLines={4}>{n.body || n.title}</Text>
                 <Text style={styles.meta}>{k.label} · {n.time}</Text>
               </View>
-              {!n.read ? <View style={styles.dot} /> : null}
+              {isFollow && fromId ? (
+                isFollowingThem ? (
+                  <Badge label="Following" tint={colors.primary} />
+                ) : (
+                  <Button
+                    small
+                    label="Follow back"
+                    icon={<Icon name="plus" size={12} color="#FFFFFF" strokeWidth={2.6} />}
+                    onPress={async () => {
+                      try {
+                        dispatch({ type: 'follow', id: fromId, local: true });
+                        await api.request('POST', `/users/${fromId}/follow`);
+                        toast.show(`Following ${from || 'them'} · You can now chat!`, { icon: 'check', haptic: 'success' });
+                        sync.refresh({ quiet: true });
+                      } catch (e) {
+                        toast.show('Could not follow back', { tone: 'error' });
+                      }
+                    }}
+                  />
+                )
+              ) : !n.read ? (
+                <View style={styles.dot} />
+              ) : null}
             </PressScale>
           </FadeInUp>
         );

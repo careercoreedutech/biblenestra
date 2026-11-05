@@ -35,7 +35,17 @@ conversations.get('/conversations', async (c) => {
              WHERE other_m.conversation_id = c.id AND other_m.user_id <> $1
              LIMIT 1) AS other_user,
             (SELECT mr.status FROM message_requests mr
-             WHERE mr.conversation_id = c.id AND mr.to_id = $1) AS request_status
+             WHERE mr.conversation_id = c.id AND mr.to_id = $1) AS request_status,
+            (SELECT EXISTS (
+               SELECT 1 FROM follows f
+               JOIN conversation_members om ON om.conversation_id = c.id AND om.user_id <> $1
+               WHERE f.follower_id = om.user_id AND f.followee_id = $1
+            )) AS other_follows_me,
+            (SELECT EXISTS (
+               SELECT 1 FROM follows f
+               JOIN conversation_members om ON om.conversation_id = c.id AND om.user_id <> $1
+               WHERE f.follower_id = $1 AND f.followee_id = om.user_id
+            )) AS i_follow_other
      FROM conversations c
      JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = $1
      ORDER BY c.last_message_at DESC
@@ -57,6 +67,9 @@ conversations.get('/conversations', async (c) => {
       unreadCount: r.unread_count || 0,
       isRequest: r.request_status === 'pending',
       requestStatus: r.request_status || null,
+      otherFollowsMe: !!r.other_follows_me,
+      iFollowOther: !!r.i_follow_other,
+      canMessage: r.kind !== 'dm' || !!r.other_follows_me || r.role === 'admin',
       lastMessage: lastMsg ? {
         id: lastMsg.id,
         kind: lastMsg.kind,
@@ -98,8 +111,17 @@ conversations.post('/conversations/dm', async (c) => {
      WHERE c.kind = 'dm' LIMIT 1`,
     [me.id, targetUserId]
   );
+  const otherFollowsMe = await one(c.env, `SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2`, [targetUserId, me.id]);
+  const iFollowOther = await one(c.env, `SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2`, [me.id, targetUserId]);
+
   if (existing) {
-    return c.json({ id: existing.id, isNew: false });
+    return c.json({
+      id: existing.id,
+      isNew: false,
+      otherFollowsMe: !!otherFollowsMe,
+      iFollowOther: !!iFollowOther,
+      canMessage: !!otherFollowsMe || me.role === 'admin',
+    });
   }
 
   // Create new DM conversation
@@ -135,7 +157,14 @@ conversations.post('/conversations/dm', async (c) => {
     });
   }
 
-  return c.json({ id: conv.id, isNew: true, isRequest }, 201);
+  return c.json({
+    id: conv.id,
+    isNew: true,
+    isRequest,
+    otherFollowsMe: !!otherFollowsMe,
+    iFollowOther: !!iFollowOther,
+    canMessage: !!otherFollowsMe || me.role === 'admin',
+  }, 201);
 });
 
 // GET /conversations/:id/messages — paginated messages or polling with ?after=
@@ -231,13 +260,28 @@ conversations.post('/conversations/:id/messages', async (c) => {
     ? JSON.parse(convData.other_members)
     : convData.other_members) || [];
 
-  // If DM, check recipient block status
+  // If DM, check recipient block status & follow-back requirement
   if (convData.kind === 'dm' && otherMembers.length > 0) {
+    const otherId = otherMembers[0].user_id;
     const isBlocked = await one(c.env,
       `SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
-      [me.id, otherMembers[0].user_id]
+      [me.id, otherId]
     );
     if (isBlocked) throw forbidden('You cannot message this user', 'BLOCKED');
+
+    if (me.role !== 'admin' && c.env.AUTH_DEV_MODE !== 'true') {
+      const otherFollowsMe = await one(c.env,
+        `SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2`,
+        [otherId, me.id]
+      );
+      const isAccepted = await one(c.env,
+        `SELECT 1 FROM message_requests WHERE (from_id = $1 AND to_id = $2 AND status = 'accepted') OR (from_id = $2 AND to_id = $1 AND status = 'accepted')`,
+        [me.id, otherId]
+      );
+      if (!otherFollowsMe && !isAccepted) {
+        throw forbidden('This person needs to follow you back before you can message them', 'FOLLOW_BACK_REQUIRED');
+      }
+    }
   }
 
   // Idempotency check with clientId

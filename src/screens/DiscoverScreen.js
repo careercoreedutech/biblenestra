@@ -1628,6 +1628,13 @@ export function ChatScreen({ params = {} }) {
   const cScope = dmScope(chat ? chat.id : 'none');
   const { myRole: chatRole } = useThreadLoader(cScope, scopeConversationId(state, cScope));
   const isGroupChat = !!chat && chat.kind === 'group';
+  const isDm = !isGroupChat && (!chat || chat.kind !== 'group');
+  const otherUserId = (chat && chat.otherUser && chat.otherUser.id) || params.userId;
+  const otherHandle = chat && chat.otherUser && chat.otherUser.handle;
+  const iFollowTarget = otherUserId ? ((state.follows || []).includes(otherUserId) || (otherHandle && (state.follows || []).includes(otherHandle))) : false;
+  const otherFollowsMe = chat && chat.otherFollowsMe !== undefined ? !!chat.otherFollowsMe : (params.otherFollowsMe !== undefined ? !!params.otherFollowsMe : false);
+  const canMessage = !sync.online || !isDm || otherFollowsMe;
+
   const chatAdmin = ['owner', 'admin'].includes(chatRole);
   const cActions = useMessageActions({
     scope: cScope,
@@ -1653,7 +1660,45 @@ export function ChatScreen({ params = {} }) {
         </FadeInUp>
         <View style={{ flex: 1 }} />
         <View style={{ paddingBottom: 10 }}>
-          <AskBar placeholder="Say hello..." onSend={(t) => { dispatch({ type: 'newChat', name: params.to, kind: params.kind, text: t, id: params.id, cid: params.id, userId: params.userId }); toast.show(`Message sent to ${params.to}`, { icon: 'chat' }); nav.replace('Chat', { id: params.id, to: params.to, userId: params.userId }); }} />
+          {canMessage ? (
+            <AskBar placeholder="Say hello..." onSend={(t) => { dispatch({ type: 'newChat', name: params.to, kind: params.kind, text: t, id: params.id, cid: params.id, userId: params.userId }); toast.show(`Message sent to ${params.to}`, { icon: 'chat' }); nav.replace('Chat', { id: params.id, to: params.to, userId: params.userId }); }} />
+          ) : (
+            <View style={styles.followLockedCard}>
+              <View style={styles.followLockedIconCircle}>
+                <Icon name="user" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                <Text style={styles.followLockedTitle}>Waiting for {params.to} to follow you back</Text>
+                <Text style={styles.followLockedSub}>
+                  {params.to} needs to follow you back before you can message them.
+                </Text>
+                {!iFollowTarget && otherUserId ? (
+                  <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+                    <Button
+                      small
+                      label={`Follow ${params.to}`}
+                      icon={<Icon name="plus" size={12} color="#FFFFFF" strokeWidth={2.6} />}
+                      onPress={async () => {
+                        try {
+                          dispatch({ type: 'follow', id: otherUserId, local: true });
+                          await sync.request('POST', `/users/${otherUserId}/follow`);
+                          toast.show(`Followed ${params.to}`, { icon: 'check', haptic: 'success' });
+                          sync.refresh({ quiet: true });
+                        } catch (e) {
+                          toast.show('Could not update follow', { tone: 'error' });
+                        }
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <View style={styles.followWaitingPill}>
+                    <Icon name="check" size={11} color={colors.primary} />
+                    <Text style={styles.followWaitingText}>You're following · Waiting for follow back</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
         </View>
       </Screen>
     );
@@ -1716,10 +1761,48 @@ export function ChatScreen({ params = {} }) {
           />
         ))}
       </ScrollView>
-      <View style={styles.composerWrap}>
-        {cActions.banner}
-        <AskBar placeholder={cActions.editing ? 'Edit your message' : 'Message...'} {...cActions.composer} />
-      </View>
+      {canMessage ? (
+        <View style={styles.composerWrap}>
+          {cActions.banner}
+          <AskBar placeholder={cActions.editing ? 'Edit your message' : 'Message...'} {...cActions.composer} />
+        </View>
+      ) : (
+        <View style={styles.followLockedCard}>
+          <View style={styles.followLockedIconCircle}>
+            <Icon name="user" size={20} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+            <Text style={styles.followLockedTitle}>Waiting for {chat.with} to follow you back</Text>
+            <Text style={styles.followLockedSub}>
+              {chat.with} needs to follow you back before you can message them.
+            </Text>
+            {!iFollowTarget && otherUserId ? (
+              <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+                <Button
+                  small
+                  label={`Follow ${chat.with}`}
+                  icon={<Icon name="plus" size={12} color="#FFFFFF" strokeWidth={2.6} />}
+                  onPress={async () => {
+                    try {
+                      dispatch({ type: 'follow', id: otherUserId, local: true });
+                      await sync.request('POST', `/users/${otherUserId}/follow`);
+                      toast.show(`Followed ${chat.with}`, { icon: 'check', haptic: 'success' });
+                      sync.refresh({ quiet: true });
+                    } catch (e) {
+                      toast.show('Could not update follow', { tone: 'error' });
+                    }
+                  }}
+                />
+              </View>
+            ) : (
+              <View style={styles.followWaitingPill}>
+                <Icon name="check" size={11} color={colors.primary} />
+                <Text style={styles.followWaitingText}>You're following · Waiting for follow back</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
       {cActions.sheet}
     </Screen>
   );
@@ -3069,6 +3152,54 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     backgroundColor: colors.screen,
+  },
+  followLockedCard: {
+    margin: 14,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    ...shadow.sm,
+  },
+  followLockedIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: alpha(colors.primary, 0.12),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followLockedTitle: {
+    fontFamily: fonts.sansBold,
+    fontSize: 15,
+    color: colors.fg,
+    letterSpacing: -0.2,
+  },
+  followLockedSub: {
+    fontFamily: fonts.sans,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.muted,
+  },
+  followWaitingPill: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: alpha(colors.primary, 0.08),
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  followWaitingText: {
+    fontSize: 11.5,
+    fontFamily: fonts.sansMedium,
+    color: colors.primary,
   },
   composerChip: {
     flexDirection: 'row',
