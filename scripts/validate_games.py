@@ -21,8 +21,9 @@ import sys
 
 APP = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src')
 G = os.path.join(APP, 'data', 'games')
-KJV = json.load(open(os.path.join(APP, 'data', 'kjv_bible.json')))
-META = json.load(open(os.path.join(APP, 'data', 'books_meta.json')))
+G_JS = G.replace('\\', '/')
+KJV = json.load(open(os.path.join(APP, 'data', 'kjv_bible.json'), encoding='utf-8'))
+META = json.load(open(os.path.join(APP, 'data', 'books_meta.json'), encoding='utf-8'))
 NAME2ID = {b['name']: b['id'] for b in META}
 NAME2ID['Psalm'] = 'PSA'
 errors = []
@@ -49,7 +50,7 @@ def resolve(label):
     return ' '.join(ch[v1 - 1:v2])
 
 
-banks = {n: json.load(open(os.path.join(G, n + '.json'))) for n in ['trivia', 'who', 'scramble', 'chronology']}
+banks = {n: json.load(open(os.path.join(G, n + '.json'), encoding='utf-8')) for n in ['trivia', 'who', 'scramble', 'chronology']}
 DAILY_N = {'trivia': 12, 'who': 12, 'scramble': 8, 'chronology': 12}
 all_ids = set()
 for name, items in banks.items():
@@ -123,7 +124,7 @@ for (const g of Object.keys(MIX)) {
   out[g] = { sizes: [...sizes], badAnswer, earlyRepeat, deterministic: today === again, changes: today !== tomorrow, distinct120: Object.keys(firstSeen).length, endless };
 }
 console.log(JSON.stringify(out));
-''' % (G, G)
+''' % (G_JS, G_JS)
 res = subprocess.run(['node', '-e', node], capture_output=True, text=True)
 if res.returncode:
     err('node daily test failed: ' + res.stderr[-800:])
@@ -144,7 +145,7 @@ total = sum(os.path.getsize(os.path.join(G, n + '.json')) for n in banks)
 print(f'total bank size {total // 1024} KB')
 if total > 3 * 1024 * 1024:
     err(f'game banks total {total} bytes (> 3 MB)')
-meta = json.load(open(os.path.join(G, 'meta.json')))
+meta = json.load(open(os.path.join(G, 'meta.json'), encoding='utf-8'))
 if meta != {n: len(items) for n, items in banks.items()}:
     err(f'meta.json out of date: {meta}')
 for n, items in banks.items():
