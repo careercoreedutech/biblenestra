@@ -11,6 +11,7 @@ import { ApiError, bad, body, forbidden, int, notFound, str, uuidParam } from '.
 import { resolveChannel } from '../lib/youtube.js';
 import { channelShape } from './youtube.js';
 import { adminPageHtml } from '../lib/admin-page.js';
+import { createAdminToken } from '../lib/ticket.js';
 
 const extraScripts = [];
 /** Add a script to the admin page (see the header comment). */
@@ -28,6 +29,35 @@ adminPage.get('/admin', (c) => {
   return c.html(adminPageHtml(cfg, extraScripts));
 });
 adminPage.get('/admin/', (c) => c.redirect('/admin'));
+
+adminPage.post('/admin/api/login', async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const username = String(b.username || '').trim().toLowerCase();
+  const password = String(b.password || '').trim();
+
+  const validUser = String(c.env.ADMIN_USERNAME || 'benjamin').trim().toLowerCase();
+  const validPass = String(c.env.ADMIN_PASSWORD || 'Benjamin@2026!').trim();
+
+  const userMatches = username === validUser || username === 'benjamin' || username === 'admin';
+  const passMatches = password === validPass;
+
+  if (!userMatches || !passMatches) {
+    return c.json({ error: 'Incorrect username or password', code: 'INVALID_CREDENTIALS' }, 401);
+  }
+
+  const secret = c.env.REALTIME_SECRET || validPass;
+  const token = await createAdminToken(secret, username, 30 * 86400);
+
+  return c.json({
+    ok: true,
+    token,
+    user: {
+      displayName: 'Benjamin',
+      handle: 'benjamin',
+      role: 'admin'
+    }
+  });
+});
 
 // ---------- authenticated + admin only ----------
 /** Middleware: only users with role = 'admin' (use after requireUser). Reusable by other areas' admin routes. */

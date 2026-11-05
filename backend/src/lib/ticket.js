@@ -62,3 +62,38 @@ export async function verifyTicket(secret, ticketStr) {
     return { valid: false, reason: 'verification_failed' };
   }
 }
+
+export async function createAdminToken(secret, username = 'benjamin', ttlSeconds = 30 * 86400) {
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const payloadStr = `adm:${username}:${exp}`;
+  const key = await getHmacKey(secret);
+  const sigBuf = await crypto.subtle.sign('HMAC', key, encoder.encode(payloadStr));
+  const sigB64 = b64url(sigBuf);
+  return 'admin_token_' + b64url(encoder.encode(`${payloadStr}:${sigB64}`));
+}
+
+export async function verifyAdminToken(secret, tokenStr) {
+  if (!tokenStr || typeof tokenStr !== 'string' || !tokenStr.startsWith('admin_token_')) {
+    return { valid: false, reason: 'invalid_prefix' };
+  }
+  try {
+    const raw = decoder.decode(unb64url(tokenStr.slice('admin_token_'.length)));
+    const parts = raw.split(':');
+    if (parts.length !== 4) return { valid: false, reason: 'malformed_admin_token' };
+    const [prefix, username, expStr, sigB64] = parts;
+    if (prefix !== 'adm') return { valid: false, reason: 'bad_prefix' };
+    const exp = parseInt(expStr, 10);
+    const now = Math.floor(Date.now() / 1000);
+    if (Number.isNaN(exp) || exp < now) return { valid: false, reason: 'expired_token' };
+
+    const payloadStr = `adm:${username}:${expStr}`;
+    const key = await getHmacKey(secret);
+    const sigBytes = unb64url(sigB64);
+    const ok = await crypto.subtle.verify('HMAC', key, sigBytes, encoder.encode(payloadStr));
+    if (!ok) return { valid: false, reason: 'invalid_signature' };
+
+    return { valid: true, username };
+  } catch (e) {
+    return { valid: false, reason: 'verification_failed' };
+  }
+}

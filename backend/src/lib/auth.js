@@ -3,12 +3,21 @@
 import { verifyToken, createClerkClient } from '@clerk/backend';
 import { ApiError } from './http.js';
 import { one, q } from './db.js';
+import { verifyAdminToken } from './ticket.js';
 
 async function clerkSubject(c) {
   const env = c.env;
   const h = c.req.header('Authorization') || '';
   const token = h.startsWith('Bearer ') ? h.slice(7).trim() : null;
   if (token) {
+    if (token.startsWith('admin_token_')) {
+      const secret = env.REALTIME_SECRET || env.ADMIN_PASSWORD || 'biblenestra-admin-secret';
+      const check = await verifyAdminToken(secret, token);
+      if (check.valid) {
+        return { sub: 'admin', dev: false, isAdmin: true, username: check.username };
+      }
+      throw new ApiError(401, 'INVALID_TOKEN', 'Admin session expired — please sign in again');
+    }
     if (!env.CLERK_SECRET_KEY && !env.CLERK_JWT_KEY) throw new ApiError(500, 'AUTH_NOT_CONFIGURED', 'Clerk keys are not configured on the server');
     try {
       const payload = await verifyToken(token, {
@@ -43,6 +52,15 @@ async function clerkProfile(env, sub) {
 export function requireUser() {
   return async (c, next) => {
     const { sub, dev, devName } = await clerkSubject(c);
+    if (sub === 'admin') {
+      let admin = await one(c.env, "SELECT * FROM users WHERE role = 'admin' LIMIT 1");
+      if (!admin) {
+        admin = await one(c.env, `INSERT INTO users (clerk_id, display_name, handle, role) VALUES ('admin', 'Benjamin', 'benjamin', 'admin') ON CONFLICT (clerk_id) DO UPDATE SET role = 'admin' RETURNING *`);
+      }
+      c.set('user', admin);
+      await next();
+      return;
+    }
     let user = await one(c.env, 'SELECT * FROM users WHERE clerk_id = $1', [sub]);
     if (!user) {
       const p = dev ? { name: devName.charAt(0).toUpperCase() + devName.slice(1) } : await clerkProfile(c.env, sub);

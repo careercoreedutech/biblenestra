@@ -36,6 +36,7 @@ ADS_CLIENT_CLAIM = "false"  # "true" trusts the app's ad claims (demo ads); prod
 CLERK_PUBLISHABLE_KEY = "pk_test_YmVsb3ZlZC1mb3hob3VuZC04NDU1LmNsZXJrLmFjY291bnRzLmRldiQ"
 # Sermon notes model (Workers AI text generation). Transcription uses @cf/openai/whisper-large-v3-turbo.
 NOTES_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+ADMIN_USERNAME = "benjamin"
 
 # Secrets (set with `npx wrangler secret put NAME`, never commit them):
 #   DATABASE_URL            Neon connection string (postgresql://…?sslmode=require)

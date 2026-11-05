@@ -74,7 +74,9 @@ function toast(msg, err){ var t = document.getElementById('toast'); t.textConten
 
 async function api(method, path, body){
   var headers = { 'Accept': 'application/json' };
-  if (CFG.devMode && localStorage.getItem('bnAdminDevUser')) headers['X-Dev-User'] = localStorage.getItem('bnAdminDevUser');
+  var adminTk = localStorage.getItem('bnAdminToken');
+  if (adminTk) headers['Authorization'] = 'Bearer ' + adminTk;
+  else if (CFG.devMode && localStorage.getItem('bnAdminDevUser')) headers['X-Dev-User'] = localStorage.getItem('bnAdminDevUser');
   else if (getToken) { var tk = await getToken(); if (tk) headers['Authorization'] = 'Bearer ' + tk; }
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   var res = await fetch(path, { method: method, headers: headers, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -232,12 +234,12 @@ function notAdmin(me){
   app.innerHTML = '';
   app.appendChild(h('div', { class: 'signin' }, [h('div', { class: 'card' }, [
     h('div', { class: 'eyebrow', text: 'Admins only' }), h('h2', { class: 'serif', text: 'This account isn’t an admin' }),
-    h('p', { class: 'sub', text: 'Ask an existing admin to run this on the database, then reload:' }),
-    h('div', { class: 'quote', text: "UPDATE users SET role='admin' WHERE clerk_id='…';" }),
-    h('button', { class: 'btn ghost', text: 'Use another account', onclick: signOut }),
+    h('p', { class: 'sub', text: 'Ask an existing admin to grant your account access, then reload.' }),
+    h('button', { class: 'btn ghost', text: 'Sign out and retry', onclick: signOut }),
   ])]));
 }
 async function signOut(){
+  localStorage.removeItem('bnAdminToken');
   localStorage.removeItem('bnAdminDevUser');
   if (window.Clerk && window.Clerk.user) { try { await window.Clerk.signOut(); } catch (e) {} }
   location.reload();
@@ -245,9 +247,14 @@ async function signOut(){
 async function start(){
   var me;
   try { me = await api('GET', '/admin/api/me'); }
-  catch (e) { if (e.code === 'NOT_ADMIN') return notAdmin(); app.innerHTML = ''; app.appendChild(h('div', { class: 'signin' }, [h('div', { class: 'card', text: e.message })])); return; }
+  catch (e) {
+    localStorage.removeItem('bnAdminToken');
+    if (e.code === 'NOT_ADMIN') return notAdmin();
+    adminPasswordSignIn();
+    return;
+  }
   who.innerHTML = '';
-  who.appendChild(h('span', { text: 'Signed in as ' + me.displayName }));
+  who.appendChild(h('span', { text: 'Signed in as ' + (me.displayName || 'Benjamin') }));
   who.appendChild(h('button', { class: 'btn small ghost', text: 'Sign out', onclick: signOut }));
   app.innerHTML = '';
   app.appendChild(h('nav', { class: 'tabs', id: 'tabs' }));
@@ -256,32 +263,45 @@ async function start(){
   sortTabs();
   show(tabs.some(function(t){ return t.name === want; }) ? want : tabs[0].name);
 }
-function devSignIn(){
-  var input = h('input', { placeholder: 'dev user id, e.g. alice', value: 'admin', style: 'width:100%;margin:10px 0' });
+function adminPasswordSignIn(){
+  var userIn = h('input', { placeholder: 'Username (benjamin)', value: 'benjamin', style: 'width:100%;margin:8px 0 14px' });
+  var passIn = h('input', { type: 'password', placeholder: 'Password', style: 'width:100%;margin:8px 0 16px' });
+  var btn = h('button', { class: 'btn', style: 'width:100%', text: 'Sign in to Admin' });
+  var form = h('form', { onsubmit: async function(e){
+    e.preventDefault();
+    if (!userIn.value.trim() || !passIn.value) return toast('Please enter username and password', true);
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      var res = await fetch('/admin/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ username: userIn.value.trim(), password: passIn.value })
+      });
+      var data = await res.json().catch(function(){ return {}; });
+      if (!res.ok) throw new Error(data.error || 'Incorrect username or password');
+      localStorage.setItem('bnAdminToken', data.token);
+      toast('Welcome back, ' + (data.user.displayName || 'Benjamin'));
+      start();
+    } catch (err) {
+      toast(err.message, true);
+      btn.disabled = false; btn.textContent = 'Sign in to Admin';
+    }
+  }}, [
+    h('div', { class: 'eyebrow', text: 'BibleNestra Administrator' }),
+    h('h2', { class: 'serif', text: 'Admin Portal' }),
+    h('p', { class: 'sub', text: 'Enter your administrator username and password to continue.' }),
+    h('label', { class: 'meta', text: 'Username' }), userIn,
+    h('label', { class: 'meta', text: 'Password' }), passIn,
+    btn
+  ]);
+
   app.innerHTML = '';
-  app.appendChild(h('div', { class: 'signin' }, [h('div', { class: 'card' }, [
-    h('div', { class: 'eyebrow', text: 'Development mode' }), h('h2', { class: 'serif', text: 'Sign in as a dev user' }),
-    h('p', { class: 'sub', text: 'AUTH_DEV_MODE is on, so requests use the X-Dev-User header. Never enable this in production.' }),
-    input, h('button', { class: 'btn', text: 'Continue', onclick: function(){ if (!/^[\\w.-]{1,40}$/.test(input.value.trim())) return toast('Letters, numbers, dot, dash only', true); localStorage.setItem('bnAdminDevUser', input.value.trim()); start(); } }),
-  ])]));
-}
-async function clerkSignIn(){
-  if (!window.Clerk) { app.innerHTML = '<div class="signin"><div class="card">Couldn’t load the sign-in script.</div></div>'; return; }
-  await window.Clerk.load();
-  getToken = function(){ return window.Clerk.session ? window.Clerk.session.getToken() : Promise.resolve(null); };
-  if (window.Clerk.user) return start();
-  app.innerHTML = '';
-  var mount = h('div', { style: 'display:flex;justify-content:center;margin-top:40px' });
-  app.appendChild(mount);
-  window.Clerk.mountSignIn(mount, { forceRedirectUrl: location.href, signUpUrl: null });
-  window.Clerk.addListener(function(r){ if (r.user && !document.getElementById('tabs')) { try { window.Clerk.unmountSignIn(mount); } catch (e) {} start(); } });
+  app.appendChild(h('div', { class: 'signin' }, [h('div', { class: 'card' }, [form])]));
 }
 window.addEventListener('load', function(){
+  if (localStorage.getItem('bnAdminToken')) return start();
   if (CFG.devMode && localStorage.getItem('bnAdminDevUser')) return start();
-  if (CFG.devMode && !CFG.clerkKey) return devSignIn();
-  if (CFG.clerkKey) return clerkSignIn();
-  if (CFG.devMode) return devSignIn();
-  app.innerHTML = '<div class="signin"><div class="card"><div class="eyebrow">Setup needed</div><h2 class="serif">Sign-in isn’t configured</h2><p class="sub">Set CLERK_PUBLISHABLE_KEY in wrangler.toml [vars] and redeploy.</p></div></div>';
+  adminPasswordSignIn();
 });
 })();
 `;
