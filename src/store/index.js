@@ -312,9 +312,22 @@ function reducer(s, a) {
       return bump(scopePatch(s, a.scope, upsertMessage(list, a.message, a.localId), a.unreadBump ? { unread: ((s.chats.find((c) => `dm:${c.id}` === a.scope) || {}).unread || 0) + 1, time: 'Just now' } : {}));
     }
     case 'msgRemove': return bump(scopePatch(s, a.scope, getScopeMsgs(s, a.scope).filter((m) => m.id !== a.id)));
-    case 'newChat': return bump({
-      chats: [{ id: 'd' + Date.now(), with: a.name, username: a.username || '@user', avatar: a.avatar || a.name.slice(0, 2).toUpperCase(), type: a.kind || 'Direct', last: a.text || 'Started a conversation', time: 'Just now', unread: 0, messages: a.text ? [{ id: 'x' + Date.now(), from: s.user.displayName, mine: true, time: 'Just now', text: a.text, status: 'sent' }] : [] }, ...s.chats],
-    });
+    case 'newChat': {
+      const newId = a.cid || a.id || ('d' + Date.now());
+      return bump({
+        chats: [{
+          id: newId,
+          with: a.name,
+          username: a.username || '@user',
+          avatar: a.avatar || (a.name ? a.name.slice(0, 2).toUpperCase() : 'ME'),
+          type: a.kind || 'Direct message',
+          last: a.text || 'Started a conversation',
+          time: 'Just now',
+          unread: 0,
+          messages: a.text ? [{ id: 'x' + Date.now(), from: s.user.displayName, mine: true, time: 'Just now', text: a.text, status: 'sent' }] : []
+        }, ...s.chats.filter((c) => c.id !== newId)],
+      });
+    }
     case 'request': return bump({
       requests: s.requests.filter((r) => r.id !== a.id),
       chats: a.accept ? [{ id: 'd' + Date.now(), with: a.from, username: '@member', avatar: a.from.slice(0, 2).toUpperCase(), type: 'General', last: a.text, time: 'Just now', unread: 0, messages: [{ id: 'x' + Date.now(), from: a.from, time: 'Just now', text: a.text, status: 'delivered' }] }, ...s.chats] : s.chats,

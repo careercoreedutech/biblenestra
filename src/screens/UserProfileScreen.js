@@ -316,7 +316,7 @@ export default function UserProfileScreen({ params = {} }) {
                   onPress={() => { dispatch({ type: 'follow', id: params.handle }); toast.show(following ? `Unfollowed ${name}` : `Following ${name}`, { icon: following ? 'user' : 'check', haptic: following ? 'light' : 'success' }); }} />
               </Pop>
             ) : null}
-            <Button small kind="ghost" label="Message" icon={<Icon name="chat" size={13} color={colors.primary} />} onPress={() => nav.push('Chat', { to: name })} />
+            <Button small kind="ghost" label="Message" icon={<Icon name="chat" size={13} color={colors.primary} />} onPress={() => nav.push('Chat', { to: name, userId: params.id || params.userId })} />
             <Button small kind="ghost" label="Gift" icon={<Icon name="gift" size={13} color={colors.rose} />} onPress={() => setGift(true)} />
           </View>
         </ProfileHero>
@@ -364,7 +364,7 @@ export default function UserProfileScreen({ params = {} }) {
     try {
       const cid = await openDm(api.request, person.id);
       await sync.refresh({ quiet: true });
-      nav.push('Chat', { id: cid, to: person.name });
+      nav.push('Chat', { id: cid, to: person.name, userId: person.id });
     } catch (e) {
       toast.show(e && e.code === 'BLOCKED' ? 'You can’t message this person' : `Couldn’t open a chat${e && e.message ? ` — ${e.message}` : ''}`, { tone: 'error' });
     } finally {

@@ -179,8 +179,14 @@ function OnlineSync({ api, children }) {
   const fail = (e, msg) => toastRef.current.show(`${msg}${e && e.code === 'NETWORK' ? ' — you seem to be offline' : ''}`, { tone: 'error', icon: 'x' });
 
   const rememberHandles = (feed, videos) => {
-    feed.forEach((f) => { if (f.authorHandle && f.authorId) handles.current[f.authorHandle] = f.authorId; });
-    videos.forEach((v) => { if (v.creator && v.creator.handle && v.creator.userId) handles.current[v.creator.handle] = v.creator.userId; });
+    feed.forEach((f) => {
+      if (f.authorHandle && f.authorId) handles.current[f.authorHandle] = f.authorId;
+      if (f.author && f.authorId) handles.current[f.author] = f.authorId;
+    });
+    videos.forEach((v) => {
+      if (v.creator && v.creator.handle && v.creator.userId) handles.current[v.creator.handle] = v.creator.userId;
+      if (v.creator && v.creator.name && v.creator.userId) handles.current[v.creator.name] = v.creator.userId;
+    });
   };
 
   const applyMe = useCallback((m) => {
@@ -296,16 +302,28 @@ function OnlineSync({ api, children }) {
         if (ledgerR.status === 'fulfilled') patch.coinLog = mapLedger(ledgerR.value.items);
         if (convsR.status === 'fulfilled') {
           const convMap = new Map((s.chats || []).map((c) => [c.id, c]));
-          patch.chats = (convsR.value.items || []).map((c) => mapConversation(c, convMap.get(c.id)));
+          patch.chats = (convsR.value.items || []).map((c) => {
+            if (c.otherUser && c.otherUser.id) {
+              if (c.otherUser.displayName) handles.current[c.otherUser.displayName] = c.otherUser.id;
+              if (c.otherUser.handle) handles.current[c.otherUser.handle] = c.otherUser.id;
+            }
+            return mapConversation(c, convMap.get(c.id));
+          });
         }
         if (reqsR.status === 'fulfilled') {
-          patch.requests = (reqsR.value.items || []).map((r) => ({
-            id: r.fromId,
-            from: r.fromUser?.displayName || 'Believer',
-            time: ago(r.createdAt),
-            text: r.lastMessage?.body || 'Sent you a message request',
-            category: 'Direct',
-          }));
+          patch.requests = (reqsR.value.items || []).map((r) => {
+            if (r.fromUser && r.fromUser.displayName && r.fromId) {
+              handles.current[r.fromUser.displayName] = r.fromId;
+              if (r.fromUser.handle) handles.current[r.fromUser.handle] = r.fromId;
+            }
+            return {
+              id: r.fromId,
+              from: r.fromUser?.displayName || 'Believer',
+              time: ago(r.createdAt),
+              text: r.lastMessage?.body || 'Sent you a message request',
+              category: 'Direct',
+            };
+          });
         }
         if (commsR.status === 'fulfilled') {
           patch.communities = (commsR.value.items || []).map((c) => ({
@@ -773,17 +791,31 @@ function OnlineSync({ api, children }) {
         const target = a.name;
         run(async () => {
           try {
-            const uid = handles.current['@' + target] || a.userId;
-            if (uid) {
-              const res = await request('POST', '/conversations/dm', { userId: uid });
+            const convId = a.cid || a.id;
+            if (convId && isServerId(convId)) {
               if (a.text) {
-                await request('POST', `/conversations/${res.id}/messages`, {
+                await request('POST', `/conversations/${convId}/messages`, {
                   kind: 'text',
                   text: a.text,
                   clientId: 'c_' + Date.now(),
                 });
               }
               refresh({ quiet: true });
+              return;
+            }
+            const uid = a.userId || handles.current['@' + target] || handles.current[target];
+            if (uid) {
+              const res = await request('POST', '/conversations/dm', { userId: uid });
+              if (res && res.id) {
+                if (a.text) {
+                  await request('POST', `/conversations/${res.id}/messages`, {
+                    kind: 'text',
+                    text: a.text,
+                    clientId: 'c_' + Date.now(),
+                  });
+                }
+                refresh({ quiet: true });
+              }
             }
           } catch (e) {
             fail(e, 'Could not start conversation');

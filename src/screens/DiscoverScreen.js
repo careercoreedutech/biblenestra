@@ -1619,6 +1619,9 @@ export function ChatScreen({ params = {} }) {
   const { state, dispatch } = useStore();
   const sync = useSync();
   let chat = state.chats.find((c) => c.id === params.id) || state.chats.find((c) => c.with === params.to);
+  if (!chat && params.id && /^[0-9a-f-]{36}$/i.test(params.id)) {
+    chat = { id: params.id, with: params.to || 'Direct message', type: 'Direct message', messages: [] };
+  }
   const [kindMenu, setKindMenu] = useState(false);
   const stick = useStickToBottom();
   // ROUND 4: load the thread from the server (online) and give every message reply / react / copy / edit / pin / delete
@@ -1650,7 +1653,7 @@ export function ChatScreen({ params = {} }) {
         </FadeInUp>
         <View style={{ flex: 1 }} />
         <View style={{ paddingBottom: 10 }}>
-          <AskBar placeholder="Say hello..." onSend={(t) => { dispatch({ type: 'newChat', name: params.to, kind: params.kind, text: t }); toast.show(`Message sent to ${params.to}`, { icon: 'chat' }); nav.replace('Chat', { to: params.to }); }} />
+          <AskBar placeholder="Say hello..." onSend={(t) => { dispatch({ type: 'newChat', name: params.to, kind: params.kind, text: t, id: params.id, cid: params.id, userId: params.userId }); toast.show(`Message sent to ${params.to}`, { icon: 'chat' }); nav.replace('Chat', { id: params.id, to: params.to, userId: params.userId }); }} />
         </View>
       </Screen>
     );
