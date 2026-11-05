@@ -33,7 +33,7 @@ AUTH_DEV_MODE = "false"     # "true" accepts X-Dev-User instead of a Clerk token
 ADS_CLIENT_CLAIM = "false"  # "true" trusts the app's ad claims (demo ads); production uses AdMob SSV
 # Admin dashboard (/admin) sign-in: the Clerk *publishable* key (pk_live_…/pk_test_…; public, not a secret).
 # Add the Worker's origin to Clerk's allowed origins (and to CLERK_AUTHORIZED_PARTIES if you set it).
-CLERK_PUBLISHABLE_KEY = ""
+CLERK_PUBLISHABLE_KEY = "pk_test_YmVsb3ZlZC1mb3hob3VuZC04NDU1LmNsZXJrLmFjY291bnRzLmRldiQ"
 # Sermon notes model (Workers AI text generation). Transcription uses @cf/openai/whisper-large-v3-turbo.
 NOTES_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 
