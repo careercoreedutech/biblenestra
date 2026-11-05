@@ -31,6 +31,7 @@ import recordings from './routes/recordings.js'; // DISCOVER TOOLS (round 3)
 import reminders from './routes/reminders.js'; // DISCOVER TOOLS (round 3)
 import youtube from './routes/youtube.js'; // DISCOVER TOOLS (round 3)
 import { adminPage, adminApi } from './routes/admin.js'; // DISCOVER TOOLS (round 3)
+import { adminPlus, announcementsPublic } from './routes/adminPlus.js'; // ROUND 5: admin dashboard sections
 
 export function createApp() {
   const app = new Hono();
@@ -118,6 +119,8 @@ export function createApp() {
   app.route('/', recordings); // DISCOVER TOOLS (round 3)
   app.route('/', reminders); // DISCOVER TOOLS (round 3)
   app.route('/', adminApi); // DISCOVER TOOLS (round 3): /admin/api/* (role = 'admin' checked inside)
+  app.route('/', adminPlus); // ROUND 5: dashboard, users, content, communities & events, announcements (admin only)
+  app.route('/', announcementsPublic); // ROUND 5: GET /announcements for the app
 
   return app;
 }

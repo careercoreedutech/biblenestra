@@ -22,6 +22,7 @@ communities.get('/communities', async (c) => {
               (SELECT role FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1) AS my_role
        FROM communities c
        WHERE (c.name ILIKE $2 OR c.description ILIKE $2)
+         AND (c.hidden = false OR EXISTS (SELECT 1 FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1 AND cm.status = 'member'))
        ORDER BY c.members_count DESC, c.created_at DESC LIMIT 50`,
       [me.id, `%${query}%`]
     );
@@ -31,6 +32,7 @@ communities.get('/communities', async (c) => {
               (SELECT status FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1) AS my_status,
               (SELECT role FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1) AS my_role
        FROM communities c
+       WHERE c.hidden = false OR EXISTS (SELECT 1 FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1 AND cm.status = 'member')
        ORDER BY c.members_count DESC, c.created_at DESC LIMIT 50`,
       [me.id]
     );
@@ -51,6 +53,7 @@ communities.get('/communities', async (c) => {
     items: rows.map((r) => ({
       channels: chBy.get(r.id) || [],
       id: r.id,
+      verified: !!r.verified, // ROUND 5: set by admins
       name: r.name,
       slug: r.slug,
       description: r.description,
@@ -137,10 +140,11 @@ communities.get('/communities/:id', async (c) => {
     `SELECT c.*,
             (SELECT status FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1) AS my_status,
             (SELECT role FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1) AS my_role
-     FROM communities c WHERE c.id = $1`,
+     FROM communities c WHERE c.id = $2`,
     [me.id, id]
   );
   if (!comm) throw notFound('Community not found');
+  if (comm.hidden && comm.my_status !== 'member' && me.role !== 'admin') throw notFound('Community not found'); // ROUND 5
 
   const channels = await q(c.env,
     `SELECT id, name, conversation_id, position FROM community_channels
@@ -151,6 +155,7 @@ communities.get('/communities/:id', async (c) => {
   return c.json({
     id: comm.id,
     name: comm.name,
+    verified: !!comm.verified, // ROUND 5
     slug: comm.slug,
     description: comm.description,
     privacy: comm.privacy,
@@ -169,7 +174,7 @@ communities.post('/communities/:id/join', async (c) => {
   const me = c.get('user');
   const id = uuidParam(c, 'id');
   const comm = await one(c.env, `SELECT * FROM communities WHERE id = $1`, [id]);
-  if (!comm) throw notFound('Community not found');
+  if (!comm || comm.hidden) throw notFound('Community not found'); // ROUND 5: hidden by an admin
 
   const existing = await one(c.env, `SELECT * FROM community_members WHERE community_id = $1 AND user_id = $2`, [id, me.id]);
   if (existing?.status === 'banned') throw forbidden('You have been banned from this community');

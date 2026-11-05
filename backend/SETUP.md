@@ -76,11 +76,12 @@ Then build with EAS (`eas build`). Without these two values the app runs in **lo
    `main` and run the whole `schema.sql`. It is idempotent (safe to run again) and adds: `comment_likes`,
    `users.banner_url`, `users.role`, `recordings`, `reminders`, `reminder_settings`, `youtube_channels`,
    `admin_actions`, `fundraisers`, `fundraiser_media`, `donations`, `fundme_payout_accounts`, and (v8.1 message actions)
-   `message_reactions`, `message_hides`, `conversation_pins`, `messages.deleted_by`.
+   `message_reactions`, `message_hides`, `conversation_pins`, `messages.deleted_by`, and (v8.2 admin dashboard)
+   `announcements`, `users.last_seen_at`, `users.banned_reason`, `communities.verified`, `communities.hidden`.
 2. **Workers AI** (sermon transcription + notes): `wrangler.toml` already has `[ai] binding = "AI"`. Nothing else to buy —
    Workers AI has a daily free allowance; after that it's billed per use. `NOTES_MODEL` picks the notes model.
 3. **Deploy:** `cd backend && npx wrangler deploy`. Check `/health`.
-4. **Make yourself admin** (for `/admin` — YouTube channels, Fund Me review, reports):
+4. **Make yourself admin** (for `/admin` — dashboard, users, content, communities & events, announcements, reports, Fund Me review, YouTube channels). After that you can make other admins from the Users tab:
    `UPDATE users SET role = 'admin' WHERE clerk_id = 'user_…';` (your Clerk user id, from the Clerk dashboard).
    Optionally set `CLERK_PUBLISHABLE_KEY` in `wrangler.toml` so the admin page can sign you in.
 5. **Payments:** leave `PAYMENTS_MODE` **unset** in production. `PAYMENTS_MODE=test` is only for local testing (fake

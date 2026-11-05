@@ -9,6 +9,7 @@ import { NightGlow, alpha } from '../components/ui';
 import VerseImageSheet from '../components/VerseImageSheet';
 import ProfileButton from '../components/ProfileButton';
 import SupportAdsCard from '../components/SupportAdsCard';
+import AnnouncementCards from '../components/AnnouncementCards'; // ROUND 5: admin announcements
 import { FadeInUp, ScaleIn, Pop, Pulse, Burst, AnimatedBar, AnimatedNumber, PressScale } from '../components/Motion';
 import { useToast } from '../components/Toast';
 import { useNarration } from '../audio/Narration';
@@ -76,7 +77,12 @@ export default function TodayScreen() {
 
   const hour = today.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const name = (state.user && state.user.displayName) || 'friend';
+  // First name only so the greeting fits ("Rev. Esther Mwangi" → "Esther")
+  const name = (() => {
+    const parts = String((state.user && state.user.displayName) || '').trim().split(/\s+/).filter(Boolean);
+    const first = parts.find((w) => !/^(rev|pastor|ps|dr|mr|mrs|ms|miss|fr|sr|bro|sis|bishop|elder|deacon|apostle|prophet|evangelist)\.?$/i.test(w));
+    return first || parts[0] || 'friend';
+  })();
   const doneCount = STEPS.filter(isDone).length;
   const minsLeft = STEPS.filter((s) => !isDone(s)).reduce((n, s) => n + STEP_META[s].mins, 0);
   const allDone = doneCount === STEPS.length;
@@ -88,7 +94,7 @@ export default function TodayScreen() {
         <FadeInUp index={0} style={styles.header}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.eyebrow}>{today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
-            <Text style={styles.greeting} numberOfLines={1}>{greeting}, {name}</Text>
+            <Text style={[styles.greeting, (greeting + name).length > 14 && { fontSize: (greeting + name).length > 19 ? 22 : 25, lineHeight: (greeting + name).length > 19 ? 27 : 30 }]} numberOfLines={2}>{greeting}, {name}</Text>
           </View>
           {showStreak ? (
             <Pressable onPress={() => setStreakOpen(true)} style={({ pressed }) => [styles.streakChip, pressed && { opacity: 0.8 }]} accessibilityLabel={`${streak} day streak`}>
@@ -100,6 +106,8 @@ export default function TodayScreen() {
           ) : null}
           <ProfileButton />
         </FadeInUp>
+
+        <AnnouncementCards style={{ marginHorizontal: 18, marginTop: 16 }} />
 
         {/* Week strip */}
         <FadeInUp index={1} style={styles.weekCard}>

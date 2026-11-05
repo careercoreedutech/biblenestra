@@ -27,6 +27,21 @@ The app now has a real backend in `backend/` — no server to buy. **Full setup 
   - Notifications inbox and Expo push notification delivery.
   - Safe on-device fallback: when `EXPO_PUBLIC_API_URL` is empty, everything continues to operate locally.
 
+## New in v8.2 — admin dashboard
+
+The web dashboard at `https://<your-worker>/admin` (sign in with your Clerk account; `users.role = 'admin'`) now has:
+**Dashboard** (users, active today/this week, posts, messages, prayers, communities, coins, 14-day charts, newest members,
+"needs attention" for open reports and fundraisers), **Users** (search by name/@handle/church/Clerk id; ban with reason /
+unban, verified badge, make/remove admin, adjust coins with a reason, see their posts, reports, communities and coin
+history), **Content** (posts & videos, comments, prayer requests — filter reported/removed, remove or restore),
+**Communities & events** (verify, hide, change owner, delete with name confirmation; remove events with an in-app notice to
+the host and RSVPs), **Announcements** (a card at the top of everyone's Today screen — general / verse / event / update /
+urgent, optional verse and link, start/end time, optionally also in everyone's bell). Plus the existing Reports, Fund Me
+approvals, YouTube channels and Audit log tabs. Every admin action is written to the audit log.
+Also fixed: `GET /communities/:id` always returned "not found"; the Today greeting now uses the first name.
+Code: `backend/src/routes/adminPlus.js`, `backend/src/lib/adminPlusPage.js`, `src/components/AnnouncementCards.js`.
+Run `schema.sql` again on deploy. Locally: `DEV_ADMINS=admin node dev/server.mjs` makes the dev user `admin` an admin.
+
 ## New in v8.1 — message actions (chats and groups)
 
 Press and hold any message in a direct chat or a group channel: react (🙏 ❤️ 🙌 👍 😂 😢 🔥 🕊️), **Reply** (quoted in

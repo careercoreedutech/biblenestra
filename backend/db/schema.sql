@@ -697,3 +697,30 @@ CREATE TABLE IF NOT EXISTS conversation_pins (
   PRIMARY KEY (conversation_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS conversation_pins_conv ON conversation_pins (conversation_id, pinned_at DESC);
+
+-- ============================================================
+-- ROUND 5 — admin dashboard: users, content, communities & events, announcements
+-- ============================================================
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;          -- updated at most every 10 min (active-user stats)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_reason text;
+ALTER TABLE communities ADD COLUMN IF NOT EXISTS verified boolean NOT NULL DEFAULT false;
+ALTER TABLE communities ADD COLUMN IF NOT EXISTS hidden boolean NOT NULL DEFAULT false;  -- hidden: members only, not listed or joinable
+CREATE INDEX IF NOT EXISTS users_last_seen ON users (last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS users_created ON users (created_at DESC);
+CREATE INDEX IF NOT EXISTS messages_created ON messages (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS announcements (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title       text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 120),
+  body        text NOT NULL DEFAULT '' CHECK (char_length(body) <= 1000),
+  kind        text NOT NULL DEFAULT 'info' CHECK (kind IN ('info','verse','event','update','urgent')),
+  verse_ref   text,                                    -- e.g. "Philippians 4:6-7" (shown under the text)
+  link_url    text,                                    -- optional https link ("Learn more")
+  starts_at   timestamptz NOT NULL DEFAULT now(),
+  ends_at     timestamptz,
+  active      boolean NOT NULL DEFAULT true,
+  created_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS announcements_live ON announcements (active, starts_at DESC);

@@ -203,6 +203,7 @@ export function mapBid(b, me) {
 
 const REASONS = {
   welcome: 'Welcome gift',
+  admin_adjustment: 'Adjusted by the BibleNestra team', // ROUND 5
   job_bid: 'Bid on a job',
   job_ads: 'Unlocked by watching ads',
   game: 'Bible game reward',

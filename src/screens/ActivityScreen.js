@@ -24,6 +24,7 @@ const KIND = {
   prayer: { icon: 'prayer', tint: colors.lavender, label: 'Prayer' },
   event: { icon: 'calendar', tint: colors.sky, label: 'Event' },
   job: { icon: 'briefcase', tint: colors.sky, label: 'Jobs' },
+  announcement: { icon: 'bell', tint: colors.gold, label: 'BibleNestra' }, // ROUND 5
 };
 
 /** Unread count of the in-app inbox (for header badges). */
@@ -77,6 +78,7 @@ export default function ActivityScreen() {
     if (n.kind === 'prayer') { nav.push('PrayerWall'); return; }
     if (n.kind === 'event') { nav.push('Calendar'); return; }
     if (n.kind === 'job') { nav.push('Jobs'); return; }
+    if (n.kind === 'announcement') { nav.reset(); return; } // ROUND 5: back to the tabs (the card is on Today)
   };
 
   const refresh = async () => { setPulling(true); await load(); setPulling(false); };

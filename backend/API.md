@@ -337,3 +337,28 @@ Group moderators = conversation owner/admin, or owner/admin of the community the
 Deleting for everyone clears the text/media, its reactions and its pin. Realtime: every member gets
 `{ type: 'message.changed', conversationId, messageId, change: 'edited'|'deleted'|'pinned'|'unpinned'|'reacted' }`
 (`'hidden'` only to your own devices) and re-fetches `GET /messages/:id`.
+
+
+## Admin dashboard (round 5) — all need `users.role = 'admin'`, all logged to `admin_actions`
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/admin/api/stats` | totals, 14-day `series` (signups/posts/messages per UTC day), `recentSignups` |
+| GET | `/admin/api/users?q=&filter=all\|reported\|banned\|admins\|verified&before=` | search name/handle/church/Clerk id; `next` cursor |
+| GET | `/admin/api/users/:id` | counts, recent posts, coin ledger, communities, open reports |
+| POST | `/admin/api/users/:id/ban` | `{ banned: true\|false, reason? }` — not yourself, not admins |
+| POST | `/admin/api/users/:id/role` | `{ role: 'admin'\|'user' }` — not your own; at least one admin remains |
+| POST | `/admin/api/users/:id/verify` | `{ verified }` |
+| POST | `/admin/api/users/:id/coins` | `{ amount: ±int, reason }` → coin_ledger `admin_adjustment`; never below 0 |
+| GET | `/admin/api/content/posts\|comments\|prayers?q=&status=all\|reported\|visible\|removed&kind=&authorId=&before=` | |
+| POST | `/admin/api/content/:type/:id/remove` · `/restore` | posts/prayers hidden & restorable; comments deleted; resolves reports |
+| GET | `/admin/api/communities?q=&filter=all\|verified\|hidden\|private` · `/admin/api/communities/:id/members` | |
+| PATCH | `/admin/api/communities/:id` | `{ verified?, hidden? }` — hidden: not listed/joinable, members keep access |
+| POST | `/admin/api/communities/:id/owner` | `{ userId }` (must be a member; old owner → admin, channels too) |
+| DELETE | `/admin/api/communities/:id` | `{ confirmName }` must equal the name; deletes channels + messages + events |
+| GET | `/admin/api/events?when=upcoming\|past` · DELETE `/admin/api/events/:id` `{ reason? }` | delete notifies host + RSVPs |
+| GET/POST | `/admin/api/announcements` | `{ title, body?, kind: info\|verse\|event\|update\|urgent, verseRef?, linkUrl? (https), startsAt?, endsAt?, notifyAll? }` |
+| PATCH/DELETE | `/admin/api/announcements/:id` | |
+| GET | `/announcements` | any signed-in user: live announcements (max 3, urgent first) |
+
+Community objects now include `verified`. `GET /communities/:id` fixed (it compared the id with the user id).

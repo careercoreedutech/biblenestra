@@ -23,7 +23,7 @@ const CSS = `
 header{background:var(--night);color:var(--nightFg);padding:22px 28px 18px;display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
 header h1{margin:2px 0 0;font-size:28px}.eyebrow{font-size:10.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:var(--goldLight)}
 header .who{margin-left:auto;font-size:13px;color:rgba(244,239,230,.7);display:flex;gap:10px;align-items:center}
-main{max-width:1040px;margin:0 auto;padding:22px 20px 80px}
+main{max-width:1120px;margin:0 auto;padding:22px 20px 80px}
 nav.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 20px}
 nav.tabs button{border:1px solid var(--border);background:var(--surface);color:var(--fg);padding:8px 16px;border-radius:999px;font-weight:600;cursor:pointer}
 nav.tabs button.on{background:var(--fg);color:var(--screen);border-color:var(--fg)}
@@ -91,7 +91,19 @@ window.registerAdminTab = function(name, render){
   if (current) { drawTabs(); if (current === name) show(name); }
 };
 
+// ROUND 5: tab order + helpers other tab scripts can use
+var tabOrder = [];
+window.setAdminTabOrder = function(order){ tabOrder = order || []; sortTabs(); if (current) drawTabs(); };
+function sortTabs(){
+  var rank = function(n){ var i = tabOrder.indexOf(n); return i === -1 ? 999 : i; };
+  tabs.sort(function(a, b){ return rank(a.name) - rank(b.name); });
+}
+window.adminToast = function(m, e){ toast(m, e); };
+window.adminH = function(t, a, k){ return h(t, a, k); };
+window.adminShow = function(name){ if (tabs.some(function(t){ return t.name === name; })) { show(name); window.scrollTo(0, 0); } };
+
 function drawTabs(){
+  sortTabs();
   var nav = document.getElementById('tabs');
   if (!nav) return;
   nav.innerHTML = '';
@@ -241,6 +253,7 @@ async function start(){
   app.appendChild(h('nav', { class: 'tabs', id: 'tabs' }));
   app.appendChild(h('div', { id: 'panel' }));
   var want = decodeURIComponent((location.hash || '').slice(1));
+  sortTabs();
   show(tabs.some(function(t){ return t.name === want; }) ? want : tabs[0].name);
 }
 function devSignIn(){

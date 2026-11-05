@@ -19,6 +19,11 @@ if (fresh && process.argv.includes('--seed')) {
   await db.pg.exec(await readFile(path.join(here, '..', 'db', 'seed-demo.sql'), 'utf8'));
   console.log('Seeded demo content');
 }
+// DEV_ADMINS=admin,alice → those dev users get role 'admin' (for the /admin dashboard). Local only.
+for (const name of String(process.env.DEV_ADMINS || 'admin').split(',').map((x) => x.trim()).filter((x) => /^[\w.-]{1,40}$/.test(x))) {
+  await db.pg.query(`INSERT INTO users (clerk_id, display_name, role) VALUES ($1, $2, 'admin')
+    ON CONFLICT (clerk_id) DO UPDATE SET role = 'admin'`, [`dev_${name}`, name.charAt(0).toUpperCase() + name.slice(1)]);
+}
 const env = {
   __db: db,
   MEDIA: makeBucket(path.join(dataDir, 'media')),

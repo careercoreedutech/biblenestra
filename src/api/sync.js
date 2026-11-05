@@ -222,7 +222,7 @@ function OnlineSync({ api, children }) {
           try { m = await request('PUT', '/me', { displayName: api.clerkName }); } catch (e) { /* keep default */ }
         }
         applyMe(m);
-        const [feedR, videosR, followR, prayersR, jobsR, bidsR, ledgerR, convsR, reqsR, commsR, eventsR, wishesR, studyR, notifsR, rhythmR] = await Promise.allSettled([
+        const [feedR, videosR, followR, prayersR, jobsR, bidsR, ledgerR, convsR, reqsR, commsR, eventsR, wishesR, studyR, notifsR, rhythmR, annR] = await Promise.allSettled([
           request('GET', `/feed?limit=${PAGE}`),
           request('GET', '/videos?limit=10'),
           request('GET', '/me/following'),
@@ -238,6 +238,7 @@ function OnlineSync({ api, children }) {
           request('GET', '/me/study'),
           request('GET', '/me/notifications'),
           request('GET', '/me/rhythm'),
+          request('GET', '/announcements'), // ROUND 5
         ]);
         const s = getState();
         const patch = {};
@@ -328,6 +329,7 @@ function OnlineSync({ api, children }) {
         if (notifsR.status === 'fulfilled') {
           patch.notificationsList = (notifsR.value.items || []).map(mapNotification);
         }
+        if (annR.status === 'fulfilled') patch.announcements = annR.value.items || []; // ROUND 5
         if (rhythmR.status === 'fulfilled') {
           const rData = rhythmR.value;
           const currentRhythm = { ...(s.rhythm || {}) };

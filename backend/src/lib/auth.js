@@ -58,6 +58,11 @@ export function requireUser() {
       await q(c.env, 'UPDATE users SET tz_offset = $2 WHERE id = $1', [user.id, tz]);
       user.tz_offset = tz;
     }
+    // ROUND 5: "last seen" for the admin dashboard's active-user counts — written at most every 10 minutes
+    if (!user.last_seen_at || Date.now() - new Date(user.last_seen_at).getTime() > 10 * 60e3) {
+      const touch = q(c.env, 'UPDATE users SET last_seen_at = now() WHERE id = $1', [user.id]).catch(() => {});
+      try { c.executionCtx.waitUntil(touch); } catch (e) { await touch; } // no executionCtx in tests / local dev
+    }
     c.set('user', user);
     await next();
   };
