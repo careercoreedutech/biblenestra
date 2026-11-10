@@ -22,6 +22,14 @@ class_name = "Hub"
 tag = "v1"
 new_sqlite_classes = ["Hub"]
 
+# Workers Logs (free: 200K events/day) — keeps console.warn/error output so failures can be investigated
+[observability]
+enabled = true
+
+# Contest Centre: pay out finished quizzes and send contest reminders every 15 minutes
+[triggers]
+crons = ["*/15 * * * *"]
+
 [vars]
 # Comma-separated list of allowed web origins ("*" is fine for the mobile app; restrict when you ship a website)
 CORS_ORIGINS = "*"
@@ -35,7 +43,7 @@ ADS_CLIENT_CLAIM = "false"  # "true" trusts the app's ad claims (demo ads); prod
 # Add the Worker's origin to Clerk's allowed origins (and to CLERK_AUTHORIZED_PARTIES if you set it).
 CLERK_PUBLISHABLE_KEY = "pk_test_YmVsb3ZlZC1mb3hob3VuZC04NDU1LmNsZXJrLmFjY291bnRzLmRldiQ"
 # Sermon notes model (Workers AI text generation). Transcription uses @cf/openai/whisper-large-v3-turbo.
-NOTES_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+NOTES_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8"
 ADMIN_USERNAME = "benjamin"
 
 # Secrets (set with `npx wrangler secret put NAME`, never commit them):

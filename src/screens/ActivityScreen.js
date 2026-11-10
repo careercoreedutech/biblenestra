@@ -26,6 +26,8 @@ const KIND = {
   job: { icon: 'briefcase', tint: colors.sky, label: 'Jobs' },
   announcement: { icon: 'bell', tint: colors.gold, label: 'BibleNestra' }, // ROUND 5
   follow: { icon: 'user', tint: colors.teal, label: 'New follower' },
+  contest: { icon: 'star', tint: colors.gold, label: 'Contest' },
+  battle: { icon: 'flame', tint: colors.terracotta, label: 'Bible Battle' },
 };
 
 /** Unread count of the in-app inbox (for header badges). */
@@ -79,6 +81,10 @@ export default function ActivityScreen() {
     if (n.kind === 'prayer') { nav.push('PrayerWall'); return; }
     if (n.kind === 'event') { nav.push('Calendar'); return; }
     if (n.kind === 'job') { nav.push('Jobs'); return; }
+    if (n.kind === 'battle') { if (isServerId(d.battleId)) nav.push('Battle', { id: d.battleId }); else nav.push('Contests', { tab: 'Battles' }); return; }
+    if (n.kind === 'contest' && d.submissionId && isServerId(d.submissionId)) { nav.push('ContestEntry', { id: d.submissionId }); return; }
+    if (n.kind === 'contest' && d.certificate) { nav.push('Certificate', { code: d.certificate }); return; }
+    if (n.kind === 'contest') { if (isServerId(d.contestId)) nav.push('Contest', { id: d.contestId }); else nav.push('Contests'); return; }
     if (n.kind === 'announcement') { nav.reset(); return; } // ROUND 5: back to the tabs (the card is on Today)
   };
 
@@ -112,7 +118,8 @@ export default function ActivityScreen() {
                 {from ? <View style={[styles.kindBadge, { backgroundColor: k.tint }]}><Icon name={k.icon} size={10} color="#FFFFFF" fill={k.icon === 'heart' ? 'solid' : 'none'} /></View> : null}
               </PressScale>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.body} numberOfLines={4}>{n.body || n.title}</Text>
+                {/* follow: the title names the person ("Ann started following you"); the body is only a hint */}
+                <Text style={styles.body} numberOfLines={4}>{isFollow && n.title ? n.title : (n.body || n.title)}</Text>
                 <Text style={styles.meta}>{k.label} · {n.time}</Text>
               </View>
               {isFollow && fromId ? (
@@ -126,11 +133,11 @@ export default function ActivityScreen() {
                     onPress={async () => {
                       try {
                         dispatch({ type: 'follow', id: fromId, local: true });
-                        await api.request('POST', `/users/${fromId}/follow`);
+                        await api.request('POST', `/users/${fromId}/follow`, { following: true });
                         toast.show(`Following ${from || 'them'} · You can now chat!`, { icon: 'check', haptic: 'success' });
                         sync.refresh({ quiet: true });
                       } catch (e) {
-                        toast.show('Could not follow back', { tone: 'error' });
+                        toast.show(`Could not follow back${e && e.message ? `: ${e.message}` : ''}`, { tone: 'error' });
                       }
                     }}
                   />

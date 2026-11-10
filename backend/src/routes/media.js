@@ -4,6 +4,7 @@
 import { Hono } from 'hono';
 import { one, q } from '../lib/db.js';
 import { ApiError, bad, body, forbidden, int, notFound } from '../lib/http.js';
+import { mediaUrl } from '../lib/shape.js';
 
 const IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif' };
 const VOICE_TYPES = {
@@ -39,6 +40,25 @@ uploads.post('/uploads/image', async (c) => {
 });
 
 // Voice note upload for chat (m4a / aac <= 5 MB)
+// Contest entries: audio (songs, spoken word, sermons) up to 25 MB, public like photos and videos
+const AUDIO_TYPES = { 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/mp4': 'm4a', 'audio/m4a': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm' };
+const MAX_AUDIO = 25 * 1024 * 1024;
+uploads.post('/uploads/audio', async (c) => {
+  const me = c.get('user');
+  needBucket(c.env);
+  const type = (c.req.header('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  const ext = AUDIO_TYPES[type];
+  if (!ext) throw bad('Upload an audio file (MP3, M4A, AAC, WAV or OGG)', 'BAD_TYPE');
+  const len = Number(c.req.header('Content-Length') || 0);
+  if (len > MAX_AUDIO) throw new ApiError(413, 'TOO_LARGE', 'Audio must be under 25 MB');
+  const buf = await c.req.arrayBuffer();
+  if (!buf.byteLength) throw bad('Empty upload');
+  if (buf.byteLength > MAX_AUDIO) throw new ApiError(413, 'TOO_LARGE', 'Audio must be under 25 MB');
+  const key = `aud/${me.id}/${crypto.randomUUID()}.${ext}`;
+  await c.env.MEDIA.put(key, buf, { httpMetadata: { contentType: type } });
+  return c.json({ key, url: mediaUrl(c.env, new URL(c.req.url).origin, key) }, 201);
+});
+
 uploads.post('/uploads/voice', async (c) => {
   const me = c.get('user');
   needBucket(c.env);
@@ -182,7 +202,7 @@ function parseRange(h, size) {
 media.get('/media/*', async (c) => {
   if (!c.env.MEDIA) return c.notFound();
   const key = decodeURIComponent(new URL(c.req.url).pathname.replace(/^\/media\//, ''));
-  if (!/^(img|vid)\/[\w./-]+$/.test(key) || key.includes('..')) return c.notFound();
+  if (!/^(img|vid|aud)\/[\w./-]+$/.test(key) || key.includes('..')) return c.notFound();
   const head = await c.env.MEDIA.head(key);
   if (!head) return c.notFound();
   const size = head.size;

@@ -35,6 +35,27 @@ function pick(arr, seed) {
   return arr[x % arr.length];
 }
 
+// Prayers that name a time of day only go out at that time, in the phone's own time zone
+// (Date#getHours is local). "this morning … tonight" counts as morning.
+function partOfDay(hour) {
+  if (hour >= 5 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 17) return 'afternoon';
+  if (hour >= 17 && hour < 21) return 'evening';
+  return 'night';
+}
+function prayerFits(text, part) {
+  const t = text.toLowerCase();
+  if (/this morning|first thought/.test(t)) return part === 'morning';
+  if (/afternoon/.test(t)) return part === 'afternoon';
+  if (/as evening|this evening/.test(t)) return part === 'evening';
+  if (/tonight/.test(t)) return part === 'evening' || part === 'night';
+  return true;
+}
+export function prayersFor(slotTime) {
+  const part = partOfDay(new Date(slotTime).getHours());
+  return POP_PRAYERS.filter((p) => prayerFits(p, part));
+}
+
 export function contentFor(slotTime, kind) {
   const seed = Math.floor(slotTime / 60000);
   const useVerse = kind === 'verses' || (kind === 'both' && pick([true, true, false], seed + 7)); // both → ~2 verses : 1 prayer
@@ -50,7 +71,7 @@ export function contentFor(slotTime, kind) {
       };
     }
   }
-  return { title: '🙏 A moment of prayer', body: pick(POP_PRAYERS, seed), data: { type: 'prayer' } };
+  return { title: '🙏 A moment of prayer', body: pick(prayersFor(slotTime), seed), data: { type: 'prayer' } };
 }
 
 function inQuiet(date, from, to) {

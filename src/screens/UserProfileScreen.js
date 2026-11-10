@@ -345,7 +345,7 @@ export default function UserProfileScreen({ params = {} }) {
     const has = (state.follows || []).includes(key);
     if (has !== want) dispatch({ type: 'follow', id: key, local: true });
     try {
-      const r = await api.request('POST', `/users/${person.id}/follow`);
+      const r = await api.request('POST', `/users/${person.id}/follow`, { following: want }); // explicit, not a toggle
       if (!!r.following !== want) {
         setPerson((p) => ({ ...p, isFollowing: !!r.following, followers: Math.max(0, p.followers + (r.following ? 1 : -1)) }));
         dispatch({ type: 'follow', id: key, local: true });

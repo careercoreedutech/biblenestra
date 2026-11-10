@@ -7,6 +7,7 @@ import Svg, { Path, Circle } from 'react-native-svg';
 import { Screen, Section, Row, Pills, Button, Tag, Badge, Notice, Empty, alpha, NightGlow } from '../components/ui';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNav } from '../navigation';
 import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS, CHANNELS_DATA } from '../data/seed';
 import { refLabel, BOOKS } from '../data/bible';
@@ -25,12 +26,6 @@ import { dmScope, groupScope, scopeConversationId } from '../chat/messages';
 import { useThreadLoader } from '../chat/useThread';
 
 // ---------- Discover Hub (Sanctuary Paper) ----------
-const DEVOTIONALS_AUDIO = [
-  { id: 'dev1', title: 'Walking in Grace', sub: 'Psalm 23 · Ambient reading', time: '12 MIN', passage: { bookId: 'PSA', chapter: 23 }, img: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=600&q=80' },
-  { id: 'dev2', title: 'The Armor of Light', sub: 'Ephesians 6 · Morning strength', time: '8 MIN', passage: { bookId: 'EPH', chapter: 6 }, img: 'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?auto=format&fit=crop&w=600&q=80' },
-  { id: 'dev3', title: 'Midnight Peace & Vigil', sub: 'Proverbs 3 · Night liturgy', time: '15 MIN', passage: { bookId: 'PRO', chapter: 3 }, img: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=600&q=80' },
-];
-
 const WISH_CATEGORIES = ['Healing', 'Guidance', 'Family', 'Financial Miracle', 'Salvation', 'Revival'];
 
 export default function DiscoverScreen() {
@@ -41,7 +36,9 @@ export default function DiscoverScreen() {
   const featuredJobs = (state.jobs || []).slice(0, 3);
   const wishes = state.wishes || [];
   const joinedChannels = state.joinedChannels || [];
-  const candlesBurning = wishes.reduce((n, w) => n + (w.candles || 0), 0);
+  // Prayer Wall card on Discover: open requests, newest first as stored
+  const activePrayers = (state.prayers || []).filter((p) => p.status !== 'answered' && p.status !== 'archived');
+  const prayingCount = activePrayers.reduce((n, p) => n + (p.praying || 0), 0);
   const liveCount = (LIVE || []).filter((l) => l.status === 'live').length;
 
   // Interactive Games State — a fresh, date-seeded set every day (see data/games.js)
@@ -210,7 +207,8 @@ export default function DiscoverScreen() {
       setGameQuestions((qs) => [...qs, q]);
     } else if (next >= gameQuestions.length) { finishRound(); return; }
     // After every Nth question (4, 8, …) pause for a short, skippable supported-by-ads break.
-    if (next % AD_RULES.gameInterstitialEvery === 0) {
+    // (BibleNestra Plus members play without ad breaks)
+    if (!state.premium && next % AD_RULES.gameInterstitialEvery === 0) {
       setAdBreak({ next, left: 3, playing: false });
       return;
     }
@@ -247,6 +245,7 @@ export default function DiscoverScreen() {
 
   // Make a Wish — persisted through the store (state.wishes)
   const [showWishModal, setShowWishModal] = useState(false);
+  const insets = useSafeAreaInsets();
   const [wishText, setWishText] = useState('');
   const [wishCategory, setWishCategory] = useState('Healing');
   const [wishBurst, setWishBurst] = useState(0);
@@ -274,11 +273,6 @@ export default function DiscoverScreen() {
     toast.show(w.amened ? 'Amen removed' : `You prayed Amen with ${w.author}`, { icon: 'prayer', haptic: w.amened ? 'light' : 'success' });
   };
 
-  const playDevotional = (dev) => {
-    const { bookId, chapter } = dev.passage;
-    nar.playChapter(bookId, chapter, { translation: 'KJV' });
-    toast.show(`Playing ${dev.title} · ${refLabel(bookId, chapter)}`, { icon: 'audio', action: { label: 'Read', onPress: () => nav.push('Bible', { bookId, chapter }) } });
-  };
 
   const toggleChannel = (ch) => {
     const on = joinedChannels.includes(ch.id);
@@ -341,6 +335,7 @@ export default function DiscoverScreen() {
             { label: 'Prayer', icon: 'prayer', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('PrayerWall') },
             { label: 'Chats', icon: 'chat', tint: colors.primary, bg: colors.cardIndigo, go: () => nav.push('ChatList') },
             { label: 'Record', icon: 'mic', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('SermonStudio') },
+            { label: 'Contests', icon: 'star', tint: colors.gold, bg: colors.cardGold, go: () => nav.push('Contests') },
             { label: 'Learn', icon: 'book', tint: colors.sage, bg: colors.cardSage, go: () => nav.push('Learn') },
             { label: 'Ask AI', icon: 'sparkles', tint: colors.gold, bg: colors.cardGold, go: () => nav.push('BibleChat') },
             { label: 'Calendar', icon: 'calendar', tint: colors.sky, bg: colors.cardSky, go: () => nav.push('Calendar') },
@@ -361,16 +356,16 @@ export default function DiscoverScreen() {
           ))}
         </ScrollView>
 
-        {/* 2. The Living Altar & Prayer Wall */}
+        {/* 2. Prayer Wall, then Fund Me (Make a Wish lives in Churches & Bible Studies) */}
         <FadeInUp index={2}>
         <SectionHead
-          eyebrow="The Living Altar"
+          eyebrow="Pray together"
           title="Prayer Wall"
-          sub={`${wishes.length} wishes on the altar · ${candlesBurning.toLocaleString()} candles burning`}
+          sub={`${activePrayers.length} prayer requests · ${prayingCount.toLocaleString()} praying`}
           action="See all"
-          onAction={() => nav.push('Wishes')}
+          onAction={() => nav.push('PrayerWall')}
         />
-        <PressScale onPress={() => setShowWishModal(true)} scaleTo={0.98} accessibilityRole="button" style={styles.altarHeroCard}>
+        <PressScale onPress={() => nav.push('PrayerWall')} scaleTo={0.98} accessibilityRole="button" accessibilityLabel="Open the Prayer Wall" style={styles.altarHeroCard}>
           <ImageBackground
             source={{ uri: 'https://images.unsplash.com/photo-1533000759938-aa0ba70beceb?auto=format&fit=crop&w=800&q=80' }}
             style={styles.altarHeroBg}
@@ -382,16 +377,43 @@ export default function DiscoverScreen() {
                 <Pulse min={0.75} max={1.25} duration={1100}>
                   <View style={styles.pulseDot} />
                 </Pulse>
-                <Text style={styles.altarHeroPillText}>Sacred altar</Text>
+                <Text style={styles.altarHeroPillText}>Prayer Wall</Text>
               </View>
 
               <View style={styles.altarHeroBottomRow}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={styles.altarHeroTitle}>Send a heart desire to heaven</Text>
-                  <Text style={styles.altarHeroSub}>Light a candle and receive community intercession</Text>
+                  <Text style={styles.altarHeroTitle}>Pray for one another</Text>
+                  <Text style={styles.altarHeroSub}>Share a request and stand with others in prayer</Text>
                 </View>
                 <View style={styles.makeWishActionBtn}>
-                  <Text style={styles.makeWishActionText}>Make a Wish</Text>
+                  <Text style={styles.makeWishActionText}>Prayer Wall</Text>
+                  <Icon name="chevron-right" size={13} color={colors.night} strokeWidth={2.4} />
+                </View>
+              </View>
+            </View>
+          </ImageBackground>
+        </PressScale>
+
+        <PressScale onPress={() => nav.push('FundMe')} scaleTo={0.98} accessibilityRole="button" accessibilityLabel="Open Fund Me" style={styles.altarHeroCard}>
+          <ImageBackground
+            source={{ uri: 'https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?auto=format&fit=crop&w=800&q=80' }}
+            style={styles.altarHeroBg}
+            imageStyle={{ borderRadius: 18 }}
+          >
+            <View style={styles.altarHeroScrim} />
+            <View style={styles.altarHeroContent}>
+              <View style={styles.altarHeroTopPill}>
+                <Icon name="gift" size={12} color={colors.goldLight} />
+                <Text style={styles.altarHeroPillText}>Fund Me</Text>
+              </View>
+
+              <View style={styles.altarHeroBottomRow}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={styles.altarHeroTitle}>Raise support for what matters</Text>
+                  <Text style={styles.altarHeroSub}>Hospital bills, school fees, ministry needs</Text>
+                </View>
+                <View style={styles.makeWishActionBtn}>
+                  <Text style={styles.makeWishActionText}>Fund Me</Text>
                   <Icon name="chevron-right" size={13} color={colors.night} strokeWidth={2.4} />
                 </View>
               </View>
@@ -400,72 +422,67 @@ export default function DiscoverScreen() {
         </PressScale>
         </FadeInUp>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.bleed}
-          contentContainerStyle={styles.hScroll}
-        >
-          {wishes.slice(0, 8).map((w, i) => (
-            <FadeInUp key={w.id} index={3 + i} distance={10} style={styles.wishStreamCard}>
-              <PressScale onPress={() => nav.push('Wishes')} scaleTo={0.98}>
-                <View style={styles.wishCardHeader}>
-                  <Avatar name={w.author} size={30} />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.wishCardUser} numberOfLines={1}>{w.mine ? 'You' : w.author}</Text>
-                    <Text style={styles.wishCardTime}>{w.time}</Text>
+        {activePrayers.length ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.bleed}
+            contentContainerStyle={styles.hScroll}
+          >
+            {activePrayers.slice(0, 8).map((p, i) => (
+              <FadeInUp key={p.id} index={3 + i} distance={10} style={styles.wishStreamCard}>
+                <PressScale onPress={() => nav.push('PrayerWall')} scaleTo={0.98}>
+                  <View style={styles.wishCardHeader}>
+                    <Avatar name={p.author} size={30} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.wishCardUser} numberOfLines={1}>{p.mine ? 'You' : p.author}</Text>
+                      <Text style={styles.wishCardTime}>{p.created}</Text>
+                    </View>
+                    <Badge label={p.audience || 'Public'} tint={colors.rose} />
                   </View>
-                  <Badge label={w.category} tint={categoryTint(w.category)} />
-                </View>
-                <Text style={styles.wishCardBody} numberOfLines={3}>“{w.body || w.title}”</Text>
-              </PressScale>
+                  <Text style={styles.wishCardBody} numberOfLines={3}>{p.title || p.body}</Text>
+                  <Text style={styles.wishCardTime}>{p.praying || 0} praying</Text>
+                </PressScale>
+              </FadeInUp>
+            ))}
+          </ScrollView>
+        ) : null}
 
-              <View style={styles.wishCardFooter}>
-                <CandleButton w={w} onPress={() => toggleLightCandle(w)} offColor={colors.muted} />
-                <AmenButton w={w} onPress={() => toggleAmen(w)} offColor={colors.muted} />
-              </View>
-            </FadeInUp>
-          ))}
-        </ScrollView>
-
-        {/* 3. Sacred Audio Devotionals */}
+        {/* 3. Contests (Sacred Audio Devotionals moved to the bottom of Today) */}
         <FadeInUp index={4}>
         <SectionHead
-          eyebrow="Listen"
-          title="Sacred Audio Devotionals"
-          sub="Immersive scripture listening & guided silence"
-          action="Explore"
-          onAction={() => nav.push('Learn', { tab: 'Devotionals' })}
+          eyebrow="Compete"
+          title="Join Contest and Win"
+          sub="Timed Bible quizzes · free to enter · prizes for the top places"
+          action="See all"
+          onAction={() => nav.push('Contests')}
         />
+        <PressScale onPress={() => nav.push('Contests')} scaleTo={0.98} accessibilityRole="button" accessibilityLabel="Join a contest" style={styles.altarHeroCard}>
+          <ImageBackground
+            source={{ uri: 'https://images.unsplash.com/photo-1504052434569-70ad5836ab65?auto=format&fit=crop&w=800&q=80' }}
+            style={styles.altarHeroBg}
+            imageStyle={{ borderRadius: 18 }}
+          >
+            <View style={styles.altarHeroScrim} />
+            <View style={styles.altarHeroContent}>
+              <View style={styles.altarHeroTopPill}>
+                <Icon name="star" size={12} color={colors.goldLight} />
+                <Text style={styles.altarHeroPillText}>Contests</Text>
+              </View>
+              <View style={styles.altarHeroBottomRow}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={styles.altarHeroTitle}>Test your Bible knowledge</Text>
+                  <Text style={styles.altarHeroSub}>Climb the leaderboard and win coins and prizes</Text>
+                </View>
+                <View style={styles.makeWishActionBtn}>
+                  <Text style={styles.makeWishActionText}>Join now</Text>
+                  <Icon name="chevron-right" size={13} color={colors.night} strokeWidth={2.4} />
+                </View>
+              </View>
+            </View>
+          </ImageBackground>
+        </PressScale>
         </FadeInUp>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bleed} contentContainerStyle={styles.hScroll}>
-          {DEVOTIONALS_AUDIO.map((dev, i) => (
-            <FadeInUp key={dev.id} index={5 + i} distance={10}>
-            <PressScale
-              scaleTo={0.97}
-              style={styles.devCard}
-              onPress={() => playDevotional(dev)}
-              accessibilityLabel={`Play ${dev.title}`}
-            >
-              <View>
-                <Image source={{ uri: dev.img }} style={styles.devThumb} />
-                <View style={styles.devTimeBadge}>
-                  <Icon name="audio" size={10} color={colors.nightFg} />
-                  <Text style={styles.devTimeText}>{dev.time}</Text>
-                </View>
-                <View style={styles.devPlayBubble}>
-                  <Icon name="play" size={15} color="#FFFFFF" />
-                </View>
-              </View>
-              <View style={styles.devInfo}>
-                <Text style={styles.devTitle} numberOfLines={1}>{dev.title}</Text>
-                <Text style={styles.devSub} numberOfLines={1}>{dev.sub}</Text>
-              </View>
-            </PressScale>
-            </FadeInUp>
-          ))}
-        </ScrollView>
 
         {/* 4. Interactive Bible Games & Quizzes */}
         <SectionHead
@@ -509,6 +526,27 @@ export default function DiscoverScreen() {
               </View>
             </PressScale>
           ))}
+          {/* the fifth Learn game: memory-verse practice opens Learn → Memorize */}
+          <PressScale scaleTo={0.97} style={styles.gameCard} onPress={() => nav.push('Learn', { tab: 'Memorize' })} accessibilityLabel="Play Memory-verse practice">
+            <Image source={{ uri: 'https://images.unsplash.com/photo-1504052434569-70ad5836ab65?auto=format&fit=crop&w=600&q=80' }} style={styles.gameCardImg} />
+            <View style={styles.gameBadgeBox}>
+              <Text style={styles.gameBadgeText}>Memorize</Text>
+            </View>
+            <View style={styles.gameCardContent}>
+              <Text style={styles.gameCardTitle} numberOfLines={1}>Memory-verse practice</Text>
+              <Text style={styles.gameCardSub} numberOfLines={2}>Hide God's Word in your heart · hints, first letters & typing</Text>
+              <View style={styles.gameCardMeta}>
+                <View style={styles.inlineMeta}>
+                  <Icon name="book" size={12} color={colors.faint} />
+                  <Text style={styles.gameCardPlayers}>Your deck</Text>
+                </View>
+                <View style={styles.gameCardBtn}>
+                  <Text style={styles.gameCardBtnText}>Play</Text>
+                  <Icon name="arrow-right" size={11} color="#FFFFFF" strokeWidth={2.6} />
+                </View>
+              </View>
+            </View>
+          </PressScale>
         </ScrollView>
 
         {/* 5. Kingdom Calling & Christian Careers */}
@@ -961,11 +999,10 @@ export default function DiscoverScreen() {
       </AnimatedModal>
 
       {/* Make a Wish & Light a Prayer Candle Modal */}
-      <AnimatedModal visible={showWishModal} onRequestClose={() => setShowWishModal(false)}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={{ flex: 1 }} onPress={() => setShowWishModal(false)} accessibilityLabel="Dismiss" />
-          <View style={styles.wishSheet}>
-            <View style={styles.grabber} />
+      {/* full screen: the wish list and composer need the whole height */}
+      <AnimatedModal visible={showWishModal} onRequestClose={() => setShowWishModal(false)} full>
+        <View style={{ flex: 1 }}>
+          <View style={[styles.wishSheet, styles.wishFull, { paddingTop: insets.top + 12, paddingBottom: insets.bottom }]}>
             <View style={styles.sheetTopBar}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.sheetEyebrow}>Prayer altar</Text>
@@ -1627,13 +1664,15 @@ export function ChatScreen({ params = {} }) {
   // ROUND 4: load the thread from the server (online) and give every message reply / react / copy / edit / pin / delete
   const cScope = dmScope(chat ? chat.id : 'none');
   const { myRole: chatRole } = useThreadLoader(cScope, scopeConversationId(state, cScope));
-  const isGroupChat = !!chat && chat.kind === 'group';
+  const isGroupChat = !!chat && (chat.kind === 'group' || chat.kind === 'channel');
   const isDm = !isGroupChat && (!chat || chat.kind !== 'group');
   const otherUserId = (chat && chat.otherUser && chat.otherUser.id) || params.userId;
   const otherHandle = chat && chat.otherUser && chat.otherUser.handle;
   const iFollowTarget = otherUserId ? ((state.follows || []).includes(otherUserId) || (otherHandle && (state.follows || []).includes(otherHandle))) : false;
   const otherFollowsMe = chat && chat.otherFollowsMe !== undefined ? !!chat.otherFollowsMe : (params.otherFollowsMe !== undefined ? !!params.otherFollowsMe : false);
-  const canMessage = !sync.online || !isDm || otherFollowsMe;
+  // WhatsApp-style: anyone can message anyone; only a channel limits posting to its admins
+  const isChannel = !!chat && chat.kind === 'channel';
+  const canMessage = !isChannel || chat.canMessage !== false;
 
   const chatAdmin = ['owner', 'admin'].includes(chatRole);
   const cActions = useMessageActions({
@@ -1681,11 +1720,11 @@ export function ChatScreen({ params = {} }) {
                       onPress={async () => {
                         try {
                           dispatch({ type: 'follow', id: otherUserId, local: true });
-                          await sync.request('POST', `/users/${otherUserId}/follow`);
+                          await sync.request('POST', `/users/${otherUserId}/follow`, { following: true });
                           toast.show(`Followed ${params.to}`, { icon: 'check', haptic: 'success' });
                           sync.refresh({ quiet: true });
                         } catch (e) {
-                          toast.show('Could not update follow', { tone: 'error' });
+                          toast.show(`Could not update follow${e && e.message ? `: ${e.message}` : ''}`, { tone: 'error' });
                         }
                       }}
                     />
@@ -1744,7 +1783,7 @@ export function ChatScreen({ params = {} }) {
       <ScrollView ref={(r) => { stick.ref.current = r; cActions.scrollRef.current = r; }} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 12 }} showsVerticalScrollIndicator={false}>
         <FadeInUp distance={6} style={styles.encryptPill}>
           <Icon name="lock" size={11} color={colors.muted} />
-          <Text style={styles.encryptText}>{isGroupChat ? 'Group chat · visible to its members' : 'Private chat · only the two of you see it'}</Text>
+          <Text style={styles.encryptText}>{isChannel ? 'Channel · only admins post' : isGroupChat ? 'Group chat · visible to its members' : 'Private chat · only the two of you see it'}</Text>
         </FadeInUp>
         {chat.messages.length && cActions.tipVisible ? <Text style={styles.chatTip}>Tip: press and hold a message to reply, react, copy, edit, pin or delete.</Text> : null}
         {!chat.messages.length ? <ScaleIn from={0.92}><Empty title="No messages yet" body={`Say hello to ${chat.with}.`} /></ScaleIn> : null}
@@ -1769,37 +1808,11 @@ export function ChatScreen({ params = {} }) {
       ) : (
         <View style={styles.followLockedCard}>
           <View style={styles.followLockedIconCircle}>
-            <Icon name="user" size={20} color={colors.primary} />
+            <Icon name="volume" size={20} color={colors.primary} />
           </View>
           <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-            <Text style={styles.followLockedTitle}>Waiting for {chat.with} to follow you back</Text>
-            <Text style={styles.followLockedSub}>
-              {chat.with} needs to follow you back before you can message them.
-            </Text>
-            {!iFollowTarget && otherUserId ? (
-              <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                <Button
-                  small
-                  label={`Follow ${chat.with}`}
-                  icon={<Icon name="plus" size={12} color="#FFFFFF" strokeWidth={2.6} />}
-                  onPress={async () => {
-                    try {
-                      dispatch({ type: 'follow', id: otherUserId, local: true });
-                      await sync.request('POST', `/users/${otherUserId}/follow`);
-                      toast.show(`Followed ${chat.with}`, { icon: 'check', haptic: 'success' });
-                      sync.refresh({ quiet: true });
-                    } catch (e) {
-                      toast.show('Could not update follow', { tone: 'error' });
-                    }
-                  }}
-                />
-              </View>
-            ) : (
-              <View style={styles.followWaitingPill}>
-                <Icon name="check" size={11} color={colors.primary} />
-                <Text style={styles.followWaitingText}>You're following · Waiting for follow back</Text>
-              </View>
-            )}
+            <Text style={styles.followLockedTitle}>Only admins can post in this channel</Text>
+            <Text style={styles.followLockedSub}>You’ll see every new post here.</Text>
           </View>
         </View>
       )}
@@ -2860,6 +2873,7 @@ const styles = StyleSheet.create({
     minHeight: 520,
     ...shadow.lg,
   },
+  wishFull: { flex: 1, maxHeight: undefined, minHeight: undefined, borderTopLeftRadius: 0, borderTopRightRadius: 0 },
   wishSheet: {
     backgroundColor: colors.screen,
     borderTopLeftRadius: 26,

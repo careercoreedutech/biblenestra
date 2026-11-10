@@ -12,6 +12,12 @@ import { ToastProvider } from './src/components/Toast';
 import { NarrationProvider } from './src/audio/Narration';
 import { AdsProvider } from './src/ads/Ads';
 import { AuthGate } from './src/api/auth';
+import { IntroGate } from './src/screens/IntroScreens';
+import { PlansScreen, PlansGate } from './src/screens/PlansScreen';
+import { ContestsScreen, ContestScreen, ContestEntryScreen, ContestSubmitScreen, CertificateScreen } from './src/screens/ContestsScreens';
+import { ContestOrganizeScreen, ContestEditorScreen, ContestManageScreen, ContestJudgeScreen } from './src/screens/ContestOrganizeScreens';
+import { BattleScreen } from './src/screens/BattleScreens';
+import { ChatsHomeScreen, NewGroupScreen } from './src/screens/ChatsHome';
 import { SyncProvider } from './src/api/sync';
 import { SignInPreviewScreen } from './src/screens/SignInScreen';
 import { colors, fonts, FONT_ASSETS, readerThemes } from './src/theme';
@@ -72,11 +78,12 @@ const ROUTES = {
   Bible: BibleScreen, Study: StudyScreen, Factbook: FactbookScreen, Search: SearchScreen, Library: LibraryScreen,
   Reading: ReadingScreen, BibleChat: BibleChatScreen, Companion: CompanionScreen,
   Prayer: PrayerDetailScreen, NewPrayer: NewPrayerScreen, PrayerTab: PrayerScreen, PrayerWall: PrayerScreen,
-  Communities: CommunitiesScreen, Group: GroupScreen, ChatList: ChatListScreen, Chat: ChatScreen, Calendar: CalendarScreen,
+  Communities: CommunitiesScreen, Group: GroupScreen, ChatList: ChatsHomeScreen, NewGroup: NewGroupScreen, Chat: ChatScreen, Calendar: CalendarScreen,
   People: PeopleScreen, Person: PersonScreen, Care: CareScreen, Wishes: WishesScreen, Live: LiveScreen, Feed: SocialsScreen, // Feed is merged into Socials
   Learn: LearnScreen, Plan: PlanScreen, Lesson: LessonScreen, SermonStudio: SermonStudioScreen, Transcript: TranscriptScreen,
-  Create: CreateScreen, Profile: ProfileScreen, Onboarding: OnboardingScreen,
-  Today: TodayScreen, Socials: SocialsScreen, Concordance: ConcordanceScreen, ScripturePop: ScripturePopScreen, Jobs: JobsScreen, Chats: ChatListScreen,
+  Create: CreateScreen, Profile: ProfileScreen, Onboarding: OnboardingScreen, Plans: PlansScreen, Contests: ContestsScreen, Contest: ContestScreen, ContestEntry: ContestEntryScreen, ContestSubmit: ContestSubmitScreen, Certificate: CertificateScreen,
+  ContestOrganize: ContestOrganizeScreen, ContestEditor: ContestEditorScreen, ContestManage: ContestManageScreen, ContestJudge: ContestJudgeScreen, Battle: BattleScreen,
+  Today: TodayScreen, Socials: SocialsScreen, Concordance: ConcordanceScreen, ScripturePop: ScripturePopScreen, Jobs: JobsScreen, Chats: ChatsHomeScreen,
   UserProfile: UserProfileScreen, EditProfile: EditProfileScreen, Activity: ActivityScreen, // SOCIAL (round 3)
   RecordingDetail: RecordingDetailScreen, Reminders: RemindersScreen, Watch: WatchScreen, YouTubeChannel: YouTubeChannelScreen, // DISCOVER TOOLS (round 3)
   FundMe: FundMeHomeScreen, Fundraiser: FundraiserScreen, FundraiserEdit: FundraiserEditScreen, FundraiserDonations: FundraiserDonationsScreen, // FUND ME (round 3)
@@ -151,7 +158,7 @@ const TABS = {
 
 
 function Root() {
-  const { state, ready } = useStore();
+  const { state, ready, dispatch } = useStore();
   const nav = useNav();
   const socialsDark = useSocialsDark();
   const [tab, setTab] = useState('Today');
@@ -176,6 +183,8 @@ function Root() {
   useEffect(() => { const t = setTimeout(() => force((n) => n + 1), 460); return () => clearTimeout(t); }, [sig]);
   if (!ready) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
   if (!state.onboarded) return <OnboardingScreen />;
+  // BibleNestra Plus (/week · $35/year): shown once after onboarding, with 'Continue free'
+  if (!state.plansSeen) return <PlansGate onDone={() => dispatch({ type: 'set', patch: { plansSeen: true } })} />;
   const top = nav.stack[nav.stack.length - 1];
   const animating = Date.now() - changedAt.current < 440;
   const Tab = TABS[tab];
@@ -239,11 +248,14 @@ export default function App() {
               <ToastProvider>
                 <AdsProvider>
                   {/* online mode: Clerk sign-in gate + API sync (local mode: pass-through) */}
-                  <AuthGate>
-                    <SyncProvider>
-                      <Root />
-                    </SyncProvider>
-                  </AuthGate>
+                  {/* first launch: four intro screens before sign-in */}
+                  <IntroGate>
+                    <AuthGate>
+                      <SyncProvider>
+                        <Root />
+                      </SyncProvider>
+                    </AuthGate>
+                  </IntroGate>
                 </AdsProvider>
               </ToastProvider>
             </NarrationProvider>

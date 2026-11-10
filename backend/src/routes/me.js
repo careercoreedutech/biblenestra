@@ -84,8 +84,21 @@ r.post('/users/:id/follow', async (c) => {
   const me = c.get('user');
   const id = uuidParam(c);
   if (id === me.id) throw bad("You can't follow yourself");
-  const del = await q(c.env, 'DELETE FROM follows WHERE follower_id = $1 AND followee_id = $2 RETURNING 1', [me.id, id]);
-  if (del.length) return c.json({ following: false });
+  // Optional body { following: true|false } sets the state explicitly (safe to repeat);
+  // without it the call toggles, as before.
+  let want = null;
+  try { const b = await c.req.json(); if (typeof b?.following === 'boolean') want = b.following; } catch { /* no body */ }
+  if (want === false) {
+    await q(c.env, 'DELETE FROM follows WHERE follower_id = $1 AND followee_id = $2', [me.id, id]);
+    return c.json({ following: false });
+  }
+  if (want === true) {
+    const already = await one(c.env, 'SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2', [me.id, id]);
+    if (already) return c.json({ following: true, isMutual: !!(await one(c.env, 'SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2', [id, me.id])) });
+  } else {
+    const del = await q(c.env, 'DELETE FROM follows WHERE follower_id = $1 AND followee_id = $2 RETURNING 1', [me.id, id]);
+    if (del.length) return c.json({ following: false });
+  }
   const ins = await q(c.env, `INSERT INTO follows (follower_id, followee_id) SELECT $1, id FROM users WHERE id = $2 RETURNING 1`, [me.id, id]);
   if (!ins.length) throw notFound('User not found');
 

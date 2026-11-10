@@ -487,6 +487,9 @@ function DailyLine({ gameId }) {
 // Supported-by-ads break shown after every AD_RULES.gameInterstitialEvery questions. The round's
 // progress lives in the parent game, so skipping or watching never loses anything.
 function AdBreak({ done, total, correct, onContinue }) {
+  const { state } = useStore();
+  // BibleNestra Plus members skip ad breaks entirely
+  useEffect(() => { if (state.premium) onContinue(); }, []);
   const ads = useAds();
   const toast = useToast();
   const [left, setLeft] = useState(3);
@@ -2093,6 +2096,12 @@ export function ProfileScreen({ params = {} }) {
                 <Icon name="shield" size={12} color={colors.muted} />
                 <Text style={styles.visChipText}>{cap(u.profileVisibility)}</Text>
               </Pressable>
+              {state.premium ? (
+                <View style={[styles.visChip, { backgroundColor: colors.cardGold }]}>
+                  <Icon name="star" size={12} color={colors.goldMuted} />
+                  <Text style={[styles.visChipText, { color: colors.goldMuted }]}>Plus supporter</Text>
+                </View>
+              ) : null}
               {u.openToOpportunities ? (
                 <View style={[styles.visChip, { backgroundColor: colors.cardSage }]}>
                   <Icon name="briefcase" size={12} color={colors.sage} />
@@ -2478,7 +2487,7 @@ export function ProfileScreen({ params = {} }) {
           </Group>
           <Group style={{ marginTop: 14 }}>
             <Item title="This device" subtitle={`${Platform.OS === 'web' ? 'Web browser' : Platform.OS === 'ios' ? 'iPhone' : 'Android'} · signed in locally`} right={<Badge label="Active" tint={colors.teal} />} />
-            <Item title="Plan" subtitle="Free · ads never interrupt Scripture, prayer, audio or search" />
+            <Item icon="star" tint={colors.gold} title={state.premium ? 'BibleNestra Plus' : 'Plan · Free'} subtitle={state.premium ? 'Ad-free games · supporter badge · manage in Google Play' : 'Go ad-free with Plus · $4 a week or $35 a year'} onPress={() => nav.push('Plans')} />
             <Item title="Redo onboarding" subtitle="Walk through setup again" onPress={() => nav.push('Onboarding', { step: 0 })} />
           </Group>
           <Group style={{ marginTop: 14 }}>

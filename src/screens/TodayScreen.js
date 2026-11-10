@@ -9,6 +9,8 @@ import { NightGlow, alpha } from '../components/ui';
 import VerseImageSheet from '../components/VerseImageSheet';
 import ProfileButton from '../components/ProfileButton';
 import SupportAdsCard from '../components/SupportAdsCard';
+import AudioDevotionals from '../components/AudioDevotionals';
+import CareInvite from '../components/CareInvite';
 import AnnouncementCards from '../components/AnnouncementCards'; // ROUND 5: admin announcements
 import { FadeInUp, ScaleIn, Pop, Pulse, Burst, AnimatedBar, AnimatedNumber, PressScale } from '../components/Motion';
 import { useToast } from '../components/Toast';
@@ -294,6 +296,11 @@ export default function TodayScreen() {
           </ScaleIn>
         ) : null}
 
+        {/* Care: a warm invitation, high on Today so no one misses it */}
+        <FadeInUp index={6} style={styles.block}>
+          <CareInvite />
+        </FadeInUp>
+
         {/* Support us — four 🔥 rewarded ads a day */}
         <FadeInUp index={6}>
           <SupportAdsCard />
@@ -351,6 +358,9 @@ export default function TodayScreen() {
           <QuickTile icon="heart" label="Companion" tint={colors.rose} bg={colors.cardRose} onPress={() => nav.push('Companion')} />
           <QuickTile icon="bookmark" label="Library" tint={colors.lavender} bg={colors.cardLavender} onPress={() => nav.push('Library')} />
         </View>
+
+        {/* Sacred Audio Devotionals (moved from Discover) */}
+        <AudioDevotionals style={styles.block} />
       </ScrollView>
 
       <VerseImageSheet visible={imageOpen} onClose={() => setImageOpen(false)} text={vText} reference={vRef} translation={state.translation} />

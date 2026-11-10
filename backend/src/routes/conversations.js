@@ -16,6 +16,9 @@ conversations.get('/conversations', async (c) => {
   const me = c.get('user');
   const rows = await q(c.env,
     `SELECT c.id, c.kind, c.title, c.avatar_key, c.pinned_message_id, c.created_at, c.last_message_at,
+            c.description, c.is_public,
+            (SELECT COUNT(*)::int FROM conversation_members cnt WHERE cnt.conversation_id = c.id) AS members_count,
+            (SELECT co.name FROM community_channels cc JOIN communities co ON co.id = cc.community_id WHERE cc.conversation_id = c.id LIMIT 1) AS community_name,
             m.role, m.last_read_at, m.muted,
             (SELECT json_build_object(
                'id', msg.id, 'kind', msg.kind, 'body', CASE WHEN msg.deleted THEN 'This message was deleted' ELSE msg.body END,
@@ -69,7 +72,12 @@ conversations.get('/conversations', async (c) => {
       requestStatus: r.request_status || null,
       otherFollowsMe: !!r.other_follows_me,
       iFollowOther: !!r.i_follow_other,
-      canMessage: r.kind !== 'dm' || !!r.other_follows_me || r.role === 'admin',
+      // WhatsApp-style: anyone can message anyone (blocks still apply); in a channel only its admins post
+      canMessage: r.kind !== 'channel' || ['owner', 'admin'].includes(r.role),
+      description: r.description || '',
+      isPublic: r.is_public !== false,
+      membersCount: r.members_count || 0,
+      communityName: r.community_name || null,
       lastMessage: lastMsg ? {
         id: lastMsg.id,
         kind: lastMsg.kind,
@@ -120,7 +128,7 @@ conversations.post('/conversations/dm', async (c) => {
       isNew: false,
       otherFollowsMe: !!otherFollowsMe,
       iFollowOther: !!iFollowOther,
-      canMessage: !!otherFollowsMe || me.role === 'admin',
+      canMessage: true,
     });
   }
 
@@ -132,30 +140,8 @@ conversations.post('/conversations/dm', async (c) => {
     [conv.id, me.id, targetUserId]
   );
 
-  // Check mutual follow status: if neither follows the other, create message_request
-  const follow = await one(c.env,
-    `SELECT 1 FROM follows WHERE (follower_id = $1 AND followee_id = $2) OR (follower_id = $2 AND followee_id = $1) LIMIT 1`,
-    [me.id, targetUserId]
-  );
-  let isRequest = false;
-  if (!follow) {
-    isRequest = true;
-    await q(c.env,
-      `INSERT INTO message_requests (from_id, to_id, conversation_id, status)
-       VALUES ($1, $2, $3, 'pending')
-       ON CONFLICT (from_id, to_id) DO UPDATE SET conversation_id = $3, status = 'pending'`,
-      [me.id, targetUserId, conv.id]
-    );
-    // Send push notification & hub event for message request
-    await notifyUser(c.env, targetUserId, { type: 'request.new', from: { id: me.id, displayName: me.display_name }, conversationId: conv.id });
-    sendNotification(c, {
-      userId: targetUserId,
-      kind: 'request',
-      title: 'New Message Request',
-      body: `${me.display_name} sent you a message request.`,
-      data: { conversationId: conv.id, fromId: me.id },
-    });
-  }
+  // No message requests: a first message goes straight through (the recipient can still block)
+  const isRequest = false;
 
   return c.json({
     id: conv.id,
@@ -163,7 +149,7 @@ conversations.post('/conversations/dm', async (c) => {
     isRequest,
     otherFollowsMe: !!otherFollowsMe,
     iFollowOther: !!iFollowOther,
-    canMessage: !!otherFollowsMe || me.role === 'admin',
+    canMessage: true,
   }, 201);
 });
 
@@ -252,6 +238,10 @@ conversations.post('/conversations/:id/messages', async (c) => {
   ]);
 
   if (!convData || !convData.is_member) throw forbidden('Not a member of this conversation');
+  if (convData.kind === 'channel') {
+    const mine = await one(c.env, 'SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [convId, me.id]);
+    if (!mine || !['owner', 'admin'].includes(mine.role)) throw forbidden('Only the channel’s admins can post here', 'CHANNEL_ADMINS_ONLY');
+  }
   if ((recentCount?.count || 0) >= 30) {
     throw bad('You are sending messages too quickly. Please wait a moment.', 'RATE_LIMITED');
   }
@@ -269,19 +259,7 @@ conversations.post('/conversations/:id/messages', async (c) => {
     );
     if (isBlocked) throw forbidden('You cannot message this user', 'BLOCKED');
 
-    if (me.role !== 'admin' && c.env.AUTH_DEV_MODE !== 'true') {
-      const otherFollowsMe = await one(c.env,
-        `SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2`,
-        [otherId, me.id]
-      );
-      const isAccepted = await one(c.env,
-        `SELECT 1 FROM message_requests WHERE (from_id = $1 AND to_id = $2 AND status = 'accepted') OR (from_id = $2 AND to_id = $1 AND status = 'accepted')`,
-        [me.id, otherId]
-      );
-      if (!otherFollowsMe && !isAccepted) {
-        throw forbidden('This person needs to follow you back before you can message them', 'FOLLOW_BACK_REQUIRED');
-      }
-    }
+    // follow-back is no longer required to message someone
   }
 
   // Idempotency check with clientId
@@ -331,7 +309,8 @@ conversations.post('/conversations/:id/messages', async (c) => {
         message: formatted,
       });
       if (!m.muted) {
-        sendNotification(c, {
+        // awaited: an un-awaited inbox insert can be dropped once the response has been sent
+        await sendNotification(c, {
           userId: m.user_id,
           kind: convData.kind === 'group' ? 'group' : 'message',
           title: convData.kind === 'group' ? (convData.title || 'Group Message') : me.display_name,
@@ -438,6 +417,108 @@ conversations.delete('/users/:id/block', async (c) => {
   const targetId = uuidParam(c, 'id');
   await q(c.env, `DELETE FROM blocks WHERE blocker_id = $1 AND blocked_id = $2`, [me.id, targetId]);
   return c.json({ ok: true, blocked: false });
+});
+
+
+// ---------- WhatsApp-style: people search, groups, channels ----------
+const cleanIds = (v, me) => [...new Set((Array.isArray(v) ? v : []).map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x) && x !== me))].slice(0, 255);
+
+// GET /people?q= — find believers to message (by name, @handle or church)
+conversations.get('/people', async (c) => {
+  const me = c.get('user');
+  const term = String(c.req.query('q') || '').trim().slice(0, 60);
+  const like = '%' + term.replace(/[\\%_]/g, (ch) => '\\' + ch) + '%';
+  const rows = await q(c.env, `SELECT ${userJson('u')} AS u,
+      EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = $1 AND f.followee_id = u.id) AS is_following
+    FROM users u
+    WHERE u.id <> $1 AND NOT u.banned
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $1))
+      AND ($2 = '' OR u.display_name ILIKE $3 OR u.handle ILIKE $3 OR u.church ILIKE $3)
+    ORDER BY u.last_seen_at DESC NULLS LAST, u.created_at DESC
+    LIMIT 40`, [me.id, term, like]);
+  return c.json({ items: rows.map((r) => ({ ...r.u, isFollowing: !!r.is_following })) });
+});
+
+// POST /conversations/group — { title, description?, memberIds[] }: you become its owner
+conversations.post('/conversations/group', async (c) => {
+  const me = c.get('user');
+  const b = await body(c);
+  const title = str(b.title, { min: 1, max: 80, field: 'Group name' });
+  const description = str(b.description || '', { max: 500, field: 'Description' });
+  const ids = cleanIds(b.memberIds, me.id);
+  const conv = await one(c.env, `INSERT INTO conversations (kind, title, description, created_by) VALUES ('group', $1, $2, $3) RETURNING *`, [title, description, me.id]);
+  await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'owner')`, [conv.id, me.id]);
+  if (ids.length) {
+    await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role)
+      SELECT $1, u.id, 'member' FROM users u WHERE u.id = ANY($2::uuid[]) AND NOT u.banned
+        AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = u.id AND b.blocked_id = $3) OR (b.blocker_id = $3 AND b.blocked_id = u.id))
+      ON CONFLICT DO NOTHING`, [conv.id, ids, me.id]);
+    for (const id of ids) {
+      await notifyUser(c.env, id, { type: 'conversation.new', conversationId: conv.id }).catch(() => {});
+    }
+  }
+  return c.json({ id: conv.id, kind: 'group', title }, 201);
+});
+
+// POST /conversations/:id/members — { userIds[] }: group owners and admins add people
+conversations.post('/conversations/:id/members', async (c) => {
+  const me = c.get('user');
+  const convId = uuidParam(c, 'id');
+  const mine = await one(c.env, `SELECT m.role, c.kind FROM conversation_members m JOIN conversations c ON c.id = m.conversation_id WHERE m.conversation_id = $1 AND m.user_id = $2`, [convId, me.id]);
+  if (!mine || mine.kind !== 'group' || !['owner', 'admin'].includes(mine.role)) throw forbidden('Only group admins can add people', 'ADMIN_ONLY');
+  const ids = cleanIds((await body(c)).userIds, me.id);
+  const added = ids.length ? await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role)
+      SELECT $1, u.id, 'member' FROM users u WHERE u.id = ANY($2::uuid[]) AND NOT u.banned ON CONFLICT DO NOTHING RETURNING user_id`, [convId, ids]) : [];
+  return c.json({ added: added.length });
+});
+
+// POST /conversations/:id/leave — leave a group or unfollow a channel
+conversations.post('/conversations/:id/leave', async (c) => {
+  const me = c.get('user');
+  const convId = uuidParam(c, 'id');
+  const conv = await one(c.env, 'SELECT kind FROM conversations WHERE id = $1', [convId]);
+  if (!conv || conv.kind === 'dm') throw bad('Only groups and channels can be left');
+  await q(c.env, 'DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [convId, me.id]);
+  // a group or channel never keeps zero owners
+  await q(c.env, `UPDATE conversation_members SET role = 'owner' WHERE conversation_id = $1 AND user_id = (
+      SELECT user_id FROM conversation_members WHERE conversation_id = $1 ORDER BY (role = 'admin') DESC, joined_at LIMIT 1)
+    AND NOT EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND role = 'owner')`, [convId]);
+  return c.json({ ok: true });
+});
+
+// POST /channels — { title, description? }: a broadcast channel; only its admins post, anyone can follow
+conversations.post('/channels', async (c) => {
+  const me = c.get('user');
+  const b = await body(c);
+  const title = str(b.title, { min: 1, max: 80, field: 'Channel name' });
+  const description = str(b.description || '', { max: 500, field: 'Description' });
+  const conv = await one(c.env, `INSERT INTO conversations (kind, title, description, created_by, is_public) VALUES ('channel', $1, $2, $3, true) RETURNING *`, [title, description, me.id]);
+  await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'owner')`, [conv.id, me.id]);
+  return c.json({ id: conv.id, kind: 'channel', title }, 201);
+});
+
+// GET /channels?q= — public channels to follow
+conversations.get('/channels', async (c) => {
+  const me = c.get('user');
+  const term = String(c.req.query('q') || '').trim().slice(0, 60);
+  const like = '%' + term.replace(/[\\%_]/g, (ch) => '\\' + ch) + '%';
+  const rows = await q(c.env, `SELECT c.id, c.title, c.description, c.last_message_at,
+      (SELECT COUNT(*)::int FROM conversation_members m WHERE m.conversation_id = c.id) AS followers,
+      EXISTS (SELECT 1 FROM conversation_members m WHERE m.conversation_id = c.id AND m.user_id = $1) AS following
+    FROM conversations c
+    WHERE c.kind = 'channel' AND c.is_public AND ($2 = '' OR c.title ILIKE $3 OR c.description ILIKE $3)
+    ORDER BY followers DESC, c.last_message_at DESC LIMIT 50`, [me.id, term, like]);
+  return c.json({ items: rows.map((r) => ({ id: r.id, title: r.title, description: r.description || '', followers: r.followers, following: !!r.following, lastMessageAt: new Date(r.last_message_at).toISOString() })) });
+});
+
+// POST /channels/:id/follow — join a public channel as a reader
+conversations.post('/channels/:id/follow', async (c) => {
+  const me = c.get('user');
+  const convId = uuidParam(c, 'id');
+  const conv = await one(c.env, `SELECT id FROM conversations WHERE id = $1 AND kind = 'channel' AND is_public`, [convId]);
+  if (!conv) throw notFound('Channel not found');
+  await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`, [convId, me.id]);
+  return c.json({ following: true });
 });
 
 export default conversations;

@@ -190,7 +190,7 @@ test('recordings: real AI path — ADTS chunking with time offsets, notes JSON, 
   assert.deepEqual(r.segments.map((s) => s.start), [0, 2.6, 5.1]);
   assert.equal(r.notes.title, 'Love that gives');
   assert.deepEqual(r.notes.scriptures.map((s) => s.ref), ['JHN 3:16'], 'invented references are dropped');
-  assert.ok(calls.includes('@cf/meta/llama-3.1-8b-instruct'));
+  assert.ok(calls.includes('@cf/meta/llama-3.1-8b-instruct-fp8'));
 });
 
 test('reminders: bulk + single upsert, validation, ownership, daily verse settings', async () => {

@@ -324,22 +324,17 @@ test('phase 2: direct messages, idempotency, read receipts, and soft deletion', 
   assert.equal(muteRes.json.muted, true);
 });
 
-test('phase 2: message requests and user blocking', async () => {
+test('phase 2: direct messages need no request, and blocking still works', async () => {
   const carolId = (await call('carol', 'GET', '/me')).json.id;
   const daveId = (await call('dave', 'GET', '/me')).json.id;
 
-  // Carol sends DM to Dave without following each other -> creates message request
+  // WhatsApp-style: Carol can message Dave without following or a request to accept
   const dm = await call('carol', 'POST', '/conversations/dm', { userId: daveId });
-  assert.equal(dm.json.isRequest, true);
-
-  // Dave checks requests
+  assert.equal(dm.json.isRequest, false);
+  assert.equal(dm.json.canMessage, true);
   const reqs = await call('dave', 'GET', '/me/requests');
   assert.equal(reqs.status, 200);
-  assert.ok(reqs.json.items.some((r) => r.fromId === carolId));
-
-  // Dave accepts request
-  const acceptRes = await call('dave', 'POST', `/me/requests/${carolId}/accept`);
-  assert.equal(acceptRes.json.status, 'accepted');
+  assert.ok(!reqs.json.items.some((r) => r.fromId === carolId));
 
   // Block Carol
   await call('dave', 'POST', `/users/${carolId}/block`);

@@ -32,6 +32,9 @@ import reminders from './routes/reminders.js'; // DISCOVER TOOLS (round 3)
 import youtube from './routes/youtube.js'; // DISCOVER TOOLS (round 3)
 import { adminPage, adminApi } from './routes/admin.js'; // DISCOVER TOOLS (round 3)
 import { adminPlus, announcementsPublic } from './routes/adminPlus.js'; // ROUND 5: admin dashboard sections
+import { contests, adminContests, contestPublic } from './routes/contests.js'; // CONTESTS
+import { battles } from './routes/battles.js'; // CONTEST CENTRE: live Bible battles
+import { runContestCron } from './lib/contestCron.js';
 
 export function createApp() {
   const app = new Hono();
@@ -84,6 +87,7 @@ export function createApp() {
   app.route('/', fundmePublic); // FUND ME (round 3): public page, donations (guests too), test checkout, webhooks
   app.route('/', youtube); // DISCOVER TOOLS (round 3): public channel list + RSS videos
   app.route('/', adminPage); // DISCOVER TOOLS (round 3): GET /admin dashboard page (its /admin/api/* calls need an admin)
+  app.route('/', contestPublic); // CONTEST CENTRE: public certificate verification
 
   // everything below needs a signed-in user
   app.use('*', requireUser());
@@ -122,6 +126,9 @@ export function createApp() {
   app.route('/', adminApi); // DISCOVER TOOLS (round 3): /admin/api/* (role = 'admin' checked inside)
   app.route('/', adminPlus); // ROUND 5: dashboard, users, content, communities & events, announcements (admin only)
   app.route('/', announcementsPublic); // ROUND 5: GET /announcements for the app
+  app.route('/', contests); // CONTESTS
+  app.route('/', adminContests); // CONTESTS: /admin/api/contests (admin only)
+  app.route('/', battles); // CONTEST CENTRE: live Bible battles
 
   return app;
 }
@@ -129,4 +136,8 @@ export function createApp() {
 export { Hub };
 
 const app = createApp();
-export default app;
+// fetch for HTTP; scheduled for the cron trigger in wrangler.toml (contest payouts and reminders)
+export default {
+  fetch: (req, env, ctx) => app.fetch(req, env, ctx),
+  scheduled: (event, env, ctx) => ctx.waitUntil(runContestCron(env, ctx)),
+};

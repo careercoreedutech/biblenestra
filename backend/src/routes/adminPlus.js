@@ -645,6 +645,12 @@ adminPlus.post('/admin/api/seed', async (c) => {
       seededPosts = 4;
     }
 
+    // Counts must match the rows that exist: the seed used to store fixed like/comment
+    // counts with no reactions or comments behind them, so "14 likes" opened an empty list.
+    await q(c.env, `UPDATE posts p SET
+        likes_count = (SELECT COUNT(*) FROM reactions r WHERE r.post_id = p.id)::int,
+        comments_count = (SELECT COUNT(*) FROM comments cm WHERE cm.post_id = p.id)::int`);
+
     await audit(c.env, me, 'database.seed', 'database', 'seed', { seededComms, seededEvents, seededPrayers, seededJobs, seededWishes, seededPosts });
 
     return c.json({

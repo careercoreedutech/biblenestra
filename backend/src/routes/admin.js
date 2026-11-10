@@ -35,17 +35,21 @@ adminPage.post('/admin/api/login', async (c) => {
   const username = String(b.username || '').trim().toLowerCase();
   const password = String(b.password || '').trim();
 
+  // No built-in password: until ADMIN_PASSWORD is set (npx wrangler secret put ADMIN_PASSWORD) nobody can sign in.
+  const validPass = String(c.env.ADMIN_PASSWORD || '').trim();
+  const secret = c.env.REALTIME_SECRET || c.env.ADMIN_PASSWORD;
+  if (!validPass || !secret) {
+    return c.json({ error: 'Admin sign-in is not set up yet. Set the ADMIN_PASSWORD secret on the server.', code: 'ADMIN_NOT_CONFIGURED' }, 503);
+  }
   const validUser = String(c.env.ADMIN_USERNAME || 'benjamin').trim().toLowerCase();
-  const validPass = String(c.env.ADMIN_PASSWORD || 'Benjamin@2026!').trim();
 
-  const userMatches = username === validUser || username === 'benjamin' || username === 'admin';
+  const userMatches = username === validUser;
   const passMatches = password === validPass;
 
   if (!userMatches || !passMatches) {
     return c.json({ error: 'Incorrect username or password', code: 'INVALID_CREDENTIALS' }, 401);
   }
 
-  const secret = c.env.REALTIME_SECRET || c.env.ADMIN_PASSWORD || 'biblenestra-admin-secret';
   const token = await createAdminToken(secret, username, 30 * 86400);
 
   return c.json({

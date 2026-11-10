@@ -5,7 +5,7 @@ import { isUserOnline } from '../hub.js';
 
 export async function sendNotification(c, {
   userId,
-  kind,       // 'message' | 'request' | 'group' | 'prayer' | 'event' | 'gift' | 'job'
+  kind,       // 'message' | 'request' | 'group' | 'prayer' | 'event' | 'gift' | 'job' | 'contest'
   title,
   body,
   data = {},

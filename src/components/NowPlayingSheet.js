@@ -9,11 +9,11 @@ import Svg, { Path, Rect } from 'react-native-svg';
 import { colors, fonts, radius, shadow } from '../theme';
 import { Icon } from './Icons';
 import { NightGlow } from './ui';
-import { Pulse, Pop, PressScale } from './Motion';
+import { Pulse, Pop, PressScale, FadeInUp } from './Motion';
 import { Animated, Easing } from 'react-native';
 
 import { useNarration, NARRATORS, SPEEDS, SLEEP_OPTIONS } from '../audio/Narration';
-import { bookName, CHAPTER_TITLES } from '../data/bible';
+import { bookName, CHAPTER_TITLES, getChapter } from '../data/bible';
 
 const MUSIC = ['None', 'Ambient', 'Piano', 'Strings'];
 
@@ -31,9 +31,16 @@ export default function NowPlayingSheet() {
   const onTogglePlay = nar.toggle;
   const progress = nar.total ? (nar.verse - 1) / nar.total : 0;
   const title = nar.bookId ? `${bookName(nar.bookId)} ${nar.chapter}` : 'Nothing playing';
+  // Short heading only (some chapter entries hold long text); the verse itself is shown below and follows the voice.
+  const heading = nar.bookId ? CHAPTER_TITLES[`${nar.bookId}:${nar.chapter}`] : null;
   const subtitle = nar.bookId
-    ? `${nar.mode === 'verse' ? `Verse ${nar.verse}` : CHAPTER_TITLES[`${nar.bookId}:${nar.chapter}`] || `Verse ${nar.verse} of ${nar.total}`} · ${nar.translation}`
+    ? `${nar.mode === 'verse' ? `Verse ${nar.verse}` : heading && heading.length <= 60 ? heading : `Verse ${nar.verse} of ${nar.total}`} · ${nar.translation}`
     : 'Start narration from the Bible or Today';
+  // The verse being spoken, with the one before and after for context
+  const verses = nar.bookId ? getChapter(nar.translation, nar.bookId, nar.chapter) || [] : [];
+  const current = verses[nar.verse - 1] || '';
+  const prevText = nar.mode === 'verse' ? '' : verses[nar.verse - 2] || '';
+  const nextText = nar.mode === 'verse' ? '' : verses[nar.verse] || '';
   const eyebrow = nar.playing ? 'Now playing' : nar.active ? 'Paused' : 'Narration';
   const setProgress = () => {};
   // Slowly turning rings on the artwork while narration plays
@@ -77,7 +84,17 @@ export default function NowPlayingSheet() {
           </View>
 
           <Text style={styles.title} numberOfLines={2}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+
+          {current ? (
+            <View style={styles.reading} accessibilityLiveRegion="polite" accessibilityLabel={`Verse ${nar.verse}: ${current}`}>
+              {prevText ? <Text style={styles.readingDim} numberOfLines={2}><Text style={styles.readingNum}>{nar.verse - 1}  </Text>{prevText}</Text> : null}
+              <FadeInUp key={`${nar.bookId}:${nar.chapter}:${nar.verse}`} distance={6} duration={260}>
+                <Text style={styles.readingNow}><Text style={styles.readingNumNow}>{nar.verse}  </Text>{current}</Text>
+              </FadeInUp>
+              {nextText ? <Text style={styles.readingDim} numberOfLines={2}><Text style={styles.readingNum}>{nar.verse + 1}  </Text>{nextText}</Text> : null}
+            </View>
+          ) : null}
 
           {/* Scrubber */}
           <Pressable
@@ -194,6 +211,11 @@ const styles = StyleSheet.create({
   artSub: { fontSize: 12, color: colors.nightMuted, marginTop: 8, fontWeight: '600' },
   title: { fontFamily: fonts.serifBold, fontSize: 24, color: colors.nightFg, marginTop: 28 },
   subtitle: { fontSize: 13.5, color: colors.nightMuted, marginTop: 3 },
+  reading: { marginTop: 16, padding: 16, gap: 10, minHeight: 190, justifyContent: 'center', borderRadius: radius.lg, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: colors.nightBorder },
+  readingDim: { fontFamily: fonts.serif, fontSize: 14.5, lineHeight: 21, color: 'rgba(244,239,230,0.38)' },
+  readingNow: { fontFamily: fonts.serif, fontSize: 19, lineHeight: 28, color: colors.nightFg },
+  readingNum: { fontFamily: fonts.serifBold, fontSize: 12, color: 'rgba(212,168,82,0.55)' },
+  readingNumNow: { fontFamily: fonts.serifBold, fontSize: 13, color: colors.goldLight },
   track: { height: 22, justifyContent: 'center', marginTop: 20 },
   trackFill: { position: 'absolute', left: 0, height: 4, borderRadius: 2, backgroundColor: colors.goldLight },
   knob: { position: 'absolute', width: 14, height: 14, borderRadius: 7, marginLeft: -7, backgroundColor: '#FFFFFF' },

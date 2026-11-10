@@ -17,6 +17,7 @@ import { NightGlow } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { Pulse, ScaleIn } from '../components/Motion';
 import { AD_UNITS } from './config';
+import { useStore } from '../store';
 
 import GMA from './gma';
 
@@ -65,6 +66,10 @@ function nativeInterstitial() {
 }
 
 export function AdsProvider({ children }) {
+  // BibleNestra Plus members get no interstitial (video) ads. Rewarded ads stay: the user chooses them for a reward.
+  const { state } = useStore();
+  const premiumRef = useRef(false);
+  premiumRef.current = !!(state && state.premium);
   const [demo, setDemo] = useState(null); // { kind, resolve }
   const [left, setLeft] = useState(0);
   const timer = useRef(null);
@@ -90,7 +95,10 @@ export function AdsProvider({ children }) {
   };
 
   const showRewarded = useCallback((opts) => (GMA ? nativeRewarded(opts || {}) : runDemo('rewarded')), []);
-  const showInterstitial = useCallback(() => (GMA ? nativeInterstitial() : runDemo('interstitial')), []);
+  const showInterstitial = useCallback(() => {
+    if (premiumRef.current) return Promise.resolve({ shown: false, premium: true });
+    return GMA ? nativeInterstitial() : runDemo('interstitial');
+  }, []);
 
   return (
     <Ctx.Provider value={{ showRewarded, showInterstitial, isDemo: !GMA }}>

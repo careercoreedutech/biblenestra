@@ -206,6 +206,7 @@ const REASONS = {
   admin_adjustment: 'Adjusted by the BibleNestra team', // ROUND 5
   job_bid: 'Bid on a job',
   job_ads: 'Unlocked by watching ads',
+  contest_prize: 'Contest prize',
   game: 'Bible game reward',
   purchase: 'Coin purchase',
   gift: 'Gift',
@@ -249,7 +250,10 @@ export function mapConversation(c, prev) {
     title: c.title,
     // the chat screens show `with` / `type` (local shape) — SOCIAL r3: DMs opened from a profile
     with: (prev && prev.with) || c.title || (c.otherUser && c.otherUser.displayName) || 'Chat',
-    type: (prev && prev.type) || (c.kind === 'dm' ? 'Direct message' : 'Group chat'),
+    type: (prev && prev.type) || (c.kind === 'dm' ? 'Direct message' : c.kind === 'channel' ? 'Channel' : 'Group chat'),
+    description: c.description || '',
+    membersCount: c.membersCount || 0,
+    communityName: c.communityName || null,
     avatarKey: c.avatarKey,
     otherUser: c.otherUser,
     role: c.role || 'member',
@@ -341,7 +345,8 @@ export function mapEvent(e) {
 export function mapWish(w) {
   return {
     id: w.id,
-    author: w.author || { displayName: 'Believer' },
+    // The API sends author as a user object; the UI shows a plain name string.
+    author: w.anonymous ? 'Anonymous Believer' : (w.author?.displayName || 'Believer'),
     title: w.title,
     body: w.body,
     category: w.category || 'Personal',
@@ -352,6 +357,7 @@ export function mapWish(w) {
     litCandle: !!w.litCandle,
     amened: !!w.amened,
     isMine: !!w.isMine,
+    mine: !!w.isMine,
     createdAt: toMs(w.createdAt),
     time: ago(w.createdAt),
   };

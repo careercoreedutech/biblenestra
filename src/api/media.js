@@ -185,3 +185,32 @@ export async function uploadVideo(request, video, onProgress) {
 }
 
 export const canPickMedia = true;
+
+// ---------- Contest entries: audio (songs, spoken word, sermons) ----------
+/** Pick one audio file. → { uri, name, mimeType, size, file? } | null */
+export async function pickAudio() {
+  // eslint-disable-next-line global-require
+  const DocumentPicker = require('expo-document-picker');
+  const res = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true, multiple: false });
+  if (res.canceled || !res.assets || !res.assets[0]) return null;
+  const a = res.assets[0];
+  return { uri: a.uri, name: a.name || 'audio', mimeType: a.mimeType || 'audio/mpeg', size: a.size || 0, file: a.file || null };
+}
+
+/** Upload a picked audio file (≤ 25 MB) → { key, url } */
+export async function uploadAudio(request, audio) {
+  const type = /^audio\//.test(audio.mimeType || '') ? audio.mimeType : 'audio/mpeg';
+  if (IS_WEB) {
+    const blob = audio.file || (await (await fetch(audio.uri)).blob());
+    return request('POST', '/uploads/audio', blob, { headers: { 'Content-Type': type }, timeout: 120000 });
+  }
+  const headers = { ...(await request.authHeaders()), 'Content-Type': type, Accept: 'application/json' };
+  let res;
+  try {
+    res = await FileSystem.uploadAsync(request.apiUrl + '/uploads/audio', audio.uri, { httpMethod: 'POST', uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT, headers });
+  } catch (e) {
+    throw new ApiError('Couldn’t upload your audio — check your connection', { code: 'NETWORK' });
+  }
+  check(res, 'Audio upload');
+  return parseJson(res.body);
+}

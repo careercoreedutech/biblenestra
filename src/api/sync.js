@@ -649,7 +649,7 @@ function OnlineSync({ api, children }) {
         const want = (next.follows || []).includes(key);
         run(async () => {
           try {
-            const r = await request('POST', `/users/${userId}/follow`);
+            const r = await request('POST', `/users/${userId}/follow`, { following: want }); // explicit, not a toggle
             if (!!r.following !== want) local({ type: 'follow', id: key }); // server says otherwise → match it
           } catch (e) { local({ type: 'follow', id: key }); fail(e, 'Couldn’t update follow'); }
         });

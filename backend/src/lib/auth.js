@@ -11,8 +11,8 @@ async function clerkSubject(c) {
   const token = h.startsWith('Bearer ') ? h.slice(7).trim() : null;
   if (token) {
     if (token.startsWith('admin_token_')) {
-      const secret = env.REALTIME_SECRET || env.ADMIN_PASSWORD || 'biblenestra-admin-secret';
-      const check = await verifyAdminToken(secret, token);
+      const secret = env.REALTIME_SECRET || env.ADMIN_PASSWORD;
+      const check = secret ? await verifyAdminToken(secret, token) : { valid: false };
       if (check.valid) {
         return { sub: 'admin', dev: false, isAdmin: true, username: check.username };
       }

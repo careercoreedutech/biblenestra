@@ -11,7 +11,11 @@ import { one, q } from './db.js';
 import { detectScriptures, normaliseRef } from './scripture.js';
 
 export const WHISPER_MODEL = '@cf/openai/whisper-large-v3-turbo';
-export const NOTES_MODEL_DEFAULT = '@cf/meta/llama-3.1-8b-instruct';
+// '@cf/meta/llama-3.1-8b-instruct' was retired from Workers AI; the fp8 build is the same model.
+export const NOTES_MODEL_DEFAULT = '@cf/meta/llama-3.1-8b-instruct-fp8';
+// Tried in order if the configured model is retired or unknown, so notes keep working.
+const NOTES_MODEL_FALLBACKS = ['@cf/meta/llama-3.1-8b-instruct-fp8', '@cf/meta/llama-3.3-70b-instruct-fp8-fast'];
+const isModelMissing = (e) => /no such model|model not found|not found|unknown model|deprecated|5007|invalid model/i.test(String((e && e.message) || e || ''));
 export const AI_LABEL = 'AI-generated — check against the recording';
 export const BUSY_MESSAGE = 'Transcription is busy today — it will finish later';
 export const NOT_CONFIGURED = 'Transcription isn’t set up on this server yet (Workers AI binding "AI" is missing). Your audio is safe.';
@@ -141,12 +145,22 @@ async function whisper(env, base64, prompt) {
 }
 
 async function chat(env, system, user, maxTokens = 900) {
-  const out = await env.AI.run(env.NOTES_MODEL || NOTES_MODEL_DEFAULT, {
+  const input = {
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
     max_tokens: maxTokens,
     temperature: 0.3,
-  });
-  const r = out && (out.response !== undefined ? out.response : out.result && out.result.response);
+  };
+  const models = [...new Set([env.NOTES_MODEL || NOTES_MODEL_DEFAULT, ...NOTES_MODEL_FALLBACKS])];
+  let out;
+  for (let i = 0; i < models.length; i++) {
+    try { out = await env.AI.run(models[i], input); break; } catch (e) {
+      if (i < models.length - 1 && isModelMissing(e)) { console.warn('notes model unavailable, trying next', models[i], e && e.message); continue; }
+      throw e;
+    }
+  }
+  // Workers AI replies as { response } or, for some models, OpenAI-style { choices: [{ message: { content } }] }
+  const choice = out && Array.isArray(out.choices) && out.choices[0] && out.choices[0].message ? out.choices[0].message.content : undefined;
+  const r = out && (out.response !== undefined ? out.response : out.result && out.result.response !== undefined ? out.result.response : choice);
   return typeof r === 'string' ? r : r ? JSON.stringify(r) : '';
 }
 

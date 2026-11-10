@@ -5,7 +5,7 @@ import { makeDb, makeBucket } from '../dev/local-env.mjs';
 
 let env; const app = createApp();
 before(async () => {
-  env = { __db: await makeDb(null), MEDIA: makeBucket(null), AUTH_DEV_MODE: 'true', ADS_CLIENT_CLAIM: 'true' };
+  env = { __db: await makeDb(null), MEDIA: makeBucket(null), AUTH_DEV_MODE: 'true', ADS_CLIENT_CLAIM: 'true', ADMIN_PASSWORD: 'test-admin-pass', REALTIME_SECRET: 'test-realtime-secret' };
 });
 
 async function call(user, method, path, body) {
@@ -21,7 +21,12 @@ async function call(user, method, path, body) {
 
 test('POST /admin/api/seed seeds communities, events, prayers, jobs, wishes and posts', async () => {
   // First make admin user
-  const adminRes = await call(null, 'POST', '/admin/api/login', { username: 'benjamin', password: 'Benjamin@2026!' });
+  // without ADMIN_PASSWORD the login is closed
+  const closed = await app.fetch(new Request('http://api.test/admin/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'benjamin', password: 'anything' }) }), { ...env, ADMIN_PASSWORD: undefined, REALTIME_SECRET: undefined });
+  assert.equal(closed.status, 503);
+  const wrong = await call(null, 'POST', '/admin/api/login', { username: 'benjamin', password: 'nope' });
+  assert.equal(wrong.status, 401);
+  const adminRes = await call(null, 'POST', '/admin/api/login', { username: 'benjamin', password: 'test-admin-pass' });
   assert.equal(adminRes.status, 200);
   const token = adminRes.json.token;
 

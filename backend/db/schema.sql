@@ -724,3 +724,242 @@ CREATE TABLE IF NOT EXISTS announcements (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS announcements_live ON announcements (active, starts_at DESC);
+
+-- CONTESTS: timed Bible quizzes with prizes. Answers live in `questions` and never reach the app before the end.
+CREATE TABLE IF NOT EXISTS contests (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title                text NOT NULL CHECK (char_length(title) BETWEEN 3 AND 100),
+  description          text NOT NULL DEFAULT '',
+  prize_text           text NOT NULL DEFAULT '',          -- anything that isn't coins, e.g. "A study Bible"
+  prize_coins          integer[] NOT NULL DEFAULT '{}',   -- coins for 1st, 2nd, 3rd …
+  category             text NOT NULL DEFAULT 'mixed',
+  question_count       integer NOT NULL CHECK (question_count BETWEEN 5 AND 30),
+  seconds_per_question integer NOT NULL CHECK (seconds_per_question BETWEEN 10 AND 60),
+  questions            jsonb NOT NULL,                    -- the pool; each person draws question_count from it
+  starts_at            timestamptz NOT NULL DEFAULT now(),
+  ends_at              timestamptz NOT NULL,
+  settled_at           timestamptz,                       -- set once, in the statement that pays the prizes
+  cancelled            boolean NOT NULL DEFAULT false,
+  created_by           uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS contests_ends ON contests (ends_at DESC);
+
+CREATE TABLE IF NOT EXISTS contest_entries (
+  contest_id   uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  question_ids text[] NOT NULL,
+  answers      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  correct      integer NOT NULL DEFAULT 0,
+  total        integer NOT NULL,
+  duration_ms  integer,
+  timed_out    boolean NOT NULL DEFAULT false,
+  started_at   timestamptz NOT NULL DEFAULT now(),
+  finished_at  timestamptz,
+  place        integer,
+  prize_coins  integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (contest_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS contest_entries_rank ON contest_entries (contest_id, correct DESC, duration_ms ASC);
+
+-- WHATSAPP-STYLE CHATS: channels (broadcast: only admins post, anyone can follow), group/channel descriptions
+ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_kind_check;
+ALTER TABLE conversations ADD CONSTRAINT conversations_kind_check CHECK (kind IN ('dm','group','channel'));
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '';
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS conversations_channels ON conversations (kind, is_public) WHERE kind = 'channel';
+
+-- CONTEST CENTRE: categories, creative entries, community voting, judging, certificates, sponsors,
+-- organizers, disputes, reminders and live Bible battles. Paid entry / paid votes are NOT enabled.
+CREATE TABLE IF NOT EXISTS contest_categories (
+  id          text PRIMARY KEY,
+  label       text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  format      text NOT NULL CHECK (format IN ('quiz','submission')),
+  scoring     text NOT NULL CHECK (scoring IN ('skill','judged','popularity')),
+  kinds       text[] NOT NULL DEFAULT '{}',
+  active      boolean NOT NULL DEFAULT true,
+  position    integer NOT NULL DEFAULT 0
+);
+INSERT INTO contest_categories (id, label, description, format, scoring, kinds, position) VALUES
+  ('bible_knowledge', 'Bible Knowledge Challenge', 'Old and New Testament, characters, events, history, teachings and geography.', 'quiz', 'skill', '{}', 1),
+  ('scripture_memory', 'Scripture Memory Contest', 'Complete verses, fill missing words and identify references against the clock.', 'quiz', 'skill', '{}', 2),
+  ('daily_quiz', 'Daily Bible Quiz', 'Quick daily questions with points and rankings.', 'quiz', 'skill', '{}', 3),
+  ('church_vs_church', 'Church vs Church Challenge', 'Churches compete as teams in Bible quizzes.', 'quiz', 'skill', '{}', 4),
+  ('verse_design', 'Bible Verse Design Contest', 'Creative images and designs featuring Bible verses.', 'submission', 'popularity', '{image}', 5),
+  ('gospel_talent', 'Gospel Talent Contest', 'Gospel singing, music, spoken word and Christian poetry.', 'submission', 'judged', '{video,audio}', 6),
+  ('christian_writing', 'Christian Writing Contest', 'Devotionals, articles, testimonies, stories and Bible studies.', 'submission', 'judged', '{text}', 7),
+  ('preaching', 'Preaching Challenge', 'Short sermons or teachings as video, audio or text.', 'submission', 'judged', '{video,audio,text}', 8),
+  ('photography', 'Christian Photography Contest', 'Photographs on themes like creation, faith, hope and love.', 'submission', 'judged', '{image}', 9),
+  ('video', 'Christian Video Challenge', 'Short inspirational videos, teachings and testimonies.', 'submission', 'popularity', '{video}', 10),
+  ('interpretation', 'Bible Interpretation Challenge', 'Explain selected scriptures for qualified judges.', 'submission', 'judged', '{text,video,audio}', 11),
+  ('testimony', 'Testimony Contest', 'Personal testimonies of faith, encouragement and transformation.', 'submission', 'popularity', '{text,video,audio}', 12)
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS can_organize boolean NOT NULL DEFAULT false;
+
+ALTER TABLE contests ALTER COLUMN questions SET DEFAULT '[]'::jsonb;
+ALTER TABLE contests DROP CONSTRAINT IF EXISTS contests_question_count_check;
+ALTER TABLE contests ADD CONSTRAINT contests_question_count_check CHECK (question_count BETWEEN 0 AND 30);
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS format text NOT NULL DEFAULT 'quiz';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS contest_category text NOT NULL DEFAULT 'bible_knowledge';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS scoring text NOT NULL DEFAULT 'skill';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS judge_weight integer NOT NULL DEFAULT 70;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS voting_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS allow_self_vote boolean NOT NULL DEFAULT false;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS banner_url text;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS rules text NOT NULL DEFAULT '';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS eligibility text NOT NULL DEFAULT '';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS submission_requirements text NOT NULL DEFAULT '';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS judging_criteria text NOT NULL DEFAULT '';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS entry_kinds text[] NOT NULL DEFAULT '{}';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS allow_edits boolean NOT NULL DEFAULT true;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS registration_opens_at timestamptz;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS registration_closes_at timestamptz;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS voting_ends_at timestamptz;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS results_at timestamptz;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS results_published_at timestamptz;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS participant_limit integer;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS eligible_countries text[] NOT NULL DEFAULT '{}';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS entry_fee_minor integer NOT NULL DEFAULT 0;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT 'NGN';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS team_mode text NOT NULL DEFAULT 'solo';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS approval text NOT NULL DEFAULT 'approved';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS reject_reason text;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS organizer_id uuid REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS paused boolean NOT NULL DEFAULT false;
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS certificates_for text NOT NULL DEFAULT 'winners';
+ALTER TABLE contests ADD COLUMN IF NOT EXISTS prize_places jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE TABLE IF NOT EXISTS contest_registrations (
+  contest_id   uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  community_id uuid REFERENCES communities(id) ON DELETE SET NULL,
+  disqualified boolean NOT NULL DEFAULT false,
+  disqualify_reason text,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (contest_id, user_id)
+);
+ALTER TABLE contest_entries ADD COLUMN IF NOT EXISTS disqualified boolean NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS contest_submissions (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  contest_id   uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind         text NOT NULL CHECK (kind IN ('image','video','audio','text')),
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 120),
+  description  text NOT NULL DEFAULT '',
+  body         text NOT NULL DEFAULT '',
+  media_key    text,
+  thumb_key    text,
+  votes        integer NOT NULL DEFAULT 0,
+  judge_score  real,
+  final_score  real,
+  place        integer,
+  prize_coins  integer NOT NULL DEFAULT 0,
+  disqualified boolean NOT NULL DEFAULT false,
+  disqualify_reason text,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (contest_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS contest_submissions_rank ON contest_submissions (contest_id, votes DESC);
+
+CREATE TABLE IF NOT EXISTS contest_votes (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  contest_id    uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  submission_id uuid NOT NULL REFERENCES contest_submissions(id) ON DELETE CASCADE,
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  valid         boolean NOT NULL DEFAULT true,
+  reversed_reason text,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS contest_votes_one ON contest_votes (contest_id, user_id) WHERE valid;
+
+CREATE TABLE IF NOT EXISTS contest_judges (
+  contest_id uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (contest_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS contest_judging_scores (
+  submission_id uuid NOT NULL REFERENCES contest_submissions(id) ON DELETE CASCADE,
+  judge_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  score         integer NOT NULL CHECK (score BETWEEN 0 AND 100),
+  comment       text NOT NULL DEFAULT '',
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (submission_id, judge_id)
+);
+
+CREATE TABLE IF NOT EXISTS contest_certificates (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code       text UNIQUE NOT NULL,
+  contest_id uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       text NOT NULL CHECK (kind IN ('winner','finalist','participant')),
+  place      integer,
+  achievement text NOT NULL,
+  revoked    boolean NOT NULL DEFAULT false,
+  issued_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (contest_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS contest_sponsors (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  contest_id  uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  name        text NOT NULL CHECK (char_length(name) BETWEEN 2 AND 100),
+  link_url    text,
+  contribution text NOT NULL DEFAULT '',
+  approved    boolean NOT NULL DEFAULT false,
+  created_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS contest_disputes (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  contest_id    uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  submission_id uuid REFERENCES contest_submissions(id) ON DELETE SET NULL,
+  reason        text NOT NULL CHECK (char_length(reason) BETWEEN 5 AND 1000),
+  status        text NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved','rejected')),
+  resolution    text,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  resolved_at   timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS contest_reminders (
+  contest_id uuid NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       text NOT NULL,
+  sent_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (contest_id, user_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS battles (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  player1     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  player2     uuid REFERENCES users(id) ON DELETE CASCADE,
+  invited     boolean NOT NULL DEFAULT false,
+  status      text NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','active','finished','cancelled')),
+  questions   jsonb NOT NULL,
+  seconds_per_question integer NOT NULL DEFAULT 12,
+  starts_at   timestamptz,
+  score1      integer NOT NULL DEFAULT 0,
+  score2      integer NOT NULL DEFAULT 0,
+  winner      uuid REFERENCES users(id) ON DELETE SET NULL,
+  rematch_of  uuid,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS battles_waiting ON battles (status, created_at) WHERE status = 'waiting';
+CREATE TABLE IF NOT EXISTS battle_answers (
+  battle_id  uuid NOT NULL REFERENCES battles(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  q_index    integer NOT NULL,
+  option     integer NOT NULL,
+  correct    boolean NOT NULL,
+  points     integer NOT NULL DEFAULT 0,
+  answered_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (battle_id, user_id, q_index)
+);

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, PanResponder, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Animated, BackHandler, Easing, PanResponder, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { AnimatedModal, Pop, ScaleIn, PressScale, Pulse } from '../components/Motion';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { Screen, Section, Row, Pill, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider, alpha, NightGlow } from '../components/ui';
 import Card from '../components/Card';
@@ -45,6 +46,13 @@ export default function BibleScreen({ params: routeParams }) {
   const [selected, setSelected] = useState(params.verse || null);
   const [picker, setPicker] = useState(null); // 'book' | 'translation' | 'compare' | null
   const [panel, setPanel] = useState(null); // 'note' | null
+  const insets = useSafeAreaInsets();
+  // Android Back closes the verse sheet (it's drawn over the page, not a Modal) instead of leaving the app
+  useEffect(() => {
+    if (!selected) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setSelected(null); return true; });
+    return () => sub.remove();
+  }, [selected]);
   const [noteText, setNoteText] = useState('');
   const [compare, setCompare] = useState(!!params.compare);
   const nar = useNarration();
@@ -179,11 +187,11 @@ export default function BibleScreen({ params: routeParams }) {
   const trInfo = translationInfo(tr);
   const rtl = !!trInfo.rtl && !showingFallback;
   const tools = [
-    { key: 'books', label: 'Books', icon: 'book', onPress: () => setPicker('book') },
+    // Books lives on the "John 3 ▾" title; Compare goes first so it is visible without scrolling
+    { key: 'compare', label: 'Compare', icon: 'bible', onPress: () => setCompare(!compare), active: compare },
     { key: 'search', label: 'Search', icon: 'search', onPress: () => nav.push('Search') },
     { key: 'lexicon', label: 'Lexicon', icon: 'sparkles', onPress: () => nav.push('Concordance', selected ? { bookId: pos.bookId, chapter: pos.chapter, verse: selected } : {}) },
     { key: 'commentary', label: 'Commentary', icon: 'book', onPress: () => nav.push('Study', { ...pos, verse: selected || undefined, tab: 'Commentary' }) },
-    { key: 'compare', label: 'Compare', icon: 'bible', onPress: () => setCompare(!compare), active: compare },
     {
       key: 'save',
       label: bookmarked ? 'Saved' : 'Save',
@@ -581,11 +589,10 @@ export default function BibleScreen({ params: routeParams }) {
       </AnimatedModal>
 
       {/* Translation picker */}
-      <AnimatedModal visible={picker === 'translation' || picker === 'compare'} onRequestClose={() => setPicker(null)}>
-        <View style={styles.modalBackdrop}>
-          <Pressable style={{ flex: 1 }} onPress={() => setPicker(null)} />
-          <View style={[styles.modalSheet, { height: '88%' }]}>
-            <View style={styles.grabber} />
+      {/* full screen: the list needs the whole height on phones */}
+      <AnimatedModal visible={picker === 'translation' || picker === 'compare'} onRequestClose={() => setPicker(null)} full>
+        <View style={[styles.fullPicker, { paddingTop: insets.top + 12, paddingBottom: insets.bottom }]}>
+          <View style={{ flex: 1 }}>
             <View style={styles.modalHead}>
               <Text style={styles.modalTitle}>{picker === 'compare' ? 'Compare (up to 3)' : 'Translations'}</Text>
               <Pressable onPress={() => setPicker(null)} hitSlop={12} style={styles.modalClose}>
@@ -835,6 +842,7 @@ const styles = StyleSheet.create({
 
   // Modals
   modalBackdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
+  fullPicker: { flex: 1, backgroundColor: colors.screen },
   modalSheet: {
     backgroundColor: colors.screen,
     borderTopLeftRadius: 28,
