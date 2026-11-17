@@ -103,7 +103,7 @@ test('video: reserve → PUT mp4 + thumbnail to R2 → post → range playback',
   const v = await call('alice', 'POST', '/uploads/video', { durationSeconds: 42, width: 720, height: 1280, sizeBytes: 5000 });
   assert.equal(v.status, 201);
   assert.equal(v.json.method, 'PUT');
-  assert.equal((await call('alice', 'POST', '/uploads/video', { durationSeconds: 400 })).json.code, 'TOO_LONG');
+  assert.equal((await call('alice', 'POST', '/uploads/video', { durationSeconds: 7300 })).json.code, 'TOO_LONG');
   const mp4 = new Uint8Array(1000).map((_, i) => i % 256);
   const path = new URL(v.json.uploadURL).pathname;
   // only the owner can upload, and it must be an mp4

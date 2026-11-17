@@ -13,12 +13,11 @@ import { Button, alpha } from '../ui';
 import { PressScale, FadeInUp, ScaleIn, Pop, Pulse, AnimatedModal } from '../Motion';
 import { haptic, useToast } from '../Toast';
 import { API_CONFIG } from '../../api/config';
-import { pickPhotos, pickVideo } from '../../api/media';
+import { pickPhotos, pickVideo, VIDEO_LIMITS } from '../../api/media';
 import { PhotoGrid } from './LightFeed'; // preview uses the exact feed grid (1 / 2 / 3 / 2×2 layouts)
 import {
   ND,
   WHITE,
-  CONTENT_THEMES,
   SAMPLE_IMAGES,
   SAMPLE_VIDEOS,
   MAX_PHOTOS,
@@ -27,8 +26,20 @@ import {
   canPickFromDevice,
   pickDevicePhotos,
 } from './shared';
+import { TextPostCard, DesignSwatch, DESIGNS, DESIGN_GROUPS, FONTS, CARD_MAX_CHARS, encodeDesign, designStateFrom } from './TextPostCard';
 
 const ONLINE = API_CONFIG.online;
+// Text posts default to an image-style card (as the original "Content" composer did)
+const DEFAULT_DESIGN = { key: 'midnight', font: 'italic', align: 'center' };
+
+function AlignGlyph({ align, color }) {
+  const rows = align === 'left' ? [[4, 20], [4, 15], [4, 18], [4, 12]] : [[4, 20], [7, 17], [5, 19], [8, 16]];
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+      {rows.map(([a, b], i) => <Path key={i} d={`M${a} ${5 + i * 4.7}H${b}`} stroke={color} strokeWidth={2.2} strokeLinecap="round" />)}
+    </Svg>
+  );
+}
 const fmtSecs = (sec) => {
   const s = Math.round(Number(sec) || 0);
   return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '';
@@ -97,7 +108,7 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
   const [mode, setMode] = useState(initialMode);
   const [text, setText] = useState('');
   const [kind, setKind] = useState('Reflection');
-  const [theme, setTheme] = useState(null);
+  const [design, setDesign] = useState(DEFAULT_DESIGN); // { key, font, align } | null = plain text post
   const [scripture, setScripture] = useState('');
   const toast = useToast();
   const [photos, setPhotos] = useState(ONLINE ? [] : [SAMPLE_IMAGES[0].url]);
@@ -125,7 +136,7 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
     if (preset && preset.verse) {
       const v = preset.verse;
       setKind('Reflection');
-      setTheme(v.theme || CONTENT_THEMES[0]);
+      setDesign(designStateFrom(v.theme) || DEFAULT_DESIGN);
       if (v.text) setText((t) => (t.trim() ? t : v.text));
       if (v.ref) setScripture((s) => (s.trim() ? s : v.ref));
     }
@@ -177,8 +188,8 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
     try {
       const v = await pickVideo();
       if (!v) return;
-      if (v.duration && v.duration > 181) {
-        toast.show('Videos can be up to 3 minutes long', { tone: 'error', icon: 'video' });
+      if (v.duration && v.duration > VIDEO_LIMITS.maxSeconds + 1) {
+        toast.show('Videos can be up to 2 hours long', { tone: 'error', icon: 'video' });
         return;
       }
       setDeviceVideo(v);
@@ -193,18 +204,22 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
     setText('');
     setScripture('');
     setCaption('');
-    setTheme(null);
+    // the chosen card design is kept for the next post
     setPhotos(ONLINE ? [] : [SAMPLE_IMAGES[0].url]);
     if (ONLINE) { setDeviceVideo(null); setVideoUrl(null); }
   };
 
+  const textLen = text.trim().length;
+  const cardFits = textLen <= CARD_MAX_CHARS;
   const canSubmit = mode === 'text' ? !!text.trim() : mode === 'photo' ? photos.length > 0 : !!caption.trim() && !!videoUrl;
 
   const submit = () => {
     if (!canSubmit) return;
     const passage = parseScriptureRef(scripture);
     if (mode === 'text') {
-      onPost && onPost({ kind, text: text.trim(), ...(passage ? { passage } : {}), ...(theme ? { bg: theme } : {}) });
+      const asCard = !!design && cardFits;
+      if (design && !cardFits) toast.show('Too long for an image card — shared as a regular text post', { icon: 'type' });
+      onPost && onPost({ kind, text: text.trim(), ...(passage ? { passage } : {}), ...(asCard ? { bg: encodeDesign(design) } : {}) });
     } else if (mode === 'photo') {
       onPost && onPost({ kind: 'Photo', text: caption.trim(), images: photos, image: photos[0], ...(passage ? { passage } : {}) });
     } else {
@@ -284,40 +299,103 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
                     ))}
                   </ScrollView>
 
-                  <Text style={styles.label}>Your post</Text>
+                  <View style={styles.labelRow}>
+                    <Text style={[styles.label, { marginTop: 0, marginBottom: 0 }]}>Your post</Text>
+                    {design ? (
+                      <Text style={[styles.labelMeta, !cardFits && { color: colors.negative }]}>{textLen}/{CARD_MAX_CHARS}</Text>
+                    ) : null}
+                  </View>
                   <TextInput
-                    placeholder="A verse, reflection, testimony or question…"
+                    placeholder={design ? 'A verse, prayer or word of encouragement…' : 'A verse, reflection, testimony or question…'}
                     placeholderTextColor={colors.faint}
                     value={text}
                     onChangeText={setText}
                     multiline
                     style={[styles.input, styles.inputMulti, { minHeight: 110 }]}
                   />
+                  {design && !cardFits ? (
+                    <FadeInUp distance={4} duration={220} style={styles.notice}>
+                      <Icon name="type" size={14} color={colors.amber || colors.gold} />
+                      <Text style={styles.noticeText}>
+                        Image cards hold up to {CARD_MAX_CHARS} characters. This will be shared as a regular text post — shorten it to keep the design.
+                      </Text>
+                    </FadeInUp>
+                  ) : null}
 
                   <Text style={styles.label}>Scripture (optional)</Text>
                   <ScriptureField value={scripture} onChange={setScripture} placeholder="e.g. Romans 8:28" />
 
-                  <Text style={styles.label}>Style</Text>
-                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                    <PressScale onPress={() => setTheme(null)} scaleTo={0.92} style={[styles.plainChip, !theme && styles.plainChipOn]} accessibilityState={{ selected: !theme }}>
-                      <Text style={[styles.plainChipText, !theme && { color: colors.primary }]}>Plain</Text>
-                    </PressScale>
-                    {CONTENT_THEMES.map((c) => (
-                      <PressScale key={c} onPress={() => setTheme(c)} scaleTo={0.88} style={[styles.themeRing, theme === c && styles.themeRingActive]} accessibilityLabel="Quote card colour" accessibilityState={{ selected: theme === c }}>
-                        <Pop trigger={theme === c} amount={theme === c ? 1.15 : 1}>
-                          <View style={[styles.themeDot, { backgroundColor: c }]} />
-                        </Pop>
-                      </PressScale>
-                    ))}
+                  <Text style={styles.label}>Post as</Text>
+                  <View style={styles.segment}>
+                    {[['card', 'Image card', 'image'], ['plain', 'Plain text', 'type']].map(([k, l, ic]) => {
+                      const on = k === 'card' ? !!design : !design;
+                      return (
+                        <Pressable
+                          key={k}
+                          onPress={() => { haptic('select'); setDesign(k === 'card' ? design || DEFAULT_DESIGN : null); }}
+                          style={[styles.segBtn, on && styles.segOn]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: on }}
+                        >
+                          <Icon name={ic} size={14} color={on ? colors.primary : colors.faint} />
+                          <Text style={[styles.segText, on && styles.segTextOn]}>{l}</Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
-                  {theme ? (
-                    <ScaleIn key={theme} from={0.94} style={[styles.quotePreview, { backgroundColor: theme }]}>
-                      <Text style={styles.quoteMark}>“</Text>
-                      <Text style={styles.quoteText}>{text.trim() || 'Your words will appear as a quote card in the feed.'}</Text>
-                      <Text style={styles.quoteRef}>
-                        {parseScriptureRef(scripture) ? `— ${passageLabel(parseScriptureRef(scripture))}` : '— Scripture'}
-                      </Text>
-                    </ScaleIn>
+
+                  {design ? (
+                    <>
+                      {/* Live preview — the exact card the feed will show */}
+                      <View style={[styles.cardPreviewWrap, !cardFits && { opacity: 0.45 }]}>
+                        <TextPostCard
+                          theme={encodeDesign(design)}
+                          text={text.trim() || 'Your words will appear here as a designed image in the feed.'}
+                          passage={parseScriptureRef(scripture) ? passageLabel(parseScriptureRef(scripture)) : ''}
+                          style={styles.cardPreview}
+                        />
+                        <View style={styles.previewBadge} pointerEvents="none">
+                          <View style={styles.previewDot} />
+                          <Text style={styles.previewBadgeText}>CARD PREVIEW</Text>
+                        </View>
+                      </View>
+
+                      {DESIGN_GROUPS.map((g) => (
+                        <React.Fragment key={g}>
+                          <Text style={styles.label}>{g === 'Designs' ? 'Designed backgrounds' : g}</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.bleedContent, { gap: 4 }]} style={styles.bleed}>
+                            {DESIGNS.filter((d) => d.group === g).map((d) => (
+                              <DesignSwatch key={d.key} design={d} selected={design.key === d.key} onPress={() => { haptic('select'); setDesign((s) => ({ ...(s || DEFAULT_DESIGN), key: d.key })); }} />
+                            ))}
+                          </ScrollView>
+                        </React.Fragment>
+                      ))}
+
+                      <Text style={styles.label}>Font</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bleedContent} style={styles.bleed}>
+                        {FONTS.map((f) => {
+                          const on = design.font === f.key;
+                          return (
+                            <PressScale key={f.key} onPress={() => setDesign((s) => ({ ...s, font: f.key }))} scaleTo={0.93} style={[styles.chip, on && styles.chipActive]} accessibilityState={{ selected: on }} accessibilityLabel={`${f.label} font`}>
+                              <Text style={[styles.chipText, { fontFamily: f.family, fontSize: 14 }, on && styles.chipTextActive]}>{f.label}</Text>
+                            </PressScale>
+                          );
+                        })}
+                      </ScrollView>
+
+                      <Text style={styles.label}>Alignment</Text>
+                      <View style={[styles.segment, { alignSelf: 'flex-start', minWidth: 220 }]}>
+                        {['center', 'left'].map((a) => {
+                          const on = design.align === a;
+                          return (
+                            <Pressable key={a} onPress={() => setDesign((s) => ({ ...s, align: a }))} style={[styles.segBtn, on && styles.segOn]} accessibilityRole="button" accessibilityLabel={`Align ${a}`} accessibilityState={{ selected: on }}>
+                              <AlignGlyph align={a} color={on ? colors.primary : colors.faint} />
+                              <Text style={[styles.segText, on && styles.segTextOn]}>{a === 'center' ? 'Centre' : 'Left'}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
                   ) : null}
                 </>
               ) : null}
@@ -493,16 +571,16 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12.5, fontWeight: '500', color: colors.muted },
   chipTextActive: { color: WHITE, fontWeight: '600' },
 
-  plainChip: { height: 34, paddingHorizontal: 14, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, justifyContent: 'center' },
-  plainChipOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  plainChipText: { fontSize: 12.5, fontWeight: '600', color: colors.muted },
-  themeRing: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
-  themeRingActive: { borderColor: colors.gold },
-  themeDot: { width: 30, height: 30, borderRadius: 15 },
-  quotePreview: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 20, borderRadius: radius.lg, marginTop: 14, minHeight: 140, justifyContent: 'center', alignItems: 'center' },
-  quoteMark: { fontFamily: fonts.serifBold, fontSize: 38, lineHeight: 38, color: colors.goldLight, marginBottom: -4 },
-  quoteText: { color: WHITE, fontFamily: fonts.serifItalic, fontSize: 17, lineHeight: 24, textAlign: 'center' },
-  quoteRef: { color: colors.goldLight, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center', marginTop: 12 },
+  // Text post: image-card design controls
+  segment: { flexDirection: 'row', gap: 4, backgroundColor: colors.raised, borderRadius: radius.pill, padding: 4 },
+  segBtn: { flex: 1, flexDirection: 'row', gap: 7, height: 38, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  segOn: { backgroundColor: colors.surface, ...shadow.sm },
+  segText: { fontSize: 13, fontWeight: '500', color: colors.muted },
+  segTextOn: { color: colors.fg, fontWeight: '700' },
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 8, padding: 10, borderRadius: radius.md, backgroundColor: alpha ? alpha(colors.gold, 0.1) : colors.raised },
+  noticeText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.fg },
+  cardPreviewWrap: { marginTop: 14, width: '100%', maxWidth: 420, alignSelf: 'center', borderRadius: radius.md, ...shadow.md },
+  cardPreview: {},
 
   photoPreviewWrap: { marginTop: 14 },
   gridPreview: { borderRadius: radius.lg, overflow: 'hidden', position: 'relative' },

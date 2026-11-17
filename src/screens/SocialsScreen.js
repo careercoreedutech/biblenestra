@@ -15,9 +15,9 @@ import {
   TextInput,
   View,
   Image,
+  useWindowDimensions,
 } from 'react-native';
 import Svg, { Path, Rect, Defs, LinearGradient, Stop } from 'react-native-svg';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
@@ -28,6 +28,7 @@ import ProfileButton from '../components/ProfileButton';
 import { PhotoViewer } from '../components/social/FeedCard';
 import { LightPostCard, ComposerCard, ReelsStrip, HubCards, PostMenuSheet, reactionOf } from '../components/social/LightFeed';
 import CreatePostSheet from '../components/social/CreatePostSheet';
+import { TextPostShareSheet, canShareImage } from '../components/social/TextPostCard';
 import { SOCIAL, CONTENT_THEMES, parseScriptureRef, passageLabel, timestampOf, relTime, initials } from '../components/social/shared';
 import { setSocialsDark } from '../ui/chrome';
 // SOCIAL (round 3): profile links, comment likes, gifts from comments, who-liked lists, activity inbox
@@ -36,6 +37,11 @@ import { splitPosts, mapNotification } from '../api/mappers';
 import { toggleCommentLike, getCommentLikers, getPostReactors, isServerId } from '../api/social';
 import { useOpenProfile } from '../components/social/profileNav';
 import GiftSheet from '../components/social/GiftSheet';
+import { FeedNativeAd } from '../ads/AdSlots';
+import { AD_RULES } from '../ads/config';
+import VideoPager from '../components/video/VideoPager';
+import VideoViewer from '../components/video/VideoViewer';
+import { toPlayable } from '../components/video/videoUtils';
 import PeopleSheet from '../components/social/PeopleSheet';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { Button, alpha } from '../components/ui';
@@ -323,11 +329,13 @@ const GIFT_ICONS = {
   g_crown: { name: 'cross', color: colors.lavender },
 };
 
-function VideoReelItem({
+// Creator info, caption and the side actions drawn over a video in the full-screen player (VideoPager).
+// The player itself (one shared expo-video player, gestures, controls, ads) lives in src/components/video.
+function ReelOverlay({
   item,
   index,
-  itemHeight,
   isActive,
+  isPlaying,
   isLiked,
   isFollowing,
   onLike,
@@ -340,18 +348,9 @@ function VideoReelItem({
   onListen,
   onOpenCreator,
 }) {
-  const isTextPost = !item.videoUrl && !item.imageUrl && item.duration === 'Text Post';
-  const cardBg = isTextPost && item.bg ? item.bg : VIDEO_THEMES[index % VIDEO_THEMES.length];
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [tapBadge, setTapBadge] = useState(null); // { key, playing }
-  const [hearts, setHearts] = useState([]); // floating double-tap hearts
-  const cardRef = useRef(null);
-  const lastTap = useRef(0);
-  const tapTimer = useRef(null);
-  const h = itemHeight || (SCREEN_HEIGHT - 105);
-
+  const isTextPost = false;
   // Creator info + caption ease in whenever this reel becomes the active one
-  const infoIn = useRef(new Animated.Value(isActive ? 0 : 0)).current;
+  const infoIn = useRef(new Animated.Value(isActive ? 1 : 0)).current;
   useEffect(() => {
     if (isActive) {
       Animated.timing(infoIn, { toValue: 1, duration: 420, delay: 80, easing: EASE_OUT, useNativeDriver: ND }).start();
@@ -360,159 +359,21 @@ function VideoReelItem({
     }
   }, [isActive]);
 
-  useEffect(() => () => clearTimeout(tapTimer.current), []);
-
-  const player = useVideoPlayer(item.videoUrl || null, (p) => {
-    p.loop = true;
-    if (isActive) {
-      p.play();
-    }
-  });
-
-  useEffect(() => {
-    if (!player) return;
-    try {
-      if (isActive) {
-        player.play();
-        setIsPlaying(true);
-      } else {
-        player.pause();
-        setIsPlaying(false);
-      }
-    } catch (e) {}
-  }, [isActive, player]);
-
-  const togglePlayback = () => {
-    if (!player || !item.videoUrl) return;
-    try {
-      if (player.playing) {
-        player.pause();
-        setIsPlaying(false);
-        setTapBadge({ key: Date.now(), playing: false });
-      } else {
-        player.play();
-        setIsPlaying(true);
-        setTapBadge({ key: Date.now(), playing: true });
-      }
-    } catch (e) {}
-  };
-
-  const spawnHeart = (x, y) => {
-    const id = `${Date.now()}_${Math.random()}`;
-    const tilt = Math.round(Math.random() * 30 - 15);
-    setHearts((list) => [...list.slice(-3), { id, x, y, tilt }]);
-  };
-
-  // TikTok-style: double-tap anywhere likes (never un-likes) with a big heart; single tap toggles playback.
-  const onCardPress = (e) => {
-    const now = Date.now();
-    const ne = (e && e.nativeEvent) || {};
-    if (now - lastTap.current < 300) {
-      clearTimeout(tapTimer.current);
-      lastTap.current = 0;
-      const fallback = () => spawnHeart(SCREEN_WIDTH / 2, h * 0.42);
-      if (typeof ne.pageX === 'number' && cardRef.current && cardRef.current.measureInWindow) {
-        try {
-          cardRef.current.measureInWindow((cx, cy, cw, ch) => {
-            const x = ne.pageX - (cx || 0);
-            const y = ne.pageY - (cy || 0);
-            if (Number.isFinite(x) && Number.isFinite(y) && y > 0 && y < (ch || h)) {
-              spawnHeart(Math.min(Math.max(x, 60), SCREEN_WIDTH - 60), Math.min(Math.max(y, 80), (ch || h) - 80));
-            } else fallback();
-          });
-        } catch (err) { fallback(); }
-      } else fallback();
-      if (!isLiked) onLike();
-      else haptic('light');
-      return;
-    }
-    lastTap.current = now;
-    clearTimeout(tapTimer.current);
-    tapTimer.current = setTimeout(togglePlayback, 300);
-  };
-
   return (
-    <Pressable
-      ref={cardRef}
-      onPress={onCardPress}
-      style={[
-        styles.videoCard,
-        { backgroundColor: cardBg, height: h }
-      ]}
-    >
-      {/* Video Player */}
-      {item.videoUrl ? (
-        <VideoView
-          style={StyleSheet.absoluteFill}
-          player={player}
-          allowsFullscreen={false}
-          allowsPictureInPicture={false}
-          nativeControls={false}
-          contentFit="cover"
-        />
-      ) : item.imageUrl ? (
-        <Image source={{ uri: item.imageUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-      ) : isTextPost ? (
-        <View style={styles.textPostWrap}>
-          <Text style={styles.textPostQuote}>“</Text>
-          <Text style={styles.textPostBody} numberOfLines={9}>{item.caption}</Text>
-          {item.scripture ? <Text style={styles.textPostRef}>— {item.scripture}</Text> : null}
-        </View>
-      ) : (
-        <View style={styles.videoPlayerGraphic}>
-          <View style={styles.ambientIconRing}>
-            <Icon name="video" size={28} color={colors.goldLight} />
-          </View>
-          <Text style={styles.ambientCategoryBadge}>{String(item.category || '').toUpperCase()}</Text>
-          <Text style={styles.ambientDurationText}>{item.duration}</Text>
-        </View>
-      )}
-
-      {/* Top Gradient for header clarity */}
-      <View style={styles.topGradientScrim} pointerEvents="none">
-        <Svg width="100%" height={130} style={StyleSheet.absoluteFill}>
-          <Defs>
-            <LinearGradient id={`topGrad_${index}`} x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#000000" stopOpacity="0.6" />
-              <Stop offset="60%" stopColor="#000000" stopOpacity="0.2" />
-              <Stop offset="100%" stopColor="#000000" stopOpacity="0" />
-            </LinearGradient>
-          </Defs>
-          <Rect x="0" y="0" width="100%" height="100%" fill={`url(#topGrad_${index})`} />
-        </Svg>
-      </View>
-
-      {/* Deep Bottom Gradient for crystal-clear readability */}
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      {/* Bottom gradient for readability */}
       <View style={styles.bottomGradientScrim} pointerEvents="none">
         <Svg width="100%" height={380} style={StyleSheet.absoluteFill}>
           <Defs>
-            <LinearGradient id={`bottomGrad_${index}`} x1="0" y1="0" x2="0" y2="1">
+            <LinearGradient id={`bottomGrad_${item.id}`} x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0%" stopColor="#000000" stopOpacity="0" />
-              <Stop offset="40%" stopColor="#000000" stopOpacity="0.3" />
-              <Stop offset="78%" stopColor="#000000" stopOpacity="0.72" />
-              <Stop offset="100%" stopColor="#000000" stopOpacity="0.9" />
+              <Stop offset="45%" stopColor="#000000" stopOpacity="0.25" />
+              <Stop offset="100%" stopColor="#000000" stopOpacity="0.7" />
             </LinearGradient>
           </Defs>
-          <Rect x="0" y="0" width="100%" height="100%" fill={`url(#bottomGrad_${index})`} />
+          <Rect x="0" y="0" width="100%" height="100%" fill={`url(#bottomGrad_${item.id})`} />
         </Svg>
       </View>
-
-      {/* Tap feedback (play / pause) */}
-      {tapBadge ? (
-        <TapBadge key={tapBadge.key} playing={tapBadge.playing} onDone={() => setTapBadge(null)} />
-      ) : null}
-
-      {/* Double-tap hearts */}
-      {hearts.map((ht) => (
-        <FloatingHeart
-          key={ht.id}
-          x={ht.x}
-          y={ht.y}
-          tilt={ht.tilt}
-          onDone={() => setHearts((list) => list.filter((x) => x.id !== ht.id))}
-        />
-      ))}
-
       {/* Bottom Information Overlay (Creator & Caption) - PINNED TO BOTTOM */}
       <Animated.View
         style={[
@@ -680,7 +541,7 @@ function VideoReelItem({
           </PressScale>
         ) : null}
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -740,6 +601,30 @@ export default function SocialsScreen({ params }) {
   const openProfile = useOpenProfile();
   const nav = useNav();
   const toast = useToast();
+  const win = useWindowDimensions(); // live size (rotation, desktop resize) — never the module-load size
+  // Full-screen video viewer (feed card / reels strip / deep link). Ads run inside the player (useAdBreaks).
+  const [videoViewer, setVideoViewer] = useState(null); // { index } | null
+  // Collapsing header: hides on scroll down / shows on scroll up (Feed); overlays the Videos player and
+  // hides with its controls. Native driver where supported.
+  const [headerH, setHeaderH] = useState(0);
+  const [videosChrome, setVideosChrome] = useState(true);
+  const feedScroll = useRef(new Animated.Value(0)).current;
+  const feedHeaderY = useMemo(() => {
+    const h = Math.max(1, headerH);
+    const y = feedScroll.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolateLeft: 'clamp' });
+    return Animated.diffClamp(y, 0, h).interpolate({ inputRange: [0, h], outputRange: [0, -h], extrapolate: 'clamp' });
+  }, [headerH]);
+  const videoHeaderY = useRef(new Animated.Value(0)).current;
+  const headerRef = useRef(null);
+  // web: read the header height straight from the DOM too (onLayout can lag behind a re-layout)
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    try {
+      const n = headerRef.current;
+      const h = n && n.getBoundingClientRect ? Math.round(n.getBoundingClientRect().height) : 0;
+      if (h && Math.abs(h - headerH) > 1) setHeaderH(h);
+    } catch (e) { /* ignore */ }
+  });
   const nar = useNarration();
   const focused = useIsFocused(); // false while another screen is on top — pauses video
 
@@ -760,6 +645,7 @@ export default function SocialsScreen({ params }) {
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
   const [composer, setComposer] = useState(null); // null | { mode, bounty?, preset? }
+  const [shareCard, setShareCard] = useState(null); // designed text post offered as a share image (native)
   const [cornerCat, setCornerCat] = useState('All');
   const [viewer, setViewer] = useState(null); // { images, start }
   const [highlightKey, setHighlightKey] = useState(null);
@@ -801,6 +687,13 @@ export default function SocialsScreen({ params }) {
     }
   }, [wantDark, focused]);
   useEffect(() => () => { if (ownsDark.current) setSocialsDark(false); }, []);
+
+  // Videos: the overlaid header slides away with the player controls and comes back with them
+  const showVideoHeader = segment !== 'videos' || videosChrome;
+  useEffect(() => {
+    Animated.timing(videoHeaderY, { toValue: showVideoHeader ? 0 : -Math.max(1, headerH) - 8, duration: showVideoHeader ? 220 : 320, easing: showVideoHeader ? EASE_OUT : EASE_IN, useNativeDriver: ND }).start();
+  }, [showVideoHeader, headerH]);
+  useEffect(() => { setVideosChrome(true); }, [segment]);
 
   // ─── Data ──────────────────────────────────────────────────────
   const videos = state.videos || [];
@@ -910,7 +803,7 @@ export default function SocialsScreen({ params }) {
   const scrollFeedTo = (key) => {
     const l = layouts.current[key];
     if (l && feedRef.current) {
-      try { feedRef.current.scrollTo({ y: Math.max(0, l.y - 10), animated: true }); } catch (e) {}
+      try { feedRef.current.scrollTo({ y: Math.max(0, l.y - headerH - 10), animated: true }); } catch (e) {}
       pendingScroll.current = null;
     } else {
       pendingScroll.current = key; // resolved when the card reports its layout
@@ -926,16 +819,20 @@ export default function SocialsScreen({ params }) {
     setTimeout(() => scrollFeedTo(key), 60);
   };
 
+  // Tapping a video anywhere opens the full-screen viewer at that clip and it plays straight away
+  // (pre-roll / mid-roll ads, if any, are run by the player through useAdBreaks — not here).
   const openReelAt = (videoId) => {
-    const idx = Math.max(0, reelVideos.findIndex((v) => v.id === videoId));
+    const idx = reelVideos.findIndex((v) => v.id === videoId);
+    if (idx < 0) {
+      toast.show('This video isn’t ready to play yet', { icon: 'video' });
+      return;
+    }
     setActiveIndex(idx);
-    setSelectedId(reelVideos[idx] ? reelVideos[idx].id : null);
+    setSelectedId(reelVideos[idx].id);
     setMainTab('home');
-    setSegment('videos');
-    setTimeout(() => {
-      try { reelsRef.current && reelsRef.current.scrollToIndex({ index: idx, animated: false }); } catch (e) {}
-    }, 60);
+    setVideoViewer({ index: idx });
   };
+  const playableVideos = useMemo(() => reelVideos.map(toPlayable), [reelVideos]);
 
   // Deep links: Profile → creator video, or a specific post (route mode)
   useEffect(() => {
@@ -1147,9 +1044,15 @@ export default function SocialsScreen({ params }) {
     if (ok) dispatch({ type: 'sharePost', src: 'video', id: video.id });
   };
 
-  const handleSharePost = async (f) => {
+  const handleSharePost = async (f, opts = {}) => {
+    // Image-style text posts: offer the designed card as an image on native (web shares text / link)
+    if (!opts.asText && f && f.bg && f.text && canShareImage) {
+      setShareCard(f);
+      return false;
+    }
     const ok = await shareText(`${f.author}: ${f.text || 'Photo post'}${f.passage ? `\n— ${passageLabel(f.passage)}` : ''}\n\nShared from BibleNestra`);
     if (ok) dispatch({ type: 'sharePost', src: 'post', id: f.id });
+    return ok;
   };
 
   const handleRepost = (video) => {
@@ -1528,7 +1431,7 @@ export default function SocialsScreen({ params }) {
   const lastComposer = useRef({});
   if (composer) lastComposer.current = composer;
   const sheetCfg = composer || lastComposer.current;
-  const feedPlaying = focused && mainTab === 'home' && segment !== 'videos' && !composer && !commentTarget && !viewer && !showGiftStore && !menuKey;
+  const feedPlaying = focused && mainTab === 'home' && segment !== 'videos' && !composer && !commentTarget && !viewer && !showGiftStore && !menuKey && !videoViewer;
   const menuItem = menuKey ? allItems.find((it) => it.key === menuKey) || null : null;
   const closeMenu = () => setMenuKey(null);
   // Run a ⋯ menu action once the sheet has started closing
@@ -1575,6 +1478,20 @@ export default function SocialsScreen({ params }) {
     </View>
   );
 
+  // Feed filter chips — part of the collapsing header so they come back on scroll up
+  const renderChips = () => (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.chipRow, styles.chipRowHeader]}>
+      {FEED_CHIPS.map((c) => {
+        const on = chip === c;
+        return (
+          <PressScale key={c} onPress={() => switchChip(c)} scaleTo={0.93} style={[styles.chip, on && styles.chipOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
+            <Text style={[styles.chipText, on && styles.chipTextOn]}>{c}</Text>
+          </PressScale>
+        );
+      })}
+    </ScrollView>
+  );
+
   const renderFeed = () => {
     const empty = CHIP_EMPTY[chip];
     const moreToLoad = sync.online && sync.hasMore;
@@ -1582,33 +1499,26 @@ export default function SocialsScreen({ params }) {
     const hubAt = chip === 'For You' ? Math.min(2, listItems.length) : -1;
     const hub = <HubCards key="hub" guildUnread={guildUnread} onGuild={() => setMainTab('guild')} onCorner={() => setMainTab('creators')} />;
     return (
-      <ScrollView
+      <Animated.ScrollView
         ref={feedRef}
         style={{ flex: 1, backgroundColor: colors.screen }}
-        contentContainerStyle={styles.feedContent}
+        contentContainerStyle={[styles.feedContent, { paddingTop: headerH }]}
         showsVerticalScrollIndicator={false}
-        scrollEventThrottle={64}
-        onScroll={(e) => {
-          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-          scrollY.current = contentOffset.y;
-          pickVisibleVideo();
-          // Online: infinite scroll — fetch the next page when nearing the end
-          if (moreToLoad && !sync.loadingMore && contentOffset.y + layoutMeasurement.height > contentSize.height - 900) sync.loadMore();
-        }}
+        scrollEventThrottle={16}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: feedScroll } } }], {
+          useNativeDriver: ND,
+          listener: (e) => {
+            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+            scrollY.current = contentOffset.y;
+            pickVisibleVideo();
+            // Online: infinite scroll — fetch the next page when nearing the end
+            if (moreToLoad && !sync.loadingMore && contentOffset.y + layoutMeasurement.height > contentSize.height - 900) sync.loadMore();
+          },
+        })}
         refreshControl={sync.online ? (
-          <RefreshControl refreshing={pulling} onRefresh={pullRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+          <RefreshControl refreshing={pulling} onRefresh={pullRefresh} tintColor={colors.primary} colors={[colors.primary]} progressViewOffset={headerH} />
         ) : undefined}
       >
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {FEED_CHIPS.map((c) => {
-            const on = chip === c;
-            return (
-              <PressScale key={c} onPress={() => switchChip(c)} scaleTo={0.93} style={[styles.chip, on && styles.chipOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
-                <Text style={[styles.chipText, on && styles.chipTextOn]}>{c}</Text>
-              </PressScale>
-            );
-          })}
-        </ScrollView>
 
         {chip === 'For You' ? (
           <>
@@ -1633,7 +1543,12 @@ export default function SocialsScreen({ params }) {
         )}
 
         {listItems.length ? (
-          listItems.map((it, i) => (i === hubAt ? [hub, renderCard(it, i)] : renderCard(it, i)))
+          listItems.map((it, i) => {
+            const card = i === hubAt ? [hub, renderCard(it, i)] : [renderCard(it, i)];
+            // a native ad after every few posts (never after the last one)
+            if ((i + 1) % AD_RULES.feedAdEvery === 0 && i < listItems.length - 1) card.push(<FeedNativeAd key={'ad-' + i} />);
+            return card;
+          })
         ) : (
           <View style={styles.listEmpty}>
             <ScaleIn key={chip} style={styles.feedEmptyIconLight}>
@@ -1662,14 +1577,84 @@ export default function SocialsScreen({ params }) {
             <View style={styles.feedEndLine} />
           </View>
         ) : null}
-      </ScrollView>
+      </Animated.ScrollView>
     );
   };
 
   // ─── Videos (full-screen reels) ────────────────────────────────
+  // Overlay drawn on each video by the shared player (VideoPager / VideoViewer)
+  const renderVideoOverlay = (pv, ctx) => {
+    const item = (pv && pv.raw) || pv;
+    return (
+      <ReelOverlay
+        item={item}
+        isActive={ctx.current}
+        isPlaying={ctx.playing}
+        isLiked={!!item.liked}
+        isFollowing={follows.includes(item.creator && item.creator.handle)}
+        onLike={() => { haptic(item.liked ? 'light' : 'success'); dispatch({ type: 'likeVideo', id: item.id }); }}
+        onComment={() => openComments('video', item.id)}
+        onGift={() => openGifts(item.id)}
+        onShare={() => handleShareVideo(item)}
+        onRepost={() => handleRepost(item)}
+        onFollow={() => handleFollow(item)}
+        onOpenBible={() => openScripture(item.scripture)}
+        onListen={() => listenScripture(item)}
+        onOpenCreator={() => { setVideoViewer(null); openProfile({ userId: item.creator && item.creator.userId, name: item.creator && item.creator.name, handle: item.creator && item.creator.handle, mine: item.mine }); }}
+      />
+    );
+  };
+  // double-tap likes (never un-likes)
+  const likeFromTap = (pv) => {
+    const item = (pv && pv.raw) || pv;
+    if (!item) return;
+    if (!item.liked) { haptic('success'); dispatch({ type: 'likeVideo', id: item.id }); } else haptic('light');
+  };
+  const videoSheetOpen = !!commentTarget || showGiftStore || !!likers || !!composer;
+  const onPagerIndex = (i) => {
+    setActiveIndex(i);
+    if (reelVideos[i]) setSelectedId(reelVideos[i].id);
+  };
+
   const renderReels = () => (
-    <View style={{ flex: 1, position: 'relative' }}>
-      <View style={styles.reelsTopBar} pointerEvents="box-none">
+    <View style={{ flex: 1, position: 'relative', backgroundColor: '#000' }}>
+      {reelVideos.length ? (
+        <VideoPager
+          testID="videos-tab-pager"
+          items={playableVideos}
+          index={Math.min(activeIndex, reelVideos.length - 1)}
+          onIndexChange={onPagerIndex}
+          width={win.width}
+          height={bodyHeight}
+          active={focused && mainTab === 'home' && segment === 'videos' && !videoViewer}
+          paused={videoSheetOpen}
+          renderOverlay={renderVideoOverlay}
+          onDoubleTap={likeFromTap}
+          onChromeChange={setVideosChrome}
+          topInset={headerH + 44}
+          keyboard={!videoViewer}
+        />
+      ) : (
+        <View style={[styles.feedEmpty, { height: bodyHeight, paddingTop: headerH }]}>
+          <ScaleIn style={styles.feedEmptyIcon}>
+            <Icon name="video" size={26} color={colors.goldLight} />
+          </ScaleIn>
+          <FadeInUp delay={90} style={{ alignItems: 'center' }}>
+            <Text style={styles.feedEmptyTitle}>No videos yet</Text>
+            <Text style={styles.feedEmptyBody}>Share a sermon clip, worship moment or testimony with the community.</Text>
+            <PressScale onPress={() => openComposer('video')} scaleTo={0.95} style={styles.feedEmptyBtn}>
+              <Text style={styles.feedEmptyBtnText}>Post a video</Text>
+              <Icon name="arrow-right" size={14} color={colors.night} strokeWidth={2.6} />
+            </PressScale>
+          </FadeInUp>
+        </View>
+      )}
+
+      {/* Guild / Creators pills under the overlaid header — they hide with it */}
+      <Animated.View
+        style={[styles.reelsTopBar, { top: headerH + 6, justifyContent: 'flex-start', gap: 8, opacity: videoHeaderY.interpolate({ inputRange: [-Math.max(1, headerH), 0], outputRange: [0, 1] }) }]}
+        pointerEvents={videosChrome ? 'box-none' : 'none'}
+      >
         <PressScale onPress={() => setMainTab('guild')} scaleTo={0.93} style={styles.floatingGuildPill} accessibilityLabel="Open Clip Farm guild">
           <View style={styles.onlineDotWrap}>
             <LiveRing color={colors.goldLight} size={6} />
@@ -1685,58 +1670,13 @@ export default function SocialsScreen({ params }) {
           <Icon name="sparkles" size={14} color={colors.goldLight} />
           <Text style={styles.floatingGuildText}>Creators</Text>
         </PressScale>
-      </View>
-
-      <FlatList
-        ref={reelsRef}
-        data={reelVideos}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={bodyHeight}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        disableIntervalMomentum
-        bounces={false}
-        initialScrollIndex={reelVideos.length ? Math.min(activeIndex, reelVideos.length - 1) : undefined}
-        getItemLayout={(data, index) => ({ length: bodyHeight, offset: bodyHeight * index, index })}
-        onScrollToIndexFailed={() => {}}
-        viewabilityConfig={viewabilityConfig.current}
-        onViewableItemsChanged={onViewableItemsChanged.current}
-        renderItem={({ item, index }) => (
-          <VideoReelItem
-            item={item}
-            index={index}
-            itemHeight={bodyHeight}
-            isActive={index === activeIndex && focused && mainTab === 'home' && segment === 'videos' && !composer}
-            isLiked={item.liked}
-            isFollowing={follows.includes(item.creator && item.creator.handle)}
-            onLike={() => { haptic(item.liked ? 'light' : 'success'); dispatch({ type: 'likeVideo', id: item.id }); }}
-            onComment={() => openComments('video', item.id)}
-            onGift={() => openGifts(item.id)}
-            onShare={() => handleShareVideo(item)}
-            onRepost={() => handleRepost(item)}
-            onFollow={() => handleFollow(item)}
-            onOpenBible={() => openScripture(item.scripture)}
-            onListen={() => listenScripture(item)}
-            onOpenCreator={() => openProfile({ userId: item.creator && item.creator.userId, name: item.creator && item.creator.name, handle: item.creator && item.creator.handle, mine: item.mine })}
-          />
-        )}
-        ListEmptyComponent={
-          <View style={[styles.feedEmpty, { height: bodyHeight }]}>
-            <ScaleIn style={styles.feedEmptyIcon}>
-              <Icon name="video" size={26} color={colors.goldLight} />
-            </ScaleIn>
-            <FadeInUp delay={90} style={{ alignItems: 'center' }}>
-              <Text style={styles.feedEmptyTitle}>No videos yet</Text>
-              <Text style={styles.feedEmptyBody}>Share a sermon clip, worship moment or testimony with the community.</Text>
-              <PressScale onPress={() => openComposer('video')} scaleTo={0.95} style={styles.feedEmptyBtn}>
-                <Text style={styles.feedEmptyBtnText}>Post a video</Text>
-                <Icon name="arrow-right" size={14} color={colors.night} strokeWidth={2.6} />
-              </PressScale>
-            </FadeInUp>
-          </View>
-        }
-      />
+        {reelVideos.length ? (
+          <PressScale onPress={() => setVideoViewer({ index: Math.min(activeIndex, reelVideos.length - 1) })} scaleTo={0.93} style={styles.floatingCornerPill} accessibilityLabel="Full screen" testID="videos-tab-expand">
+            <Icon name="play" size={13} color={colors.goldLight} />
+            <Text style={styles.floatingGuildText}>Full screen</Text>
+          </PressScale>
+        ) : null}
+      </Animated.View>
 
       {/* Publish success: springs in over the new reel, then clears itself */}
       {published ? (
@@ -1760,9 +1700,16 @@ export default function SocialsScreen({ params }) {
     <View style={[styles.container, { backgroundColor: mainTab === 'creators' ? colors.screen : mainTab === 'guild' ? colors.night : segment === 'videos' ? SOCIAL.page : colors.screen }]}>
       {mainTab === 'home' ? (
         <>
-          {/* Header: title left · create + profile right · Feed / Videos switch.
-              Light on Feed (matches the rest of the app); the Videos reels keep their dark header. */}
-          <View style={[styles.header, !darkHead && styles.headerLight]}>
+          {/* Header: title left · create + profile right · Feed / Videos switch (+ Feed chips).
+              Light on Feed (matches the rest of the app); dark and overlaid on the Videos player.
+              It floats over the content: hides on scroll down / shows on scroll up (Feed), and hides
+              with the player controls (Videos). */}
+          <Animated.View
+            onLayout={(e) => { const h = Math.round(e.nativeEvent.layout.height); if (h && Math.abs(h - headerH) > 1) setHeaderH(h); }}
+            ref={headerRef}
+            style={[styles.header, !darkHead && styles.headerLight, darkHead && styles.headerOverlay, styles.headerFloat, { transform: [{ translateY: segment === 'videos' ? videoHeaderY : feedHeaderY }] }]}
+            testID="socials-header"
+          >
             <View style={styles.headerRow}>
               {routeMode ? (
                 <PressScale onPress={() => nav.pop()} scaleTo={0.9} hitSlop={10} style={[styles.headerBack, !darkHead && styles.headerBackLight]} accessibilityLabel="Back">
@@ -1787,7 +1734,8 @@ export default function SocialsScreen({ params }) {
               <ProfileButton size={36} dark={darkHead} />
             </View>
             <SegmentSwitch value={segment} onChange={switchSegment} light={!darkHead} />
-          </View>
+            {segment === 'feed' ? renderChips() : null}
+          </Animated.View>
 
           <View
             style={{ flex: 1 }}
@@ -1983,6 +1931,13 @@ export default function SocialsScreen({ params }) {
         onPost={handleCreatePost}
         onPublishVideo={handlePublishVideo}
       />
+      <TextPostShareSheet
+        visible={!!shareCard}
+        post={shareCard ? { theme: shareCard.bg, text: shareCard.text, passage: shareCard.passage ? passageLabel(shareCard.passage) : '', author: shareCard.author } : null}
+        onClose={() => setShareCard(null)}
+        onShareText={() => (shareCard ? handleSharePost(shareCard, { asText: true }) : false)}
+        onShared={() => shareCard && dispatch({ type: 'sharePost', src: 'post', id: shareCard.id })}
+      />
 
       {/* ⋯ post menu */}
       <PostMenuSheet
@@ -2004,6 +1959,19 @@ export default function SocialsScreen({ params }) {
       <PhotoViewer visible={!!viewer} images={(viewer && viewer.images) || []} start={(viewer && viewer.start) || 0} onClose={() => setViewer(null)} />
 
       {/* Virtual gifts (reels, comments) — coins only move on the server when online */}
+      {/* Full-screen video viewer — mounted before the sheets so comments / gifts open above it */}
+      <VideoViewer
+        // iOS can't present a sheet over another modal, so the viewer steps aside while one is open and comes
+        // back at the same video / time when it closes (the player remembers the position, no second pre-roll)
+        visible={!!videoViewer && playableVideos.length > 0 && !(Platform.OS === 'ios' && videoSheetOpen)}
+        items={playableVideos}
+        index={videoViewer ? Math.min(videoViewer.index, Math.max(0, playableVideos.length - 1)) : 0}
+        onIndexChange={(i) => { onPagerIndex(i); setVideoViewer((v) => (v ? { ...v, index: i } : v)); }}
+        onClose={() => setVideoViewer(null)}
+        paused={videoSheetOpen || !focused}
+        renderOverlay={renderVideoOverlay}
+        onDoubleTap={likeFromTap}
+      />
       <GiftSheet visible={showGiftStore} target={giftTarget} onClose={closeGifts} />
 
       {/* Who liked a post / comment */}
@@ -2168,6 +2136,9 @@ const styles = StyleSheet.create({
 
   // Light variants (Feed segment)
   headerLight: { backgroundColor: colors.screen, borderBottomColor: colors.border },
+  headerFloat: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 40 },
+  headerOverlay: { backgroundColor: 'rgba(8,9,20,0.55)', borderBottomColor: 'transparent' },
+  chipRowHeader: { paddingHorizontal: 0, paddingTop: 10, paddingBottom: 0 },
   headerBackLight: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   headerCreateLight: { borderColor: colors.primary, ...shadow.sm },
   segRowLight: { backgroundColor: colors.raised, borderColor: colors.border },

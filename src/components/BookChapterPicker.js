@@ -16,12 +16,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from './Icons';
 import { Badge } from './ui';
 import { colors, fonts, radius } from '../theme';
+import { useNav } from '../navigation';
+import { EXTRA_BOOKS } from '../data/extraBooks';
 import { BOOKS, CHAPTER_TITLES, availableChapters, bookName, refLabel } from '../data/bible';
 
 const PAD = 18;
 const GAP = 8;
 
 export default function BookChapterPicker({ pos, onSelect, onClose }) {
+  const nav = useNav();
   const win = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef(null);
@@ -144,6 +147,19 @@ export default function BookChapterPicker({ pos, onSelect, onClose }) {
             </View>
           </View>
         </View>
+        {/* Beyond the 66: Apocrypha, Enoch, Jubilees… (their own reader) */}
+        <Pressable
+          onPress={() => { if (onClose) onClose(); nav.push('ExtraBooks'); }}
+          style={({ pressed }) => [styles.featCard, { marginHorizontal: 16, marginTop: 18, marginBottom: 8 }, pressed && { opacity: 0.8 }]}
+          accessibilityRole="button"
+        >
+          <View style={styles.featIcon}><Icon name="sparkles" size={15} color={colors.primary} /></View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.featRef}>Beyond the 66</Text>
+            <Text style={styles.featTitle} numberOfLines={2}>{EXTRA_BOOKS.length} more books: Apocrypha, Enoch, Jubilees, Jasher…</Text>
+          </View>
+          <Icon name="chevron-right" size={16} color={colors.faint} />
+        </Pressable>
       </ScrollView>
     </View>
   );

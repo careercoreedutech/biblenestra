@@ -28,6 +28,7 @@ const KIND = {
   follow: { icon: 'user', tint: colors.teal, label: 'New follower' },
   contest: { icon: 'star', tint: colors.gold, label: 'Contest' },
   battle: { icon: 'flame', tint: colors.terracotta, label: 'Bible Battle' },
+  live: { icon: 'live', tint: colors.rose, label: 'Bible Nestra · Live' }, // YOUTUBE LIVE
 };
 
 /** Unread count of the in-app inbox (for header badges). */
@@ -85,6 +86,7 @@ export default function ActivityScreen() {
     if (n.kind === 'contest' && d.submissionId && isServerId(d.submissionId)) { nav.push('ContestEntry', { id: d.submissionId }); return; }
     if (n.kind === 'contest' && d.certificate) { nav.push('Certificate', { code: d.certificate }); return; }
     if (n.kind === 'contest') { if (isServerId(d.contestId)) nav.push('Contest', { id: d.contestId }); else nav.push('Contests'); return; }
+    if (n.kind === 'live') { if (d.videoId) nav.push('YouTubeWatch', { videoId: d.videoId, title: d.videoTitle, channelTitle: d.channelTitle, live: true }); else nav.push('Watch'); return; } // YOUTUBE LIVE
     if (n.kind === 'announcement') { nav.reset(); return; } // ROUND 5: back to the tabs (the card is on Today)
   };
 
@@ -119,6 +121,7 @@ export default function ActivityScreen() {
               </PressScale>
               <View style={{ flex: 1, minWidth: 0 }}>
                 {/* follow: the title names the person ("Ann started following you"); the body is only a hint */}
+                {n.kind === 'live' && n.title ? <Text style={styles.liveTitle}>{n.title}</Text> : null}{/* YOUTUBE LIVE */}
                 <Text style={styles.body} numberOfLines={4}>{isFollow && n.title ? n.title : (n.body || n.title)}</Text>
                 <Text style={styles.meta}>{k.label} · {n.time}</Text>
               </View>
@@ -142,6 +145,8 @@ export default function ActivityScreen() {
                     }}
                   />
                 )
+              ) : n.kind === 'live' ? (
+                <Button small label={(n.data && n.data.action) || 'Join live service'} onPress={() => open(n)} />
               ) : !n.read ? (
                 <View style={styles.dot} />
               ) : null}
@@ -162,5 +167,6 @@ const styles = StyleSheet.create({
   kindBadge: { position: 'absolute', right: -3, bottom: -3, width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   body: { fontSize: 14, lineHeight: 19.5, color: colors.fg },
   meta: { fontSize: 11.5, color: colors.faint, marginTop: 4, fontWeight: '600' },
+  liveTitle: { fontSize: 14, fontWeight: '800', color: colors.rose, marginBottom: 2 }, // YOUTUBE LIVE
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
 });

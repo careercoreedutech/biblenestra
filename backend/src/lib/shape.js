@@ -1,4 +1,5 @@
 // SQL fragments and row → API shape converters (see API.md for the shapes).
+import { parseDesign } from './postDesign.js';
 
 // A user as JSON built inside SQL. `a` is the users-table alias.
 export const userJson = (a) => `json_build_object(
@@ -37,6 +38,7 @@ export function postShape(row, me, env, origin) {
     createdAt: new Date(row.created_at).toISOString(),
     passage: row.passage_book ? { bookId: row.passage_book, chapter: row.passage_ch, verse: row.passage_verse || undefined } : null,
     theme: row.theme,
+    design: parseDesign(row.theme), // image-style text card: { key, font, align } | legacy { color } | null
     images: (typeof row.images === 'string' ? JSON.parse(row.images) : row.images || []).map((m) => ({ url: mediaUrl(env, origin, m.key), width: m.width, height: m.height })),
     video: hasVideo ? { uid: row.video_uid, status: row.video_status || 'ready', duration: row.video_duration, category: row.category, ...videoUrls(env, origin, row) } : null,
     likes: row.likes_count, comments: row.comments_count, shares: row.shares_count, views: row.views_count,

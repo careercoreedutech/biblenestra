@@ -5,7 +5,7 @@
 //   <PinnedBar>            newest pinned message; tap to jump, cycles through up to 3 pins
 //   useMessageActions()    wires all of the above to the store for one thread (scope)
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import * as Clipboard from 'expo-clipboard';
 import { Icon } from '../Icons';
@@ -15,6 +15,8 @@ import { alpha } from '../ui';
 import { colors, fonts, radius, shadow } from '../../theme';
 import { useStore } from '../../store';
 import { REACTIONS, canEditMessage, getScopeMsgs, pinnedOf } from '../../chat/messages';
+import { openLink } from '../EmbedViewer'; // YOUTUBE LIVE: video links open in-app
+import { useNav } from '../../navigation';
 
 // ---------- small icons ----------
 function PinGlyph({ size = 16, color = colors.fg, filled }) {
@@ -49,7 +51,28 @@ function BanGlyph({ size = 13, color = colors.faint }) {
   );
 }
 
-const snippet = (m) => (m ? (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.audio ? 'Voice message' : 'Message')) : '');
+const snippet = (m) => (m ? (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.image ? '📷 Photo' : m.voice ? (m.voice.isFile ? '🎵 Audio' : '🎤 Voice message') : m.audio ? 'Voice message' : 'Message')) : '');
+
+// Message text with tappable links (Google Meet invites, websites)
+const URL_RE = /(https?:\/\/[^\s]+|\bmeet\.google\.com\/[a-z-]+)/gi;
+function LinkedText({ text, style, linkStyle, onLongPress }) {
+  const nav = useNav();
+  const parts = String(text).split(URL_RE);
+  if (parts.length === 1) return <Text style={style}>{text}</Text>;
+  return (
+    <Text style={style}>
+      {parts.map((p, i) => (i % 2 === 1 ? (
+        <Text
+          key={i}
+          style={linkStyle}
+          accessibilityRole="link"
+          onLongPress={onLongPress}
+          onPress={() => openLink(/^https?:/i.test(p) ? p.replace(/[).,!?]+$/, '') : `https://${p}`, nav)}
+        >{p}</Text>
+      ) : p))}
+    </Text>
+  );
+}
 
 // ---------- bubble ----------
 export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, onOpenReply, onLayout, children }) {
@@ -82,8 +105,8 @@ export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, 
               <BanGlyph color={mine ? 'rgba(255,255,255,0.7)' : colors.faint} />
               <Text style={[styles.deletedText, mine && { color: 'rgba(255,255,255,0.78)' }]}>{deletedText}</Text>
             </View>
-          ) : m.text ? (
-            <Text style={[styles.msgText, mine && { color: '#FFFFFF' }]}>{m.text}</Text>
+          ) : m.text && !m.gift ? (
+            <LinkedText text={m.text} onLongPress={onLongPress} style={[styles.msgText, mine && { color: '#FFFFFF' }]} linkStyle={[styles.link, mine && { color: '#FFFFFF' }]} />
           ) : null}
           {!m.deleted ? children : null}
           <View style={[styles.metaRow, mine && { justifyContent: 'flex-end' }]}>
@@ -324,6 +347,7 @@ const styles = StyleSheet.create({
   msgHighlight: { borderColor: colors.gold, borderWidth: 2 },
   msgFrom: { fontSize: 11.5, color: colors.gold, fontWeight: '700', marginBottom: 3 },
   msgText: { fontSize: 14.5, lineHeight: 20, color: colors.fg },
+  link: { textDecorationLine: 'underline', color: colors.primary, fontWeight: '600' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
   msgTime: { fontSize: 10.5, color: colors.faint },
   msgTimeMine: { color: 'rgba(255,255,255,0.66)', textAlign: 'right' },

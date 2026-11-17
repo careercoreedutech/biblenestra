@@ -16,8 +16,12 @@
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "BibleNestra uses the microphone to record sermons and teachings in Sermon Studio."
-      }
+        "NSMicrophoneUsageDescription": "BibleNestra uses the microphone to record sermons and teachings in Sermon Studio.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      },
+      "bundleIdentifier": "com.biblenestra.app"
     },
     "android": {
       "package": "com.biblenestra.app",
@@ -27,7 +31,8 @@
       },
       "permissions": [
         "RECORD_AUDIO"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       "expo-asset",
@@ -71,12 +76,12 @@
       ],
       "react-native-compressor"
     ],
+    "owner": "dental112",
+    "scheme": "biblenestra",
     "extra": {
       "eas": {
-        "projectId": "94300823-7f8f-465c-8484-af28faf19fa7"
+        "projectId": "6ac74538-b08d-4329-94f2-225a301f4eda"
       }
-    },
-    "owner": "somavarapuakashs-team",
-    "scheme": "biblenestra"
+    }
   }
 }

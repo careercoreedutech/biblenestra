@@ -153,6 +153,8 @@ const TARGET_SQL = `CASE r.target_type
                     FROM prayers pr JOIN users u ON u.id = pr.author_id WHERE pr.id = r.target_id)
   WHEN 'job' THEN (SELECT json_build_object('text', j.title, 'authorId', u.id, 'authorName', u.display_name, 'authorBanned', u.banned, 'removed', j.status = 'closed')
                     FROM jobs j JOIN users u ON u.id = j.client_id WHERE j.id = r.target_id)
+  WHEN 'youtube_comment' THEN (SELECT json_build_object('text', yc.body, 'videoId', yc.video_id, 'authorId', u.id, 'authorName', u.display_name, 'authorBanned', u.banned, 'createdAt', yc.created_at)
+                    FROM youtube_comments yc JOIN users u ON u.id = yc.user_id WHERE yc.id = r.target_id)
 END`;
 
 const reportShape = (x) => ({
@@ -198,6 +200,7 @@ adminApi.post('/admin/api/reports/:id/remove', async (c) => {
       UPDATE posts SET comments_count = GREATEST(comments_count - 1, 0) WHERE id IN (SELECT post_id FROM del)`, [rep.target_id]);
   } else if (t === 'prayer') await q(c.env, `UPDATE prayers SET status = 'archived' WHERE id = $1`, [rep.target_id]);
   else if (t === 'job') await q(c.env, `UPDATE jobs SET status = 'closed' WHERE id = $1`, [rep.target_id]);
+  else if (t === 'youtube_comment') await q(c.env, 'DELETE FROM youtube_comments WHERE id = $1', [rep.target_id]); // YOUTUBE LIVE comments
   else throw bad('People can’t be removed — use “Ban user” instead');
   await resolveTarget(c.env, me, rep, 'removed');
   await audit(c.env, me, 'report.remove', t, rep.target_id, { reportId: rep.id, text: String(rep.target.text || '').slice(0, 200) });

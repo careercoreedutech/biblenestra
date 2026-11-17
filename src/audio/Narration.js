@@ -5,15 +5,21 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Platform } from 'react-native';
 import { BOOKS, getChapter, bookName } from '../data/bible';
 import { ttsLocale } from '../bible/catalog';
+import { claimAudio, onAudioClaim } from './focus';
+import { assignVoices, voiceCounts } from './voices';
 
 let Speech = null;
 try { Speech = require('expo-speech'); } catch (e) { Speech = null; }
 
+// Each narrator uses a real male/female voice installed on the phone (see ./voices.js), preferring its accent.
+// pitch stays close to 1 so voices sound natural; fallbackPitch is only used when the phone has no voice of that gender.
 export const NARRATORS = [
-  { id: 'thomas', name: 'Fr. Thomas', style: 'Warm · reflective', initials: 'FT', tint: '#D4A852', pitch: 0.92, rateMul: 0.95 },
-  { id: 'amara', name: 'Amara', style: 'Clear · gentle', initials: 'AM', tint: '#8FA7DA', pitch: 1.12, rateMul: 1 },
-  { id: 'david', name: 'David', style: 'Deep · steady', initials: 'DV', tint: '#7FB59A', pitch: 0.8, rateMul: 0.92 },
-  { id: 'grace', name: 'Grace', style: 'Bright · lively', initials: 'GR', tint: '#E79A9A', pitch: 1.22, rateMul: 1.05 },
+  { id: 'thomas', name: 'Fr. Thomas', gender: 'male', style: 'Warm · reflective', initials: 'FT', tint: '#D4A852', accents: ['en-gb', 'en-ie', 'en-us'], pitch: 0.96, rateMul: 0.93, fallbackPitch: 0.8 },
+  { id: 'david', name: 'David', gender: 'male', style: 'Deep · steady', initials: 'DV', tint: '#7FB59A', accents: ['en-us', 'en-au', 'en-gb'], pitch: 0.9, rateMul: 0.92, fallbackPitch: 0.72 },
+  { id: 'samuel', name: 'Pastor Samuel', gender: 'male', style: 'Strong · African English', initials: 'PS', tint: '#C98B5B', accents: ['en-ng', 'en-gh', 'en-ke', 'en-za', 'en-in', 'en-gb'], pitch: 1, rateMul: 0.96, fallbackPitch: 0.85 },
+  { id: 'amara', name: 'Amara', gender: 'female', style: 'Clear · gentle', initials: 'AM', tint: '#8FA7DA', accents: ['en-ng', 'en-gh', 'en-ke', 'en-za', 'en-gb', 'en-us'], pitch: 1, rateMul: 0.98, fallbackPitch: 1.12 },
+  { id: 'grace', name: 'Grace', gender: 'female', style: 'Bright · lively', initials: 'GR', tint: '#E79A9A', accents: ['en-us', 'en-au'], pitch: 1.04, rateMul: 1.03, fallbackPitch: 1.2 },
+  { id: 'esther', name: 'Esther', gender: 'female', style: 'Calm · British', initials: 'ES', tint: '#B79AD8', accents: ['en-gb', 'en-ie', 'en-au', 'en-us'], pitch: 0.98, rateMul: 0.95, fallbackPitch: 1.1 },
 ];
 export const SPEEDS = [0.75, 1, 1.25, 1.5];
 export const SLEEP_OPTIONS = ['Off', '10 min', '20 min', 'End of chapter'];
@@ -40,10 +46,21 @@ export function NarrationProvider({ children }) {
   opts.current = { rate, narrator, reflect, sleep, voices };
 
   useEffect(() => {
-    if (!Speech || !Speech.getAvailableVoicesAsync) return;
-    Speech.getAvailableVoicesAsync()
-      .then((vs) => setVoices((vs || []).filter((v) => (v.language || '').toLowerCase().startsWith('en'))))
-      .catch(() => {});
+    if (!Speech || !Speech.getAvailableVoicesAsync) return undefined;
+    // Android's speech engine often reports no voices until it has started up — try a few times.
+    let tries = 0;
+    let timer;
+    const load = () => {
+      Speech.getAvailableVoicesAsync()
+        .then((vs) => {
+          const en = (vs || []).filter((v) => (v.language || '').toLowerCase().replace('_', '-').startsWith('en'));
+          if (en.length) setVoices(en);
+          else if (++tries < 5) timer = setTimeout(load, 1500);
+        })
+        .catch(() => { if (++tries < 5) timer = setTimeout(load, 1500); });
+    };
+    load();
+    return () => clearTimeout(timer);
   }, []);
 
   const versesFor = (s) => getChapter(s.translation, s.bookId, s.chapter) || [];
@@ -58,14 +75,17 @@ export function NarrationProvider({ children }) {
     const english = locale.startsWith('en');
     const intro = english && verse === 1 && s.mode === 'chapter' ? `${bookName(s.bookId)}, chapter ${s.chapter}. ` : '';
     const o = opts.current;
-    const idx = NARRATORS.findIndex((n) => n.id === o.narrator.id);
-    const voice = english && o.voices.length ? o.voices[idx % o.voices.length].identifier : undefined;
+    // the narrator's own male/female voice on this phone (English text only; other languages use the device default)
+    const pick = english ? assignVoices(NARRATORS, o.voices)[o.narrator.id] : null;
+    const voice = pick ? pick.voice : undefined;
+    const pitch = pick ? pick.pitch : 1;
     setSt((p) => ({ ...p, ...s, verse, total: verses.length, active: true, playing: true }));
+    claimAudio('narration'); // pauses the library player (one sound at a time)
     if (!Speech) return;
     Speech.stop();
     Speech.speak(intro + text, {
       rate: Math.max(0.5, Math.min(2, o.rate * o.narrator.rateMul)),
-      pitch: o.narrator.pitch,
+      pitch,
       voice,
       language: locale,
       onDone: () => {
@@ -141,16 +161,20 @@ export function NarrationProvider({ children }) {
     if (s.active && s.playing) speakVerse(s, s.verse);
   }, [rate, narrator]);
 
+  // Another source (the library player) started: pause narration but keep its place
+  useEffect(() => onAudioClaim((who) => { if (who !== 'narration' && stRef.current.playing) pause(); }), []);
+
   useEffect(() => () => { clearTimeout(sleepTimer.current); clearTimeout(reflectTimer.current); if (Speech) Speech.stop(); }, []);
 
   const value = useMemo(() => ({
     ...st,
     available: !!Speech,
     isWeb: Platform.OS === 'web',
+    voiceInfo: assignVoices(NARRATORS, voices), voiceCounts: voiceCounts(voices),
     rate, setRate, narrator, setNarrator, sleep, setSleep, reflect, setReflect, music, setMusic,
     playChapter, playVerse, pause, resume, toggle, next, prev, seekVerse, stop: () => stopAll(true),
     playerOpen, openPlayer: () => setPlayerOpen(true), closePlayer: () => setPlayerOpen(false),
-  }), [st, rate, narrator, sleep, reflect, music, playerOpen]);
+  }), [st, rate, narrator, sleep, reflect, music, playerOpen, voices]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

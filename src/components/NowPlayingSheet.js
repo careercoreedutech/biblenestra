@@ -1,7 +1,7 @@
 // "Now playing" audio screen for scripture narration
 // (pattern from Dwell: narrator choice, speed, sleep timer, background music, Reflect pauses).
 import React, { useEffect, useRef } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AnimatedModal } from './Motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,11 +14,23 @@ import { Animated, Easing } from 'react-native';
 
 import { useNarration, NARRATORS, SPEEDS, SLEEP_OPTIONS } from '../audio/Narration';
 import { bookName, CHAPTER_TITLES, getChapter } from '../data/bible';
+import LibraryNowPlaying from './media/LibraryNowPlaying';
 
 const MUSIC = ['None', 'Ambient', 'Piano', 'Strings'];
 
-// Global player — reads everything from the narration engine. Mounted once in App.js.
+// Global players, mounted once in App.js: the narration sheet and the Audio Library sheet
+// (each opens from the shared MiniPlayer; only one source plays at a time).
 export default function NowPlayingSheet() {
+  return (
+    <>
+      <NarrationSheet />
+      <LibraryNowPlaying />
+    </>
+  );
+}
+
+// Narration — reads everything from the narration engine.
+function NarrationSheet() {
   const nar = useNarration();
   const visible = nar.playerOpen;
   const onClose = nar.closePlayer;
@@ -158,8 +170,13 @@ export default function NowPlayingSheet() {
 
           {/* Narrators */}
           <Text style={styles.section}>Voice</Text>
-          {NARRATORS.map((n) => {
+          {['male', 'female'].map((g) => (
+            <View key={g}>
+              <Text style={styles.voiceGroup}>{g === 'male' ? 'Male voices' : 'Female voices'}</Text>
+          {NARRATORS.filter((n) => n.gender === g).map((n) => {
             const on = n.id === narrator.id;
+            const info = (nar.voiceInfo || {})[n.id];
+            const accent = info && info.accent ? ACCENTS[info.accent.slice(0, 5)] || ACCENTS[info.accent.slice(0, 2)] : null;
             return (
               <Pressable key={n.id} onPress={() => setNarrator(n)} style={[styles.voice, on && styles.voiceOn]}>
                 <View style={[styles.voiceAvatar, { backgroundColor: n.tint }]}>
@@ -167,7 +184,10 @@ export default function NowPlayingSheet() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.voiceName}>{n.name}</Text>
-                  <Text style={styles.voiceStyle}>{n.style}</Text>
+                  <Text style={styles.voiceStyle}>{n.style}{accent ? ` · ${accent} voice` : ''}</Text>
+                  {info && !info.matched && !nar.isWeb ? (
+                    <Text style={styles.voiceMissing}>No {g} voice on this phone yet: using the default voice</Text>
+                  ) : null}
                 </View>
                 {on ? (
                   <View style={styles.voiceCheck}><Icon name="check" size={13} color={colors.night} strokeWidth={3} /></View>
@@ -177,10 +197,33 @@ export default function NowPlayingSheet() {
               </Pressable>
             );
           })}
+            </View>
+          ))}
+          {Platform.OS === 'android' ? (
+            <Pressable onPress={openVoiceSettings} style={styles.moreVoices} accessibilityRole="button">
+              <Icon name="download" size={14} color={colors.goldLight} />
+              <Text style={styles.moreVoicesText}>Get more voices for this phone</Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.voiceNote}>
+            Voices come from your phone’s text-to-speech. Phones differ: install more English voices in your phone’s
+            Text-to-speech settings (for example Google Speech Services → Install voice data) for more choices.
+          </Text>
         </ScrollView>
       </View>
     </AnimatedModal>
   );
+}
+
+const ACCENTS = {
+  'en-us': 'American', 'en-gb': 'British', 'en-au': 'Australian', 'en-in': 'Indian', 'en-ng': 'Nigerian', 'en-gh': 'Ghanaian',
+  'en-ke': 'Kenyan', 'en-za': 'South African', 'en-ie': 'Irish', 'en-ca': 'Canadian', en: 'English',
+};
+
+// Android: open the phone's text-to-speech settings so the user can install more voices.
+async function openVoiceSettings() {
+  try { await Linking.sendIntent('com.android.settings.TTS_SETTINGS'); return; } catch (e) { /* not on every phone */ }
+  try { await Linking.openSettings(); } catch (e) { /* ignore */ }
 }
 
 function fmt(sec) {
@@ -239,5 +282,10 @@ const styles = StyleSheet.create({
   voiceInitials: { fontSize: 13, fontWeight: '800', color: colors.night },
   voiceName: { fontSize: 14.5, fontWeight: '700', color: colors.nightFg },
   voiceStyle: { fontSize: 12, color: colors.nightMuted, marginTop: 1 },
+  voiceGroup: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, color: colors.nightMuted, textTransform: 'uppercase', marginTop: 6, marginBottom: 8 },
+  voiceMissing: { fontSize: 11, color: colors.goldLight, marginTop: 3 },
+  moreVoices: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', marginTop: 6 },
+  moreVoicesText: { fontSize: 13, fontWeight: '600', color: colors.nightFg },
+  voiceNote: { fontSize: 11.5, lineHeight: 16, color: colors.nightMuted, marginTop: 10, marginBottom: 6 },
   voiceCheck: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
 });

@@ -15,6 +15,7 @@ import { useNav, useIsFocused } from '../navigation';
 import { useStore } from '../store';
 import { errorMessage } from '../api/client';
 import { pickPhotos } from '../api/media';
+import GiftSheet from '../components/social/GiftSheet';
 import {
   useFundMe, onFundMeChange, pickPdf, formatMoney, toMinor, minorToText, CURRENCIES, SYMBOL, CURRENCY_NAME, LIMITS, STATUS_LABEL,
 } from '../api/fundme';
@@ -309,6 +310,7 @@ export function FundraiserScreen({ params = {} }) {
   const [error, setError] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [donateOpen, setDonateOpen] = useState(false);
+  const [giftOpen, setGiftOpen] = useState(false); // send platform coins as a seed to the organiser
   const [confirm, setConfirm] = useState(null); // 'close'
   const [busy, setBusy] = useState(null);
   const [celebrate, setCelebrate] = useState(0);
@@ -406,6 +408,8 @@ export function FundraiserScreen({ params = {} }) {
 
   const banner = owner ? OWNER_BANNER[f.status] : null;
   const canDonate = f.status === 'live';
+  // Anyone but the organiser can send coins as a seed while the fundraiser is live
+  const canGift = canDonate && !owner && !fm.demo && !!(f.owner && f.owner.id);
   const soon = canDonate && !f.paymentsReady;
   // the public page exists once approved (admin-paused pages are hidden)
   const isPublic = f.status === 'live' || (['paused', 'closed'].includes(f.status) && f.pausedBy !== 'admin' && (!owner || !!f.approvedAt || fm.demo));
@@ -458,6 +462,15 @@ export function FundraiserScreen({ params = {} }) {
             {isPublic ? <Button kind="ghost" label="Share" onPress={share} style={{ flex: canDonate ? 0.8 : 1 }} icon={<Icon name="share" size={16} color={colors.fg} />} /> : null}
           </View>
           ) : null}
+          {canGift ? (
+            <Button
+              kind="ghost"
+              label="Gift coins"
+              onPress={() => setGiftOpen(true)}
+              style={{ marginTop: 10 }}
+              icon={<Icon name="gift" size={16} color={colors.fg} />}
+            />
+          ) : null}
           {isPublic ? (
             <PressScale onPress={copyLink} scaleTo={0.98} style={styles.linkRow} accessibilityLabel="Copy link">
               <Icon name="link" size={15} color={colors.primary} />
@@ -489,6 +502,12 @@ export function FundraiserScreen({ params = {} }) {
       <Donors f={f} />
 
       <Lightbox uri={lightbox} onClose={() => setLightbox(null)} />
+      <GiftSheet
+        visible={giftOpen}
+        target={{ userId: f.owner && f.owner.id, name: (f.owner && f.owner.displayName) || 'the organiser' }}
+        subtitle={`Sow a seed for ${(f.owner && f.owner.displayName) || 'the organiser'} with your coins`}
+        onClose={() => setGiftOpen(false)}
+      />
       <DonateSheet visible={donateOpen} f={f} demo={fm.demo} defaultName={(state.user && state.user.displayName) || ''} onClose={() => setDonateOpen(false)} onDonate={donate} />
       <AnimatedModal visible={confirm === 'close'} onRequestClose={() => setConfirm(null)}>
         <Pressable style={{ flex: 1 }} onPress={() => setConfirm(null)} />

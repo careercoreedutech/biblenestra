@@ -3,6 +3,7 @@ import { one, q } from '../lib/db.js';
 import { ApiError, bad, body, decodeCursor, encodeCursor, forbidden, int, isUuid, notFound, str, uuidParam } from '../lib/http.js';
 import { POST_SELECT, postShape, userJson } from '../lib/shape.js';
 import { RULES } from '../lib/rules.js';
+import { designFromBody } from '../lib/postDesign.js';
 
 const r = new Hono();
 const REACTIONS = ['like', 'amen', 'love', 'praise', 'care'];
@@ -67,11 +68,13 @@ r.post('/posts', async (c) => {
   }
   const p = b.passage && typeof b.passage === 'object' ? b.passage : null;
   if (p && !/^[1-3A-Z]{3}$/.test(String(p.bookId || ''))) throw bad('passage.bookId must be a book id like JHN');
+  // Image-style text card design (allow-listed); photo / video posts never carry one
+  const theme = images.length || videoUid ? null : designFromBody(b, text);
   const row = await one(c.env, `INSERT INTO posts (author_id, kind, body, passage_book, passage_ch, passage_verse, theme, category, video_uid, video_status, video_duration, video_url, video_thumb)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`, [
     me.id, kind, text,
     p ? p.bookId : null, p ? int(p.chapter, { min: 1, max: 150, field: 'chapter' }) : null, p && p.verse ? int(p.verse, { min: 1, max: 176, field: 'verse' }) : null,
-    str(b.theme, { max: 30, optional: true }), str(b.category, { max: 40, optional: true }),
+    theme, str(b.category, { max: 40, optional: true }),
     videoUid, video ? (video.status === 'ready' ? 'ready' : 'uploading') : null, video ? video.duration : null,
     video ? video.video_key : null, video ? video.thumb_key : null,
   ]);

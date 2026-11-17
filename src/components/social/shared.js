@@ -25,7 +25,8 @@ export const SOCIAL = {
   faint: 'rgba(244,239,230,0.45)',
 };
 
-// Dark card themes offered for text posts (white serif text sits on these). null = plain post.
+// Legacy quote-card colours (older posts / presets carry these as `bg`). The full image-card design
+// palette — colours, gradients, patterns, scripture frames — lives in ./TextPostCard.js (DESIGNS).
 export const CONTENT_THEMES = [colors.night, colors.primaryInk, colors.teal, colors.lavender];
 
 // Media library the composer offers (no native picker is bundled — web can also add from device).

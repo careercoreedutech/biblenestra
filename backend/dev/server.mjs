@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../src/index.js';
-import { makeDb, makeBucket } from './local-env.mjs';
+import { makeDb, makeBucket, makeAssets } from './local-env.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // DATA_DIR lets several local servers run side by side (each needs its own PGlite folder)
@@ -27,6 +27,7 @@ for (const name of String(process.env.DEV_ADMINS || 'admin').split(',').map((x) 
 const env = {
   __db: db,
   MEDIA: makeBucket(path.join(dataDir, 'media')),
+  ASSETS: makeAssets(path.join(here, '..', 'public')),
   AUTH_DEV_MODE: 'true',
   ADS_CLIENT_CLAIM: 'true',
   CORS_ORIGINS: '*',

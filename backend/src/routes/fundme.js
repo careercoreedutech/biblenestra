@@ -162,7 +162,7 @@ function listShape(c, f) {
     mainImageUrl: imgUrl(c, f.main_image_key),
     status: f.status,
     ...moneyShape(f),
-    owner: f.owner_name ? { displayName: f.owner_name, avatarUrl: f.owner_avatar || null } : undefined,
+    owner: f.owner_name ? { id: f.owner_id, displayName: f.owner_name, avatarUrl: f.owner_avatar || null } : undefined,
     createdAt: iso(f.created_at),
   };
 }

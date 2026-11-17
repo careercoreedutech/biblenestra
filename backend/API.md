@@ -23,7 +23,8 @@ Me = User & { coins, jobAdCredits, jobAdsNeeded: 5, supportAdsToday: number /*0.
 Post = {
   id, author: User, kind, text, createdAt /*ISO*/,
   passage: { bookId, chapter, verse? } | null,
-  theme: string | null,
+  theme: string | null,                                   // image-style text card: "<design>.<font>.<align>" (legacy: "#RRGGBB")
+  design: { key, font, align } | { color } | null,        // parsed `theme` (allow-list in src/lib/postDesign.js)
   images: [{ url, width, height }],                       // photo posts (0..10)
   video: null | { uid, status: 'uploading'|'ready', url /* 720p MP4 in R2 */, hls /* same as url, kept for older builds */, thumbnail, duration, category },
   likes, comments, shares, views,                         // author also carries isFollowing
@@ -55,7 +56,7 @@ Page<T> = { items: T[], nextCursor: string | null }
 | GET `/feed` | `?filter=forYou\|following\|communities\|events&cursor=&limit=20` | `Page<Post>` (newest first, hidden posts excluded) |
 | GET `/videos` | `?cursor=&limit=10` | `Page<Post>` (only ready videos) |
 | GET `/posts/:id` | | `Post` |
-| POST `/posts` | `{ kind, text, passage?, theme?, images?: [{ key, width, height }], videoUid?, category? }` | `Post` |
+| POST `/posts` | `{ kind, text, passage?, theme? \| design?: { key, font?, align? }, images?: [{ key, width, height }], videoUid?, category? }` | `Post` |
 | DELETE `/posts/:id` | | `{ ok }` (author only) |
 | POST `/posts/:id/react` | `{ reaction: 'like'\|'amen'\|'love'\|'praise'\|'care'\|null }` | `{ myReaction, likes }` |
 | POST `/posts/:id/save` | | `{ saved }` (toggle) |

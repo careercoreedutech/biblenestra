@@ -11,8 +11,11 @@ import NowPlayingSheet from './src/components/NowPlayingSheet';
 import { ToastProvider } from './src/components/Toast';
 import { NarrationProvider } from './src/audio/Narration';
 import { AdsProvider } from './src/ads/Ads';
+import { AdsBridge } from './src/ads/AdsBridge'; // ADS: authenticated transport for ad event logging
 import { AuthGate } from './src/api/auth';
 import { IntroGate } from './src/screens/IntroScreens';
+import { ExtraBooksScreen, ExtraBookScreen } from './src/screens/ExtraBooksScreens'; // BEYOND THE 66
+import EngagementPopup from './src/components/EngagementPopup';
 import { PlansScreen, PlansGate } from './src/screens/PlansScreen';
 import { ContestsScreen, ContestScreen, ContestEntryScreen, ContestSubmitScreen, CertificateScreen } from './src/screens/ContestsScreens';
 import { ContestOrganizeScreen, ContestEditorScreen, ContestManageScreen, ContestJudgeScreen } from './src/screens/ContestOrganizeScreens';
@@ -41,8 +44,15 @@ import ActivityScreen from './src/screens/ActivityScreen'; // SOCIAL (round 3)
 import { RecordingDetailScreen } from './src/screens/RecordScreens'; // DISCOVER TOOLS (round 3)
 import RemindersScreen from './src/screens/RemindersScreen'; // DISCOVER TOOLS (round 3)
 import { WatchScreen, YouTubeChannelScreen } from './src/screens/WatchScreens'; // DISCOVER TOOLS (round 3)
+import YouTubeWatchScreen from './src/screens/YouTubeWatchScreen'; // YOUTUBE LIVE: big player + Bible Nestra comments
+import { EmbedViewerScreen } from './src/components/EmbedViewer'; // YOUTUBE LIVE: full-screen embeds for video links
+import { useLivePushOpen } from './src/notifications/livePush'; // YOUTUBE LIVE
 import { useReminders } from './src/notifications/reminders'; // DISCOVER TOOLS (round 3)
 import { FundMeHomeScreen, FundraiserScreen, FundraiserEditScreen, FundraiserDonationsScreen } from './src/screens/FundMeScreens'; // FUND ME (round 3)
+import { OpportunitiesScreen } from './src/screens/OpportunitiesScreen'; // OPPORTUNITIES
+import { MediaLibraryScreen, MediaListScreen, MediaUploadScreen, BookReaderScreen } from './src/screens/MediaLibraryScreens'; // MEDIA LIBRARY: audio + Christian books
+import { AudioPlayerProvider } from './src/audio/Player'; // MEDIA LIBRARY: global audio player (continuous playback)
+import { LibraryMiniBar } from './src/components/MiniPlayer'; // MEDIA LIBRARY
 
 class ErrorBoundary extends Component {
   state = { hasError: false, error: null };
@@ -75,6 +85,7 @@ class ErrorBoundary extends Component {
 }
 
 const ROUTES = {
+  ExtraBooks: ExtraBooksScreen, ExtraBook: ExtraBookScreen, // BEYOND THE 66: deuterocanonical & extra-biblical books
   Bible: BibleScreen, Study: StudyScreen, Factbook: FactbookScreen, Search: SearchScreen, Library: LibraryScreen,
   Reading: ReadingScreen, BibleChat: BibleChatScreen, Companion: CompanionScreen,
   Prayer: PrayerDetailScreen, NewPrayer: NewPrayerScreen, PrayerTab: PrayerScreen, PrayerWall: PrayerScreen,
@@ -87,6 +98,9 @@ const ROUTES = {
   UserProfile: UserProfileScreen, EditProfile: EditProfileScreen, Activity: ActivityScreen, // SOCIAL (round 3)
   RecordingDetail: RecordingDetailScreen, Reminders: RemindersScreen, Watch: WatchScreen, YouTubeChannel: YouTubeChannelScreen, // DISCOVER TOOLS (round 3)
   FundMe: FundMeHomeScreen, Fundraiser: FundraiserScreen, FundraiserEdit: FundraiserEditScreen, FundraiserDonations: FundraiserDonationsScreen, // FUND ME (round 3)
+  Opportunities: OpportunitiesScreen, // OPPORTUNITIES (external listings)
+  MediaLibrary: MediaLibraryScreen, MediaList: MediaListScreen, MediaUpload: MediaUploadScreen, BookReader: BookReaderScreen, // MEDIA LIBRARY
+  YouTubeWatch: YouTubeWatchScreen, EmbedViewer: EmbedViewerScreen, // YOUTUBE LIVE
 };
 // Dev-only: preview the online sign-in design without a Clerk key (/?route=SignInPreview)
 if (__DEV__) ROUTES.SignInPreview = SignInPreviewScreen;
@@ -165,6 +179,7 @@ function Root() {
   // Scripture pop-ups: keep the next couple of days scheduled; open the verse when one is tapped
   useScripturePop(ready ? state.scripturePop : null, nav);
   useReminders(nav); // DISCOVER TOOLS (round 3): reminders + daily verse (local notifications)
+  useLivePushOpen(nav); // YOUTUBE LIVE: tapping a LIVE NOW push opens the Watch screen
   // Android hardware back pops the in-app stack before leaving the app
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -227,8 +242,10 @@ function Root() {
           {layers}
         </KeyboardAvoidingView>
         {!(tab === 'Bible' && !top) && !(top && top.name === 'Bible') ? <MiniPlayer bg={top ? colors.screen : pageBg} /> : null}
+        {(tab === 'Bible' && !top) || (top && top.name === 'Bible') ? <LibraryMiniBar bg={pageBg} /> : null}{/* MEDIA LIBRARY: library audio keeps its bar in the Bible reader */}
         {!top ? <TabBar active={tab} variant={variant} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
         <NowPlayingSheet />
+        <EngagementPopup />
       </View>
     </SafeAreaView>
   );
@@ -252,7 +269,10 @@ export default function App() {
                   <IntroGate>
                     <AuthGate>
                       <SyncProvider>
+                        <AdsBridge />
+                        <AudioPlayerProvider>{/* MEDIA LIBRARY: playback continues across every screen */}
                         <Root />
+                        </AudioPlayerProvider>
                       </SyncProvider>
                     </AuthGate>
                   </IntroGate>

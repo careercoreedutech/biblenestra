@@ -1,6 +1,6 @@
 // Direct messages & conversations routes
 import { Hono } from 'hono';
-import { body, str, uuidParam, bad, notFound, forbidden, encodeCursor, decodeCursor } from '../lib/http.js';
+import { ApiError, body, str, uuidParam, bad, notFound, forbidden, encodeCursor, decodeCursor } from '../lib/http.js';
 import { q, one } from '../lib/db.js';
 import { userJson } from '../lib/shape.js';
 import { notifyUser } from '../hub.js';
@@ -10,6 +10,16 @@ import { MSG_SELECT, messageShape, loadMessage, pinsFor } from '../lib/messages.
 const conversations = new Hono();
 
 export { messageShape } from '../lib/messages.js';
+
+// Chat-list / push preview for messages that have no text of their own
+const KIND_PREVIEW = { image: '📷 Photo', voice: '🎤 Voice message' };
+const MAX_CHAT_GIFT = 10000;
+// A media message may only point at this chat's uploads (or the sender's own public uploads)
+const mediaKeyOk = (key, convId, meId) => {
+  if (key.includes('..')) return false;
+  const file = (prefix) => key.startsWith(prefix) && /^[\w.-]+$/.test(key.slice(prefix.length));
+  return file(`chat/${convId}/`) || ['img', 'aud', 'voice'].some((d) => file(`${d}/${meId}/`));
+};
 
 // GET /conversations — list user conversations with last message + unread count
 conversations.get('/conversations', async (c) => {
@@ -81,7 +91,7 @@ conversations.get('/conversations', async (c) => {
       lastMessage: lastMsg ? {
         id: lastMsg.id,
         kind: lastMsg.kind,
-        text: lastMsg.body,
+        text: lastMsg.body || KIND_PREVIEW[lastMsg.kind] || '',
         senderId: lastMsg.senderId,
         createdAt: new Date(lastMsg.createdAt).toISOString(),
         deleted: !!lastMsg.deleted,
@@ -218,6 +228,10 @@ conversations.post('/conversations/:id/messages', async (c) => {
   const clientId = b.clientId ? str(b.clientId, { max: 100 }) : null;
 
   if (!text && !mediaKey && !meta) throw bad('Message content required', 'EMPTY_MESSAGE');
+  if ((kind === 'image' || kind === 'voice') && !mediaKey) throw bad('Attach the uploaded file (mediaKey)', 'MEDIA_REQUIRED');
+  if (mediaKey && !mediaKeyOk(mediaKey, convId, me.id)) throw bad('That file does not belong to this chat', 'BAD_MEDIA');
+  // coin gifts only come from POST /conversations/:id/coins
+  if (meta && meta.gift) throw bad('Send coins with the gift button', 'BAD_META');
 
   // Fetch conversation, membership, other members, and rate limit check in parallel (1 round-trip)
   const [convData, recentCount] = await Promise.all([
@@ -314,7 +328,7 @@ conversations.post('/conversations/:id/messages', async (c) => {
           userId: m.user_id,
           kind: convData.kind === 'group' ? 'group' : 'message',
           title: convData.kind === 'group' ? (convData.title || 'Group Message') : me.display_name,
-          body: kind === 'image' ? '📷 Photo' : kind === 'voice' ? '🎤 Voice message' : (text.slice(0, 100) || 'New message'),
+          body: kind === 'image' ? (text ? `📷 ${text.slice(0, 90)}` : '📷 Photo') : kind === 'voice' ? (meta && meta.file ? '🎵 Audio' : '🎤 Voice message') : (text.slice(0, 100) || 'New message'),
           data: { conversationId: convId, messageId: row.id },
         });
       }
@@ -322,6 +336,97 @@ conversations.post('/conversations/:id/messages', async (c) => {
   );
 
   return c.json(formatted, 201);
+});
+
+// POST /conversations/:id/coins — { coins, note?, toUserId?, clientId? }: gift platform coins to someone in this chat.
+// DMs: the other person. Groups: toUserId (a member). The whole amount moves (no platform cut), and the
+// debit, credit, both ledger rows and the "🎁 Sent N coins" chat message happen in ONE statement, so a
+// failed balance check changes nothing.
+conversations.post('/conversations/:id/coins', async (c) => {
+  const me = c.get('user');
+  const convId = uuidParam(c, 'id');
+  const b = await body(c);
+  const coins = Number(b.coins);
+  if (!Number.isInteger(coins) || coins < 1 || coins > MAX_CHAT_GIFT) throw bad(`Send between 1 and ${MAX_CHAT_GIFT} coins`, 'BAD_AMOUNT');
+  const note = str(b.note || '', { max: 200, optional: true, field: 'note' }) || '';
+  const clientId = b.clientId ? str(b.clientId, { max: 100 }) : null;
+
+  const conv = await one(c.env, `SELECT c.kind, c.title,
+      EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = c.id AND user_id = $2) AS is_member
+    FROM conversations c WHERE c.id = $1`, [convId, me.id]);
+  if (!conv || !conv.is_member) throw forbidden('Not a member of this conversation');
+  if (conv.kind === 'channel') throw bad('Coins can be gifted in private chats and groups', 'NOT_ALLOWED');
+
+  let toId;
+  if (conv.kind === 'dm') {
+    const other = await one(c.env, 'SELECT user_id FROM conversation_members WHERE conversation_id = $1 AND user_id <> $2 LIMIT 1', [convId, me.id]);
+    toId = other && other.user_id;
+  } else {
+    toId = b.toUserId && /^[0-9a-f-]{36}$/i.test(String(b.toUserId)) ? String(b.toUserId) : null;
+    if (toId && !(await one(c.env, 'SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [convId, toId]))) toId = null;
+  }
+  if (!toId || toId === me.id) throw bad('Choose someone in this chat to gift', 'BAD_RECIPIENT');
+  const recipient = await one(c.env, 'SELECT id, display_name FROM users WHERE id = $1 AND NOT banned', [toId]);
+  if (!recipient) throw notFound('Recipient not found');
+  const blocked = await one(c.env, 'SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)', [me.id, toId]);
+  if (blocked) throw forbidden('You cannot gift this user', 'BLOCKED');
+
+  // a retried request (same clientId) never charges twice
+  if (clientId) {
+    const existing = await one(c.env, 'SELECT id FROM messages WHERE conversation_id = $1 AND sender_id = $2 AND client_id = $3', [convId, me.id, clientId]);
+    if (existing) {
+      const bal = await one(c.env, 'SELECT coins FROM users WHERE id = $1', [me.id]);
+      return c.json({ ok: true, duplicate: true, coinsRemaining: bal.coins, message: await loadMessage(c.env, existing.id, me.id) });
+    }
+  }
+
+  const text = `🎁 Sent ${coins} coin${coins === 1 ? '' : 's'}${note ? ` — ${note}` : ''}`;
+  const meta = { gift: { coins, toUserId: toId, toName: recipient.display_name, note: note || null } };
+  const row = await one(c.env,
+    `WITH debit AS (
+       UPDATE users SET coins = coins - $1 WHERE id = $2 AND coins >= $1 RETURNING coins
+     ),
+     credit AS (
+       UPDATE users SET coins = coins + $1 WHERE id = $3 AND EXISTS (SELECT 1 FROM debit) RETURNING id
+     ),
+     msg AS (
+       INSERT INTO messages (conversation_id, sender_id, kind, body, meta, client_id)
+       SELECT $4, $2, 'text', $5, $6::jsonb, $7 WHERE EXISTS (SELECT 1 FROM debit)
+       RETURNING id
+     ),
+     ledger AS (
+       INSERT INTO coin_ledger (user_id, amount, reason, ref)
+       SELECT $2, -$1::int, 'chat_gift_sent', msg.id::text FROM msg
+       UNION ALL
+       SELECT $3, $1::int, 'chat_gift_received', msg.id::text FROM msg
+     ),
+     up_conv AS (
+       UPDATE conversations SET last_message_at = now() WHERE id = $4 AND EXISTS (SELECT 1 FROM debit)
+     ),
+     up_mem AS (
+       UPDATE conversation_members SET last_read_at = now() WHERE conversation_id = $4 AND user_id = $2 AND EXISTS (SELECT 1 FROM debit)
+     )
+     SELECT d.coins AS coins_left, (SELECT id FROM msg) AS message_id FROM debit d`,
+    [coins, me.id, toId, convId, text, JSON.stringify(meta), clientId]);
+  if (!row) throw new ApiError(402, 'INSUFFICIENT_COINS', 'You do not have enough coins for this gift');
+
+  const message = await loadMessage(c.env, row.message_id, me.id);
+  const forThem = await loadMessage(c.env, row.message_id, toId);
+  const others = await q(c.env, 'SELECT user_id, muted FROM conversation_members WHERE conversation_id = $1 AND user_id <> $2', [convId, me.id]);
+  await Promise.all(others.map(async (m) => {
+    await notifyUser(c.env, m.user_id, { type: 'message.new', conversationId: convId, message: m.user_id === toId ? forThem : { ...forThem, isMe: false } });
+  }));
+  // the receiver's balance updates live (the app's gift.received handler) and they get a push
+  await notifyUser(c.env, toId, { type: 'gift.received', from: { id: me.id, displayName: me.display_name }, gift: { name: 'coin gift' }, coins, conversationId: convId });
+  await sendNotification(c, {
+    userId: toId,
+    kind: 'gift',
+    title: '🎁 You received coins!',
+    body: `${me.display_name} sent you ${coins} coin${coins === 1 ? '' : 's'}${note ? `: “${note.slice(0, 60)}”` : ''}`,
+    data: { type: 'chat_gift', conversationId: convId, messageId: row.message_id, fromId: me.id, coins },
+  });
+
+  return c.json({ ok: true, coinsRemaining: row.coins_left, coinsGiven: coins, message }, 201);
 });
 
 // POST /conversations/:id/read — mark conversation as read

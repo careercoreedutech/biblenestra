@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "864838997962",
+    "project_id": "bible-fd1ac",
+    "storage_bucket": "bible-fd1ac.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:864838997962:android:78993cbd528f0d2d5fe133",
+        "android_client_info": {
+          "package_name": "com.biblenestra.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUduaWXlJ-X7XcTWHTJUya7tJ5cXnsaCk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

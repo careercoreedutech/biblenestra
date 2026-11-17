@@ -22,8 +22,14 @@ import { API_CONFIG } from '../api/config'; // DISCOVER TOOLS (round 3)
 import { YouTubeSection } from './WatchScreens'; // DISCOVER TOOLS (round 3)
 import { PersonSocial } from './UserProfileScreen'; // SOCIAL (round 3)
 import { ChatMessage, PinnedBar, useMessageActions } from '../components/chat/MessageKit'; // ROUND 4: message actions
-import { dmScope, groupScope, scopeConversationId } from '../chat/messages';
+import { dmScope, groupScope, scopeConversationId, isServerId as isChatServerId, mapServerMessage } from '../chat/messages';
+import { useApi } from '../api/auth'; // CHAT EXTRAS: photos, voice, Meet calls, coin gifts
+import { errorMessage } from '../api/client';
+import { pickPhotos, pickAudio } from '../api/media';
+import { uploadChatImage, uploadChatAudio, sendChatCoins, MAX_CHAT_AUDIO } from '../api/chatMedia';
+import { AttachTray, AudioBubble, ChatImage, CoinGiftSheet, GiftCard, ImageViewer, MeetJoin, MeetPrompt, RecorderBar, useVoiceRecorder } from '../chat/ChatExtras';
 import { useThreadLoader } from '../chat/useThread';
+import { OpportunitiesEntryCard } from './OpportunitiesScreen'; // OPPORTUNITIES
 
 // ---------- Discover Hub (Sanctuary Paper) ----------
 const WISH_CATEGORIES = ['Healing', 'Guidance', 'Family', 'Financial Miracle', 'Salvation', 'Revival'];
@@ -335,6 +341,7 @@ export default function DiscoverScreen() {
             { label: 'Prayer', icon: 'prayer', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('PrayerWall') },
             { label: 'Chats', icon: 'chat', tint: colors.primary, bg: colors.cardIndigo, go: () => nav.push('ChatList') },
             { label: 'Record', icon: 'mic', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('SermonStudio') },
+            { label: 'Audio & Books', icon: 'headphones', tint: colors.primary, bg: colors.cardIndigo, go: () => nav.push('MediaLibrary') }, // MEDIA LIBRARY: audio library + Christian books
             { label: 'Contests', icon: 'star', tint: colors.gold, bg: colors.cardGold, go: () => nav.push('Contests') },
             { label: 'Learn', icon: 'book', tint: colors.sage, bg: colors.cardSage, go: () => nav.push('Learn') },
             { label: 'Ask AI', icon: 'sparkles', tint: colors.gold, bg: colors.cardGold, go: () => nav.push('BibleChat') },
@@ -342,11 +349,12 @@ export default function DiscoverScreen() {
             { label: 'Reminder', icon: 'bell', tint: colors.amber, bg: colors.cardGold, go: () => nav.push('Reminders') },
             { label: 'Library', icon: 'bookmark', tint: colors.lavender, bg: colors.cardLavender, go: () => nav.push('Library') },
             { label: 'Jobs', icon: 'briefcase', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('Jobs') },
+            { label: 'Opportunities', icon: 'globe', tint: colors.sky, bg: colors.cardSky, go: () => nav.push('Opportunities') }, // OPPORTUNITIES
             { label: 'Care', icon: 'heart', tint: colors.teal, bg: colors.cardSage, go: () => nav.push('Care') },
             { label: 'Fund Me', icon: 'gift', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('FundMe') },
           ].map((q, i) => (
             <FadeInUp key={q.label} index={i} distance={10} stagger={40}>
-              <PressScale onPress={q.go} scaleTo={0.93} accessibilityRole="button" accessibilityLabel={q.label} style={styles.quickItem}>
+              <PressScale onPress={q.go} scaleTo={0.93} accessibilityRole="button" accessibilityLabel={q.label} style={[styles.quickItem, q.label.length > 9 && { width: 84 }]}>
                 <View style={[styles.quickIcon, { backgroundColor: q.bg }]}>
                   <Icon name={q.icon} size={22} color={q.tint} />
                 </View>
@@ -610,6 +618,9 @@ export default function DiscoverScreen() {
             </Pressable>
           ))}
         </View>
+
+        {/* 5b. Opportunities worldwide (external listings) */}
+        <OpportunitiesEntryCard onPress={() => nav.push('Opportunities')} style={{ marginTop: 12 }} />
 
         {/* 6. Churches & Bible Studies */}
         <SectionHead eyebrow="Fellowship" title="Churches & Bible Studies" />
@@ -1682,6 +1693,72 @@ export function ChatScreen({ params = {} }) {
     canModerate: chatAdmin,
     onSend: (t, reply) => dispatch({ type: 'dm', cid: chat.id, with: chat.with || params.to, text: t, reply, localId: 'x' + Date.now() }),
   });
+  // CHAT EXTRAS: photos, voice notes / audio files, Google Meet links, coin gifts (media + gifts need the API)
+  const api = useApi();
+  const mediaOk = !!api.online && !!chat && isChatServerId(chat.id) && canMessage;
+  const [tray, setTray] = useState(false);
+  const [meetOpen, setMeetOpen] = useState(false);
+  const [giftOpen, setGiftOpen] = useState(false);
+  const [viewer, setViewer] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const recorder = useVoiceRecorder({ onError: (msg) => toast.show(msg, { tone: 'error' }) });
+  const needOnline = () => toast.show('Photos, voice notes and coin gifts need you to be signed in online', { icon: 'lock' });
+  const postMedia = async (body) => {
+    const res = await api.request('POST', `/conversations/${chat.id}/messages`, { ...body, clientId: `m_${Date.now()}_${Math.random().toString(36).slice(2, 7)}` });
+    dispatch({ type: 'msgUpsert', scope: cScope, message: mapServerMessage(res), local: true });
+  };
+  const withBusy = async (label, fn) => {
+    setBusy(label);
+    try { await fn(); } catch (e) { toast.show(errorMessage(e, 'Couldn’t send that'), { tone: 'error' }); } finally { setBusy(null); }
+  };
+  const sendPhotos = async () => {
+    if (!mediaOk) return needOnline();
+    let photos;
+    try { photos = await pickPhotos(4); } catch (e) { toast.show(errorMessage(e, 'Couldn’t open your photos'), { tone: 'error' }); return; }
+    if (!photos.length) return;
+    await withBusy(photos.length > 1 ? `Sending ${photos.length} photos…` : 'Sending photo…', async () => {
+      for (const p of photos) {
+        const up = await uploadChatImage(api.request, chat.id, p);
+        await postMedia({ kind: 'image', mediaKey: up.key, meta: { width: up.width || 0, height: up.height || 0 } });
+      }
+    });
+  };
+  const sendAudioFile = async () => {
+    if (!mediaOk) return needOnline();
+    let a;
+    try { a = await pickAudio(); } catch (e) { toast.show(errorMessage(e, 'Couldn’t open your files'), { tone: 'error' }); return; }
+    if (!a) return;
+    if (a.size && a.size > MAX_CHAT_AUDIO) { toast.show('Audio files can be up to 20 MB', { tone: 'error' }); return; }
+    await withBusy('Sending audio…', async () => {
+      const up = await uploadChatAudio(api.request, chat.id, { ...a, isFile: true });
+      await postMedia({ kind: 'voice', mediaKey: up.key, meta: { file: true, name: String(a.name || 'Audio').slice(0, 120) } });
+    });
+  };
+  const startVoice = async () => {
+    if (!mediaOk) return needOnline();
+    await recorder.start();
+  };
+  const finishVoice = async () => {
+    const clip = await recorder.stop(true);
+    if (!clip) return;
+    await withBusy('Sending voice message…', async () => {
+      const up = await uploadChatAudio(api.request, chat.id, clip);
+      await postMedia({ kind: 'voice', mediaKey: up.key, meta: { durationMs: Math.round(clip.durationMs) } });
+    });
+  };
+  const sendCoins = async (coins, note) => {
+    try {
+      const res = await sendChatCoins(api.request, chat.id, { coins, note });
+      dispatch({ type: 'serverSync', patch: { coins: res.coinsRemaining }, local: true });
+      if (res.message) dispatch({ type: 'msgUpsert', scope: cScope, message: mapServerMessage(res.message), local: true });
+      toast.show(`🎁 Sent ${coins} coin${coins === 1 ? '' : 's'} to ${chat.with}`, { icon: 'gift', haptic: 'success' });
+      return true;
+    } catch (e) {
+      toast.show(errorMessage(e, 'Couldn’t send coins'), { tone: 'error' });
+      return false;
+    }
+  };
+  const shareMeet = (link) => dispatch({ type: 'dm', cid: chat.id, with: chat.with || params.to, text: `📹 Join my video call: ${link}`, localId: 'x' + Date.now() });
   if (!chat && params.to) {
     return (
       <Screen back title={params.to} subtitle="New conversation" scroll={false}>
@@ -1751,6 +1828,8 @@ export function ChatScreen({ params = {} }) {
       const kind = o.replace('Convert to ', '');
       dispatch({ type: 'dm', cid: chat.id, text: `Invited ${chat.with} to turn this into a ${kind}.` });
       toast.show(`Invite sent · ${chat.with} needs to accept`, { icon: 'check' });
+    } else if (o === 'Start a video call') {
+      setMeetOpen(true);
     } else if (o === 'Schedule a call') {
       nav.push('Create', { kind: 'Event' });
     } else if (o === 'Mute' || o === 'Unmute') {
@@ -1771,8 +1850,8 @@ export function ChatScreen({ params = {} }) {
       right={<HeaderIconBtn label="Conversation options" active={kindMenu} onPress={() => setKindMenu(!kindMenu)}><Glyph name="more" size={17} color={kindMenu ? '#FFFFFF' : colors.fg} /></HeaderIconBtn>}>
       {kindMenu ? (
         <FadeInUp distance={-8} duration={220} style={styles.menu}>
-          {['Convert to Bible study', 'Convert to prayer conversation', 'Convert to mentor conversation', 'Schedule a call', muted ? 'Unmute' : 'Mute', 'Block', 'Report'].map((o, i) => (
-            <Pressable key={o} onPress={() => runOption(o)} style={({ pressed }) => [styles.menuRow, i === 4 && styles.menuRowDivider, pressed && styles.pressedFill]}>
+          {['Convert to Bible study', 'Convert to prayer conversation', 'Convert to mentor conversation', 'Start a video call', 'Schedule a call', muted ? 'Unmute' : 'Mute', 'Block', 'Report'].map((o, i) => (
+            <Pressable key={o} onPress={() => runOption(o)} style={({ pressed }) => [styles.menuRow, i === 5 && styles.menuRowDivider, pressed && styles.pressedFill]}>
               <Text style={[styles.menuItem, (o === 'Block' || o === 'Report') && { color: colors.negative }]}>{o}</Text>
             </Pressable>
           ))}
@@ -1797,13 +1876,33 @@ export function ChatScreen({ params = {} }) {
             onLongPress={() => cActions.open(m)}
             onReact={(e) => cActions.react(m, e)}
             onOpenReply={cActions.jumpTo}
-          />
+          >
+            {m.image ? <ChatImage image={m.image} request={api.request} onOpen={setViewer} /> : null}
+            {m.voice ? <AudioBubble voice={m.voice} request={api.request} mine={m.mine} /> : null}
+            {m.gift ? <GiftCard gift={m.gift} mine={m.mine} from={m.from} /> : null}
+            {m.text && !m.gift ? <MeetJoin text={m.text} mine={m.mine} /> : null}
+          </ChatMessage>
         ))}
       </ScrollView>
       {canMessage ? (
         <View style={styles.composerWrap}>
           {cActions.banner}
-          <AskBar placeholder={cActions.editing ? 'Edit your message' : 'Message...'} {...cActions.composer} />
+          {busy ? <Text style={styles.chatBusy}>{busy}</Text> : null}
+          {recorder.recording ? (
+            <RecorderBar ms={recorder.ms} onCancel={() => recorder.stop(false)} onSend={finishVoice} />
+          ) : (
+            <View style={styles.chatComposerRow}>
+              {!cActions.editing ? (
+                <HeaderIconBtn label="Attach photo, audio, call or gift" onPress={() => setTray(true)}><Icon name="plus" size={18} color={colors.fg} /></HeaderIconBtn>
+              ) : null}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <AskBar placeholder={cActions.editing ? 'Edit your message' : 'Message...'} {...cActions.composer} />
+              </View>
+              {!cActions.editing ? (
+                <HeaderIconBtn label="Record a voice message" onPress={startVoice}><Icon name="mic" size={18} color={mediaOk ? colors.fg : colors.faint} /></HeaderIconBtn>
+              ) : null}
+            </View>
+          )}
         </View>
       ) : (
         <View style={styles.followLockedCard}>
@@ -1817,6 +1916,20 @@ export function ChatScreen({ params = {} }) {
         </View>
       )}
       {cActions.sheet}
+      <AttachTray
+        visible={tray}
+        onClose={() => setTray(false)}
+        items={[
+          { label: 'Photo', icon: 'image', tint: colors.sky, disabled: !mediaOk, onPress: sendPhotos },
+          { label: 'Voice message', icon: 'mic', tint: colors.rose, disabled: !mediaOk, onPress: startVoice },
+          { label: 'Audio file', icon: 'music', tint: colors.lavender, disabled: !mediaOk, onPress: sendAudioFile },
+          { label: 'Video call', icon: 'video', tint: colors.teal, onPress: () => setMeetOpen(true) },
+          ...(isDm && !isGroupChat ? [{ label: 'Gift coins', icon: 'gift', tint: colors.gold, disabled: !mediaOk, onPress: () => (mediaOk ? setGiftOpen(true) : needOnline()) }] : []),
+        ]}
+      />
+      <MeetPrompt visible={meetOpen} onClose={() => setMeetOpen(false)} onShare={shareMeet} />
+      <CoinGiftSheet visible={giftOpen} name={chat.with} balance={state.coins || 0} onClose={() => setGiftOpen(false)} onSend={sendCoins} onEarn={() => nav.push('Learn', { tab: 'Games' })} />
+      <ImageViewer source={viewer} onClose={() => setViewer(null)} />
     </Screen>
   );
 }
@@ -3159,6 +3272,8 @@ const styles = StyleSheet.create({
   passageChipMine: { backgroundColor: 'rgba(255,255,255,0.14)' },
   passageChipActive: { backgroundColor: colors.primary },
   passageChipText: { fontFamily: fonts.serifBold, fontSize: 13.5, color: colors.primary },
+  chatComposerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  chatBusy: { fontSize: 12, color: colors.muted, textAlign: 'center', marginTop: 4 },
   composerWrap: {
     paddingHorizontal: 14,
     paddingTop: 10,

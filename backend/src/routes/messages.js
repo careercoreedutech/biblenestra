@@ -35,6 +35,7 @@ messages.patch('/messages/:id', async (c) => {
   if (msg.sender_id !== me.id) throw forbidden('You can only edit your own messages');
   if (msg.deleted) throw bad('This message was deleted', 'MESSAGE_DELETED');
   if (!['text', 'verse', 'prayer'].includes(msg.kind)) throw bad('Only text messages can be edited', 'NOT_EDITABLE');
+  if (msg.meta && msg.meta.gift) throw bad('Gift messages can’t be edited', 'NOT_EDITABLE');
   if (Date.now() - new Date(msg.created_at).getTime() > EDIT_WINDOW_HOURS * 3600e3) {
     throw bad(`Messages can be edited for ${EDIT_WINDOW_HOURS} hours after sending`, 'EDIT_WINDOW_PASSED');
   }

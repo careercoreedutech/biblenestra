@@ -9,9 +9,9 @@ import { colors, fonts } from '../theme';
 
 const ORIGIN = 'https://biblenestra.app';
 
-function html(embedUrl) {
+function html(embedUrl, extra = '') {
   const sep = embedUrl.includes('?') ? '&' : '?';
-  const src = `${embedUrl}${sep}enablejsapi=1&playsinline=1&rel=0&modestbranding=1&origin=${encodeURIComponent(ORIGIN)}`;
+  const src = `${embedUrl}${sep}enablejsapi=1&playsinline=1&rel=0&modestbranding=1&fs=1${extra}&origin=${encodeURIComponent(ORIGIN)}`;
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <style>html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style></head>
 <body><iframe id="yt" src="${src.replace(/"/g, '&quot;')}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
@@ -21,9 +21,10 @@ window.onYouTubeIframeAPIReady = function(){ try { new YT.Player('yt', { events:
 </script><script src="https://www.youtube.com/iframe_api"></script></body></html>`;
 }
 
-export default function YouTubePlayer({ embedUrl, watchUrl, style, live }) {
+export default function YouTubePlayer({ embedUrl, watchUrl, style, live, autoplay, muted }) {
   const [failed, setFailed] = useState(false);
-  const source = useMemo(() => ({ html: html(embedUrl), baseUrl: ORIGIN }), [embedUrl]);
+  const extra = `${autoplay ? '&autoplay=1' : ''}${muted ? '&mute=1' : ''}`;
+  const source = useMemo(() => ({ html: html(embedUrl, extra), baseUrl: ORIGIN }), [embedUrl, extra]);
   const open = () => Linking.openURL(watchUrl).catch(() => {});
   return (
     <View style={[styles.frame, style]}>

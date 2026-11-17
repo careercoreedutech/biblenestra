@@ -6,6 +6,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import VideoPoster from '../video/VideoPoster';
+import { VIDEO_FILL } from '../video/videoUtils';
 import { Icon } from '../Icons';
 import { colors, fonts, radius, shadow } from '../../theme';
 import { alpha } from '../ui';
@@ -13,6 +15,8 @@ import { PressScale, FadeInUp, ScaleIn, Pop, Pulse, LiveRing, AnimatedNumber, An
 import { haptic } from '../Toast';
 import { SocialAvatar } from './FeedCard';
 import { ND, WHITE, countFormat } from './shared';
+import { TextPostCard } from './TextPostCard';
+import { LinkText } from '../EmbedViewer'; // YOUTUBE LIVE: video links in posts open in-app
 
 // ─── Reactions (long-press Like) ─────────────────────────────────
 export const REACTIONS = [
@@ -203,7 +207,9 @@ export function PhotoGrid({ images = [], onOpen, onDoubleTap, style }) {
 // ─── Inline video: muted autoplay while it's the most visible card; tap opens Videos at this clip ───
 function InlineVideo({ item, playing, onOpen }) {
   const [w, setW] = useState(0);
-  const player = useVideoPlayer(item.videoUrl || null, (p) => {
+  // Only the card that is actually playing holds a player (each one takes a hardware decoder on Android);
+  // the others show a still frame.
+  const player = useVideoPlayer(playing ? item.videoUrl || null : null, (p) => {
     p.loop = true;
     p.muted = true;
   });
@@ -221,11 +227,9 @@ function InlineVideo({ item, playing, onOpen }) {
           <Icon name="video" size={26} color={alpha(colors.goldLight, 0.7)} />
           {item.scripture ? <Text style={styles.videoBackdropRef}>{item.scripture}</Text> : null}
         </View>
-        {item.poster || (item.raw && item.raw.poster) ? (
-          <Image source={{ uri: item.poster || item.raw.poster }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        ) : null}
-        {item.videoUrl ? (
-          <VideoView style={StyleSheet.absoluteFill} player={player} allowsFullscreen={false} allowsPictureInPicture={false} nativeControls={false} contentFit="cover" />
+        <VideoPoster videoUrl={item.videoUrl} poster={item.poster || (item.raw && item.raw.poster) || null} />
+        {item.videoUrl && playing ? (
+          <VideoView style={VIDEO_FILL} player={player} allowsFullscreen={false} allowsPictureInPicture={false} nativeControls={false} contentFit="cover" />
         ) : null}
         <View style={styles.videoScrim} pointerEvents="none">
           <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
@@ -256,7 +260,7 @@ function InlineVideo({ item, playing, onOpen }) {
           <Icon name="play" size={24} color={WHITE} />
         </View>
         <View style={styles.videoFoot} pointerEvents="none">
-          <Text style={styles.videoFootText}>Watch in Videos</Text>
+          <Text style={styles.videoFootText}>Watch full screen</Text>
           <Icon name="arrow-right" size={12} color={colors.goldLight} strokeWidth={2.6} />
         </View>
       </PressScale>
@@ -284,15 +288,9 @@ function ProcessingVideo({ item }) {
   );
 }
 
-// Themed text post (dark tint + white serif quote)
-function QuoteBlock({ text, bg, passage }) {
-  return (
-    <View style={[styles.quote, { backgroundColor: bg }]}>
-      <Text style={styles.quoteMark}>“</Text>
-      <Text style={styles.quoteText}>{text}</Text>
-      {passage ? <Text style={styles.quoteRef}>— {passage}</Text> : null}
-    </View>
-  );
+// Image-style text post: the chosen design as an edge-to-edge square / 4:5 card (see TextPostCard.js)
+function QuoteBlock({ text, bg, passage, onPassage }) {
+  return <TextPostCard theme={bg} text={text} passage={passage} onPassage={onPassage} rounded={false} style={styles.quoteBleed} />;
 }
 
 // Gold glow around a card we navigated to (deep link / just published)
@@ -408,16 +406,15 @@ export function LightPostCard({
       {/* Body */}
       {showText ? (
         <Pressable onPress={long ? () => setExpanded((v) => !v) : undefined} disabled={!long}>
-          <Text
+          <LinkText
+            text={item.text}
             style={[styles.body, !hasImages && !isVideo && item.text.length < 110 && styles.bodyLarge]}
             numberOfLines={long && !expanded ? 5 : undefined}
-          >
-            {item.text}
-          </Text>
+          />
           {long ? <Text style={styles.seeMore}>{expanded ? 'See less' : 'See more'}</Text> : null}
         </Pressable>
       ) : null}
-      {item.quoteBg ? <QuoteBlock text={item.text} bg={item.quoteBg === colors.night ? colors.nightRaised : item.quoteBg} passage={item.scripture} /> : null}
+      {item.quoteBg && item.text ? <QuoteBlock text={item.text} bg={item.quoteBg} passage={item.scripture} onPassage={item.scripture ? onOpenPassage : undefined} /> : null}
       {item.scripture && !item.quoteBg ? <LightPassageChip label={item.scripture} onPress={onOpenPassage} style={{ marginTop: showText ? 10 : 2 }} /> : null}
 
       {/* Media — edge to edge inside the card, like Facebook */}
@@ -550,23 +547,13 @@ const TILE_W = 108;
 const TILE_H = Math.round((TILE_W * 16) / 9);
 
 function ReelThumb({ video, onPress, index, onOpenCreator }) {
-  // Uploaded videos have a poster image (cheap); older/demo ones use a paused, muted player for the first frame
-  const player = useVideoPlayer(video.poster ? null : video.videoUrl || null, (p) => {
-    p.muted = true;
-    p.loop = false;
-  });
+  // A still frame only — no player per tile (see VideoPoster)
   const c = video.creator || {};
   return (
     <FadeInUp index={index} distance={10} duration={360}>
       <PressScale onPress={onPress} scaleTo={0.95} style={[styles.tile, { backgroundColor: video.bg || colors.night }]} accessibilityLabel={`Watch ${c.name || 'reel'}`}>
         <Text style={styles.tileCaption} numberOfLines={5}>{video.caption}</Text>
-        {video.poster ? (
-          <Image source={{ uri: video.poster }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        ) : video.videoUrl ? (
-          <View style={StyleSheet.absoluteFill} pointerEvents="none">
-            <VideoView style={StyleSheet.absoluteFill} player={player} allowsFullscreen={false} allowsPictureInPicture={false} nativeControls={false} contentFit="cover" />
-          </View>
-        ) : null}
+        {video.poster || video.videoUrl ? <VideoPoster videoUrl={video.videoUrl} poster={video.poster} /> : null}
         <View style={styles.tileScrim} pointerEvents="none">
           <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
             <Defs>
@@ -801,10 +788,7 @@ const styles = StyleSheet.create({
   passageSep: { width: 1, height: 12, backgroundColor: alpha(colors.gold, 0.3) },
   passageCta: { fontSize: 11.5, fontWeight: '700', color: colors.muted },
 
-  quote: { borderRadius: radius.md, paddingHorizontal: 22, paddingTop: 16, paddingBottom: 22, alignItems: 'center', minHeight: 150, justifyContent: 'center' },
-  quoteMark: { fontFamily: fonts.serifBold, fontSize: 40, lineHeight: 40, color: colors.goldLight, marginBottom: -4 },
-  quoteText: { fontFamily: fonts.serifItalic, fontSize: 19, lineHeight: 27, color: WHITE, textAlign: 'center' },
-  quoteRef: { color: colors.goldLight, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginTop: 12 },
+  quoteBleed: { marginHorizontal: -CARD_PAD, marginTop: 2 },
 
   // Media bleeds to the card edges (inside the 1px border)
   mediaBleed: { marginHorizontal: -CARD_PAD, marginTop: 12 },

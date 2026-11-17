@@ -31,7 +31,16 @@ export function getScopeMsgs(s, scope) {
   return [];
 }
 
-const previewOf = (m) => (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.audio ? 'Voice message' : ''));
+const previewOf = (m) => (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.image ? '📷 Photo' : m.voice ? (m.voice.isFile ? '🎵 Audio' : '🎤 Voice message') : m.audio ? 'Voice message' : ''));
+
+// Google Meet links in messages ("Start a video call") — tappable to join
+export const MEET_LINK_RE = /https?:\/\/meet\.google\.com\/[a-z]{3,4}-[a-z]{4}-[a-z]{3,4}(\?[^\s]*)?/i;
+export function findMeetLink(text = '') {
+  const m = String(text || '').match(MEET_LINK_RE);
+  if (m) return m[0];
+  const bare = String(text || '').match(/\bmeet\.google\.com\/[a-z]{3,4}-[a-z]{4}-[a-z]{3,4}\b/i);
+  return bare ? `https://${bare[0]}` : null;
+}
 
 // Returns a store patch that writes `msgs` (and optional extra chat fields) into the scope.
 export function scopePatch(s, scope, msgs, chatExtra = {}) {
@@ -122,6 +131,10 @@ export function mapServerMessage(m, prev) {
     passage: !m.deleted && meta.passage ? meta.passage : undefined,
     prayer: !m.deleted && m.kind === 'prayer' ? true : undefined,
     event: !m.deleted && m.kind === 'event' ? (meta.event || true) : undefined,
+    // chat media + coin gifts
+    image: !m.deleted && m.kind === 'image' && m.mediaKey ? { key: m.mediaKey, width: meta.width || 0, height: meta.height || 0 } : undefined,
+    voice: !m.deleted && m.kind === 'voice' && m.mediaKey ? { key: m.mediaKey, durationMs: meta.durationMs || 0, name: meta.name || null, isFile: !!meta.file } : undefined,
+    gift: !m.deleted && meta.gift ? { coins: meta.gift.coins || 0, toUserId: meta.gift.toUserId, toName: meta.gift.toName || '', note: meta.gift.note || null } : undefined,
     praying: prev ? prev.praying : undefined,
     prayedByMe: prev ? prev.prayedByMe : undefined,
     status: prev && prev.status === 'read' ? 'read' : 'sent',
@@ -156,7 +169,7 @@ export function upsertMessage(list, msg, localId) {
 
 export function canEditMessage(m) {
   if (!m || !m.mine || m.deleted) return false;
-  if (m.audio || (m.kind && !['text', 'verse', 'prayer'].includes(m.kind))) return false;
+  if (m.audio || m.gift || m.image || m.voice || (m.kind && !['text', 'verse', 'prayer'].includes(m.kind))) return false;
   if (!m.text) return false;
   return !m.createdAt || Date.now() - m.createdAt < EDIT_WINDOW_MS;
 }
@@ -173,7 +186,7 @@ export function applyMessageOp(list, { id, op, text, emoji }) {
   return list.map((m) => {
     if (m.id !== id) return m;
     if (op === 'edit') return { ...m, text, edited: true };
-    if (op === 'delete') return { ...m, deleted: true, text: '', passage: undefined, prayer: undefined, event: undefined, audio: null, pinned: false, reactions: [] };
+    if (op === 'delete') return { ...m, deleted: true, text: '', passage: undefined, prayer: undefined, event: undefined, audio: null, image: undefined, voice: undefined, gift: undefined, pinned: false, reactions: [] };
     if (op === 'unpin') return { ...m, pinned: false };
     if (op === 'react') {
       const rs = (m.reactions || []).map((r) => ({ ...r }));

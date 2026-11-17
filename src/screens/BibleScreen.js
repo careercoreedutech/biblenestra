@@ -10,12 +10,13 @@ import VerseImageSheet from '../components/VerseImageSheet';
 import { useToast } from '../components/Toast';
 import ProfileButton from '../components/ProfileButton';
 import TranslationPicker from '../components/TranslationPicker';
+import { BannerSlot } from '../ads/AdSlots';
 import BookChapterPicker from '../components/BookChapterPicker';
 import { useChapter, useChapters, prefetchChapter } from '../bible/loader';
 import { translationInfo, resolveTranslationId } from '../bible/catalog';
 import { useNarration } from '../audio/Narration';
 import { Icon } from '../components/Icons';
-import { colors, fonts, radius, shadow, readerThemes, lineSpacings } from '../theme';
+import { colors, fonts, radius, shadow, readerThemes, lineSpacings, READER_FONTS, readerFontFamily } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import {
@@ -69,6 +70,8 @@ export default function BibleScreen({ params: routeParams }) {
   const tr = resolveTranslationId(state.translation);
   const t = readerThemes[state.readerTheme] || readerThemes.paper;
   const spacing = lineSpacings[state.lineSpacing] || lineSpacings.Comfortable;
+  const readerFont = state.readerFont || 'Newsreader';
+  const verseFont = { fontFamily: readerFontFamily(readerFont) };
   const key = `${pos.bookId}:${pos.chapter}`;
   const chapterData = useChapter(tr, pos.bookId, pos.chapter);
   // While a translation streams in (or if we're offline) the reader keeps showing KJV.
@@ -189,6 +192,7 @@ export default function BibleScreen({ params: routeParams }) {
   const tools = [
     // Books lives on the "John 3 ▾" title; Compare goes first so it is visible without scrolling
     { key: 'compare', label: 'Compare', icon: 'bible', onPress: () => setCompare(!compare), active: compare },
+    { key: 'beyond', label: 'Beyond the 66', icon: 'book', onPress: () => nav.push('ExtraBooks') }, // Apocrypha, Enoch, Jubilees…
     { key: 'search', label: 'Search', icon: 'search', onPress: () => nav.push('Search') },
     { key: 'lexicon', label: 'Lexicon', icon: 'sparkles', onPress: () => nav.push('Concordance', selected ? { bookId: pos.bookId, chapter: pos.chapter, verse: selected } : {}) },
     { key: 'commentary', label: 'Commentary', icon: 'book', onPress: () => nav.push('Study', { ...pos, verse: selected || undefined, tab: 'Commentary' }) },
@@ -325,7 +329,7 @@ export default function BibleScreen({ params: routeParams }) {
                 }}
                 style={[styles.verseRow, h && { backgroundColor: alpha(h.color, t.dark ? 0.24 : 0.18) }, isSpoken && { backgroundColor: t.accentSoft, borderLeftWidth: 3, borderLeftColor: t.accent }, isSel && { backgroundColor: t.sel }]}
               >
-                <Text style={[styles.verseText, { color: t.passage, fontSize: fs, lineHeight: Math.round(fs * spacing) }, rtl && { writingDirection: 'rtl', textAlign: 'right' }]}>
+                <Text style={[styles.verseText, verseFont, { color: t.passage, fontSize: fs, lineHeight: Math.round(fs * spacing) }, rtl && { writingDirection: 'rtl', textAlign: 'right' }]}>
                   {n === 1 && !rtl && v ? (
                     <Text style={[styles.dropCapLetter, { color: t.accent, fontSize: fs * 2, lineHeight: Math.round(fs * spacing) }]}>{v.charAt(0)}</Text>
                   ) : (
@@ -338,6 +342,9 @@ export default function BibleScreen({ params: routeParams }) {
             );
           })
         )}
+
+        {/* one small banner at the end of the chapter, never between verses */}
+        {verses && !compare ? <BannerSlot /> : null}
 
         {/* Narration bar */}
         <Pressable onPress={() => { if (!narHere) nar.playChapter(pos.bookId, pos.chapter, { translation: tr }); nar.openPlayer(); }} accessibilityLabel="Open player" style={[styles.audioBar, t.dark && { backgroundColor: t.surface, borderWidth: 1, borderColor: t.border }]}><NightGlow />
@@ -495,7 +502,7 @@ export default function BibleScreen({ params: routeParams }) {
             </View>
             <View style={{ paddingHorizontal: 18, paddingBottom: 34 }}>
               <View style={[styles.previewCard, { backgroundColor: t.surface, borderColor: t.border }]}>
-                <Text style={[styles.verseText, { color: t.passage, fontSize: Math.round(state.fontSize * 1.12), lineHeight: Math.round(state.fontSize * 1.12 * spacing) }]}>
+                <Text style={[styles.verseText, verseFont, { color: t.passage, fontSize: Math.round(state.fontSize * 1.12), lineHeight: Math.round(state.fontSize * 1.12 * spacing) }]}>
                   <Text style={[styles.vnum, { color: t.gold }]}>16{' '} </Text>
                   For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish.
                 </Text>
@@ -518,6 +525,26 @@ export default function BibleScreen({ params: routeParams }) {
                           <Icon name="check" size={11} color={t.dark ? t.bg : '#FFFFFF'} strokeWidth={3} />
                         </View>
                       ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.settingLabel, { color: t.gold }]}>Font</Text>
+              <View style={styles.fontGrid}>
+                {READER_FONTS.map((f) => {
+                  const on = readerFont === f.key;
+                  return (
+                    <Pressable
+                      key={f.key}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={'Font ' + f.label}
+                      onPress={() => dispatch({ type: 'set', patch: { readerFont: f.key } })}
+                      style={[styles.fontChip, { backgroundColor: t.surface, borderColor: on ? t.accent : t.border }, on && { borderWidth: 2 }]}
+                    >
+                      <Text style={[styles.fontChipName, { color: t.fg, fontFamily: f.family }]} numberOfLines={1}>{f.label}</Text>
+                      <Text style={[styles.fontChipNote, { color: t.muted }]} numberOfLines={1}>{f.note}</Text>
                     </Pressable>
                   );
                 })}
@@ -745,6 +772,10 @@ const styles = StyleSheet.create({
   verseRow: { paddingVertical: 5, paddingHorizontal: 10, marginHorizontal: -10, borderRadius: 10, marginVertical: 1 },
   verseSel: { backgroundColor: colors.cardGold },
   verseText: { fontFamily: fonts.serif, color: colors.passage },
+  fontGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  fontChip: { width: '31%', flexGrow: 1, minWidth: 96, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
+  fontChipName: { fontSize: 14 },
+  fontChipNote: { fontSize: 10, marginTop: 2 },
   dropCapLetter: { fontFamily: fonts.display, color: colors.primary },
   vnum: { fontFamily: fonts.sans, fontSize: 11, color: colors.gold, fontWeight: '700' },
 

@@ -33,7 +33,12 @@ import youtube from './routes/youtube.js'; // DISCOVER TOOLS (round 3)
 import { adminPage, adminApi } from './routes/admin.js'; // DISCOVER TOOLS (round 3)
 import { adminPlus, announcementsPublic } from './routes/adminPlus.js'; // ROUND 5: admin dashboard sections
 import { contests, adminContests, contestPublic } from './routes/contests.js'; // CONTESTS
+import { opportunities, adminOpportunities } from './routes/opportunities.js'; // OPPORTUNITIES (imported listings)
+import { extraBooks } from './routes/extraBooks.js'; // BEYOND THE 66: deuterocanonical & extra-biblical texts
 import { battles } from './routes/battles.js'; // CONTEST CENTRE: live Bible battles
+import { youtubePublic, youtubeComments, adminYouTubeLive } from './routes/youtubeLive.js'; // YOUTUBE LIVE: live alerts + comments per video
+import { adsPublic, ads, adminAds } from './routes/ads.js'; // ADS: remote ad rules, ad events, admin Ads tab
+import { library, libraryPublic, adminLibrary } from './routes/library.js'; // MEDIA LIBRARY: audio library, Christian books (PDF), personal & group uploads
 import { runContestCron } from './lib/contestCron.js';
 
 export function createApp() {
@@ -86,8 +91,12 @@ export function createApp() {
   app.route('/', ssv);
   app.route('/', fundmePublic); // FUND ME (round 3): public page, donations (guests too), test checkout, webhooks
   app.route('/', youtube); // DISCOVER TOOLS (round 3): public channel list + RSS videos
+  app.route('/', youtubePublic); // YOUTUBE LIVE: GET /youtube/live, GET /youtube/videos/:videoId
   app.route('/', adminPage); // DISCOVER TOOLS (round 3): GET /admin dashboard page (its /admin/api/* calls need an admin)
   app.route('/', contestPublic); // CONTEST CENTRE: public certificate verification
+  app.route('/', extraBooks); // BEYOND THE 66: public book texts (cached)
+  app.route('/', adsPublic); // ADS: GET /ads/config (public, cached)
+  app.route('/', libraryPublic); // MEDIA LIBRARY: GET /library/file/* (Range streaming, signed links) + /library/viewer (pdf.js)
 
   // everything below needs a signed-in user
   app.use('*', requireUser());
@@ -129,6 +138,14 @@ export function createApp() {
   app.route('/', contests); // CONTESTS
   app.route('/', adminContests); // CONTESTS: /admin/api/contests (admin only)
   app.route('/', battles); // CONTEST CENTRE: live Bible battles
+  app.route('/', opportunities); // OPPORTUNITIES: jobs, scholarships, grants, hackathons… from outside sources
+  app.route('/', adminOpportunities); // OPPORTUNITIES: /admin/api/opportunity-sources (admin only)
+  app.route('/', ads); // ADS: POST /ads/events (batched ad events)
+  app.route('/', adminAds); // ADS: /admin/api/ads/* (admin only)
+  app.route('/', youtubeComments); // YOUTUBE LIVE: Bible Nestra comments per YouTube video
+  app.route('/', adminYouTubeLive); // YOUTUBE LIVE: /admin/api/youtube/live (admin only)
+  app.route('/', library); // MEDIA LIBRARY: /library/* (signed in)
+  app.route('/', adminLibrary); // MEDIA LIBRARY: /admin/api/library/* (admin only)
 
   return app;
 }

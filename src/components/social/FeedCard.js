@@ -4,11 +4,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import VideoPoster from '../video/VideoPoster';
+import { VIDEO_FILL } from '../video/videoUtils';
 import { Icon } from '../Icons';
 import { colors, fonts, radius } from '../../theme';
 import { alpha, Button } from '../ui';
 import { PressScale, FadeInUp, Pop, Pulse, AnimatedNumber, AnimatedModal, EASE_IN, EASE_OUT } from '../Motion';
 import { ND, WHITE, SOCIAL, countFormat, initials, tintFor, kindTint } from './shared';
+import { TextPostCard } from './TextPostCard';
+import { LinkText } from '../EmbedViewer'; // YOUTUBE LIVE: video links in posts open in-app
 
 // ─── Small pieces ────────────────────────────────────────────────
 
@@ -234,7 +238,8 @@ export function PhotoViewer({ images = [], start = 0, visible, onClose }) {
 
 // ─── Inline video preview: muted autoplay while it's the visible card; tap opens the reels player ───
 function InlineVideo({ item, playing, onOpen, height }) {
-  const player = useVideoPlayer(item.videoUrl || null, (p) => {
+  // a player only while this card plays (one hardware decoder each on Android); a still frame otherwise
+  const player = useVideoPlayer(playing ? item.videoUrl || null : null, (p) => {
     p.loop = true;
     p.muted = true;
   });
@@ -252,8 +257,9 @@ function InlineVideo({ item, playing, onOpen, height }) {
         <Icon name="video" size={26} color={alpha(colors.goldLight, 0.7)} />
         {item.scripture ? <Text style={styles.videoBackdropRef}>{item.scripture}</Text> : null}
       </View>
-      {item.videoUrl ? (
-        <VideoView style={StyleSheet.absoluteFill} player={player} allowsFullscreen={false} allowsPictureInPicture={false} nativeControls={false} contentFit="cover" />
+      <VideoPoster videoUrl={item.videoUrl} poster={item.poster || (item.raw && item.raw.poster) || null} />
+      {item.videoUrl && playing ? (
+        <VideoView style={VIDEO_FILL} player={player} allowsFullscreen={false} allowsPictureInPicture={false} nativeControls={false} contentFit="cover" />
       ) : null}
       <View style={styles.videoScrim} pointerEvents="none">
         <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
@@ -285,15 +291,9 @@ function InlineVideo({ item, playing, onOpen, height }) {
   );
 }
 
-// Quote-style card for themed text posts
-function QuoteCard({ text, bg, passage }) {
-  return (
-    <View style={[styles.quoteCard, { backgroundColor: bg === colors.night ? colors.nightRaised : bg }]}>
-      <Text style={styles.quoteMark}>“</Text>
-      <Text style={styles.quoteText}>{text}</Text>
-      {passage ? <Text style={styles.quoteRef}>— {passage}</Text> : null}
-    </View>
-  );
+// Image-style card for designed text posts (see TextPostCard.js)
+function QuoteCard({ text, bg, passage, onPassage }) {
+  return <TextPostCard theme={bg} text={text} passage={passage} onPassage={onPassage} style={styles.quoteCard} />;
 }
 
 // Brief gold glow around a card we navigated to (deep link / just published)
@@ -368,8 +368,8 @@ export default function FeedCard({
       </View>
 
       {/* Body */}
-      {showText ? <Text style={[styles.body, !hasImages && item.text.length < 120 && styles.bodyLarge]}>{item.text}</Text> : null}
-      {item.quoteBg ? <QuoteCard text={item.text} bg={item.quoteBg} passage={item.scripture} /> : null}
+      {showText ? <LinkText text={item.text} style={[styles.body, !hasImages && item.text.length < 120 && styles.bodyLarge]} /> : null}
+      {item.quoteBg && item.text ? <QuoteCard text={item.text} bg={item.quoteBg} passage={item.scripture} onPassage={item.scripture ? onOpenPassage : undefined} /> : null}
       {hasImages ? (
         <ImageGallery images={item.images} onDoubleTap={() => !item.liked && onLike && onLike(true)} onOpen={(i) => onOpenPhoto && onOpenPhoto(item.images, i)} style={{ marginTop: showText ? 12 : 4 }} />
       ) : null}
@@ -529,10 +529,7 @@ const styles = StyleSheet.create({
   videoFootCta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 },
   videoFootCtaText: { fontSize: 12, fontWeight: '700', color: colors.goldLight },
 
-  quoteCard: { borderRadius: radius.lg, paddingHorizontal: 22, paddingTop: 16, paddingBottom: 22, alignItems: 'center', minHeight: 150, justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  quoteMark: { fontFamily: fonts.serifBold, fontSize: 40, lineHeight: 40, color: colors.goldLight, marginBottom: -4 },
-  quoteText: { fontFamily: fonts.serifItalic, fontSize: 19, lineHeight: 27, color: WHITE, textAlign: 'center' },
-  quoteRef: { color: colors.goldLight, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginTop: 12 },
+  quoteCard: { borderRadius: radius.lg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
 
   passagePill: {
     flexDirection: 'row',

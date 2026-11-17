@@ -2445,6 +2445,7 @@ export function ProfileScreen({ params = {} }) {
           </Group>
           <Group>
             {[['push', 'Push'], ['email', 'Email'], ['bible', 'Bible reminders & plan progress'], ['groups', 'Group messages, mentions, replies'], ['prayer', 'Prayer responses'], ['events', 'Events, livestreams, celebrations'], ['gifts', 'Gifts & creator support'], ['jobs', 'Jobs & proposals']].map(([k, l]) => <Item key={k} title={l} right={<Toggle value={!!state.notifications[k]} onChange={(v) => setNotif(k, v, l)} />} />)}
+            <Item title="Live services on Bible Nestra" subtitle="“LIVE NOW” when a channel starts streaming" right={<Toggle value={state.notifications.live !== false} onChange={(v) => setNotif('live', v, 'Live alerts')} />} />{/* YOUTUBE LIVE */}
             <Item title="Safety & security" subtitle="Login alerts and safety notices can't be turned off" right={<LockedToggle onPress={() => toast.show('Safety alerts are always on', { icon: 'lock' })} />} />
           </Group>
           <Group style={{ marginTop: 14 }}>

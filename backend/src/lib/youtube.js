@@ -75,10 +75,13 @@ export function parseFeed(xml, limit = 15) {
   return { title: tag(head, 'title'), channelId: tag(head, 'yt:channelId') || null, videos };
 }
 
-export async function channelVideos(env, channelId) {
-  const xml = await getText(env, FEED(channelId));
+export async function channelVideos(env, channelId, { cache = true } = {}) {
+  const xml = await getText(env, FEED(channelId), { cache });
   return parseFeed(xml);
 }
+
+export const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+export const videoEmbedUrl = (videoId) => `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0&modestbranding=1`;
 
 /** "UC…", "https://youtube.com/channel/UC…", "@handle", "https://www.youtube.com/@handle", "/c/name", "/user/name" */
 export function parseChannelInput(input) {

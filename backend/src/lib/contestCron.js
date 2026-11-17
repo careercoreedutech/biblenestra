@@ -2,6 +2,8 @@
 // reminders. Each reminder goes to each person at most once per contest (contest_reminders).
 import { q } from './db.js';
 import { settleDue } from '../routes/contests.js';
+import { runOpportunityCron } from './opportunities.js';
+import { runYouTubeLiveCheck } from './youtubeLive.js'; // YOUTUBE LIVE
 
 const REMINDERS = [
   {
@@ -58,4 +60,8 @@ export async function runContestCron(env, executionCtx) {
   const ctx = { env, executionCtx };
   try { await settleDue(ctx); } catch (e) { console.error('[contest cron] settle failed', e && e.message); }
   try { const n = await sendContestReminders(env); if (n) console.log('[contest cron] reminders sent', n); } catch (e) { console.error('[contest cron] reminders failed', e && e.message); }
+  // OPPORTUNITIES: refresh a few due sources (each source has its own interval)
+  try { const r = await runOpportunityCron(env); if (r.results.length) console.log('[opportunities] imported', JSON.stringify(r.results), 'pruned', r.pruned); } catch (e) { console.error('[opportunities] cron failed', e && e.message); }
+  // YOUTUBE LIVE: detect live/upcoming broadcasts on admin channels, one LIVE notification per broadcast
+  try { const r = await runYouTubeLiveCheck(env, { trigger: 'cron' }); if (r.live || r.notified || r.errors.length) console.log('[youtube live]', JSON.stringify(r)); } catch (e) { console.error('[youtube live] cron failed', e && e.message); }
 }

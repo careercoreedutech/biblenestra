@@ -14,6 +14,7 @@ import { AnimatedModal, PressScale, FadeInUp, ScaleIn, Pop, Burst, AnimatedNumbe
 import ProfileButton from '../components/ProfileButton';
 import { useAds } from '../ads/Ads';
 import { AD_RULES } from '../ads/config';
+import { OpportunitiesEntryCard } from './OpportunitiesScreen'; // OPPORTUNITIES
 
 const hasNumber = (v) => /\d/.test(String(v || ''));
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -428,6 +429,11 @@ export default function JobsScreen({ params = {} }) {
         </View>
       }
     >
+      {/* Opportunities worldwide (external listings) */}
+      <FadeInUp distance={10}>
+        <OpportunitiesEntryCard onPress={() => nav.push('Opportunities')} style={{ marginTop: 4, marginBottom: 14 }} />
+      </FadeInUp>
+
       {/* Video hero (night surface) */}
       <View style={styles.jobsVideoHero}>
         <VideoView

@@ -3,6 +3,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,7 +36,46 @@ export function makeBucket(dir) {
     return { buf: await readFile(f), meta };
   };
   const obj = (m, buf) => ({ size: m.buf.length, httpMetadata: m.meta, httpEtag: `"${m.buf.length}"`, body: buf });
-  return {
+  // R2 multipart stand-in (parts kept in memory). Enforces R2's rules: every part except the last must be
+  // at least 5 MiB and all of them the same size; complete() needs every listed part with its etag.
+  const MIN_PART = 5 * 1024 * 1024;
+  const uploads = new Map(); // uploadId → { key, opts, parts: Map(n → { buf, etag }) }
+  let bucket;
+  const multipart = (key, uploadId) => ({
+    key,
+    uploadId,
+    async uploadPart(n, data) {
+      const u = uploads.get(uploadId);
+      if (!u || u.key !== key) throw new Error('NoSuchUpload');
+      const buf = await toBuffer(data);
+      const etag = `p${n}-${buf.length}-${Math.random().toString(36).slice(2, 8)}`;
+      u.parts.set(n, { buf, etag });
+      return { partNumber: n, etag };
+    },
+    async complete(parts) {
+      const u = uploads.get(uploadId);
+      if (!u || u.key !== key) throw new Error('NoSuchUpload');
+      const bufs = parts.map((p, i) => {
+        const got = u.parts.get(p.partNumber);
+        if (!got || got.etag !== p.etag) throw new Error(`InvalidPart ${p.partNumber}`);
+        const last = i === parts.length - 1;
+        if (!last && got.buf.length < MIN_PART) throw new Error('EntityTooSmall');
+        if (!last && i > 0 && got.buf.length !== u.parts.get(parts[0].partNumber).buf.length) throw new Error('parts must be the same size');
+        return got.buf;
+      });
+      uploads.delete(uploadId);
+      await bucket.put(key, Buffer.concat(bufs), u.opts);
+      return bucket.head(key);
+    },
+    async abort() { uploads.delete(uploadId); },
+  });
+  bucket = {
+    async createMultipartUpload(key, opts = {}) {
+      const uploadId = `mp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+      uploads.set(uploadId, { key, opts, parts: new Map() });
+      return multipart(key, uploadId);
+    },
+    resumeMultipartUpload(key, uploadId) { return multipart(key, uploadId); },
     async put(key, data, opts = {}) {
       const buf = await toBuffer(data);
       const meta = { contentType: opts.httpMetadata?.contentType || 'application/octet-stream' };
@@ -57,6 +97,19 @@ export function makeBucket(dir) {
       const r = opts.range;
       const buf = r ? m.buf.subarray(r.offset, r.offset + r.length) : m.buf;
       return obj(m, buf);
+    },
+  };
+  return bucket;
+}
+
+// Static files (wrangler [assets] → env.ASSETS): serves backend/public from disk for local runs and tests.
+export function makeAssets(dir) {
+  return {
+    async fetch(req) {
+      const { pathname } = new URL(req.url);
+      const p = path.resolve(path.join(dir, decodeURIComponent(pathname)));
+      if (!p.startsWith(path.resolve(dir)) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) return new Response('Not found', { status: 404 });
+      return new Response(fs.readFileSync(p));
     },
   };
 }

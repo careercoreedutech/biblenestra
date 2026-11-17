@@ -58,3 +58,41 @@ export const relDate = (iso) => {
   return new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: d > 300 ? 'numeric' : undefined });
 };
 export const views = (n) => (n == null ? '' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M views` : n >= 1e3 ? `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}K views` : `${n} views`);
+
+// YOUTUBE LIVE: broadcasts that are live / upcoming right now (detected by the server cron)
+const liveCache = { items: null, at: 0 };
+export function useLiveNow() {
+  const api = useApi();
+  const [items, setItems] = useState(liveCache.items || []);
+  useEffect(() => {
+    if (!api.online) return undefined;
+    let alive = true;
+    const load = async () => {
+      if (liveCache.items && Date.now() - liveCache.at < 60000) { setItems(liveCache.items); return; }
+      try {
+        const r = await api.request('GET', '/youtube/live');
+        liveCache.items = r.items || []; liveCache.at = Date.now();
+        if (alive) setItems(liveCache.items);
+      } catch (e) { /* the row just stays hidden */ }
+    };
+    load();
+    const t = setInterval(load, 90000);
+    return () => { alive = false; clearInterval(t); };
+  }, [api.online]);
+  return items;
+}
+
+// YOUTUBE LIVE: watch-screen info for one video (live status, title, comment count)
+export function useVideoInfo(videoId) {
+  const api = useApi();
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    if (!api.online || !videoId) return undefined;
+    let alive = true;
+    const load = () => api.request('GET', `/youtube/videos/${videoId}`).then((r) => { if (alive) setInfo(r); }).catch(() => {});
+    load();
+    const t = setInterval(load, 60000); // notices when a stream starts or ends
+    return () => { alive = false; clearInterval(t); };
+  }, [api.online, videoId]);
+  return info;
+}

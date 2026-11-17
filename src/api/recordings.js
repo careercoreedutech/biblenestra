@@ -46,6 +46,22 @@ const mimeFor = (uri, blobType) => {
 
 function parse(text) { try { return text ? JSON.parse(text) : null; } catch (e) { return null; } }
 
+// Weak mobile connections drop uploads often: retry network failures and server hiccups (5xx) a few times.
+const RETRIES = 3;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const retryable = (e) => !e || !e.status || e.status >= 500 || e.code === 'NETWORK' || e.code === 'TIMEOUT';
+async function withRetry(fn) {
+  let last;
+  for (let i = 0; i < RETRIES; i++) {
+    try { return await fn(i); } catch (e) {
+      last = e;
+      if (!retryable(e) || i === RETRIES - 1) break;
+      await wait(1500 * (i + 1));
+    }
+  }
+  throw last;
+}
+
 /**
  * Create the recording on the server and upload the audio. Works without a mounted screen (so a take
  * saved while leaving the studio still uploads). → recording (status 'transcribing')
@@ -63,14 +79,15 @@ export async function uploadRecording(request, { uri, durationMs, title, passage
     size = (info && info.size) || 0;
   }
   const type = mimeFor(uri, blob && blob.type);
-  const rec = await request('POST', '/recordings', {
+  const rec = await withRetry(() => request('POST', '/recordings', {
     title: (title || '').trim() || 'Untitled recording',
     passage: passage && passage !== '—' ? passage : undefined,
     speaker: speaker || undefined,
     durationSeconds: durationMs ? Math.round(durationMs / 100) / 10 : undefined,
     sizeBytes: size || undefined,
-  });
+  }));
   const headers = { ...(await request.authHeaders()), 'Content-Type': type, 'X-TZ-Offset': String(-new Date().getTimezoneOffset()) };
+  const putOnce = async () => {
   let res;
   if (IS_WEB) {
     res = await new Promise((resolve, reject) => {
@@ -92,6 +109,8 @@ export async function uploadRecording(request, { uri, durationMs, title, passage
     throw new ApiError((data && data.error) || `Upload failed (${res ? res.status : 'no response'})`, { code: (data && data.code) || 'UPLOAD_FAILED', status: res ? res.status : 0 });
   }
   return data;
+  };
+  return withRetry(putOnce);
 }
 
 /** An expo-av source for the owner-only audio route (native sends auth headers; web uses a blob URL). */

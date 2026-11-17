@@ -10,6 +10,16 @@ export const AD_UNITS = {
     ios: 'ca-app-pub-3940256099942544/1712485313',
     default: 'test-rewarded',
   }),
+  banner: Platform.select({
+    android: 'ca-app-pub-3940256099942544/9214589741',
+    ios: 'ca-app-pub-3940256099942544/2435281174',
+    default: 'test-banner',
+  }),
+  native: Platform.select({
+    android: 'ca-app-pub-3940256099942544/2247696110',
+    ios: 'ca-app-pub-3940256099942544/3986624511',
+    default: 'test-native',
+  }),
   interstitial: Platform.select({
     android: 'ca-app-pub-3940256099942544/1033173712',
     ios: 'ca-app-pub-3940256099942544/4411468910',
@@ -24,4 +34,6 @@ export const AD_RULES = {
   jobBidCost: 20, // coins needed to place a bid
   jobAdsForCoins: 5, // rewarded ads to unlock jobAdCoins
   jobAdCoins: 20,
+  feedAdEvery: 3, // Socials feed: one native ad card after every 3 posts (overwritten at runtime from the admin "Ads" rules, see ./remote.js)
+  videoAdEvery: 3, // Videos: a short ad before every 3rd video opened (not on every one)
 };

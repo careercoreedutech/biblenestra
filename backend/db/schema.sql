@@ -963,3 +963,233 @@ CREATE TABLE IF NOT EXISTS battle_answers (
   answered_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (battle_id, user_id, q_index)
 );
+
+-- ---------- OPPORTUNITIES: listings imported from outside sources (jobs, scholarships, grants, hackathons…) ----------
+-- Filled by the cron importer (src/lib/opportunities.js). Each listing links back to the original site.
+CREATE TABLE IF NOT EXISTS opportunities (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source      text NOT NULL,
+  source_id   text NOT NULL,
+  kind        text NOT NULL CHECK (kind IN ('job','remote','internship','scholarship','fellowship','grant','hackathon','competition','volunteer','event','other')),
+  title       text NOT NULL,
+  org         text,
+  location    text,
+  remote      boolean NOT NULL DEFAULT false,
+  url         text NOT NULL,
+  excerpt     text,
+  tags        text[] NOT NULL DEFAULT '{}',
+  deadline    timestamptz,
+  posted_at   timestamptz,
+  salary      text,
+  hidden      boolean NOT NULL DEFAULT false,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (source, source_id)
+);
+CREATE INDEX IF NOT EXISTS opportunities_recent ON opportunities (posted_at DESC NULLS LAST, id DESC) WHERE NOT hidden;
+CREATE INDEX IF NOT EXISTS opportunities_kind ON opportunities (kind, posted_at DESC NULLS LAST) WHERE NOT hidden;
+
+CREATE TABLE IF NOT EXISTS opportunity_sources (
+  key         text PRIMARY KEY,
+  enabled     boolean NOT NULL DEFAULT true,
+  last_run_at timestamptz,
+  last_ok_at  timestamptz,
+  last_error  text,
+  last_count  integer NOT NULL DEFAULT 0
+);
+
+-- ---------- YOUTUBE LIVE & COMMENTS: live detection for admin channels, Bible Nestra comments per video ----------
+-- Broadcasts (live / upcoming / ended) found by the cron (src/lib/youtubeLive.js). notified_at is set once, atomically,
+-- when the one-and-only "LIVE NOW" notification goes out (dedupe by video id).
+CREATE TABLE IF NOT EXISTS youtube_live (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id        text NOT NULL UNIQUE CHECK (video_id ~ '^[A-Za-z0-9_-]{11}$'),
+  channel_id      text NOT NULL,
+  channel_title   text,
+  title           text NOT NULL DEFAULT '',
+  thumbnail       text,
+  status          text NOT NULL CHECK (status IN ('upcoming','live','ended')),
+  scheduled_start timestamptz,
+  actual_start    timestamptz,
+  actual_end      timestamptz,
+  detected_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  notified_at     timestamptz,
+  recipients      integer NOT NULL DEFAULT 0,
+  push_sent       integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS youtube_live_status ON youtube_live (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS youtube_live_recent ON youtube_live (detected_at DESC);
+
+-- Ordinary (non-broadcast) videos already checked once, so they never cost API quota again
+CREATE TABLE IF NOT EXISTS youtube_seen_videos (
+  video_id   text PRIMARY KEY,
+  checked_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- One row per live check (cron or "Check now"), for the admin log
+CREATE TABLE IF NOT EXISTS youtube_live_runs (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  trigger     text NOT NULL DEFAULT 'cron',
+  ran_at      timestamptz NOT NULL DEFAULT now(),
+  channels    integer NOT NULL DEFAULT 0,
+  checked     integer NOT NULL DEFAULT 0,
+  api_calls   integer NOT NULL DEFAULT 0,
+  live        integer NOT NULL DEFAULT 0,
+  notified    integer NOT NULL DEFAULT 0,
+  skipped     text,
+  error       text
+);
+CREATE INDEX IF NOT EXISTS youtube_live_runs_recent ON youtube_live_runs (ran_at DESC);
+
+-- Bible Nestra's own comment thread per YouTube video (independent of YouTube comments). One level of replies.
+CREATE TABLE IF NOT EXISTS youtube_comments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id    text NOT NULL CHECK (video_id ~ '^[A-Za-z0-9_-]{11}$'),
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  parent_id   uuid REFERENCES youtube_comments(id) ON DELETE CASCADE,
+  body        text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 1000),
+  likes_count integer NOT NULL DEFAULT 0 CHECK (likes_count >= 0),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS youtube_comments_video ON youtube_comments (video_id, created_at DESC) WHERE parent_id IS NULL;
+CREATE INDEX IF NOT EXISTS youtube_comments_parent ON youtube_comments (parent_id, created_at);
+CREATE INDEX IF NOT EXISTS youtube_comments_user ON youtube_comments (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS youtube_comment_likes (
+  comment_id uuid NOT NULL REFERENCES youtube_comments(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (comment_id, user_id)
+);
+
+-- ---------- MEDIA LIBRARY: platform Audio Library, Christian Books (PDF), personal & group uploads ----------
+-- Files live in R2 under lib/<kind>/<uploaderId>/<uuid>.<ext> and are streamed (HTTP Range) from GET /library/file/<key>.
+-- scope: platform = admin-curated library; personal = a user's profile ("My audio"/"My books"); group = inside one community.
+-- A group/personal item only appears in the platform library when an admin publishes it (in_library = true).
+CREATE TABLE IF NOT EXISTS media_categories (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind        text NOT NULL CHECK (kind IN ('audio','pdf')),
+  name        text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 60),
+  slug        text NOT NULL CHECK (char_length(slug) BETWEEN 1 AND 60),
+  icon        text,
+  sort_order  integer NOT NULL DEFAULT 0,
+  active      boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (kind, slug)
+);
+INSERT INTO media_categories (kind, name, slug, icon, sort_order) VALUES
+  ('audio', 'Sermons & Preaching', 'sermons', 'mic', 1),
+  ('audio', 'Worship & Songs', 'worship', 'music', 2),
+  ('audio', 'Audio Bible', 'audio-bible', 'bible', 3),
+  ('audio', 'Podcasts & Teaching', 'podcasts', 'headphones', 4),
+  ('audio', 'Prayer', 'prayer', 'prayer', 5),
+  ('audio', 'Kids', 'kids', 'star', 6),
+  ('pdf', 'Classics', 'classics', 'book', 1),
+  ('pdf', 'Devotionals', 'devotionals', 'devotional', 2),
+  ('pdf', 'Theology & Doctrine', 'theology', 'church', 3),
+  ('pdf', 'Biography & History', 'biography', 'user', 4),
+  ('pdf', 'Bible Study', 'bible-study', 'bible', 5),
+  ('pdf', 'Kids & Family', 'kids', 'star', 6)
+ON CONFLICT (kind, slug) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS media_items (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind            text NOT NULL CHECK (kind IN ('audio','pdf')),
+  scope           text NOT NULL CHECK (scope IN ('platform','personal','group')),
+  owner_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  community_id    uuid REFERENCES communities(id) ON DELETE CASCADE,
+  category_id     uuid REFERENCES media_categories(id) ON DELETE SET NULL,
+  title           text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 160),
+  artist          text CHECK (char_length(artist) <= 120),          -- speaker / artist / author
+  description     text NOT NULL DEFAULT '' CHECK (char_length(description) <= 4000),
+  cover_key       text,
+  file_key        text NOT NULL UNIQUE,
+  mime            text NOT NULL,
+  size_bytes      bigint,
+  duration_sec    integer,
+  pages           integer,
+  visibility      text NOT NULL DEFAULT 'public' CHECK (visibility IN ('public','private')),
+  in_library      boolean NOT NULL DEFAULT false,
+  status          text NOT NULL DEFAULT 'published' CHECK (status IN ('published','hidden')),
+  featured        boolean NOT NULL DEFAULT false,
+  rights_attested boolean NOT NULL DEFAULT false,
+  rights_note     text,
+  plays           integer NOT NULL DEFAULT 0,
+  published_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  published_at    timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  CHECK (scope <> 'group' OR community_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS media_items_library ON media_items (kind, created_at DESC, id DESC) WHERE in_library AND status = 'published';
+CREATE INDEX IF NOT EXISTS media_items_owner ON media_items (owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS media_items_group ON media_items (community_id, created_at DESC) WHERE community_id IS NOT NULL;
+
+-- resume position: seconds for audio, page number for PDFs
+CREATE TABLE IF NOT EXISTS media_progress (
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_id     uuid NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+  position    real NOT NULL DEFAULT 0,
+  completed   boolean NOT NULL DEFAULT false,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS media_progress_recent ON media_progress (user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS media_reports (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id     uuid NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+  reporter_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason      text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  resolved_at timestamptz,
+  resolution  text,
+  resolved_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE (item_id, reporter_id)
+);
+CREATE INDEX IF NOT EXISTS media_reports_open ON media_reports (created_at DESC) WHERE resolved_at IS NULL;
+
+-- ---------- ADS: remote ad rules + daily ad event aggregates (src/lib/ads.js, routes/ads.js) ----------
+-- Every save from the admin "Ads" tab inserts a new version; the newest row is what the apps use.
+CREATE TABLE IF NOT EXISTS ad_config (
+  version     serial PRIMARY KEY,
+  config      jsonb NOT NULL,
+  note        text,
+  created_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+-- Ad events are folded into daily counts (never stored one by one). test = Google test ads / demo ads.
+CREATE TABLE IF NOT EXISTS ad_daily (
+  day         date NOT NULL,
+  surface     text NOT NULL,
+  placement   text NOT NULL,
+  format      text NOT NULL,
+  test        boolean NOT NULL DEFAULT false,
+  requested   integer NOT NULL DEFAULT 0,
+  impressions integer NOT NULL DEFAULT 0,
+  completed   integer NOT NULL DEFAULT 0,
+  failed      integer NOT NULL DEFAULT 0,
+  clicks      integer NOT NULL DEFAULT 0,
+  paid        integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, surface, placement, format, test)
+);
+-- Estimated revenue from AdMob impression-level "paid" events, in micros of each currency.
+CREATE TABLE IF NOT EXISTS ad_revenue_daily (
+  day         date NOT NULL,
+  surface     text NOT NULL,
+  currency    text NOT NULL,
+  test        boolean NOT NULL DEFAULT false,
+  micros      bigint NOT NULL DEFAULT 0,
+  events      integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, surface, currency, test)
+);
+-- Per-user daily counters for the abuse limits on POST /ads/events (pruned after 14 days).
+CREATE TABLE IF NOT EXISTS ad_user_daily (
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day         date NOT NULL,
+  events      integer NOT NULL DEFAULT 0,
+  impressions integer NOT NULL DEFAULT 0,
+  paid        integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+);

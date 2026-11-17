@@ -2,10 +2,10 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-export default function YouTubePlayer({ embedUrl, style }) {
+export default function YouTubePlayer({ embedUrl, style, autoplay, muted }) {
   const sep = embedUrl.includes('?') ? '&' : '?';
   const origin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
-  const src = `${embedUrl}${sep}playsinline=1&rel=0&modestbranding=1${origin ? `&origin=${encodeURIComponent(origin)}` : ''}`;
+  const src = `${embedUrl}${sep}playsinline=1&rel=0&modestbranding=1&fs=1${autoplay ? '&autoplay=1' : ''}${muted ? '&mute=1' : ''}${origin ? `&origin=${encodeURIComponent(origin)}` : ''}`;
   return (
     <View style={[styles.frame, style]}>
       {React.createElement('iframe', {

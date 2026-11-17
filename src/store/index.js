@@ -57,6 +57,8 @@ const initial = {
   streaksEnabled: true,
   fontSize: 16,
   readerTheme: 'paper',
+  readerFont: 'Newsreader',
+  extraLast: {}, // Beyond the 66: last chapter read per book
   lineSpacing: 'Comfortable',
   rhythm: seedRhythm(),
   bestStreak: 21,
@@ -69,6 +71,7 @@ const initial = {
   gameStats: {}, // gameId -> { date, played, correct, best }
   scripturePop: { enabled: false, every: 180, quietFrom: 22, quietTo: 7, content: 'both', translation: 'KJV' },
   downloadedTranslations: ['KJV'],
+  savedOpportunities: [], // OPPORTUNITIES: bookmarked external listings (full snapshots, on-device only)
   version: 0,
 };
 

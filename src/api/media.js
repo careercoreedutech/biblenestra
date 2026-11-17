@@ -33,13 +33,14 @@ export async function pickPhotos(max = 4) {
   return res.assets.slice(0, max).map((a) => ({ uri: a.uri, width: a.width || 0, height: a.height || 0, mimeType: a.mimeType || 'image/jpeg' }));
 }
 
-/** Pick one video (≤ 3 min). → { uri, duration (s), mimeType, name, file? } | null */
+/** Pick one video (any length up to VIDEO_LIMITS.maxSeconds — never trimmed). → { uri, duration (s), mimeType, name, file? } | null */
 export async function pickVideo() {
   await ensureLibraryPermission();
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['videos'],
     allowsMultipleSelection: false,
-    videoMaxDuration: 180,
+    allowsEditing: false, // the editor would let the system trim the clip
+    // no videoMaxDuration: on iOS it trims / refuses longer clips
     // iOS converts to 720p H.264 while picking (Android is compressed after picking, in uploadVideo)
     videoExportPreset: ImagePicker.VideoExportPreset ? ImagePicker.VideoExportPreset.H264_1280x720 : undefined,
     quality: 1,
@@ -129,6 +130,111 @@ function webPut(url, blob, headers, onProgress) {
   });
 }
 
+// Fallbacks only — the server's POST /uploads/video response (backend VIDEO_RULES) is the source of truth.
+export const VIDEO_LIMITS = {
+  maxSeconds: 2 * 60 * 60, // 2 hours
+  maxBytes: 2 * 1024 * 1024 * 1024, // 2 GB
+  singlePutMaxBytes: 95 * 1024 * 1024,
+  partSize: 10 * 1024 * 1024,
+};
+const PART_RETRIES = 4;
+
+function pickLimits(res) {
+  const out = {};
+  ['maxSeconds', 'maxBytes', 'singlePutMaxBytes', 'partSize'].forEach((k) => {
+    if (res && Number(res[k]) > 0) out[k] = Number(res[k]);
+  });
+  return out;
+}
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Native: copy bytes [start, start + len) of a file into a temporary file (expo-file-system can only upload whole files)
+async function sliceToTempFile(fileUri, start, len, n) {
+  const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64, position: start, length: len });
+  const tmp = `${FileSystem.cacheDirectory}vidpart_${Date.now()}_${n}.bin`;
+  await FileSystem.writeAsStringAsync(tmp, b64, { encoding: FileSystem.EncodingType.Base64 });
+  return tmp;
+}
+
+/**
+ * R2 multipart upload through the Worker: start → PUT each part (retrying a failed part a few times) → complete.
+ * Never trims anything: every byte of the file is sent. onProgress(0..1) covers the whole transfer.
+ */
+async function multipartUpload({ res, limits, sizeBytes, blob, fileUri, headers, onProgress }) {
+  const json = (r) => parseJson(r.body) || {};
+  const call = async (method, url, body) => {
+    const r = await fetch(url, { method, headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, body: await r.text() };
+  };
+  let start;
+  try {
+    start = await call('POST', res.multipartURL);
+  } catch (e) {
+    throw new ApiError('Video upload failed — check your connection', { code: 'NETWORK' });
+  }
+  check(start, 'Video upload');
+  const { uploadId, partSize: serverPart } = json(start);
+  const partSize = Number(serverPart) || limits.partSize;
+  const base = `${res.multipartURL}/${encodeURIComponent(uploadId)}`;
+  const count = Math.max(1, Math.ceil(sizeBytes / partSize));
+  const parts = [];
+  let doneBytes = 0;
+  try {
+    for (let n = 1; n <= count; n += 1) {
+      const from = (n - 1) * partSize;
+      const len = Math.min(partSize, sizeBytes - from);
+      const url = `${base}/parts/${n}`;
+      const partHeaders = { ...headers, 'Content-Type': 'application/octet-stream' };
+      const progress = (p) => onProgress && onProgress((doneBytes + len * p) / sizeBytes);
+      let result = null;
+      let lastErr = null;
+      for (let attempt = 0; attempt < PART_RETRIES && !result; attempt += 1) {
+        if (attempt) await wait(1000 * 2 ** (attempt - 1)); // 1 s, 2 s, 4 s
+        let tmp = null;
+        try {
+          let r;
+          if (IS_WEB) {
+            r = await webPut(url, blob.slice(from, from + len), partHeaders, progress);
+          } else {
+            tmp = await sliceToTempFile(fileUri, from, len, n);
+            r = await nativeUpload(url, tmp, partHeaders, progress);
+          }
+          if (r && r.status >= 200 && r.status < 300) result = json(r);
+          else {
+            lastErr = r;
+            if (r && r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429) break; // not worth retrying
+          }
+        } catch (e) {
+          lastErr = e;
+        } finally {
+          if (tmp) FileSystem.deleteAsync(tmp, { idempotent: true }).catch(() => {});
+        }
+      }
+      if (!result || !result.etag) {
+        if (lastErr && lastErr.status) check(lastErr, 'Video upload');
+        throw new ApiError('Video upload failed — check your connection and try again', { code: 'NETWORK' });
+      }
+      parts.push({ partNumber: n, etag: result.etag });
+      doneBytes += len;
+      if (onProgress) onProgress(doneBytes / sizeBytes);
+    }
+    let fin = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        fin = await call('POST', `${base}/complete`, { parts });
+        if (fin && fin.status < 500) break;
+      } catch (e) { fin = null; }
+      await wait(1500);
+    }
+    check(fin, 'Video upload');
+    return json(fin);
+  } catch (e) {
+    call('DELETE', base).catch(() => {}); // free the stored parts
+    throw e;
+  }
+}
+
 function check(res, what) {
   if (!res || res.status < 200 || res.status >= 300) {
     const data = res ? parseJson(res.body) : null;
@@ -161,8 +267,13 @@ export async function uploadVideo(request, video, onProgress) {
   });
   const auth = await request.authHeaders();
   const tz = { 'X-TZ-Offset': String(-new Date().getTimezoneOffset()) };
-  // 4) the video itself
-  if (IS_WEB) {
+  const limits = { ...VIDEO_LIMITS, ...pickLimits(res) };
+  if (sizeBytes && sizeBytes > limits.maxBytes) throw new ApiError('This video is too large (the limit is 2 GB)', { code: 'TOO_LARGE', status: 413 });
+  // 4) the video itself — big files in parts (Workers take at most ~100 MB per request), small ones in one PUT
+  const multipart = !!res.multipartURL && sizeBytes > limits.singlePutMaxBytes;
+  if (multipart) {
+    await multipartUpload({ res, limits, sizeBytes, blob, fileUri: prepared.uri, headers: { ...auth, ...tz }, onProgress: (p) => report(0.3 + p * 0.65) });
+  } else if (IS_WEB) {
     check(await webPut(res.uploadURL, blob, { ...auth, ...tz, 'Content-Type': 'video/mp4' }, (p) => report(0.3 + p * 0.65)), 'Video upload');
   } else {
     let up;

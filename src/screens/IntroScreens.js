@@ -14,6 +14,7 @@ import { FadeInUp, PressScale, Pulse, ScaleIn } from '../components/Motion';
 import { useStore } from '../store';
 import { useToast } from '../components/Toast';
 import { ensurePermission, supported as popsSupported } from '../notifications/scripturePop';
+import { TRANSLATIONS, LANGUAGE_COUNT } from '../bible/catalog';
 
 export const INTRO_KEY = 'biblenestra:introSeen:v1';
 
@@ -43,7 +44,7 @@ function BibleArt() {
   return (
     <>
       <View style={styles.chipRow}>
-        <Chip icon="globe" label="57 translations" />
+        <Chip icon="globe" label={`${TRANSLATIONS.length} translations`} />
         <Chip icon="headphones" label="Listen aloud" />
       </View>
       <ScaleIn from={0.7} delay={80}><Orb icon="book" /></ScaleIn>
@@ -215,7 +216,7 @@ const SLIDES = [
     id: 'bible',
     eyebrow: 'The Word',
     title: 'Read the Bible your way',
-    body: 'The full KJV works offline, with 56 more translations in 34 languages when you need them.',
+    body: `The full KJV works offline, with ${TRANSLATIONS.length - 1} more translations in ${LANGUAGE_COUNT} languages when you need them.`,
     points: [
       { icon: 'headphones', text: 'Listen verse by verse, with a sleep timer' },
       { icon: 'search', text: "Search every verse, with Strong's concordance" },

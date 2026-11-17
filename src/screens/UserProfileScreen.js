@@ -21,6 +21,7 @@ import { getPerson, getPersonPosts, openDm, isServerId, getFollowList } from '..
 import PeopleSheet from '../components/social/PeopleSheet';
 import { useOpenProfile, norm } from '../components/social/profileNav';
 import { timestampOf, relTime, passageLabel, formatCount } from '../components/social/shared';
+import { DesignBackground, resolveDesign } from '../components/social/TextPostCard';
 
 const W = Math.min(Dimensions.get('window').width, 560);
 const TILE = Math.floor((W - 36 - 6) / 3);
@@ -63,13 +64,16 @@ function ListGlyph({ color }) {
 
 function Tile({ it, index, onPress }) {
   const showViews = it.video && Number(it.views) > 0;
+  // image-style text posts: `bg` is a design key ("dawn.italic.center") or a legacy colour
+  const td = !it.image && it.bg ? resolveDesign(it.bg) : null;
   return (
     <FadeInUp index={Math.min(index, 9)} distance={8} duration={320}>
-      <PressScale onPress={onPress} scaleTo={0.96} style={[styles.tile, { backgroundColor: it.image ? colors.night : it.bg || colors.cardIndigo }]} accessibilityLabel={`Open ${it.kind.toLowerCase()}: ${it.text.slice(0, 40)}`}>
+      <PressScale onPress={onPress} scaleTo={0.96} style={[styles.tile, { backgroundColor: it.image ? colors.night : td ? 'transparent' : colors.cardIndigo }]} accessibilityLabel={`Open ${it.kind.toLowerCase()}: ${it.text.slice(0, 40)}`}>
         {it.image ? <Image source={{ uri: it.image }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : (
           <View style={styles.tileTextWrap}>
-            <Text style={[styles.tileQuote, { color: it.bg ? colors.goldLight : colors.gold }]}>“</Text>
-            <Text style={[styles.tileText, { color: it.bg ? colors.nightFg : colors.fg }]} numberOfLines={4}>{it.text || it.scripture}</Text>
+            {td ? <DesignBackground design={td.design} width={TILE} height={Math.round(TILE * 1.28)} /> : null}
+            <Text style={[styles.tileQuote, { color: td ? td.design.accent : colors.gold }]}>“</Text>
+            <Text style={[styles.tileText, { color: td ? td.design.fg : colors.fg }, td && { fontFamily: td.font.family, textAlign: td.align }]} numberOfLines={4}>{it.text || it.scripture}</Text>
           </View>
         )}
         {it.video ? (

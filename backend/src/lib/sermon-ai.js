@@ -131,13 +131,24 @@ function fakeNotes(title, transcript) {
 }
 
 // ---------- real AI calls ----------
+// If the main speech model fails (retired / temporarily unavailable), try the fallback once.
+export const WHISPER_FALLBACK = '@cf/openai/whisper';
 async function whisper(env, base64, prompt) {
-  const out = await env.AI.run(WHISPER_MODEL, {
-    audio: base64,
-    task: 'transcribe',
-    vad_filter: true,
-    initial_prompt: prompt || 'A Christian sermon. Bible references are written like John 3:16 or Romans 8:28.',
-  });
+  let out;
+  try {
+    out = await env.AI.run(WHISPER_MODEL, {
+      audio: base64,
+      task: 'transcribe',
+      vad_filter: true,
+      initial_prompt: prompt || 'A Christian sermon. Bible references are written like John 3:16 or Romans 8:28.',
+    });
+  } catch (e) {
+    if (isQuotaError(e)) throw e;
+    console.error('whisper model failed, trying fallback', e && e.message);
+    // the older model takes raw bytes instead of base64
+    const bin = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0));
+    out = await env.AI.run(WHISPER_FALLBACK, { audio: [...bin] });
+  }
   const segs = Array.isArray(out && out.segments) ? out.segments : [];
   const list = segs.map((s) => ({ start: Number(s.start) || 0, end: Number(s.end) || Number(s.start) || 0, text: String(s.text || '').trim() })).filter((s) => s.text);
   if (!list.length && out && out.text) list.push({ start: 0, end: 0, text: String(out.text).trim() });

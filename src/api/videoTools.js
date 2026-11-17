@@ -1,6 +1,7 @@
 // Native video preparation before upload: compress to 720p H.264 MP4 (≈2 Mbps) and grab a poster frame.
 // Uses react-native-compressor (needs a development / EAS build — it isn't inside Expo Go);
-// without it the original file is uploaded (the server still caps size at ~95 MB).
+// without it the original file is uploaded. Compression only lowers quality / bitrate — it never trims the
+// length (big files are uploaded in parts, see uploadVideo in ./media.js).
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import * as FileSystem from 'expo-file-system';
 
@@ -32,6 +33,11 @@ export async function compressVideo(uri, onProgress) {
   }
   if (onProgress) onProgress(1);
   const info = await FileSystem.getInfoAsync(out, { size: true }).catch(() => ({}));
+  if (compressed && out !== uri) {
+    // keep the original when "compressing" made it bigger (already small clips)
+    const orig = await FileSystem.getInfoAsync(uri, { size: true }).catch(() => ({}));
+    if (orig && orig.size && info && info.size && info.size >= orig.size) return { uri, sizeBytes: orig.size, compressed: false };
+  }
   return { uri: out, sizeBytes: info && info.size ? info.size : 0, compressed };
 }
 

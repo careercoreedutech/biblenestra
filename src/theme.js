@@ -17,6 +17,12 @@ export const FONT_ASSETS = {
   'Newsreader-Medium': require('@expo-google-fonts/newsreader/500Medium/Newsreader_500Medium.ttf'),
   'Newsreader-SemiBold': require('@expo-google-fonts/newsreader/600SemiBold/Newsreader_600SemiBold.ttf'),
   'Newsreader-SemiBoldItalic': require('@expo-google-fonts/newsreader/600SemiBold_Italic/Newsreader_600SemiBold_Italic.ttf'),
+  // Extra reading fonts for the Bible reader's font menu
+  Lora: require('@expo-google-fonts/lora/400Regular/Lora_400Regular.ttf'),
+  Merriweather: require('@expo-google-fonts/merriweather/400Regular/Merriweather_400Regular.ttf'),
+  EBGaramond: require('@expo-google-fonts/eb-garamond/400Regular/EBGaramond_400Regular.ttf'),
+  Inter: require('@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf'),
+  AtkinsonHyperlegible: require('@expo-google-fonts/atkinson-hyperlegible/400Regular/AtkinsonHyperlegible_400Regular.ttf'),
 };
 
 const systemSerif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia, serif' });
@@ -32,6 +38,22 @@ export const fonts = {
   sansMedium: Platform.select({ ios: 'System', android: undefined, default: undefined }),
   fallbackSerif: systemSerif,
 };
+
+// Bible reader font menu. 'family' undefined = the phone's own sans font.
+export const READER_FONTS = [
+  { key: 'Newsreader', label: 'Newsreader', note: 'Default', family: 'Newsreader' },
+  { key: 'Lora', label: 'Lora', note: 'Warm serif', family: 'Lora' },
+  { key: 'Merriweather', label: 'Merriweather', note: 'Sturdy serif', family: 'Merriweather' },
+  { key: 'EBGaramond', label: 'Garamond', note: 'Classic book', family: 'EBGaramond' },
+  { key: 'SystemSerif', label: 'Georgia', note: 'Phone serif', family: systemSerif },
+  { key: 'Inter', label: 'Inter', note: 'Clean sans', family: 'Inter' },
+  { key: 'AtkinsonHyperlegible', label: 'Atkinson', note: 'Easy to read', family: 'AtkinsonHyperlegible' },
+  { key: 'System', label: 'System', note: 'Phone default', family: undefined },
+];
+export function readerFontFamily(key) {
+  const f = READER_FONTS.find((x) => x.key === key) || READER_FONTS[0];
+  return f.family;
+}
 
 export const colors = {
   // Surfaces
