@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createApp } from '../src/index.js';
 import { makeDb, makeBucket } from '../dev/local-env.mjs';
 import { q, one } from '../src/lib/db.js';
-import { runYouTubeLiveCheck, notifyLive } from '../src/lib/youtubeLive.js';
+import { runYouTubeLiveCheck, notifyLive, videoIdFromLink } from '../src/lib/youtubeLive.js';
 
 const CH = 'UCabcdefghijklmnopqrstuv'; // 24 chars
 const V = { vod: 'vodAAAAAAA1', up: 'upcBBBBBBB2', live: 'livCCCCCCC3' };
@@ -40,6 +40,9 @@ async function mockFetch(url, opts) {
     const msgs = JSON.parse(opts.body);
     calls.push += msgs.length;
     return new Response(JSON.stringify({ data: msgs.map(() => ({ status: 'ok' })) }), { status: 200 });
+  }
+  if (u.startsWith('https://www.youtube.com/oembed')) {
+    return new Response(JSON.stringify({ title: 'Sunday Service — Grace Church', author_name: 'Grace Church' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
   return new Response('not mocked', { status: 404 });
 }
@@ -209,4 +212,70 @@ test('comments: post, reply (one level), list newest/oldest, like, delete, repor
   assert.equal((await call('boss', 'DELETE', `/youtube/comments/${a.json.id}`)).status, 200, 'admin can delete anyone’s');
   const after = await call('ben', 'GET', `/youtube/videos/${vid}/comments`);
   assert.equal(after.json.total, 0, 'thread and replies gone');
+});
+
+test('manual LIVE NOW without an API key: link formats, admin only, once per stream, preferences, push, end, auto-end', async () => {
+  delete env.YOUTUBE_API_KEY;
+  const M = 'manDDDDDDD4';
+  const M2 = 'manEEEEEEE5';
+  for (const l of [M, `https://www.youtube.com/watch?v=${M}&t=5`, `https://youtu.be/${M}?si=abc`, `https://youtube.com/live/${M}?feature=share`,
+    `m.youtube.com/watch?v=${M}`, `https://www.youtube.com/shorts/${M}`, `https://www.youtube.com/embed/${M}`]) {
+    assert.equal(videoIdFromLink(l), M, l);
+  }
+  for (const l of ['', 'hello', 'https://vimeo.com/123', 'https://www.youtube.com/@grace/live', 'https://youtu.be/short']) assert.equal(videoIdFromLink(l), null, l);
+
+  assert.equal((await call('ann', 'POST', '/admin/api/youtube/live/manual', { channelId: CH, link: M })).status, 403);
+  assert.equal((await call(null, 'POST', '/admin/api/youtube/live/manual', { channelId: CH, link: M })).status, 401);
+  assert.equal((await call('boss', 'POST', '/admin/api/youtube/live/manual', { channelId: 'UCnotachannelnotachannel', link: M })).json.code, 'UNKNOWN_CHANNEL');
+  assert.equal((await call('boss', 'POST', '/admin/api/youtube/live/manual', { channelId: CH, link: 'https://vimeo.com/1' })).json.code, 'BAD_LINK');
+
+  const expected = (await one(env, `SELECT count(*)::int AS n FROM users WHERE NOT banned AND COALESCE(notify->>'live', 'true') <> 'false'`)).n;
+  const pushBefore = calls.push;
+  const annBefore = (await liveNotes(ids.ann)).length;
+  const calBefore = (await liveNotes(ids.cal)).length;
+  const r = await call('boss', 'POST', '/admin/api/youtube/live/manual', { channelId: CH, link: `https://youtube.com/live/${M}?feature=share` });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  assert.equal(r.json.videoId, M);
+  assert.equal(r.json.status, 'live');
+  assert.equal(r.json.channelTitle, 'Grace Church');
+  assert.equal(r.json.title, 'Sunday Service — Grace Church', 'title from YouTube when none is typed');
+  assert.equal(r.json.recipients, expected);
+  assert.equal(r.json.pushSent, calls.push - pushBefore);
+  assert.ok(r.json.pushSent >= 1, 'ann’s phone');
+
+  const notes = await liveNotes(ids.ann);
+  assert.equal(notes.length, annBefore + 1);
+  const last = notes[notes.length - 1];
+  assert.equal(last.title, '🔴 LIVE NOW!');
+  assert.equal(last.body, 'Grace Church is live on Bible Nestra. Join the service now and participate in the broadcast.');
+  assert.equal(last.data.videoId, M);
+  assert.equal(last.data.route, 'YouTubeWatch');
+  assert.equal(last.data.action, 'Join live service');
+  assert.equal((await liveNotes(ids.cal)).length, calBefore, 'cal turned live alerts off');
+  assert.ok((await call(null, 'GET', '/youtube/live')).json.items.some((x) => x.videoId === M), 'shows as Live now in the app');
+
+  const again = await call('boss', 'POST', '/admin/api/youtube/live/manual', { channelId: CH, link: M, title: 'Again' });
+  assert.equal(again.status, 409);
+  assert.equal(again.json.code, 'ALREADY_SENT');
+  assert.equal((await liveNotes(ids.ann)).length, annBefore + 1, 'never twice');
+
+  const typed = await call('boss', 'POST', '/admin/api/youtube/live/manual', { channelId: CH, link: `https://youtu.be/${M2}`, title: 'Night of Worship' });
+  assert.equal(typed.status, 201);
+  assert.equal(typed.json.title, 'Night of Worship', 'a typed title wins');
+
+  assert.equal((await call('ann', 'POST', `/admin/api/youtube/live/${M}/end`, {})).status, 403);
+  const end = await call('boss', 'POST', `/admin/api/youtube/live/${M}/end`, {});
+  assert.equal(end.status, 200);
+  assert.equal(end.json.status, 'ended');
+  assert.ok(!(await call(null, 'GET', '/youtube/live')).json.items.some((x) => x.videoId === M), 'gone from Live now');
+  assert.equal((await call('boss', 'POST', `/admin/api/youtube/live/${M}/end`, {})).status, 404);
+
+  await q(env, `UPDATE youtube_live SET actual_start = now() - interval '7 hours' WHERE video_id = $1`, [M2]);
+  const cron = await runYouTubeLiveCheck(env, { trigger: 'cron' });
+  assert.equal(cron.skipped, 'NO_API_KEY');
+  assert.equal((await one(env, 'SELECT status FROM youtube_live WHERE video_id = $1', [M2])).status, 'ended', 'closes itself after 6 hours');
+
+  assert.ok(await one(env, `SELECT 1 AS x FROM admin_actions WHERE action = 'youtube.live_manual' AND target_id = $1`, [M]), 'audited');
+  const page = await (await app.fetch(new Request('http://api.test/admin'), env)).text();
+  assert.ok(page.includes('Send a LIVE NOW notification'));
 });

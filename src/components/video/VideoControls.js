@@ -116,7 +116,10 @@ export default function VideoControls({
   visible, long, playing, muted, position, duration, buffered,
   onTogglePlay, onToggleMute, onSeek, onScrubStart, onScrubEnd, onFullscreen,
 }) {
-  const full = visible || long;
+  // Nothing is drawn until the viewer taps the video (or pauses): the bottom stays clear while watching.
+  // Tapping shows the seek bar, time and buttons for a few seconds, for short and long videos alike.
+  if (!visible) return null;
+  const full = true;
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       {full ? (

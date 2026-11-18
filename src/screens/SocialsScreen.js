@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
+  BackHandler,
   Dimensions,
   Easing,
   FlatList,
@@ -30,7 +31,7 @@ import { LightPostCard, ComposerCard, ReelsStrip, HubCards, PostMenuSheet, react
 import CreatePostSheet from '../components/social/CreatePostSheet';
 import { TextPostShareSheet, canShareImage } from '../components/social/TextPostCard';
 import { SOCIAL, CONTENT_THEMES, parseScriptureRef, passageLabel, timestampOf, relTime, initials } from '../components/social/shared';
-import { setSocialsDark } from '../ui/chrome';
+import { setSocialsDark, setSocialsImmersive } from '../ui/chrome';
 // SOCIAL (round 3): profile links, comment likes, gifts from comments, who-liked lists, activity inbox
 import { useApi } from '../api/auth';
 import { splitPosts, mapNotification } from '../api/mappers';
@@ -687,6 +688,20 @@ export default function SocialsScreen({ params }) {
     }
   }, [wantDark, focused]);
   useEffect(() => () => { if (ownsDark.current) setSocialsDark(false); }, []);
+  // Immersive Videos: App.js hides the bottom tab bar and mini-player while the Videos section is showing
+  const wantImmersive = focused && mainTab === 'home' && segment === 'videos';
+  const ownsImmersive = useRef(false);
+  useEffect(() => {
+    if (wantImmersive) { setSocialsImmersive(true); ownsImmersive.current = true; }
+    else if (ownsImmersive.current || focused) { setSocialsImmersive(false); ownsImmersive.current = false; }
+  }, [wantImmersive, focused]);
+  useEffect(() => () => { if (ownsImmersive.current) setSocialsImmersive(false); }, []);
+  // Android back button closes the Videos section (back to the Feed) when Socials is the tab itself
+  useEffect(() => {
+    if (!wantImmersive || routeMode || videoViewer) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setSegment('feed'); return true; });
+    return () => sub.remove();
+  }, [wantImmersive, routeMode, videoViewer]);
 
   // Videos: the overlaid header slides away with the player controls and comes back with them
   const showVideoHeader = segment !== 'videos' || videosChrome;
@@ -1631,11 +1646,11 @@ export default function SocialsScreen({ params }) {
           renderOverlay={renderVideoOverlay}
           onDoubleTap={likeFromTap}
           onChromeChange={setVideosChrome}
-          topInset={headerH + 44}
+          topInset={60}
           keyboard={!videoViewer}
         />
       ) : (
-        <View style={[styles.feedEmpty, { height: bodyHeight, paddingTop: headerH }]}>
+        <View style={[styles.feedEmpty, { height: bodyHeight, paddingTop: 60 }]}>
           <ScaleIn style={styles.feedEmptyIcon}>
             <Icon name="video" size={26} color={colors.goldLight} />
           </ScaleIn>
@@ -1650,33 +1665,17 @@ export default function SocialsScreen({ params }) {
         </View>
       )}
 
-      {/* Guild / Creators pills under the overlaid header — they hide with it */}
-      <Animated.View
-        style={[styles.reelsTopBar, { top: headerH + 6, justifyContent: 'flex-start', gap: 8, opacity: videoHeaderY.interpolate({ inputRange: [-Math.max(1, headerH), 0], outputRange: [0, 1] }) }]}
-        pointerEvents={videosChrome ? 'box-none' : 'none'}
+      {/* Immersive Videos: no header, no pills, no tab bar — just a back arrow over the video */}
+      <PressScale
+        onPress={() => (routeMode ? nav.pop() : switchSegment('feed'))}
+        scaleTo={0.9}
+        hitSlop={12}
+        style={styles.videosBack}
+        accessibilityLabel="Close videos"
+        testID="videos-back"
       >
-        <PressScale onPress={() => setMainTab('guild')} scaleTo={0.93} style={styles.floatingGuildPill} accessibilityLabel="Open Clip Farm guild">
-          <View style={styles.onlineDotWrap}>
-            <LiveRing color={colors.goldLight} size={6} />
-          </View>
-          <Text style={styles.floatingGuildText}>Guild</Text>
-          {guildUnread ? (
-            <ScaleIn style={styles.guildNavBadge}>
-              <Text style={styles.guildNavBadgeText}>{guildUnread}</Text>
-            </ScaleIn>
-          ) : null}
-        </PressScale>
-        <PressScale onPress={() => setMainTab('creators')} scaleTo={0.93} style={styles.floatingCornerPill} accessibilityLabel="Creators Corner">
-          <Icon name="sparkles" size={14} color={colors.goldLight} />
-          <Text style={styles.floatingGuildText}>Creators</Text>
-        </PressScale>
-        {reelVideos.length ? (
-          <PressScale onPress={() => setVideoViewer({ index: Math.min(activeIndex, reelVideos.length - 1) })} scaleTo={0.93} style={styles.floatingCornerPill} accessibilityLabel="Full screen" testID="videos-tab-expand">
-            <Icon name="play" size={13} color={colors.goldLight} />
-            <Text style={styles.floatingGuildText}>Full screen</Text>
-          </PressScale>
-        ) : null}
-      </Animated.View>
+        <Icon name="chevron-left" size={24} color={WHITE} strokeWidth={2.4} />
+      </PressScale>
 
       {/* Publish success: springs in over the new reel, then clears itself */}
       {published ? (
@@ -1707,7 +1706,8 @@ export default function SocialsScreen({ params }) {
           <Animated.View
             onLayout={(e) => { const h = Math.round(e.nativeEvent.layout.height); if (h && Math.abs(h - headerH) > 1) setHeaderH(h); }}
             ref={headerRef}
-            style={[styles.header, !darkHead && styles.headerLight, darkHead && styles.headerOverlay, styles.headerFloat, { transform: [{ translateY: segment === 'videos' ? videoHeaderY : feedHeaderY }] }]}
+            style={[styles.header, !darkHead && styles.headerLight, darkHead && styles.headerOverlay, styles.headerFloat, { transform: [{ translateY: segment === 'videos' ? videoHeaderY : feedHeaderY }] }, segment === 'videos' && { display: 'none' }]}
+            pointerEvents={segment === 'videos' ? 'none' : 'auto'}
             testID="socials-header"
           >
             <View style={styles.headerRow}>
@@ -2173,6 +2173,7 @@ const styles = StyleSheet.create({
   feedEndLine: { flex: 1, height: 1, backgroundColor: colors.border },
   feedEndBadge: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   feedEndText: { fontSize: 12, color: colors.muted, fontWeight: '600' },
+  videosBack: { position: 'absolute', top: 10, left: 12, width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.38)', zIndex: 30 },
   reelsTopBar: {
     position: 'absolute',
     top: 12,

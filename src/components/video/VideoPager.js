@@ -432,7 +432,7 @@ export default function VideoPager({
     const colW = landscape ? width : Math.min(width, Math.round(height * 0.5625) + (width > 700 ? 120 : 0));
     return { fit, colW, landscape };
   };
-  const controlsH = (chrome || isLong ? 64 : 26) + bottomInset;
+  const controlsH = (chrome ? 64 : 10) + bottomInset; // controls stay hidden until the video is tapped
   const renderPage = (i) => {
     const it = items[i];
     if (!it) return null;
@@ -473,7 +473,7 @@ export default function VideoPager({
           ) : null}
           {current ? hearts.map((h) => <HeartPop key={h} onDone={() => setHearts((list) => list.filter((x) => x !== h))} />) : null}
           {renderOverlay ? (
-            <View style={[styles.overlay, { top: topInset, bottom: current ? controlsH : 26 + bottomInset }]} pointerEvents="box-none">
+            <View style={[styles.overlay, { top: topInset, bottom: current ? controlsH : 10 + bottomInset }]} pointerEvents="box-none">
               {renderOverlay(it, { current, playing: current && playing, chrome: current && chrome, landscape })}
             </View>
           ) : null}
@@ -532,7 +532,8 @@ const styles = StyleSheet.create({
   page: { position: 'absolute', left: 0, backgroundColor: '#000', alignItems: 'center' },
   col: { flex: 1, height: '100%', backgroundColor: '#000', overflow: 'hidden' },
   overlay: { position: 'absolute', left: 0, right: 0 },
-  controls: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 20 },
+  // solid black strip behind the progress line / controls, so the bottom edge is clean on any video
+  controls: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 20, backgroundColor: '#000' },
   center: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   bigPlay: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(0,0,0,0.38)', alignItems: 'center', justifyContent: 'center', paddingLeft: 4 },
   heart: { position: 'absolute', alignSelf: 'center', top: '38%' },

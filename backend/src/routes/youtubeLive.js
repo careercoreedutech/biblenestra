@@ -1,12 +1,13 @@
 // YOUTUBE LIVE & COMMENTS
 //   youtubePublic  — GET /youtube/live (what's live / upcoming now), GET /youtube/videos/:videoId (watch-screen info)
 //   youtubeComments — Bible Nestra's own comment thread per YouTube video (signed-in users; mounted after requireUser)
-//   adminYouTubeLive — /admin/api/youtube/live (status, detections, log) + "Check now" (admins only)
+//   adminYouTubeLive — /admin/api/youtube/live (status, detections, log), "Check now", manual "Send LIVE NOW"
+//                      (no API key needed) and "Mark as ended" (admins only)
 import { Hono } from 'hono';
 import { one, q } from '../lib/db.js';
 import { ApiError, bad, body, forbidden, notFound, str, uuidParam } from '../lib/http.js';
 import { VIDEO_ID_RE, videoEmbedUrl } from '../lib/youtube.js';
-import { hasApiKey, liveShape, runYouTubeLiveCheck, YOUTUBE_LIVE_ADMIN_SCRIPT } from '../lib/youtubeLive.js';
+import { announceLive, hasApiKey, liveShape, runYouTubeLiveCheck, videoIdFromLink, YOUTUBE_LIVE_ADMIN_SCRIPT } from '../lib/youtubeLive.js';
 import { audit, registerAdminScript, requireAdmin } from './admin.js';
 
 registerAdminScript(YOUTUBE_LIVE_ADMIN_SCRIPT);
@@ -190,6 +191,37 @@ adminYouTubeLive.get('/admin/api/youtube/live', async (c) => {
     detections: detections.map(liveShape),
     runs: runs.map((r) => ({ ranAt: new Date(r.ran_at).toISOString(), trigger: r.trigger, channels: r.channels, checked: r.checked, apiCalls: r.api_calls, live: r.live, notified: r.notified, error: r.error })),
   });
+});
+
+// Manual "LIVE NOW" (works without the YouTube API key): the admin picks an approved channel and pastes the
+// live stream's link. Each live stream is announced once; a second send is refused.
+adminYouTubeLive.post('/admin/api/youtube/live/manual', async (c) => {
+  const me = c.get('user');
+  const b = await body(c);
+  const channel = await one(c.env, 'SELECT * FROM youtube_channels WHERE channel_id = $1 AND active', [String(b.channelId || '')]);
+  if (!channel) throw bad('Choose one of the active channels (add channels in the YouTube channels tab)', 'UNKNOWN_CHANNEL');
+  const videoId = videoIdFromLink(b.link);
+  if (!videoId) throw bad('Paste the YouTube link of the live stream — for example https://youtube.com/live/… or https://youtu.be/…', 'BAD_LINK');
+  const title = str(b.title, { max: 200, optional: true, field: 'Title' });
+  const r = await announceLive(c.env, { channel, videoId, title });
+  if (r.alreadySent) {
+    const x = r.alreadySent;
+    throw new ApiError(409, 'ALREADY_SENT', `This live stream was already announced (${x.recipients || 0} recipient${x.recipients === 1 ? '' : 's'}). Each live stream is announced only once.`);
+  }
+  await audit(c.env, me, 'youtube.live_manual', 'youtube_live', videoId, { channel: channel.title, recipients: r.recipients, pushed: r.pushed || 0 });
+  const row = await one(c.env, 'SELECT * FROM youtube_live WHERE video_id = $1', [videoId]);
+  return c.json({ ...liveShape(row), recipients: r.recipients, pushSent: r.pushed || 0 }, 201);
+});
+
+// The service is over: take it out of the app's "Live now" list.
+adminYouTubeLive.post('/admin/api/youtube/live/:videoId/end', async (c) => {
+  const me = c.get('user');
+  const videoId = videoParam(c);
+  const row = await one(c.env, `UPDATE youtube_live SET status = 'ended', actual_end = COALESCE(actual_end, now()), updated_at = now()
+    WHERE video_id = $1 AND status <> 'ended' RETURNING *`, [videoId]);
+  if (!row) throw notFound('That stream isn’t live or upcoming');
+  await audit(c.env, me, 'youtube.live_end', 'youtube_live', videoId, { channel: row.channel_title });
+  return c.json(liveShape(row));
 });
 
 adminYouTubeLive.post('/admin/api/youtube/live/check', async (c) => {

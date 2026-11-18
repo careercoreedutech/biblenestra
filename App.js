@@ -36,7 +36,7 @@ import SocialsScreen from './src/screens/SocialsScreen';
 import ConcordanceScreen from './src/screens/ConcordanceScreen';
 import ScripturePopScreen from './src/screens/ScripturePopScreen';
 import { useScripturePop } from './src/notifications/scripturePop';
-import { useSocialsDark } from './src/ui/chrome';
+import { useSocialsDark, useSocialsImmersive } from './src/ui/chrome';
 import JobsScreen from './src/screens/JobsScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen'; // SOCIAL (round 3)
 import EditProfileScreen from './src/screens/EditProfileScreen'; // SOCIAL (round 3)
@@ -175,6 +175,7 @@ function Root() {
   const { state, ready, dispatch } = useStore();
   const nav = useNav();
   const socialsDark = useSocialsDark();
+  const socialsImmersive = useSocialsImmersive(); // Videos section: hide the tab bar + mini-player
   const [tab, setTab] = useState('Today');
   // Scripture pop-ups: keep the next couple of days scheduled; open the verse when one is tapped
   useScripturePop(ready ? state.scripturePop : null, nav);
@@ -233,17 +234,18 @@ function Root() {
   const pageBg = isSocials ? '#000000' : reader ? reader.bg : colors.screen;
   const variant = isSocials ? 'dark' : reader && reader.key !== 'paper' ? reader.key : 'light';
   const lightStatus = isSocials || (reader && reader.dark);
+  const immersive = socialsImmersive && tab === 'Socials' && !top;
   // (a pushed Socials/Feed route keeps the dark chrome; the tab bar is hidden under pushed routes anyway)
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: pageBg }]} edges={isSocials && !socialRoute ? ['top'] : ['top', 'bottom']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: pageBg }]} edges={isSocials && !socialRoute && !immersive ? ['top'] : ['top', 'bottom']}>
       <StatusBar style={lightStatus ? 'light' : 'dark'} />
       <View style={{ flex: 1, backgroundColor: pageBg }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           {layers}
         </KeyboardAvoidingView>
-        {!(tab === 'Bible' && !top) && !(top && top.name === 'Bible') ? <MiniPlayer bg={top ? colors.screen : pageBg} /> : null}
+        {!immersive && !(tab === 'Bible' && !top) && !(top && top.name === 'Bible') ? <MiniPlayer bg={top ? colors.screen : pageBg} /> : null}
         {(tab === 'Bible' && !top) || (top && top.name === 'Bible') ? <LibraryMiniBar bg={pageBg} /> : null}{/* MEDIA LIBRARY: library audio keeps its bar in the Bible reader */}
-        {!top ? <TabBar active={tab} variant={variant} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
+        {!top && !immersive ? <TabBar active={tab} variant={variant} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
         <NowPlayingSheet />
         <EngagementPopup />
       </View>
