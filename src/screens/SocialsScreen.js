@@ -39,6 +39,7 @@ import { toggleCommentLike, getCommentLikers, getPostReactors, isServerId } from
 import { useOpenProfile } from '../components/social/profileNav';
 import GiftSheet from '../components/social/GiftSheet';
 import { FeedNativeAd } from '../ads/AdSlots';
+import { MemberWebsitesStrip } from './WebsitesScreens'; // MEMBER WEBSITES
 import { AD_RULES } from '../ads/config';
 import VideoPager from '../components/video/VideoPager';
 import VideoViewer from '../components/video/VideoViewer';
@@ -1538,6 +1539,7 @@ export default function SocialsScreen({ params }) {
         {chip === 'For You' ? (
           <>
             <ComposerCard userName={userName} avatarUri={myAvatar} onOpen={(mode) => openComposer(mode)} />
+            <MemberWebsitesStrip />
             {reelVideos.length ? (
               <ReelsStrip
                 videos={reelVideos}

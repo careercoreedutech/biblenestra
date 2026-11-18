@@ -350,6 +350,7 @@ export default function DiscoverScreen() {
             { label: 'Library', icon: 'bookmark', tint: colors.lavender, bg: colors.cardLavender, go: () => nav.push('Library') },
             { label: 'Jobs', icon: 'briefcase', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('Jobs') },
             { label: 'Opportunities', icon: 'globe', tint: colors.sky, bg: colors.cardSky, go: () => nav.push('Opportunities') }, // OPPORTUNITIES
+            { label: 'Websites', icon: 'link', tint: colors.teal, bg: colors.cardTeal || colors.cardSky, go: () => nav.push('Websites') }, // MEMBER WEBSITES
             { label: 'Care', icon: 'heart', tint: colors.teal, bg: colors.cardSage, go: () => nav.push('Care') },
             { label: 'Fund Me', icon: 'gift', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('FundMe') },
           ].map((q, i) => (

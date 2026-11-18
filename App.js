@@ -15,6 +15,7 @@ import { AdsBridge } from './src/ads/AdsBridge'; // ADS: authenticated transport
 import { AuthGate } from './src/api/auth';
 import { IntroGate } from './src/screens/IntroScreens';
 import { ExtraBooksScreen, ExtraBookScreen } from './src/screens/ExtraBooksScreens'; // BEYOND THE 66
+import { WebsitesScreen, AddWebsiteScreen, WebsiteViewerScreen } from './src/screens/WebsitesScreens'; // MEMBER WEBSITES
 import EngagementPopup from './src/components/EngagementPopup';
 import { PlansScreen, PlansGate } from './src/screens/PlansScreen';
 import { ContestsScreen, ContestScreen, ContestEntryScreen, ContestSubmitScreen, CertificateScreen } from './src/screens/ContestsScreens';
@@ -86,6 +87,7 @@ class ErrorBoundary extends Component {
 
 const ROUTES = {
   ExtraBooks: ExtraBooksScreen, ExtraBook: ExtraBookScreen, // BEYOND THE 66: deuterocanonical & extra-biblical books
+  Websites: WebsitesScreen, AddWebsite: AddWebsiteScreen, WebsiteViewer: WebsiteViewerScreen, // MEMBER WEBSITES (open inside the app)
   Bible: BibleScreen, Study: StudyScreen, Factbook: FactbookScreen, Search: SearchScreen, Library: LibraryScreen,
   Reading: ReadingScreen, BibleChat: BibleChatScreen, Companion: CompanionScreen,
   Prayer: PrayerDetailScreen, NewPrayer: NewPrayerScreen, PrayerTab: PrayerScreen, PrayerWall: PrayerScreen,

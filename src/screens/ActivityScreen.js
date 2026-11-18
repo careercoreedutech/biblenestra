@@ -29,6 +29,7 @@ const KIND = {
   contest: { icon: 'star', tint: colors.gold, label: 'Contest' },
   battle: { icon: 'flame', tint: colors.terracotta, label: 'Bible Battle' },
   live: { icon: 'live', tint: colors.rose, label: 'Bible Nestra · Live' }, // YOUTUBE LIVE
+  website: { icon: 'link', tint: colors.teal, label: 'Member websites' }, // MEMBER WEBSITES
 };
 
 /** Unread count of the in-app inbox (for header badges). */
@@ -86,6 +87,7 @@ export default function ActivityScreen() {
     if (n.kind === 'contest' && d.submissionId && isServerId(d.submissionId)) { nav.push('ContestEntry', { id: d.submissionId }); return; }
     if (n.kind === 'contest' && d.certificate) { nav.push('Certificate', { code: d.certificate }); return; }
     if (n.kind === 'contest') { if (isServerId(d.contestId)) nav.push('Contest', { id: d.contestId }); else nav.push('Contests'); return; }
+    if (n.kind === 'website') { nav.push('Websites'); return; } // MEMBER WEBSITES
     if (n.kind === 'live') { if (d.videoId) nav.push('YouTubeWatch', { videoId: d.videoId, title: d.videoTitle, channelTitle: d.channelTitle, live: true }); else nav.push('Watch'); return; } // YOUTUBE LIVE
     if (n.kind === 'announcement') { nav.reset(); return; } // ROUND 5: back to the tabs (the card is on Today)
   };

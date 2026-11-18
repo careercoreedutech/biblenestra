@@ -1193,3 +1193,27 @@ CREATE TABLE IF NOT EXISTS ad_user_daily (
   paid        integer NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, day)
 );
+
+-- ---------- MEMBER WEBSITES: members add their own website; admins approve; it opens inside the app ----------
+-- Approved sites show in the Socials feed strip and the Websites directory and open in the in-app WebView viewer.
+CREATE TABLE IF NOT EXISTS member_websites (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  url          text NOT NULL CHECK (url ~ '^https://'),
+  host         text NOT NULL,
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 120),
+  description  text NOT NULL DEFAULT '' CHECK (char_length(description) <= 500),
+  image_url    text,
+  icon_url     text,
+  category     text,
+  status       text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','hidden')),
+  reject_reason text,
+  reviewed_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at  timestamptz,
+  opens        integer NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (owner_id, host)
+);
+CREATE INDEX IF NOT EXISTS member_websites_approved ON member_websites (created_at DESC, id DESC) WHERE status = 'approved';
+CREATE INDEX IF NOT EXISTS member_websites_pending ON member_websites (created_at) WHERE status = 'pending';

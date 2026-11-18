@@ -34,6 +34,7 @@ import { adminPage, adminApi } from './routes/admin.js'; // DISCOVER TOOLS (roun
 import { adminPlus, announcementsPublic } from './routes/adminPlus.js'; // ROUND 5: admin dashboard sections
 import { contests, adminContests, contestPublic } from './routes/contests.js'; // CONTESTS
 import { opportunities, adminOpportunities } from './routes/opportunities.js'; // OPPORTUNITIES (imported listings)
+import { websites, adminWebsites } from './routes/websites.js'; // MEMBER WEBSITES (open inside the app)
 import { extraBooks } from './routes/extraBooks.js'; // BEYOND THE 66: deuterocanonical & extra-biblical texts
 import { battles } from './routes/battles.js'; // CONTEST CENTRE: live Bible battles
 import { youtubePublic, youtubeComments, adminYouTubeLive } from './routes/youtubeLive.js'; // YOUTUBE LIVE: live alerts + comments per video
@@ -140,6 +141,8 @@ export function createApp() {
   app.route('/', battles); // CONTEST CENTRE: live Bible battles
   app.route('/', opportunities); // OPPORTUNITIES: jobs, scholarships, grants, hackathons… from outside sources
   app.route('/', adminOpportunities); // OPPORTUNITIES: /admin/api/opportunity-sources (admin only)
+  app.route('/', websites); // MEMBER WEBSITES: members add their sites; approved ones open in the in-app viewer
+  app.route('/', adminWebsites); // MEMBER WEBSITES: /admin/api/websites approvals (admin only)
   app.route('/', ads); // ADS: POST /ads/events (batched ad events)
   app.route('/', adminAds); // ADS: /admin/api/ads/* (admin only)
   app.route('/', youtubeComments); // YOUTUBE LIVE: Bible Nestra comments per YouTube video
