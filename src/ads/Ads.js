@@ -6,6 +6,8 @@
 // const ads = useAds();
 // const { rewarded } = await ads.showRewarded();   // user watched to the end → grant the reward
 // await ads.showInterstitial();                    // between natural breaks (e.g. game questions)
+// ads.preloadRewarded('support'); ads.preloadInterstitial();  // load ahead so the show is instant
+// showRewarded({ purpose, loadTimeoutMs }) gives up after loadTimeoutMs (default 30 s) → { rewarded: false, error: 'timeout' }
 //
 // showInterstitial(opts?) — opts: { surface, placement, skipAfterSec, loadTimeoutMs, ignoreCaps }. It
 // resolves { shown } and never shows an ad when: Plus member, the admin master switch is off, the app is
@@ -45,30 +47,95 @@ function listenPaid(ad, meta) {
   });
 }
 
+// ---------- preloading (brief 3.1 / 10.1 / 12.1 / 12.2) ----------
+// One ad of each full-screen kind can be loaded ahead of time so showing it is instant. A preloaded ad is
+// "taken" by the next show call with the same key; AdMob ads expire after ~1 h, so older ones are dropped.
+const PRELOAD_MAX_AGE_MS = 50 * 60 * 1000;
+const preloaded = { rewarded: null, interstitial: null };
+
+function rewardedRequest(purpose) {
+  const request = { requestNonPersonalizedAdsOnly: true };
+  if (adUserId && purpose) request.serverSideVerificationOptions = { userId: adUserId, customData: String(purpose) };
+  return request;
+}
+const rewardedKey = (purpose) => `${purpose || ''}|${(purpose && adUserId) || ''}`;
+
+function startPreload(kind, key, create) {
+  const cur = preloaded[kind];
+  if (cur && cur.key === key && !cur.failed && Date.now() - cur.at < PRELOAD_MAX_AGE_MS) return cur;
+  if (cur) cur.dispose();
+  let ad;
+  try { ad = create(); } catch (e) { return null; }
+  const e = { kind, key, ad, at: Date.now(), loaded: false, failed: false };
+  const loadedEvt = kind === 'rewarded' ? GMA.RewardedAdEventType.LOADED : GMA.AdEventType.LOADED;
+  const subs = [
+    ad.addAdEventListener(loadedEvt, () => { e.loaded = true; }),
+    ad.addAdEventListener(GMA.AdEventType.ERROR, () => { if (!e.loaded) e.failed = true; }),
+  ];
+  e.dispose = () => subs.forEach((u) => u && u());
+  try { ad.load(); } catch (err) { e.failed = true; }
+  preloaded[kind] = e;
+  return e;
+}
+
+/** Start loading a rewarded ad now so a later showRewarded({ purpose }) opens instantly. Safe to call often. */
+export function preloadRewardedAd(purpose) {
+  if (!GMA) return;
+  startPreload('rewarded', rewardedKey(purpose), () => GMA.RewardedAd.createForAdRequest(AD_UNITS.rewarded, rewardedRequest(purpose)));
+}
+/** Start loading an interstitial now (e.g. when a detail screen opens) so it's ready when needed. */
+export function preloadInterstitialAd() {
+  if (!GMA) return;
+  startPreload('interstitial', 'i', () => GMA.InterstitialAd.createForAdRequest(AD_UNITS.interstitial, { requestNonPersonalizedAdsOnly: true }));
+}
+// Takes the preloaded ad (if it matches and is still usable) so nobody else shows it.
+function takePreloaded(kind, key) {
+  const e = preloaded[kind];
+  if (!e || e.key !== key || e.failed || Date.now() - e.at >= PRELOAD_MAX_AGE_MS) return null;
+  preloaded[kind] = null;
+  return e;
+}
+// Puts back an ad that was taken but never shown (we gave up waiting) so the next tap can use it.
+function putBack(e) {
+  if (!e || e.failed) { if (e) e.dispose(); return; }
+  if (!preloaded[e.kind]) preloaded[e.kind] = e; else e.dispose();
+}
+
+// opts: { purpose, loadTimeoutMs = 30000 } → { rewarded, error? } ; error 'timeout' | 'load' | 'show'
 function nativeRewarded(opts = {}) {
   return new Promise((resolve) => {
     let earned = false;
     let opened = false;
     let done = false;
     const meta = { surface: 'rewarded', placement: opts.purpose ? String(opts.purpose) : 'reward', format: 'rewarded', test: isTestUnit(AD_UNITS.rewarded) };
-    const finish = (r) => { if (!done) { done = true; subs.forEach((u) => u && u()); resolve(r); } };
-    const request = { requestNonPersonalizedAdsOnly: true };
-    if (adUserId && opts.purpose) {
-      request.serverSideVerificationOptions = { userId: adUserId, customData: String(opts.purpose) };
-    }
-    const ad = GMA.RewardedAd.createForAdRequest(AD_UNITS.rewarded, request);
+    const pre = takePreloaded('rewarded', rewardedKey(opts.purpose));
+    const ad = pre ? pre.ad : GMA.RewardedAd.createForAdRequest(AD_UNITS.rewarded, rewardedRequest(opts.purpose));
+    const finish = (r) => {
+      if (done) return;
+      done = true;
+      subs.forEach((u) => u && u());
+      if (pre) { if (!opened && r.error === 'timeout') putBack(pre); else pre.dispose(); }
+      resolve(r);
+    };
+    const show = () => { if (!done) ad.show().catch(() => { logAdEvent('failed', meta); finish({ rewarded: false, error: 'show' }); }); };
     const subs = [
-      ad.addAdEventListener(GMA.RewardedAdEventType.LOADED, () => ad.show().catch(() => { logAdEvent('failed', meta); finish({ rewarded: false, error: 'show' }); })),
+      ad.addAdEventListener(GMA.RewardedAdEventType.LOADED, show),
       ad.addAdEventListener(GMA.RewardedAdEventType.EARNED_REWARD, () => { earned = true; logAdEvent('completed', meta); }),
-      ad.addAdEventListener(GMA.AdEventType.OPENED, () => { opened = true; logAdEvent('impression', meta); }),
+      ad.addAdEventListener(GMA.AdEventType.OPENED, () => {
+        opened = true;
+        logAdEvent('impression', meta);
+        preloadRewardedAd(opts.purpose); // load the next one while this one plays (e.g. "ad 2 of 2")
+      }),
       ad.addAdEventListener(GMA.AdEventType.CLICKED, () => logAdEvent('clicked', meta)),
       listenPaid(ad, meta),
       ad.addAdEventListener(GMA.AdEventType.CLOSED, () => finish({ rewarded: earned })),
-      ad.addAdEventListener(GMA.AdEventType.ERROR, () => { logAdEvent('failed', meta); finish({ rewarded: false, error: 'load' }); }),
+      ad.addAdEventListener(GMA.AdEventType.ERROR, () => { if (opened || !pre || !pre.loaded) { logAdEvent('failed', meta); finish({ rewarded: false, error: 'load' }); } }),
     ];
     logAdEvent('requested', meta);
-    ad.load();
-    setTimeout(() => { if (!opened) { logAdEvent('failed', meta); finish({ rewarded: false, error: 'timeout' }); } }, 30000);
+    if (pre && pre.loaded) show();
+    else if (!pre) ad.load();
+    // a preloaded ad that is still loading fires LOADED → show
+    setTimeout(() => { if (!opened) { logAdEvent('failed', meta); finish({ rewarded: false, error: 'timeout' }); } }, opts.loadTimeoutMs || 30000);
   });
 }
 
@@ -78,14 +145,22 @@ function nativeInterstitial(meta, loadTimeoutMs) {
   return new Promise((resolve) => {
     let done = false;
     let opened = false;
-    const finish = (r) => { if (!done) { done = true; subs.forEach((u) => u && u()); resolve(r); } };
-    const ad = GMA.InterstitialAd.createForAdRequest(AD_UNITS.interstitial, { requestNonPersonalizedAdsOnly: true });
+    const pre = takePreloaded('interstitial', 'i');
+    const finish = (r) => {
+      if (done) return;
+      done = true;
+      subs.forEach((u) => u && u());
+      if (pre) { if (!opened && (r.reason === 'timeout' || r.reason === 'background')) putBack(pre); else pre.dispose(); }
+      resolve(r);
+    };
+    const ad = pre ? pre.ad : GMA.InterstitialAd.createForAdRequest(AD_UNITS.interstitial, { requestNonPersonalizedAdsOnly: true });
+    const onLoaded = () => {
+      if (done) return;
+      if (!isAppActive()) { finish({ shown: false, reason: 'background' }); return; }
+      ad.show().catch(() => { logAdEvent('failed', meta); finish({ shown: false }); });
+    };
     const subs = [
-      ad.addAdEventListener(GMA.AdEventType.LOADED, () => {
-        if (done) return;
-        if (!isAppActive()) { finish({ shown: false, reason: 'background' }); return; }
-        ad.show().catch(() => { logAdEvent('failed', meta); finish({ shown: false }); });
-      }),
+      ad.addAdEventListener(GMA.AdEventType.LOADED, onLoaded),
       ad.addAdEventListener(GMA.AdEventType.OPENED, () => { opened = true; recordFullScreenImpression(); logAdEvent('impression', meta); }),
       ad.addAdEventListener(GMA.AdEventType.CLICKED, () => logAdEvent('clicked', meta)),
       listenPaid(ad, meta),
@@ -93,7 +168,8 @@ function nativeInterstitial(meta, loadTimeoutMs) {
       ad.addAdEventListener(GMA.AdEventType.ERROR, () => { logAdEvent('failed', meta); finish({ shown: false }); }),
     ];
     logAdEvent('requested', meta);
-    ad.load();
+    if (pre && pre.loaded) onLoaded();
+    else if (!pre) ad.load();
     setTimeout(() => { if (!opened && !done) { logAdEvent('failed', meta); finish({ shown: false, reason: 'timeout' }); } }, loadTimeoutMs);
     // safety net: an ad that never reports CLOSED must not hold the caller forever
     setTimeout(() => finish({ shown: opened }), loadTimeoutMs + 180000);
@@ -157,7 +233,7 @@ export function AdsProvider({ children }) {
 
   const total = demo ? demo.total : 1;
   return (
-    <Ctx.Provider value={{ showRewarded, showInterstitial, isDemo: !GMA }}>
+    <Ctx.Provider value={{ showRewarded, showInterstitial, preloadRewarded: preloadRewardedAd, preloadInterstitial: preloadInterstitialAd, isDemo: !GMA }}>
       {children}
       <Modal visible={!!demo} animationType="fade" transparent={false} onRequestClose={() => left === 0 && closeDemo(true)} statusBarTranslucent>
         <View style={styles.wrap}>
@@ -196,6 +272,8 @@ export function useAds() {
   return useContext(Ctx) || {
     showRewarded: async () => ({ rewarded: true, demo: true }),
     showInterstitial: async () => ({ shown: false }),
+    preloadRewarded: () => {},
+    preloadInterstitial: () => {},
     isDemo: true,
   };
 }

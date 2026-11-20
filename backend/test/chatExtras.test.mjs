@@ -81,7 +81,7 @@ test('voice notes and audio files: up to 20 MB, audio types only', async () => {
   assert.equal(audio.status, 200);
   assert.equal(audio.headers.get('Content-Type'), 'audio/m4a');
   const list = (await call('ana', 'GET', '/conversations')).json.items;
-  assert.equal(list.find((x) => x.id === dm).lastMessage.text, '🎤 Voice message');
+  assert.equal(list.find((x) => x.id === dm).lastMessage.text, '🎤 Voice note (0:04)'); // CHAT 7.3: "Voice note (0:42)" previews
 });
 
 test('coin gifts in a DM: whole amount moves, ledger on both sides, a gift message, a notification', async () => {

@@ -4,6 +4,7 @@ import { q } from './db.js';
 import { settleDue } from '../routes/contests.js';
 import { runOpportunityCron } from './opportunities.js';
 import { runYouTubeLiveCheck } from './youtubeLive.js'; // YOUTUBE LIVE
+import { runBroadcastCron } from './broadcasts.js'; // BROADCASTS
 
 const REMINDERS = [
   {
@@ -64,4 +65,6 @@ export async function runContestCron(env, executionCtx) {
   try { const r = await runOpportunityCron(env); if (r.results.length) console.log('[opportunities] imported', JSON.stringify(r.results), 'pruned', r.pruned); } catch (e) { console.error('[opportunities] cron failed', e && e.message); }
   // YOUTUBE LIVE: detect live/upcoming broadcasts on admin channels, one LIVE notification per broadcast
   try { const r = await runYouTubeLiveCheck(env, { trigger: 'cron' }); if (r.live || r.notified || r.errors.length) console.log('[youtube live]', JSON.stringify(r)); } catch (e) { console.error('[youtube live] cron failed', e && e.message); }
+  // BROADCASTS: scheduled / daily broadcasts that are due, and inbox fan-outs still in progress
+  try { const r = await runBroadcastCron(env); if (r.started || r.repeated || r.continued || r.errors.length) console.log('[broadcasts]', JSON.stringify(r)); } catch (e) { console.error('[broadcasts] cron failed', e && e.message); }
 }

@@ -44,6 +44,7 @@ import { AD_RULES } from '../ads/config';
 import VideoPager from '../components/video/VideoPager';
 import VideoViewer from '../components/video/VideoViewer';
 import { toPlayable } from '../components/video/videoUtils';
+import useFeedVideoPool from '../components/video/useFeedVideoPool'; // FEED VIDEO: 2 shared players for the mixed feed
 import PeopleSheet from '../components/social/PeopleSheet';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { Button, alpha } from '../components/ui';
@@ -652,6 +653,8 @@ export default function SocialsScreen({ params }) {
   const [viewer, setViewer] = useState(null); // { images, start }
   const [highlightKey, setHighlightKey] = useState(null);
   const [visibleVideoKey, setVisibleVideoKey] = useState(null);
+  const [nextVideoKey, setNextVideoKey] = useState(null); // FEED VIDEO: the next video below (preloaded)
+  const mediaLayouts = useRef({}); // FEED VIDEO: card key → { y, h } of the video inside its card
 
   const reelsRef = useRef(null);
   const feedRef = useRef(null);
@@ -783,8 +786,15 @@ export default function SocialsScreen({ params }) {
         comments: v.commentCount != null ? Math.max(v.commentCount, (v.comments || []).length) : (v.comments || []).length,
         shares: v.shares,
         gifts: v.gifts,
-        processing: !!v.processing || v.videoStatus === 'uploading', // online: Cloudflare Stream not ready yet
+        processing: (!!v.processing || v.videoStatus === 'uploading') && !v.uploadFailed, // online: still uploading / not ready yet
         uploadProgress: v.uploadProgress,
+        // FEED VIDEO: failed / interrupted upload (author sees Retry), probe info and the clip's real size
+        uploadFailed: !!v.uploadFailed,
+        uploadError: v.uploadError || null,
+        codec: v.codec || null,
+        videoWidth: v.videoWidth || null,
+        videoHeight: v.videoHeight || null,
+        poster: v.poster || null,
         videoError: !!v.videoError,
         saved: !!v.saved,
         mine: !!v.mine,
@@ -922,21 +932,44 @@ export default function SocialsScreen({ params }) {
     try { feedRef.current && feedRef.current.scrollTo({ y: 0, animated: false }); } catch (e) {}
   };
 
-  // Which inline video card is most visible (only that one autoplays, muted)
+  // FEED VIDEO: which video is >= ~70% visible (only that one autoplays, muted) and which one comes next.
+  // Measured on the video itself (not the whole card, whose caption / actions would skew it).
   const pickVisibleVideo = () => {
     const top = scrollY.current;
     const bottom = top + bodyHeight;
     let best = null;
     let bestVis = 0;
+    let upcoming = null;
+    let upcomingY = Infinity;
     listItems.forEach((it) => {
-      if (!it.videoUrl) return;
+      if (!it.videoUrl || it.processing || it.uploadFailed) return;
       const l = layouts.current[it.key];
       if (!l) return;
-      const vis = Math.max(0, Math.min(l.y + l.h, bottom) - Math.max(l.y, top)) / Math.max(1, Math.min(l.h, bodyHeight));
+      const m = mediaLayouts.current[it.key];
+      const vy = m ? l.y + m.y : l.y;
+      const vh = m ? m.h : l.h;
+      const vis = Math.max(0, Math.min(vy + vh, bottom) - Math.max(vy, top)) / Math.max(1, Math.min(vh, bodyHeight));
       if (vis > bestVis) { bestVis = vis; best = it.key; }
+      if (vy + vh * 0.3 > top && vy < upcomingY && vis < 0.7) { upcomingY = vy; upcoming = it.key; }
     });
-    const next = bestVis > 0.55 ? best : null;
+    const next = bestVis >= 0.7 ? best : null;
     setVisibleVideoKey((cur) => (cur === next ? cur : next));
+    // preload the first video below the playing one (or the next one coming into view when none plays)
+    let after = null;
+    if (next) {
+      const ny = (layouts.current[next] || {}).y || 0;
+      let y = Infinity;
+      listItems.forEach((it) => {
+        const l = layouts.current[it.key];
+        if (!it.videoUrl || it.processing || it.uploadFailed || !l || it.key === next) return;
+        if (l.y > ny && l.y < y) { y = l.y; after = it.key; }
+      });
+    } else after = upcoming;
+    setNextVideoKey((cur) => (cur === after ? cur : after));
+  };
+  const onMediaLayout = (key, y, h) => {
+    mediaLayouts.current[key] = { y, h };
+    pickVisibleVideo();
   };
 
   const onCardLayout = (key, e) => {
@@ -1448,6 +1481,32 @@ export default function SocialsScreen({ params }) {
   if (composer) lastComposer.current = composer;
   const sheetCfg = composer || lastComposer.current;
   const feedPlaying = focused && mainTab === 'home' && segment !== 'videos' && !composer && !commentTarget && !viewer && !showGiftStore && !menuKey && !videoViewer;
+  // FEED VIDEO: one tiny pool of players for every inline video; muted by default, the choice is remembered
+  const feedMuted = state.feedMuted !== false;
+  const urlOf = (key) => { const it = key ? listItems.find((x) => x.key === key) : null; return it ? it.videoUrl || null : null; };
+  const pool = useFeedVideoPool({
+    activeKey: visibleVideoKey,
+    activeUrl: urlOf(visibleVideoKey),
+    nextUrl: urlOf(nextVideoKey),
+    enabled: feedPlaying,
+    release: !focused || mainTab !== 'home' || segment === 'videos' || !!videoViewer,
+    muted: feedMuted,
+  });
+  const toggleFeedMute = () => {
+    haptic('select');
+    dispatch({ type: 'set', patch: { feedMuted: !feedMuted } });
+  };
+  // Card callbacks read the latest handlers through this ref, so memoised cards never call stale ones
+  const H = useRef({});
+  H.current = {
+    likeItem, reactItem, openComments, handleShareVideo, handleSharePost, saveItem, handleFollow, openScripture, openReelAt,
+    openItemAuthor, openPostLikers, onMediaLayout, toggleFeedMute,
+    togglePause: pool.togglePause,
+    menu: (key) => { haptic('light'); setMenuKey(key); },
+    photo: (images, start) => setViewer({ images, start }),
+    retry: (id) => dispatch({ type: 'retryVideo', id }),
+    discard: (id) => dispatch({ type: 'removeItem', slice: 'videos', id }),
+  };
   const menuItem = menuKey ? allItems.find((it) => it.key === menuKey) || null : null;
   const closeMenu = () => setMenuKey(null);
   // Run a ⋯ menu action once the sheet has started closing
@@ -1475,21 +1534,29 @@ export default function SocialsScreen({ params }) {
       <LightPostCard
         item={it}
         index={Math.min(i + 2, 6)}
-        playing={feedPlaying && visibleVideoKey === it.key}
+        playing={visibleVideoKey === it.key}
+        videoPlayer={pool.activeKey === it.key ? pool.player : null}
+        videoPaused={pool.activeKey === it.key ? pool.paused || !feedPlaying : false}
+        feedMuted={feedMuted}
         highlight={highlightKey === it.key}
         isFollowing={!!it.handle && follows.includes(it.handle)}
-        onLike={(dbl) => likeItem(it, dbl)}
-        onReact={(key) => reactItem(it, key)}
-        onComment={() => openComments(it.src, it.id)}
-        onShare={() => (it.src === 'video' ? handleShareVideo(it.raw) : handleSharePost(it.raw))}
-        onSave={() => saveItem(it)}
-        onMenu={() => { haptic('light'); setMenuKey(it.key); }}
-        onFollow={it.src === 'video' || it.handle ? () => handleFollow(it.raw) : null}
-        onOpenPassage={() => openScripture(it.passage || it.scripture)}
-        onOpenVideo={() => openReelAt(it.id)}
-        onOpenPhoto={(images, start) => setViewer({ images, start })}
-        onOpenAuthor={() => openItemAuthor(it)}
-        onOpenLikes={() => openPostLikers(it)}
+        onLike={(dbl) => H.current.likeItem(it, dbl)}
+        onReact={(key) => H.current.reactItem(it, key)}
+        onComment={() => H.current.openComments(it.src, it.id)}
+        onShare={() => (it.src === 'video' ? H.current.handleShareVideo(it.raw) : H.current.handleSharePost(it.raw))}
+        onSave={() => H.current.saveItem(it)}
+        onMenu={() => H.current.menu(it.key)}
+        onFollow={it.src === 'video' || it.handle ? () => H.current.handleFollow(it.raw) : null}
+        onOpenPassage={() => H.current.openScripture(it.passage || it.scripture)}
+        onOpenVideo={() => H.current.openReelAt(it.id)}
+        onOpenPhoto={(images, start) => H.current.photo(images, start)}
+        onOpenAuthor={() => H.current.openItemAuthor(it)}
+        onOpenLikes={() => H.current.openPostLikers(it)}
+        onTogglePause={() => H.current.togglePause()}
+        onToggleMute={() => H.current.toggleFeedMute()}
+        onMediaLayout={(y, h) => H.current.onMediaLayout(it.key, y, h)}
+        onRetryUpload={it.uploadFailed ? () => H.current.retry(it.id) : undefined}
+        onDiscardUpload={it.uploadFailed ? () => H.current.discard(it.id) : undefined}
       />
     </View>
   );
@@ -1719,7 +1786,7 @@ export default function SocialsScreen({ params }) {
                 </PressScale>
               ) : null}
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.headerEyebrow, !darkHead && { color: colors.gold }]}>Community</Text>
+                {/* Brief 7.2: the header says "Socials" only (no "Community" above it) */}
                 <Text style={[styles.headerTitle, !darkHead && { color: colors.fg }]} numberOfLines={1}>Socials</Text>
               </View>
               <PressScale onPress={() => nav.push('Activity')} scaleTo={0.9} hitSlop={6} style={[styles.headerBack, !darkHead && styles.headerBackLight]} accessibilityLabel={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'}>

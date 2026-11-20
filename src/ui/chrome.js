@@ -31,3 +31,19 @@ export function useSocialsImmersive() {
   useEffect(() => { immSubs.add(setV); setV(socialsImmersive); return () => immSubs.delete(setV); }, []);
   return v;
 }
+
+// Bible full-screen reading: while true (Bible tab open, reader idle) App.js slides the tab bar away;
+// the reader's small arrow handle sets it back to false, and the reader hides it again after a few
+// seconds or as soon as the text scrolls.
+let bibleImmersive = false;
+const bibleSubs = new Set();
+export function setBibleImmersive(v) {
+  if (bibleImmersive === !!v) return;
+  bibleImmersive = !!v;
+  bibleSubs.forEach((fn) => fn(bibleImmersive));
+}
+export function useBibleImmersive() {
+  const [v, setV] = useState(bibleImmersive);
+  useEffect(() => { bibleSubs.add(setV); setV(bibleImmersive); return () => bibleSubs.delete(setV); }, []);
+  return v;
+}

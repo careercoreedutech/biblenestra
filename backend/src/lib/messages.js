@@ -3,7 +3,7 @@ import { q, one } from './db.js';
 import { userJson } from './shape.js';
 import { notifyUser } from '../hub.js';
 
-export const EDIT_WINDOW_HOURS = 24;
+export const EDIT_WINDOW_HOURS = 0.25; // CHAT 7.3: a short window like WhatsApp — 15 minutes
 export const MAX_PINS = 3;
 export const REACTIONS = ['🙏', '❤️', '🙌', '👍', '😂', '😢', '🔥', '🕊️'];
 
@@ -57,11 +57,11 @@ export async function membership(env, convId, userId) {
   return one(env, `SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`, [convId, userId]);
 }
 
-// Group moderators: owner/admin of the conversation, or owner/admin of the community whose channel it is.
+// Group moderators: owner/admin/moderator of the conversation (CHAT 7.4), or owner/admin of the community whose channel it is.
 export async function isModerator(env, convId, userId) {
   const r = await one(env,
     `SELECT (
-       EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2 AND role IN ('owner','admin'))
+       EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2 AND role IN ('owner','admin','moderator'))
        OR EXISTS (SELECT 1 FROM community_channels cc
                     JOIN community_members cm ON cm.community_id = cc.community_id
                    WHERE cc.conversation_id = $1 AND cm.user_id = $2 AND cm.status = 'member' AND cm.role IN ('owner','admin'))

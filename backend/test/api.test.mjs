@@ -175,10 +175,17 @@ test('jobs: bidding charges 20 coins atomically', async () => {
   assert.deepEqual(ledger.map((x) => x.amount), [-20, -20, 50]);
 });
 
-test('ads: 5 job ads unlock 20 coins; support capped at 4/day; claims can be disabled', async () => {
-  for (let i = 1; i <= 4; i++) assert.equal((await call('hana', 'POST', '/ads/claim', { purpose: 'job' })).json.jobAdCredits, i);
-  const fifth = await call('hana', 'POST', '/ads/claim', { purpose: 'job' });
-  assert.deepEqual([fifth.json.jobAdCredits, fifth.json.coins, fifth.json.unlocked], [0, 70, 20]);
+test('ads: 2 job ads unlock 20 coins (jobs.bid_required_ads); support capped at 4/day; claims can be disabled', async () => {
+  assert.equal((await call('hana', 'GET', '/me')).json.jobAdsNeeded, 2);
+  assert.equal((await call('hana', 'POST', '/ads/claim', { purpose: 'job' })).json.jobAdCredits, 1);
+  const second = await call('hana', 'POST', '/ads/claim', { purpose: 'job' });
+  assert.deepEqual([second.json.jobAdCredits, second.json.coins, second.json.unlocked], [0, 70, 20]);
+  // remote config: JOBS_BID_REQUIRED_ADS changes the requirement without an app release
+  const env3 = { ...env, JOBS_BID_REQUIRED_ADS: '3' };
+  const claim3 = async () => (await app.fetch(new Request('http://api.test/ads/claim', { method: 'POST', headers: { 'X-Dev-User': 'hana', 'Content-Type': 'application/json' }, body: '{"purpose":"job"}' }), env3)).json();
+  assert.equal((await claim3()).jobAdCredits, 1);
+  assert.equal((await claim3()).jobAdCredits, 2);
+  assert.deepEqual([(await claim3()).unlocked], [20]);
   for (let i = 0; i < 6; i++) await call('hana', 'POST', '/ads/claim', { purpose: 'support' });
   assert.equal((await call('hana', 'GET', '/me')).json.supportAdsToday, 4);
   const off = await app.fetch(new Request('http://api.test/ads/claim', { method: 'POST', headers: { 'X-Dev-User': 'hana', 'Content-Type': 'application/json' }, body: '{"purpose":"job"}' }), { ...env, ADS_CLIENT_CLAIM: 'false' });

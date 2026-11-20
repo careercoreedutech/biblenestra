@@ -5,16 +5,37 @@ import { useEffect, useState } from 'react';
 import * as FileSystem from 'expo-file-system';
 import { BIBLE_API, LEXICON_API } from './config';
 import BOOKS from '../data/books_meta.json';
+import { API_CONFIG } from '../api/config';
 
+// COMMENTARIES (client #9): the public-domain / openly licensed library on the Free Use Bible API (verified against
+// /api/available_commentaries.json, Nov 2026 — see scratch/licensing-list.md). Mirrors backend/src/lib/commentaries.js.
+// books: null = all 66; otherwise the books the commentary covers (the switcher only offers it there).
+const NT_BOOKS = ['MAT', 'MRK', 'LUK', 'JHN', 'ACT', 'ROM', '1CO', '2CO', 'GAL', 'EPH', 'PHP', 'COL', '1TH', '2TH', '1TI', '2TI', 'TIT', 'PHM', 'HEB', 'JAS', '1PE', '2PE', '1JN', '2JN', '3JN', 'JUD', 'REV'];
+const OT_BOOKS = ['GEN', 'EXO', 'LEV', 'NUM', 'DEU', 'JOS', 'JDG', 'RUT', '1SA', '2SA', '1KI', '2KI', '1CH', '2CH', 'EZR', 'NEH', 'EST', 'JOB', 'PSA', 'PRO', 'ECC', 'SNG', 'ISA', 'JER', 'LAM', 'EZK', 'DAN', 'HOS', 'JOL', 'AMO', 'OBD', 'JON', 'MIC', 'NAM', 'HAB', 'ZEP', 'HAG', 'ZEC', 'MAL'];
+const GOSPEL_BOOKS = ['MAT', 'MRK', 'LUK', 'JHN'];
+const but = (list, drop) => list.filter((b) => !drop.includes(b));
+const PD = 'Public domain';
 export const COMMENTARIES = [
-  { id: 'matthew-henry', name: 'Matthew Henry', short: 'Henry', about: 'Devotional & practical · 1706', licence: 'Public domain' },
-  { id: 'jamieson-fausset-brown', name: 'Jamieson-Fausset-Brown', short: 'JFB', about: 'Verse-by-verse, concise · 1871', licence: 'Public domain' },
-  { id: 'adam-clarke', name: 'Adam Clarke', short: 'Clarke', about: 'Historical & linguistic · 1831', licence: 'Public domain' },
-  { id: 'john-gill', name: 'John Gill', short: 'Gill', about: 'Expository, Hebrew & rabbinic background · 1763', licence: 'Public domain' },
-  { id: 'tyndale', name: 'Tyndale Open Study Notes', short: 'Tyndale', about: 'Modern study notes', licence: 'Tyndale House · CC BY-SA 4.0' },
-  { id: 'keil-delitzsch', name: 'Keil & Delitzsch', short: 'K&D', about: 'Old Testament scholarship · 1866', licence: 'Public domain', otOnly: true },
-  { id: 'john-calvin', name: 'John Calvin', short: 'Calvin', about: 'Reformation commentaries · 1550s', licence: 'Public domain' },
+  { id: 'matthew-henry', name: 'Matthew Henry', author: 'Matthew Henry', short: 'Henry', about: 'Devotional & practical · 1706', licence: PD, books: but([...OT_BOOKS, ...NT_BOOKS], ['SNG']) },
+  { id: 'jamieson-fausset-brown', name: 'Jamieson-Fausset-Brown', author: 'Robert Jamieson, A. R. Fausset & David Brown', short: 'JFB', about: 'Verse-by-verse, concise · 1871', licence: PD, books: null },
+  { id: 'adam-clarke', name: 'Adam Clarke', author: 'Adam Clarke', short: 'Clarke', about: 'Historical & linguistic · 1831', licence: PD, books: null },
+  { id: 'john-gill', name: 'John Gill', author: 'John Gill', short: 'Gill', about: 'Expository, Hebrew & rabbinic background · 1763', licence: PD, books: null },
+  { id: 'barnes', name: 'Barnes’ Notes', author: 'Albert Barnes', short: 'Barnes', about: 'Clear, practical New Testament notes · 1834', licence: PD, books: NT_BOOKS },
+  { id: 'tyndale', name: 'Tyndale Open Study Notes', author: 'Tyndale House Publishers', short: 'Tyndale', about: 'Modern study notes', licence: 'Tyndale House · CC BY-SA 4.0', books: but([...OT_BOOKS, ...NT_BOOKS], ['JDG']) },
+  { id: 'keil-delitzsch', name: 'Keil & Delitzsch', author: 'C. F. Keil & Franz Delitzsch', short: 'K&D', about: 'Old Testament scholarship · 1866', licence: PD, otOnly: true, books: OT_BOOKS },
+  { id: 'john-calvin', name: 'John Calvin', author: 'John Calvin', short: 'Calvin', about: 'Reformation commentaries · 1550s', licence: PD, books: ['GEN', 'EXO', 'LEV', 'NUM', 'DEU', 'JOS', 'PSA', 'ISA', 'JER', 'LAM', 'EZK', 'DAN', 'HOS', 'JOL', 'AMO', 'OBD', 'JON', 'MIC', 'NAM', 'HAB', 'ZEP', 'HAG', 'ZEC', 'MAL', ...but(NT_BOOKS, ['2JN', '3JN', 'REV'])] },
+  { id: 'catena', name: 'Catena Aurea', author: 'Thomas Aquinas (compiling the Church Fathers)', short: 'Aquinas', about: 'The Fathers on the Gospels · Catholic · 1264', licence: PD, books: GOSPEL_BOOKS },
+  { id: 'geneva', name: 'Geneva Bible Notes', author: 'Geneva Bible translators', short: 'Geneva', about: 'Reformation study notes · 1599', licence: 'Public domain (1599 text)', books: but([...OT_BOOKS, ...NT_BOOKS], ['JDG', 'JON', 'PHM']) },
+  { id: 'pnt', name: 'People’s New Testament', author: 'B. W. Johnson', short: 'PNT', about: 'Plain notes for every reader · 1891', licence: PD, books: but(NT_BOOKS, ['PHM']) },
+  { id: 'tfg', name: 'The Fourfold Gospel', author: 'J. W. McGarvey & P. Y. Pendleton', short: 'Fourfold', about: 'Harmony of the Gospels and Acts · 1914', licence: PD, books: [...GOSPEL_BOOKS, 'ACT', '1CO'] },
+  { id: 'burkitt', name: 'Burkitt’s Expository Notes', author: 'William Burkitt', short: 'Burkitt', about: 'Practical New Testament notes · 1700', licence: PD, books: NT_BOOKS },
+  { id: 'abbott', name: 'Illustrated New Testament', author: 'Lyman Abbott', short: 'Abbott', about: 'Explanatory notes · 1878', licence: PD, books: NT_BOOKS },
+  { id: 'scofield', name: 'Scofield Reference Notes', author: 'C. I. Scofield', short: 'Scofield', about: 'Reference notes · 1917 edition', licence: PD, books: null },
+  { id: 'luther', name: 'Luther (selected passages)', author: 'Martin Luther', short: 'Luther', about: 'Selected passages · 1500s', licence: PD, books: ['GEN', 'JOB', 'PSA', 'PRO', 'ECC', 'SNG', 'ISA', 'JER', 'LAM', 'EZK', 'DAN', 'HOS', 'JOL', 'AMO', 'OBD', 'JON', 'MIC', 'NAM', 'HAB', 'ZEP', 'HAG', 'ZEC', 'MAL', ...but(NT_BOOKS, ['2JN', '3JN'])] },
+  { id: 'lightfoot', name: 'Lightfoot (Talmud & Hebraica)', author: 'John Lightfoot', short: 'Lightfoot', about: 'Jewish background to the Gospels · 1658', licence: PD, books: GOSPEL_BOOKS },
 ];
+/** Commentaries that have notes on this book. */
+export const commentariesFor = (bookId) => COMMENTARIES.filter((c) => !c.books || c.books.includes(bookId));
 
 const mem = new Map();
 const ROOT = FileSystem.documentDirectory ? FileSystem.documentDirectory + 'study/' : null;
@@ -51,9 +72,16 @@ function flat(content) {
 }
 
 // -> [{ verse: number|null, text }] — verse null means an introduction to the chapter
+// Order: memory → this device → our API's server cache (GET /study/commentary/…, public) → the Free Use Bible API.
 export function loadCommentary(id, book, chapter) {
   return cached(`c_${id}_${book}_${chapter}`, async () => {
-    const data = await getJson(`${BIBLE_API}/c/${id}/${book}/${chapter}.json`);
+    if (API_CONFIG.apiUrl) {
+      try {
+        const r = await getJson(`${API_CONFIG.apiUrl}/study/commentary/${encodeURIComponent(id)}/${book}/${chapter}`);
+        if (r && Array.isArray(r.entries)) return r.entries;
+      } catch (e) { /* server unreachable: go to the source directly */ }
+    }
+    const data = await getJson(`${BIBLE_API}/c/${id}/${book === 'OBD' ? 'OBA' : book}/${chapter}.json`);
     const out = [];
     ((data.chapter && data.chapter.content) || []).forEach((c) => {
       const text = strip(c.text !== undefined ? c.text : flat(c.content));

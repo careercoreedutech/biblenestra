@@ -6,18 +6,17 @@ import { AnimatedModal } from '../components/Motion';
 import { colors, fonts, radius, shadow } from '../theme';
 import { Icon } from '../components/Icons';
 import { NightGlow, alpha } from '../components/ui';
-import VerseImageSheet from '../components/VerseImageSheet';
 import ProfileButton from '../components/ProfileButton';
 import SupportAdsCard from '../components/SupportAdsCard';
-import AudioDevotionals from '../components/AudioDevotionals';
+import TodaysJourney from '../components/TodaysJourney'; // TODAY'S JOURNEY: Daily Bread · Videos · Prayer Wall
+import ChannelVideosRow from '../components/ChannelVideosRow'; // WATCH ON TODAY: latest videos of the connected YouTube channels
 import CareInvite from '../components/CareInvite';
 import AnnouncementCards from '../components/AnnouncementCards'; // ROUND 5: admin announcements
 import { FadeInUp, ScaleIn, Pop, Pulse, Burst, AnimatedBar, AnimatedNumber, PressScale } from '../components/Motion';
 import { useToast } from '../components/Toast';
-import { useNarration } from '../audio/Narration';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
-import { verseOfDay, CHAPTER_TITLES, getChapter, refLabel, bookName } from '../data/bible';
+import { verseOfDay, CHAPTER_TITLES, refLabel, bookName } from '../data/bible';
 import { STEPS, dayKey, computeStreak, weekDays, addDays } from '../data/rhythm';
 
 const STEP_META = {
@@ -38,8 +37,6 @@ export default function TodayScreen() {
   const best = Math.max(state.bestStreak || 0, streak);
   const showStreak = state.streaksEnabled !== false;
 
-  const [imageOpen, setImageOpen] = useState(false);
-  const nar = useNarration();
   const toast = useToast();
   const [streakOpen, setStreakOpen] = useState(false);
   const [reflection, setReflection] = useState('');
@@ -60,10 +57,8 @@ export default function TodayScreen() {
     }
   };
 
-  // Verse of the day
+  // Verse of the day (the Daily Bread card opens it; Reflect below uses it)
   const v = verseOfDay(today);
-  const vChapter = getChapter(state.translation, v.bookId, v.chapter) || [];
-  const vText = vChapter[v.verse - 1] || '';
   const vRef = refLabel(v.bookId, v.chapter, v.verse);
 
   // Reading plan
@@ -151,40 +146,24 @@ export default function TodayScreen() {
           ))}
         </FadeInUp>
 
+        {/* Today's journey: Daily Bread · Videos · Prayer Wall (replaces the Verse of the Day card) */}
+        <FadeInUp index={3} style={styles.journey}>
+          <TodaysJourney
+            verse={{ label: vRef, reflection: v.reflection }}
+            prayersCount={activePrayers.length}
+            done={{ bread: isDone('verse'), prayer: isDone('prayer') }}
+            onBread={() => { markDone('verse'); nav.push('DailyVerse'); }}
+            onVideos={() => nav.push('BlessingVideos')}
+            onPrayer={() => { markDone('prayer'); nav.push('PrayerWall'); }}
+          />
+        </FadeInUp>
+
         {/* Steps */}
         <View style={styles.steps}>
-          {/* 1. Verse of the day */}
-          <FadeInUp index={3}>
-          <Step n={1} done={isDone('verse')}>
-            <View style={styles.vodCard}>
-              <NightGlow />
-              <View style={styles.vodTop}>
-                <View style={styles.vodPill}>
-                  <Icon name="sun" size={12} color={colors.goldLight} />
-                  <Text style={styles.vodPillText}>Verse of the day</Text>
-                </View>
-                <Text style={styles.vodTheme} numberOfLines={1}>{v.theme}</Text>
-              </View>
-              <Text style={styles.vodText}>“{vText}”</Text>
-              <Text style={styles.vodRef}>{vRef} · {state.translation}</Text>
-              <View style={styles.vodActions}>
-                <DarkAction icon="headphones" label={nar.active && nar.mode === 'verse' && nar.playing ? 'Playing' : 'Listen'} onPress={() => { nar.playVerse(v.bookId, v.chapter, v.verse, { translation: state.translation }); markDone('verse'); }} />
-                <DarkAction icon="image" label="Image" onPress={() => { setImageOpen(true); markDone('verse'); }} />
-                <DarkAction icon="book" label="Chapter" onPress={() => { markDone('verse'); nav.push('Bible', { bookId: v.bookId, chapter: v.chapter, verse: v.verse }); }} />
-                <Pop trigger={isDone('verse')}>
-                  <Pressable onPress={() => markDone('verse')} style={[styles.vodDone, isDone('verse') && styles.vodDoneOn]} accessibilityLabel="Mark verse as read">
-                    <Icon name="check" size={18} color={isDone('verse') ? colors.night : colors.nightFg} strokeWidth={2.6} />
-                  </Pressable>
-                </Pop>
-              </View>
-            </View>
-          </Step>
-          </FadeInUp>
-
           {/* 2. Today's reading */}
           {plan ? (
             <FadeInUp index={4}>
-            <Step n={2} done={isDone('reading')}>
+            <Step n={1} done={isDone('reading')}>
               <Pressable
                 onPress={() => { markDone('reading'); nav.push('Bible', { bookId: plan.today.bookId, chapter: plan.today.chapter }); }}
                 style={({ pressed }) => [styles.card, pressed && styles.pressed]}
@@ -208,7 +187,7 @@ export default function TodayScreen() {
 
           {/* 3. Pray */}
           <FadeInUp index={5}>
-          <Step n={3} done={isDone('prayer')}>
+          <Step n={plan ? 2 : 1} done={isDone('prayer')}>
             <Pressable onPress={() => { markDone('prayer'); nav.push('PrayerWall'); }} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
               <View style={styles.cardRow}>
                 <View style={[styles.iconTile, { backgroundColor: colors.cardRose }]}>
@@ -234,7 +213,7 @@ export default function TodayScreen() {
 
           {/* 4. Reflect */}
           <FadeInUp index={6}>
-          <Step n={4} done={isDone('reflect')} last>
+          <Step n={plan ? 3 : 2} done={isDone('reflect')} last>
             <View style={styles.card}>
               <View style={styles.cardRow}>
                 <View style={[styles.iconTile, { backgroundColor: colors.cardLavender }]}>
@@ -359,11 +338,9 @@ export default function TodayScreen() {
           <QuickTile icon="bookmark" label="Library" tint={colors.lavender} bg={colors.cardLavender} onPress={() => nav.push('Library')} />
         </View>
 
-        {/* Sacred Audio Devotionals (moved from Discover) */}
-        <AudioDevotionals style={styles.block} />
+        {/* Watch: From Our Channels (replaces Sacred Audio Devotionals) */}
+        <ChannelVideosRow style={styles.block} />
       </ScrollView>
-
-      <VerseImageSheet visible={imageOpen} onClose={() => setImageOpen(false)} text={vText} reference={vRef} translation={state.translation} />
 
       {/* Streak sheet */}
       <AnimatedModal visible={streakOpen} onRequestClose={() => setStreakOpen(false)}>
@@ -431,15 +408,6 @@ function StepCta({ done, label }) {
   );
 }
 
-function DarkAction({ icon, label, onPress }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.darkAction, pressed && { opacity: 0.75 }]}>
-      <Icon name={icon} size={16} color={colors.nightFg} />
-      <Text style={styles.darkActionText}>{label}</Text>
-    </Pressable>
-  );
-}
-
 function QuickTile({ icon, label, tint, bg, onPress }) {
   return (
     <PressScale onPress={onPress} scaleTo={0.94} style={styles.quickTile}>
@@ -476,6 +444,7 @@ const styles = StyleSheet.create({
   progressRow: { flexDirection: 'row', gap: 5, paddingHorizontal: 18, marginTop: 10 },
   progressSeg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong },
 
+  journey: { paddingHorizontal: 18, marginTop: 16 },
   steps: { paddingHorizontal: 18, marginTop: 18 },
   stepRow: { flexDirection: 'row', gap: 12 },
   stepRail: { width: 26, alignItems: 'center' },
@@ -483,19 +452,6 @@ const styles = StyleSheet.create({
   stepDotDone: { backgroundColor: colors.gold, borderColor: colors.gold },
   stepNum: { fontSize: 12, fontWeight: '800', color: colors.muted },
   stepLine: { flex: 1, width: 2, borderRadius: 1, backgroundColor: colors.border, marginTop: 4 },
-
-  vodCard: { borderRadius: radius.xl, padding: 18, overflow: 'hidden', ...shadow.lg },
-  vodTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  vodPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: 'rgba(212,168,82,0.16)' },
-  vodPillText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase', color: colors.goldLight },
-  vodTheme: { flexShrink: 1, fontSize: 11.5, fontWeight: '600', color: colors.nightMuted },
-  vodText: { fontFamily: fonts.serifItalic, fontSize: 20, lineHeight: 29, color: colors.nightFg, marginTop: 16 },
-  vodRef: { fontSize: 11.5, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.goldLight, marginTop: 12 },
-  vodActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 18 },
-  darkAction: { flex: 1, height: 42, borderRadius: 21, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.09)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)' },
-  darkActionText: { fontSize: 12.5, fontWeight: '700', color: colors.nightFg },
-  vodDone: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.35)' },
-  vodDoneOn: { backgroundColor: colors.goldLight, borderColor: colors.goldLight },
 
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 14, ...shadow.sm },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { colors, fonts, shadow } from '../theme';
 
@@ -83,16 +83,38 @@ function Tab({ name, isActive, v, onPress }) {
   );
 }
 
-export default function TabBar({ active, onChange, variant }) {
+// `hidden` (Bible full-screen reading): the bar slides down and its space collapses so the page fills the screen.
+export default function TabBar({ active, onChange, variant, hidden }) {
   const v = VARIANTS[variant || (active === 'Socials' ? 'dark' : 'light')] || VARIANTS.light;
-  return (
-    <View style={[styles.wrap, { backgroundColor: v.page }]}>
+  const shown = React.useRef(new Animated.Value(hidden ? 0 : 1)).current;
+  const [h, setH] = React.useState(0);
+  React.useEffect(() => {
+    Animated.timing(shown, { toValue: hidden ? 0 : 1, duration: hidden ? 260 : 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+  }, [hidden]);
+  const bar = (
+    <View
+      onLayout={(e) => { const hh = e.nativeEvent.layout.height; if (hh && Math.abs(hh - h) > 0.5) setH(hh); }}
+      style={[styles.wrap, { backgroundColor: v.page }]}
+    >
       <View style={[styles.dock, { backgroundColor: v.dock, borderColor: v.border }]}>
         {TABS.map((name) => (
           <Tab key={name} name={name} isActive={name === active} v={v} onPress={() => onChange(name)} />
         ))}
       </View>
     </View>
+  );
+  if (hidden === undefined) return bar;
+  return (
+    <Animated.View
+      pointerEvents={hidden ? 'none' : 'auto'}
+      accessibilityElementsHidden={!!hidden}
+      importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}
+      style={{ overflow: 'hidden', height: h ? shown.interpolate({ inputRange: [0, 1], outputRange: [0, h] }) : hidden ? 0 : undefined }}
+    >
+      <Animated.View style={{ opacity: shown, transform: [{ translateY: shown.interpolate({ inputRange: [0, 1], outputRange: [h || 82, 0] }) }] }}>
+        {bar}
+      </Animated.View>
+    </Animated.View>
   );
 }
 

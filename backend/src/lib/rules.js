@@ -1,7 +1,7 @@
 // Product rules shared with the app (keep in sync with src/ads/config.js AD_RULES in the app).
 export const RULES = {
   supportAdsDaily: 4,   // Today → 4 🔥 support ads
-  jobAdsNeeded: 5,      // Jobs → watch 5 ads …
+  jobAdsNeeded: 2,      // Jobs → watch 2 ads … (remote config jobs.bid_required_ads — use jobAdsNeeded(env))
   jobAdCoins: 20,       // … to unlock 20 coins
   bidFee: 20,           // coins to place a bid
   gameCoinsPerCorrect: 5,
@@ -11,6 +11,13 @@ export const RULES = {
   eventKinds: ['Announcement', 'Event', 'Celebration', 'Greeting'],
   creatorGiftShare: 0.70, // 70% of gift coins credited to creator
 };
+
+// Remote config `jobs.bid_required_ads` (default 2): set the Worker var JOBS_BID_REQUIRED_ADS (1–10) to change
+// how many rewarded ads unlock the bid coins without an app release. The app reads it from GET /me (jobAdsNeeded).
+export function jobAdsNeeded(env) {
+  const n = parseInt(env && env.JOBS_BID_REQUIRED_ADS, 10);
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : RULES.jobAdsNeeded;
+}
 
 export const GIFTS = [
   { id: 'g_rose', name: 'Rose', price: 5, icon: 'heart', desc: 'Affordable everyday appreciation' },

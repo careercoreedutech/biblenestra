@@ -40,11 +40,17 @@ export function postShape(row, me, env, origin) {
     theme: row.theme,
     design: parseDesign(row.theme), // image-style text card: { key, font, align } | legacy { color } | null
     images: (typeof row.images === 'string' ? JSON.parse(row.images) : row.images || []).map((m) => ({ url: mediaUrl(env, origin, m.key), width: m.width, height: m.height })),
-    video: hasVideo ? { uid: row.video_uid, status: row.video_status || 'ready', duration: row.video_duration, category: row.category, ...videoUrls(env, origin, row) } : null,
+    video: hasVideo ? {
+      uid: row.video_uid, status: row.video_status || 'ready', duration: row.video_duration, category: row.category, ...videoUrls(env, origin, row),
+      // FEED VIDEO: what the upload probe found (null for older posts / external URLs) — the app sizes the card and flags HEVC
+      codec: row.video_codec || null, faststart: row.video_faststart == null ? null : !!row.video_faststart,
+      width: row.video_width || null, height: row.video_height || null,
+    } : null,
     likes: row.likes_count, comments: row.comments_count, shares: row.shares_count, views: row.views_count,
     myReaction: row.my_reaction || null,
     saved: !!row.saved,
     mine: row.author_id === me.id,
+    pinned: !!row.pinned_at, // BROADCASTS: pinned to the top of the feed by an admin
   };
 }
 

@@ -5,9 +5,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import VideoPoster from '../video/VideoPoster';
-import { VIDEO_FILL } from '../video/videoUtils';
+import FeedVideo from '../video/FeedVideo'; // FEED VIDEO: inline autoplay player (pooled — see useFeedVideoPool)
 import { Icon } from '../Icons';
 import { colors, fonts, radius, shadow } from '../../theme';
 import { alpha } from '../ui';
@@ -204,74 +203,35 @@ export function PhotoGrid({ images = [], onOpen, onDoubleTap, style }) {
   );
 }
 
-// ─── Inline video: muted autoplay while it's the most visible card; tap opens Videos at this clip ───
-function InlineVideo({ item, playing, onOpen }) {
-  const [w, setW] = useState(0);
-  // Only the card that is actually playing holds a player (each one takes a hardware decoder on Android);
-  // the others show a still frame.
-  const player = useVideoPlayer(playing ? item.videoUrl || null : null, (p) => {
-    p.loop = true;
-    p.muted = true;
-  });
-  useEffect(() => {
-    try {
-      if (playing) player.play();
-      else player.pause();
-    } catch (e) {}
-  }, [playing, player]);
-  const h = w ? Math.round(Math.min(w * 1.12, 520)) : 400;
-  return (
-    <View onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      <PressScale onPress={onOpen} scaleTo={0.99} style={[styles.videoBox, { height: h, backgroundColor: item.raw && item.raw.bg ? item.raw.bg : colors.night }]} accessibilityLabel={`Watch video: ${item.text}`}>
-        <View style={styles.videoBackdrop}>
-          <Icon name="video" size={26} color={alpha(colors.goldLight, 0.7)} />
-          {item.scripture ? <Text style={styles.videoBackdropRef}>{item.scripture}</Text> : null}
-        </View>
-        <VideoPoster videoUrl={item.videoUrl} poster={item.poster || (item.raw && item.raw.poster) || null} />
-        {item.videoUrl && playing ? (
-          <VideoView style={VIDEO_FILL} player={player} allowsFullscreen={false} allowsPictureInPicture={false} nativeControls={false} contentFit="cover" />
-        ) : null}
-        <View style={styles.videoScrim} pointerEvents="none">
-          <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
-            <Defs>
-              <LinearGradient id={`lvg_${item.id}`} x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor="#000000" stopOpacity="0" />
-                <Stop offset="100%" stopColor="#000000" stopOpacity="0.66" />
-              </LinearGradient>
-            </Defs>
-            <Rect x="0" y="0" width="100%" height="100%" fill={`url(#lvg_${item.id})`} />
-          </Svg>
-        </View>
-        <View style={styles.videoBadge} pointerEvents="none">
-          {playing ? (
-            <Pulse min={0.7} max={1.25} duration={800}>
-              <View style={styles.videoBadgeDot} />
-            </Pulse>
-          ) : (
-            <View style={styles.videoBadgeDot} />
-          )}
-          <Text style={styles.videoBadgeText}>{`VIDEO${item.duration ? ` · ${item.duration}` : ''}`}</Text>
-        </View>
-        <View style={styles.mutedPill} pointerEvents="none">
-          <Icon name="volume" size={12} color={WHITE} />
-          <Text style={styles.mutedText}>Muted</Text>
-        </View>
-        <View style={styles.playCircle} pointerEvents="none">
-          <Icon name="play" size={24} color={WHITE} />
-        </View>
-        <View style={styles.videoFoot} pointerEvents="none">
-          <Text style={styles.videoFootText}>Watch full screen</Text>
-          <Icon name="arrow-right" size={12} color={colors.goldLight} strokeWidth={2.6} />
-        </View>
-      </PressScale>
-    </View>
-  );
-}
-
 // Online: a video that's still uploading to / being processed by Cloudflare Stream
-function ProcessingVideo({ item }) {
+function ProcessingVideo({ item, onRetry, onDiscard }) {
   const uploading = item.uploadProgress != null && item.uploadProgress < 1 && item.raw && item.raw.videoStatus === 'uploading';
   const pct = Math.round((item.uploadProgress || 0) * 100);
+  // FEED VIDEO: an upload that failed or was interrupted stays visible to its author with Retry / Remove
+  if (item.uploadFailed) {
+    const canRetry = !!(item.raw && (item.raw.upload || item.raw.uploadedUid));
+    return (
+      <View style={[styles.videoBox, styles.processingBox]} testID="video-upload-failed">
+        <View style={styles.processingIcon}>
+          <Icon name="video" size={24} color={colors.goldLight} />
+        </View>
+        <Text style={styles.processingTitle}>Your video didn’t finish uploading</Text>
+        <Text style={styles.processingSub}>{item.uploadError || 'Check your connection and try again'}</Text>
+        <View style={styles.processingActions}>
+          {canRetry && onRetry ? (
+            <PressScale onPress={onRetry} scaleTo={0.95} style={[styles.processingBtn, styles.processingBtnMain]} accessibilityLabel="Retry upload" testID="video-upload-retry">
+              <Text style={[styles.processingBtnText, styles.processingBtnMainText]}>Retry upload</Text>
+            </PressScale>
+          ) : null}
+          {onDiscard ? (
+            <PressScale onPress={onDiscard} scaleTo={0.95} style={styles.processingBtn} accessibilityLabel="Remove this video">
+              <Text style={styles.processingBtnText}>Remove</Text>
+            </PressScale>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={[styles.videoBox, styles.processingBox]}>
       <Pulse min={0.9} max={1.08} active={!item.videoError}>
@@ -279,7 +239,7 @@ function ProcessingVideo({ item }) {
           <Icon name={item.videoError ? 'x' : 'video'} size={24} color={colors.goldLight} />
         </View>
       </Pulse>
-      <Text style={styles.processingTitle}>{item.videoError ? 'This video couldn’t be processed' : uploading ? `Uploading · ${pct}%` : 'Processing your video…'}</Text>
+      <Text style={styles.processingTitle}>{item.videoError ? 'This video couldn’t be processed' : uploading ? `Uploading your video · ${pct}%` : 'Processing your video…'}</Text>
       <Text style={styles.processingSub}>{item.videoError ? 'Try uploading it again' : uploading ? 'Keep the app open until the upload finishes' : 'It will play here as soon as it’s ready'}</Text>
       {uploading ? (
         <View style={styles.processingTrack}><View style={[styles.processingFill, { width: `${Math.max(4, pct)}%` }]} /></View>
@@ -328,10 +288,26 @@ function ReactionPicker({ current, onPick }) {
 }
 
 // ─── The light post card ─────────────────────────────────────────
-export function LightPostCard({
+export const LightPostCard = React.memo(LightPostCardImpl, sameCard);
+// FEED VIDEO: cards only re-render when what they show changes (not on every scroll / active-video change of
+// the screen). Callbacks are ignored here — SocialsScreen's callbacks read the latest state through a ref.
+function sameCard(a, b) {
+  return a.item === b.item && a.index === b.index && a.playing === b.playing && a.highlight === b.highlight && a.isFollowing === b.isFollowing
+    && a.videoPlayer === b.videoPlayer && a.videoPaused === b.videoPaused && a.feedMuted === b.feedMuted;
+}
+
+function LightPostCardImpl({
   item,
   index = 0,
   playing,
+  videoPlayer, // FEED VIDEO: pool player lent to the active card
+  videoPaused,
+  feedMuted = true,
+  onTogglePause,
+  onToggleMute,
+  onMediaLayout, // (y, h) of the video inside the card → the screen's 70%-visible check
+  onRetryUpload,
+  onDiscardUpload,
   highlight,
   isFollowing,
   onLike,
@@ -349,7 +325,7 @@ export function LightPostCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [picker, setPicker] = useState(false);
-  const processing = !!item.processing || !!item.videoError;
+  const processing = !!item.processing || !!item.videoError || !!item.uploadFailed;
   const isVideo = !!item.videoUrl && !processing;
   const hasImages = item.images && item.images.length > 0;
   const showText = !!item.text && !item.quoteBg;
@@ -427,13 +403,23 @@ export function LightPostCard({
         />
       ) : null}
       {isVideo ? (
-        <View style={styles.mediaBleed}>
-          <InlineVideo item={item} playing={playing} onOpen={onOpenVideo} />
+        <View style={styles.mediaBleed} onLayout={onMediaLayout ? (e) => onMediaLayout(e.nativeEvent.layout.y, e.nativeEvent.layout.height) : undefined}>
+          <FeedVideo
+            item={item}
+            active={!!playing}
+            player={playing ? videoPlayer || null : null}
+            paused={!!videoPaused}
+            muted={feedMuted}
+            onTogglePause={onTogglePause}
+            onToggleMute={onToggleMute}
+            onExpand={onOpenVideo}
+            onDoubleTap={() => !item.liked && onLike && onLike(true)}
+          />
         </View>
       ) : null}
       {processing ? (
         <View style={styles.mediaBleed}>
-          <ProcessingVideo item={item} />
+          <ProcessingVideo item={item} onRetry={onRetryUpload} onDiscard={onDiscardUpload} />
         </View>
       ) : null}
 
@@ -737,6 +723,11 @@ const CARD_PAD = 14;
 const eyebrow = { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase' };
 
 const styles = StyleSheet.create({
+  processingActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  processingBtn: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)' },
+  processingBtnMain: { backgroundColor: colors.goldLight, borderColor: colors.goldLight },
+  processingBtnText: { fontSize: 13, fontWeight: '700', color: colors.nightFg },
+  processingBtnMainText: { color: colors.night },
   processingBox: { height: 260, backgroundColor: colors.night, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
   processingIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(212,168,82,0.35)', alignItems: 'center', justifyContent: 'center' },
   processingTitle: { marginTop: 14, fontFamily: fonts.serifBold, fontSize: 18, color: colors.nightFg, textAlign: 'center' },

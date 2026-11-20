@@ -6,6 +6,14 @@ import { bad } from './http.js';
 
 const fetcher = (env) => (env && env.__fetch) || fetch;
 export const MAX_SITES_PER_USER = 3;
+
+// Feature flag `website_feed.public_submission` (default OFF): while off, only platform admins add / edit
+// websites (they publish straight away) and the app hides every member submission option. Turning it on is a
+// config change — set the Worker var WEBSITE_FEED_PUBLIC_SUBMISSION=true — which restores member submission
+// with admin approval (status 'pending' → 'approved'), plus the app reads the flag from GET /me.
+export function websitePublicSubmission(env) {
+  return String((env && env.WEBSITE_FEED_PUBLIC_SUBMISSION) || '').trim().toLowerCase() === 'true';
+}
 export const WEBSITE_CATEGORIES = ['Ministry', 'Church', 'Blog', 'Business', 'Education', 'Media', 'Charity', 'Other'];
 
 // Hostnames we never accept: local / private addresses, raw IPs, and app-internal hosts.
@@ -97,7 +105,31 @@ function when(s){ if (!s) return '—'; var d = new Date(s); return d.toLocaleSt
 window.registerAdminTab('Member websites', function(box, ctx){
   var h = ctx.h, api = ctx.api, toast = ctx.toast;
   box.appendChild(h('h2', { class: 'serif', text: 'Member websites' }));
-  box.appendChild(h('p', { class: 'sub', text: 'Members add their own websites. Approved websites show in the Socials feed and the Websites directory, and open inside Bible Nestra. Check each site before approving: it must belong to the member and be suitable for a Christian community.' }));
+  box.appendChild(h('p', { class: 'sub', text: 'Only administrators add websites for now. Websites you add are published straight away: they show in the Socials feed and the Websites directory, and open inside Bible Nestra. (Member submissions with approval come back when website_feed.public_submission is turned on.)' }));
+  // ---- Add website (published immediately) ----
+  var fUrl = h('input', { type: 'url', placeholder: 'https://example.org', style: 'flex:2;min-width:200px' });
+  var fName = h('input', { type: 'text', placeholder: 'Name (optional, read from the site)', maxlength: '120', style: 'flex:2;min-width:180px' });
+  var fCat = h('select', { style: 'flex:1;min-width:120px' });
+  fCat.appendChild(h('option', { value: '', text: 'Category' }));
+  ['Ministry', 'Church', 'Blog', 'Business', 'Education', 'Media', 'Charity', 'Other'].forEach(function(cName){ fCat.appendChild(h('option', { value: cName, text: cName })); });
+  var fDesc = h('textarea', { placeholder: 'Description (optional, read from the site)', maxlength: '500', rows: '2', style: 'width:100%;margin-top:8px' });
+  var fBtn = h('button', { class: 'btn', text: 'Add website' });
+  fBtn.onclick = async function(){
+    if (!fUrl.value.trim()) { toast('Enter the website address', true); return; }
+    fBtn.disabled = true;
+    try {
+      await api('POST', '/admin/api/websites', { url: fUrl.value.trim(), title: fName.value.trim() || undefined, description: fDesc.value.trim() || undefined, category: fCat.value || undefined });
+      toast('Website published'); fUrl.value = ''; fName.value = ''; fDesc.value = ''; fCat.value = '';
+      current = 'approved'; Array.prototype.forEach.call(tabs.children, function(x){ x.className = 'btn small' + (x.textContent === 'Approved' ? '' : ' ghost'); }); load();
+    } catch (e) { toast(e.message, true); }
+    fBtn.disabled = false;
+  };
+  box.appendChild(h('div', { class: 'card', style: 'margin-bottom:14px' }, [
+    h('b', { text: 'Add website' }),
+    h('div', { class: 'row', style: 'margin-top:8px;flex-wrap:wrap;gap:8px' }, [fUrl, fName, fCat]),
+    fDesc,
+    h('div', { class: 'row', style: 'margin-top:8px' }, [fBtn]),
+  ]));
   var tabs = h('div', { class: 'row', style: 'margin-bottom:12px' });
   var list = h('div');
   box.appendChild(tabs); box.appendChild(list);

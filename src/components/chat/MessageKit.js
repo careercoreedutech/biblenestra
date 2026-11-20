@@ -14,7 +14,7 @@ import { useToast } from '../Toast';
 import { alpha } from '../ui';
 import { colors, fonts, radius, shadow } from '../../theme';
 import { useStore } from '../../store';
-import { REACTIONS, canEditMessage, getScopeMsgs, pinnedOf } from '../../chat/messages';
+import { REACTIONS, canEditMessage, getScopeMsgs, pinnedOf, previewOf } from '../../chat/messages';
 import { openLink } from '../EmbedViewer'; // YOUTUBE LIVE: video links open in-app
 import { useNav } from '../../navigation';
 
@@ -51,7 +51,23 @@ function BanGlyph({ size = 13, color = colors.faint }) {
   );
 }
 
-const snippet = (m) => (m ? (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.image ? '📷 Photo' : m.voice ? (m.voice.isFile ? '🎵 Audio' : '🎤 Voice message') : m.audio ? 'Voice message' : 'Message')) : '');
+const snippet = (m) => (m ? (m.deleted ? 'This message was deleted' : previewOf(m) || 'Message') : '');
+
+// CHAT 7.3: ticks — sending (clock), sent ✓, delivered ✓✓, read ✓✓ (highlighted)
+function Ticks({ status, mine }) {
+  if (!status) return null;
+  const base = mine ? 'rgba(255,255,255,0.7)' : colors.faint;
+  if (status === 'sending') return <Icon name="clock" size={10} color={base} />;
+  const read = status === 'read';
+  const color = read ? (mine ? colors.goldLight : colors.primary) : base;
+  return (
+    <Svg width={status === 'sent' ? 11 : 15} height={10} viewBox={status === 'sent' ? '0 0 11 10' : '0 0 15 10'} fill="none" accessibilityLabel={status}>
+      <Path d="M1 5.5l2.8 2.8L10 2" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+      {status !== 'sent' ? <Path d="M6.5 8.3L13.5 2" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" /> : null}
+    </Svg>
+  );
+}
+const STATUS_LABEL = { sending: 'Sending', sent: 'Sent', delivered: 'Delivered', read: 'Read' };
 
 // Message text with tappable links (Google Meet invites, websites)
 const URL_RE = /(https?:\/\/[^\s]+|\bmeet\.google\.com\/[a-z-]+)/gi;
@@ -75,25 +91,33 @@ function LinkedText({ text, style, linkStyle, onLongPress }) {
 }
 
 // ---------- bubble ----------
-export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, onOpenReply, onLayout, children }) {
+// status: 'sending'|'sent'|'delivered'|'read'|'failed' (CHAT 7.3; older callers pass nothing → m.status is used)
+// grouped: another bubble from the same person follows (tighter corner); animate=false skips the entry animation
+export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, onOpenReply, onLayout, onRetry, status: statusIn, grouped, animate = true, children }) {
   const mine = !!m.mine;
+  const status = statusIn !== undefined ? statusIn : (mine ? (m.status === 'failed' ? 'failed' : m.status === 'read' ? 'read' : 'sent') : null);
+  const failed = status === 'failed' || m.status === 'failed';
+  const Wrap = animate ? FadeInUp : View;
+  const wrapProps = animate ? { distance: mine ? 14 : 10, duration: 260 } : {};
   const deletedText = m.deleted
     ? (m.deletedByModerator ? 'Removed by a group admin' : mine ? 'You deleted this message' : 'This message was deleted')
     : null;
   const reactions = m.deleted ? [] : (m.reactions || []);
   return (
     <View onLayout={onLayout} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '84%' }}>
-      <FadeInUp distance={mine ? 14 : 10} duration={320}>
+      <Wrap {...wrapProps}>
         <Pressable
           onLongPress={onLongPress}
+          onPress={failed && onRetry ? onRetry : undefined}
           delayLongPress={280}
-          accessibilityHint="Press and hold for reply, react, copy, edit, pin or delete"
+          accessibilityHint={failed ? 'Not sent. Tap to send again' : 'Press and hold for reply, react, forward, copy, edit, pin or delete. Swipe right to reply'}
           style={({ pressed }) => [
-            styles.msg, mine && styles.msgMine, m.deleted && styles.msgDeleted, m.deleted && mine && styles.msgDeletedMine,
-            highlighted && styles.msgHighlight, pressed && { opacity: 0.92 },
+            styles.msg, mine && styles.msgMine, grouped && (mine ? styles.groupedMine : styles.groupedTheirs), m.deleted && styles.msgDeleted, m.deleted && mine && styles.msgDeletedMine,
+            failed && styles.msgFailed, highlighted && styles.msgHighlight, pressed && { opacity: 0.92 },
           ]}
         >
           {showSender && !mine ? <Text style={styles.msgFrom}>{m.from}</Text> : null}
+          {m.forwarded && !m.deleted ? <Text style={[styles.fwd, mine && { color: 'rgba(255,255,255,0.75)' }]}>↪ Forwarded</Text> : null}
           {m.reply && !m.deleted ? (
             <Pressable onPress={() => onOpenReply && onOpenReply(m.reply.id)} onLongPress={onLongPress} delayLongPress={280} style={[styles.quote, mine && styles.quoteMine]} accessibilityLabel={`Replying to ${m.reply.from}`}>
               <Text style={[styles.quoteFrom, mine && { color: colors.goldLight }]} numberOfLines={1}>{m.reply.from}</Text>
@@ -109,16 +133,15 @@ export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, 
             <LinkedText text={m.text} onLongPress={onLongPress} style={[styles.msgText, mine && { color: '#FFFFFF' }]} linkStyle={[styles.link, mine && { color: '#FFFFFF' }]} />
           ) : null}
           {!m.deleted ? children : null}
-          <View style={[styles.metaRow, mine && { justifyContent: 'flex-end' }]}>
+          <View style={[styles.metaRow, mine && { justifyContent: 'flex-end' }]} accessibilityLabel={mine && status ? STATUS_LABEL[status] || 'Not sent' : undefined}>
             {m.pinned ? <PinGlyph size={10} color={mine ? 'rgba(255,255,255,0.7)' : colors.gold} filled /> : null}
-            <Text style={[styles.msgTime, mine && styles.msgTimeMine]}>
-              {[m.edited && !m.deleted ? 'Edited' : null, m.time,
-                mine && !m.deleted ? (m.status === 'failed' ? 'Not sent' : m.status === 'read' ? 'Read ✓✓' : 'Sent ✓') : null]
-                .filter(Boolean).join(' · ')}
+            <Text style={[styles.msgTime, mine && styles.msgTimeMine, failed && styles.failedText]}>
+              {failed ? 'Not sent · Tap to retry' : [m.edited && !m.deleted ? 'Edited' : null, m.time].filter(Boolean).join(' · ')}
             </Text>
+            {mine && !m.deleted && !failed ? <Ticks status={status} mine={mine} /> : null}
           </View>
         </Pressable>
-      </FadeInUp>
+      </Wrap>
       {reactions.length ? (
         <View style={[styles.reactRow, mine && { alignSelf: 'flex-end' }]}>
           {reactions.map((r) => (
@@ -146,7 +169,7 @@ function ActionRow({ icon, label, tint = colors.fg, onPress, sub }) {
   );
 }
 
-export function MessageActionsSheet({ visible, message, canEdit, canPin, canDeleteForEveryone, pinHint, onClose, onReact, onReply, onCopy, onEdit, onTogglePin, onDeleteMe, onDeleteEveryone }) {
+export function MessageActionsSheet({ visible, message, canEdit, canPin, canDeleteForEveryone, pinHint, onClose, onReact, onReply, onCopy, onEdit, onTogglePin, onDeleteMe, onDeleteEveryone, onForward }) {
   const [confirm, setConfirm] = useState(false);
   const m = message;
   const close = () => { setConfirm(false); onClose && onClose(); };
@@ -183,6 +206,7 @@ export function MessageActionsSheet({ visible, message, canEdit, canPin, canDele
                   </View>
                 ) : null}
                 {!m.deleted ? <ActionRow icon={<ReplyGlyph />} label="Reply" onPress={() => { close(); onReply(); }} /> : null}
+                {!m.deleted && onForward && !m.gift && !m.system ? <ActionRow icon={<Icon name="share" size={17} color={colors.fg} />} label="Forward" onPress={() => { close(); onForward(); }} /> : null}
                 {!m.deleted && m.text ? <ActionRow icon={<CopyGlyph />} label="Copy text" onPress={() => { close(); onCopy(); }} /> : null}
                 {canEdit ? <ActionRow icon={<Icon name="edit" size={17} color={colors.fg} />} label="Edit" onPress={() => { close(); onEdit(); }} /> : null}
                 {!m.deleted && canPin ? (
@@ -236,7 +260,8 @@ export function PinnedBar({ pins, onOpen, style }) {
 
 // ---------- hook: everything one thread needs ----------
 // opts: { scope, canPin, canModerate, isGroup, onSend(text, reply) }
-export function useMessageActions({ scope, canPin = true, canModerate = false, isGroup = false, onSend }) {
+// CHAT 7.3: scrollToId(id) → boolean lets a virtualised list jump to a message; onForward(m) adds "Forward"
+export function useMessageActions({ scope, canPin = true, canModerate = false, isGroup = false, onSend, scrollToId, onForward }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const [sheetFor, setSheetFor] = useState(null);
@@ -254,19 +279,25 @@ export function useMessageActions({ scope, canPin = true, canModerate = false, i
   const current = sheetFor ? msgs.find((m) => m.id === sheetFor) || null : null;
 
   const jumpTo = useCallback((id) => {
+    if (scrollToId) {
+      if (!scrollToId(id)) { toast.show('That message is further back in the chat', { icon: 'chat' }); return; }
+      setHighlight(id);
+      setTimeout(() => setHighlight((h) => (h === id ? null : h)), 1600);
+      return;
+    }
     const y = positions.current[id];
     if (y == null) { toast.show('That message is further back in the chat', { icon: 'chat' }); return; }
     if (scrollRef.current) scrollRef.current.scrollTo({ y: Math.max(0, y - 80), animated: true });
     setHighlight(id);
     setTimeout(() => setHighlight((h) => (h === id ? null : h)), 1600);
-  }, [toast]);
+  }, [toast, scrollToId]);
 
   const open = (m) => {
     setSheetFor(m.id);
     if (!state.chatTipSeen) dispatch({ type: 'set', patch: { chatTipSeen: true } });
   };
 
-  const send = (text) => {
+  const send = (text, extra) => {
     if (editing) {
       const t = text.trim();
       const orig = msgs.find((m) => m.id === editing);
@@ -277,7 +308,7 @@ export function useMessageActions({ scope, canPin = true, canModerate = false, i
     }
     const reply = replyTo ? msgs.find((m) => m.id === replyTo) : null;
     setReplyTo(null);
-    onSend && onSend(text, reply ? { id: reply.id, from: reply.mine ? 'You' : reply.from, text: reply.text, deleted: !!reply.deleted } : null);
+    onSend && onSend(text, reply ? { id: reply.id, from: reply.mine ? 'You' : reply.from, text: reply.text, deleted: !!reply.deleted } : null, extra || {});
   };
 
   const editTarget = editing ? msgs.find((m) => m.id === editing) : null;
@@ -306,6 +337,7 @@ export function useMessageActions({ scope, canPin = true, canModerate = false, i
       }}
       onDeleteMe={() => { if (current) { op({ id: current.id, op: 'deleteMe' }); toast.show('Deleted for you', { icon: 'trash' }); } }}
       onDeleteEveryone={() => { if (current) { op({ id: current.id, op: 'delete' }); toast.show('Deleted for everyone', { icon: 'trash' }); } }}
+      onForward={onForward ? () => current && onForward(current) : undefined}
     />
   );
 
@@ -325,6 +357,7 @@ export function useMessageActions({ scope, canPin = true, canModerate = false, i
     tipVisible: !state.chatTipSeen,
     layoutFor: (id) => (e) => { positions.current[id] = e.nativeEvent.layout.y; },
     react: (m, emoji) => op({ id: m.id, op: 'react', emoji }),
+    reply: (m) => { if (!m || m.deleted) return; setEditing(null); setReplyTo(m.id); setFocusKey(Date.now()); },
     composer: {
       onSend: send,
       prefill: editTarget ? editTarget.text : '',
@@ -339,13 +372,18 @@ export function useMessageActions({ scope, canPin = true, canModerate = false, i
 const styles = StyleSheet.create({
   msg: {
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 18, borderBottomLeftRadius: 6,
-    paddingVertical: 10, paddingHorizontal: 14, ...shadow.sm,
+    paddingVertical: 8, paddingHorizontal: 12,
   },
   msgMine: { backgroundColor: colors.primary, borderColor: colors.primary, borderBottomLeftRadius: 18, borderBottomRightRadius: 6 },
   msgDeleted: { backgroundColor: colors.raised, borderColor: colors.border, shadowOpacity: 0, elevation: 0 },
   msgDeletedMine: { backgroundColor: alpha(colors.primary, 0.55), borderColor: 'transparent' },
   msgHighlight: { borderColor: colors.gold, borderWidth: 2 },
   msgFrom: { fontSize: 11.5, color: colors.gold, fontWeight: '700', marginBottom: 3 },
+  groupedTheirs: { borderBottomLeftRadius: 18 },
+  groupedMine: { borderBottomRightRadius: 18 },
+  msgFailed: { borderColor: colors.negative || colors.rose, borderWidth: 1.5 },
+  failedText: { color: colors.negative || colors.rose, fontWeight: '700' },
+  fwd: { fontSize: 11, fontStyle: 'italic', color: colors.muted, marginBottom: 2 },
   msgText: { fontSize: 14.5, lineHeight: 20, color: colors.fg },
   link: { textDecorationLine: 'underline', color: colors.primary, fontWeight: '600' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },

@@ -27,6 +27,7 @@ import {
 import {
   dmScope, groupScope, getScopeMsgs, mapServerMessage, outgoingBody, scopeConversationId, scopesForConversation,
 } from '../chat/messages';
+import { live } from '../chat/live'; // CHAT 7.3: typing / receipts / presence / permissions (not persisted)
 
 const SyncCtx = createContext(null);
 const OFF = {
@@ -112,10 +113,27 @@ function OnlineSync({ api, children }) {
         const s = getState();
         const scopes = scopesForConversation(s, ev.conversationId);
         if (!scopes.length) { refresh({ quiet: true }); return; }
+        // CHAT 7.3: the sender stopped typing; my other devices' echoes (same sender) still count as mine
+        const isMine = !!(msg.isMe || (me0.current && msg.senderId === me0.current));
+        live.clearTypingFrom(ev.conversationId, msg.senderId);
         for (const scope of scopes) {
-          const prevMsg = getScopeMsgs(s, scope).find((m) => m.id === msg.id);
-          local({ type: 'msgUpsert', scope, message: mapServerMessage(msg, prevMsg), unreadBump: !msg.isMe && !prevMsg && scope.startsWith('dm:') });
+          const prevMsg = getScopeMsgs(s, scope).find((m) => m.id === msg.id || (msg.clientId && m.id === msg.clientId));
+          local({ type: 'msgUpsert', scope, localId: prevMsg && prevMsg.id !== msg.id ? prevMsg.id : undefined, message: mapServerMessage({ ...msg, isMe: isMine }, prevMsg), unreadBump: !isMine && !prevMsg && msg.kind !== 'system' && scope.startsWith('dm:') });
         }
+        if (msg.kind === 'system') refresh({ quiet: true }); // member list / title / my role may have changed
+      } else if (ev.type === 'typing') {
+        live.setTyping(ev.conversationId, ev.userId, ev.name, ev.typing !== false);
+      } else if (ev.type === 'message.read' || ev.type === 'message.delivered') {
+        // DMs: the event says it all; groups: ticks need the oldest member, so ask the server
+        const conv = (getState().chats || []).find((c) => c.id === ev.conversationId);
+        if (conv && conv.kind === 'dm') {
+          const at = ev.readAt || new Date().toISOString();
+          live.setReceipts(ev.conversationId, ev.type === 'message.read' ? { readAt: at } : { deliveredAt: at });
+        } else {
+          request('GET', `/conversations/${ev.conversationId}/messages?limit=1`).then((r) => live.setReceipts(ev.conversationId, r.receipts)).catch(() => {});
+        }
+      } else if (ev.type === 'conversation.new' || ev.type === 'conversation.removed' || ev.type === 'group.joinRequest') {
+        refresh({ quiet: true });
       } else if (ev.type === 'message.changed') {
         // edited / deleted / pinned / reacted — fetch the message as this viewer sees it
         const s = getState();
@@ -174,6 +192,9 @@ function OnlineSync({ api, children }) {
   const offlineRhythmQueue = useRef(new Map()); // day -> { steps, reflection }
   const toastRef = useRef(toast);
   toastRef.current = toast;
+  const me0 = useRef(null); // CHAT 7.3: my user id (tells my own realtime echoes apart)
+  me0.current = me && me.id ? me.id : null;
+  const videoInflight = useRef(new Set()); // FEED VIDEO: temp ids of videos uploading right now (anything else 'uploading' was interrupted)
 
   const local = (a) => dispatch({ ...a, local: true });
   const fail = (e, msg) => toastRef.current.show(`${msg}${e && e.code === 'NETWORK' ? ' — you seem to be offline' : ''}`, { tone: 'error', icon: 'x' });
@@ -201,6 +222,7 @@ function OnlineSync({ api, children }) {
         user: mapMeToUser(m, s.user),
         coins: m.coins,
         jobAdCredits: m.jobAdCredits,
+        ...(typeof m.premium === 'boolean' ? { premium: m.premium } : null), // CHAT LIMITS: server subscriber flag (users.premium) → state.premium
         supportAds: { date: dayKey(new Date()), count: m.supportAdsToday || 0 },
       },
     });
@@ -259,7 +281,13 @@ function OnlineSync({ api, children }) {
           }
           // Keep posts still being created on this device (not on the server yet)
           const pendingFeed = (s.feed || []).filter((f) => !isServerId(f.id));
-          const pendingVideos = (s.videos || []).filter((v) => !isServerId(v.id));
+          // FEED VIDEO: an upload that isn't running any more (app closed / reloaded mid-upload) becomes a visible
+          // "Upload interrupted · Retry" card instead of "Uploading 40%" forever
+          const pendingVideos = (s.videos || []).filter((v) => !isServerId(v.id)).map((v) => (
+            v.videoStatus === 'uploading' && !videoInflight.current.has(v.id)
+              ? { ...v, videoStatus: 'failed', uploadFailed: true, uploadError: 'The upload was interrupted' }
+              : v
+          ));
           patch.feed = [...pendingFeed, ...feed];
           patch.videos = [...pendingVideos, ...allVideos].sort(byNewest);
           rememberHandles(feed, allVideos);
@@ -303,6 +331,10 @@ function OnlineSync({ api, children }) {
         if (convsR.status === 'fulfilled') {
           const convMap = new Map((s.chats || []).map((c) => [c.id, c]));
           patch.chats = (convsR.value.items || []).map((c) => {
+            // CHAT 7.3: list-level typing, ticks and presence go to the live (non-persisted) state
+            live.setReceipts(c.id, c.receipts);
+            live.setTypingList(c.id, c.typing);
+            if (c.presence) live.setPresence(c.id, c.presence);
             if (c.otherUser && c.otherUser.id) {
               if (c.otherUser.displayName) handles.current[c.otherUser.displayName] = c.otherUser.id;
               if (c.otherUser.handle) handles.current[c.otherUser.handle] = c.otherUser.id;
@@ -494,13 +526,76 @@ function OnlineSync({ api, children }) {
     const list = getScopeMsgs(s, scope);
     const m = localId ? list.find((x) => x.id === localId) : list[list.length - 1];
     if (!m) return;
-    request('POST', `/conversations/${convId}/messages`, outgoingBody(m))
+    // CHAT 7.3: retries network failures (1.5 s, 4 s, 10 s) with the same clientId (the server de-duplicates),
+    // then marks the bubble "Not sent · tap to retry" (retrySend). Server refusals fail at once.
+    const attempt = (n) => request('POST', `/conversations/${convId}/messages`, outgoingBody(m))
       .then((res) => local({ type: 'msgUpsert', scope, localId: m.id, message: mapServerMessage(res, m) }))
       .catch((e) => {
+        const network = !e || e.code === 'NETWORK' || e.code === 'TIMEOUT' || (e.status && e.status >= 500);
+        if (network && n < 3) { setTimeout(() => attempt(n + 1), [1500, 4000, 10000][n]); return; }
         const cur = getScopeMsgs(getState(), scope).find((x) => x.id === m.id);
         if (cur) local({ type: 'msgUpsert', scope, localId: m.id, message: { ...cur, status: 'failed' } });
-        fail(e, `Message not sent: ${errorMessage(e)}`);
+        if (!(e && e.code === 'CHAT_LIMIT_REACHED')) fail(e, `Message not sent: ${errorMessage(e)}`);
       });
+    attempt(0);
+  };
+  const sendThreadRef = useRef(sendThreadMessage);
+  sendThreadRef.current = sendThreadMessage;
+
+  // FEED VIDEO: upload (unless the bytes already arrived) → create the post (idempotent per videoUid on the server).
+  // Failure keeps the card with "Retry" instead of silently removing it (the "my video never appeared" report).
+  const sendVideo = (tempId) => {
+    if (videoInflight.current.has(tempId)) return;
+    const v0 = findItem(getState(), 'videos', tempId);
+    if (!v0 || !v0.upload) return;
+    videoInflight.current.add(tempId);
+    const patch = (p) => local({ type: 'patchItem', slice: 'videos', id: tempId, patch: p });
+    (async () => {
+      try {
+        let uid = v0.uploadedUid || null;
+        if (uid) {
+          try {
+            const st = await request('GET', `/uploads/video/${uid}`);
+            if (!st || st.status !== 'ready') uid = null;
+          } catch (e) {
+            if (e && (e.status === 404 || e.status === 403)) uid = null;
+            else throw e;
+          }
+        }
+        if (!uid) {
+          // a File object doesn't survive a reload (persisted as {}) → fall back to the blob: uri, which may be gone too
+          const file = v0.upload.file;
+          const upload = file && typeof Blob !== 'undefined' && !(file instanceof Blob) ? { ...v0.upload, file: null } : v0.upload;
+          let last = 0;
+          patch({ uploadProgress: 0, videoStatus: 'uploading', uploadFailed: false, uploadError: null });
+          const r = await uploadVideo(request, upload, (p) => {
+            if (p - last >= 0.05 || p === 1) {
+              last = p;
+              patch({ uploadProgress: p });
+            }
+          });
+          uid = r.uid;
+          patch({ uploadedUid: uid, codec: r.codec || null });
+          if (r.warnings && r.warnings.includes('HEVC_MAY_NOT_PLAY_ON_ANDROID')) {
+            toastRef.current.show('Heads-up: this video is HEVC (iPhone “High Efficiency”) — some Android phones can’t play it', { icon: 'video' });
+          }
+        }
+        const v = findItem(getState(), 'videos', tempId) || v0;
+        const body = { kind: 'Video', text: v.caption || '', videoUid: uid, category: v.category || 'Video' };
+        if (v.passage) body.passage = v.passage;
+        const p = await request('POST', '/posts', body);
+        const cur = findItem(getState(), 'videos', tempId);
+        const mapped = { ...mapVideoPost(p, cur), localId: tempId };
+        local({ type: 'replaceItem', slice: 'videos', id: tempId, item: mapped });
+        if (mapped.processing) pollVideo(p.id);
+      } catch (e) {
+        const msg = e && e.code !== 'NETWORK' && e.message ? e.message : 'Check your connection and try again';
+        patch({ videoStatus: 'failed', uploadFailed: true, uploadError: msg });
+        fail(e, 'Couldn’t publish your video');
+      } finally {
+        videoInflight.current.delete(tempId);
+      }
+    })();
   };
 
   const effects = useCallback((a, prev, next) => {
@@ -602,29 +697,11 @@ function OnlineSync({ api, children }) {
       case 'publishVideo': {
         const v = a.video;
         if (!v || !v.upload) return; // sample-library videos (local mode) only
-        const tempId = v.id;
-        run(async () => {
-          try {
-            let last = 0;
-            local({ type: 'patchItem', slice: 'videos', id: tempId, patch: { uploadProgress: 0, videoStatus: 'uploading' } });
-            const { uid } = await uploadVideo(request, v.upload, (p) => {
-              if (p - last >= 0.05 || p === 1) {
-                last = p;
-                local({ type: 'patchItem', slice: 'videos', id: tempId, patch: { uploadProgress: p } });
-              }
-            });
-            const body = { kind: 'Video', text: v.caption || '', videoUid: uid, category: v.category || 'Video' };
-            if (v.passage) body.passage = v.passage;
-            const p = await request('POST', '/posts', body);
-            const cur = findItem(getState(), 'videos', tempId);
-            const mapped = { ...mapVideoPost(p, cur), localId: tempId };
-            local({ type: 'replaceItem', slice: 'videos', id: tempId, item: mapped });
-            if (mapped.processing) pollVideo(p.id);
-          } catch (e) {
-            local({ type: 'removeItem', slice: 'videos', id: tempId });
-            fail(e, `Couldn’t publish your video${e && e.message ? `: ${e.message}` : ''}`);
-          }
-        });
+        sendVideo(v.id);
+        return;
+      }
+      case 'retryVideo': {
+        sendVideo(a.id);
         return;
       }
       case 'commentPost':
@@ -1151,12 +1228,48 @@ function OnlineSync({ api, children }) {
   // ROUND 4: load a thread's newest page (+ pins and my role) into the store.
   const loadThread = useCallback(async (scope, conversationId) => {
     const res = await request('GET', `/conversations/${conversationId}/messages?limit=50`);
+    // CHAT 7.3: ticks, typing, presence and my permissions ride along with the first page
+    live.setReceipts(conversationId, res.receipts);
+    live.setTypingList(conversationId, res.typing || []);
+    if (res.presence !== undefined) live.setPresence(conversationId, res.presence);
+    if (res.permissions) live.setPerms(conversationId, { permissions: res.permissions, settings: res.settings, myRole: res.myRole });
     const items = (res.items || []).slice().reverse();
     const pins = res.pins || [];
     const pinAt = new Map(pins.map((p) => [p.id, Date.parse(p.pinnedAt) || 0]));
     const withPins = items.map((m) => (pinAt.has(m.id) ? { ...m, pinnedAt: new Date(pinAt.get(m.id)).toISOString() } : m));
     local({ type: 'msgSet', scope, messages: withPins });
-    return { myRole: res.myRole || 'member', pins, hasMore: !!res.hasMore };
+    return { myRole: res.myRole || 'member', pins, hasMore: !!res.hasMore, cursor: res.cursor || null, permissions: res.permissions || null };
+  }, []);
+
+  // CHAT 7.3: older messages (scrolling up) are merged in front of what's cached; returns the next cursor
+  const loadOlder = useCallback(async (scope, conversationId, cursor) => {
+    if (!cursor) return { cursor: null };
+    const res = await request('GET', `/conversations/${conversationId}/messages?limit=50&cursor=${encodeURIComponent(cursor)}`);
+    const older = (res.items || []).slice().reverse().map((m) => mapServerMessage(m));
+    const cur = getScopeMsgs(getState(), scope);
+    const have = new Set(cur.map((m) => m.id));
+    local({ type: 'msgSet', scope, merge: false, messages: [...older.filter((m) => !have.has(m.id)), ...cur] });
+    return { cursor: res.hasMore ? res.cursor : null };
+  }, []);
+
+  // CHAT 7.3: tap a "Not sent" bubble → send it again (same clientId, so never twice)
+  const retrySend = useCallback((scope, localId) => {
+    const convId = scopeConversationId(getState(), scope);
+    const m = getScopeMsgs(getState(), scope).find((x) => x.id === localId);
+    if (!convId || !m) return;
+    local({ type: 'msgUpsert', scope, localId, message: { ...m, status: 'sending' } });
+    sendThreadRef.current(scope, convId, localId);
+  }, []);
+
+  // CHAT 7.3: "Typing…" — at most one request every 3 s per chat
+  const typingAt = useRef({});
+  const sendTyping = useCallback((conversationId, on = true) => {
+    if (!conversationId) return;
+    const now = Date.now();
+    if (on && now - (typingAt.current[conversationId] || 0) < 3000) return;
+    if (!on && !typingAt.current[conversationId]) return;
+    typingAt.current[conversationId] = on ? now : 0;
+    request('POST', `/conversations/${conversationId}/typing`, { typing: on }).catch(() => {});
   }, []);
 
   const markChatRead = useCallback(async (conversationId) => {
@@ -1187,6 +1300,9 @@ function OnlineSync({ api, children }) {
     sendGift,
     loadChatMessages,
     loadThread,
+    loadOlder,
+    retrySend,
+    sendTyping,
     markChatRead,
     signOut,
   }), [api.mode, api.email, status, realtimeStatus, error, me, hasMore, loadingMore, state.account && state.account.lastSyncedAt]);

@@ -9,9 +9,9 @@
     "backgroundColor": "#0e0c0b",
     "icon": "./assets/icon.png",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash-white.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0e0c0b"
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": false,
@@ -63,7 +63,7 @@
       [
         "expo-notifications",
         {
-          "color": "#2E3A87"
+          "color": "#C9A45C"
         }
       ],
       "expo-secure-store",
@@ -74,7 +74,62 @@
           "cameraPermission": "BibleNestra uses the camera so you can capture photos and videos to share in Socials."
         }
       ],
-      "react-native-compressor"
+      "react-native-compressor",
+      [
+        "react-native-android-widget",
+        {
+          "fonts": [
+            "./node_modules/@expo-google-fonts/newsreader/500Medium/Newsreader_500Medium.ttf",
+            "./node_modules/@expo-google-fonts/newsreader/500Medium_Italic/Newsreader_500Medium_Italic.ttf"
+          ],
+          "widgets": [
+            {
+              "name": "DailyScripture",
+              "label": "Daily Scripture",
+              "description": "Today's verse with a sunrise photo. Tap to read Daily Bread.",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 86400000
+            },
+            {
+              "name": "PrayerOfTheDay",
+              "label": "Prayer of the Day",
+              "description": "A one-line prayer for today. Tap to pray.",
+              "minWidth": "250dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 86400000
+            },
+            {
+              "name": "ReadingProgress",
+              "label": "Reading Progress",
+              "description": "My Bible Journey: your reading plan progress. Tap to continue reading.",
+              "minWidth": "250dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 86400000
+            },
+            {
+              "name": "SpiritualCompanion",
+              "label": "Spiritual Companion",
+              "description": "Read Bible, Pray, Listen and Community in one tap.",
+              "minWidth": "250dp",
+              "minHeight": "250dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 4,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 86400000
+            }
+          ]
+        }
+      ]
     ],
     "owner": "dental112",
     "scheme": "biblenestra",

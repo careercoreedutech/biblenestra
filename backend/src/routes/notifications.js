@@ -69,7 +69,7 @@ notifications.post('/me/notifications/read', async (c) => {
 notifications.get('/me/notify-settings', async (c) => {
   const me = c.get('user');
   const row = await one(c.env, `SELECT notify FROM users WHERE id = $1`, [me.id]);
-  return c.json({ live: true, ...(row?.notify || { messages: true, groups: true, prayer: true, events: true, gifts: true, jobs: true }) });
+  return c.json({ live: true, broadcasts: true, ...(row?.notify || { messages: true, groups: true, prayer: true, events: true, gifts: true, jobs: true }) });
 });
 
 // PUT /me/notify-settings
@@ -86,6 +86,7 @@ notifications.put('/me/notify-settings', async (c) => {
     ...(b.gifts !== undefined && { gifts: !!b.gifts }),
     ...(b.jobs !== undefined && { jobs: !!b.jobs }),
     ...(b.live !== undefined && { live: !!b.live }), // YOUTUBE LIVE alerts (missing = on)
+    ...(b.broadcasts !== undefined && { broadcasts: !!b.broadcasts }), // BROADCASTS: push for official messages (missing = on; the inbox copy always arrives)
   };
 
   await q(c.env, `UPDATE users SET notify = $1 WHERE id = $2`, [JSON.stringify(updated), me.id]);

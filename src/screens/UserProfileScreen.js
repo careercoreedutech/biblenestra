@@ -373,6 +373,7 @@ export default function UserProfileScreen({ params = {} }) {
       await sync.refresh({ quiet: true });
       nav.push('Chat', { id: cid, to: person.name, userId: person.id, otherFollowsMe, canMessage });
     } catch (e) {
+      if (e && e.code === 'CHAT_LIMIT_REACHED') return; // CHAT LIMITS: the global upgrade / invite prompt opens instead (finally still runs)
       toast.show(e && e.code === 'BLOCKED' ? 'You can’t message this person' : `Couldn’t open a chat${e && e.message ? ` — ${e.message}` : ''}`, { tone: 'error' });
     } finally {
       setBusy(false);

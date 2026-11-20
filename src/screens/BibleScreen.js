@@ -19,6 +19,9 @@ import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow, readerThemes, lineSpacings, READER_FONTS, readerFontFamily } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
+import * as Clipboard from 'expo-clipboard';
+import { setBibleImmersive, useBibleImmersive } from '../ui/chrome';
+import { CopyGlyph } from './ExegesisScreen';
 import {
   BOOKS,
   TRANSLATIONS,
@@ -44,16 +47,65 @@ export default function BibleScreen({ params: routeParams }) {
     bookId: params.bookId || state.lastPosition.bookId,
     chapter: params.chapter || state.lastPosition.chapter,
   });
-  const [selected, setSelected] = useState(params.verse || null);
-  const [picker, setPicker] = useState(null); // 'book' | 'translation' | 'compare' | null
+  // Selected verses (sorted). `selected` = the first one, `selEnd` = the last one.
+  const [sel, setSel] = useState(params.verse ? [params.verse] : []);
+  const selected = sel.length ? sel[0] : null;
+  const selEnd = sel.length ? sel[sel.length - 1] : null;
+  const setSelected = (v) => setSel(v ? [v] : []);
+  const toggleVerse = (n) => setSel((cur) => (cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n].sort((a, b) => a - b)));
+  const [picker, setPicker] = useState(null); // 'book' | 'translation' | 'compare' | 'settings' | 'tools' | null
   const [panel, setPanel] = useState(null); // 'note' | null
+  const [studyOpen, setStudyOpen] = useState(false); // verse toolbar: study tools expanded
   const insets = useSafeAreaInsets();
   // Android Back closes the verse sheet (it's drawn over the page, not a Modal) instead of leaving the app
   useEffect(() => {
     if (!selected) return undefined;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setSelected(null); return true; });
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { setSel([]); return true; });
     return () => sub.remove();
   }, [selected]);
+  useEffect(() => { if (!sel.length) { setStudyOpen(false); setPanel(null); } }, [sel.length]);
+
+  // ---- Full-screen reading (Bible tab only): the tab bar slides away; a small arrow handle brings it back,
+  // and it hides again after a few seconds or as soon as the text scrolls.
+  const navHidden = useBibleImmersive();
+  const hideTimer = useRef(null);
+  useEffect(() => {
+    if (isRoute) return undefined;
+    setBibleImmersive(true);
+    return () => { clearTimeout(hideTimer.current); setBibleImmersive(false); };
+  }, [isRoute]);
+  const hideNav = () => { clearTimeout(hideTimer.current); if (!isRoute) setBibleImmersive(true); };
+  const showNav = () => {
+    clearTimeout(hideTimer.current);
+    setBibleImmersive(false);
+    hideTimer.current = setTimeout(() => setBibleImmersive(true), 4500);
+  };
+  useEffect(() => { if (sel.length) hideNav(); }, [sel.length]);
+  const handleA = useRef(new Animated.Value(1)).current;
+  const showHandle = !isRoute && navHidden && !sel.length;
+  useEffect(() => {
+    Animated.timing(handleA, { toValue: showHandle ? 1 : 0, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+  }, [showHandle]);
+
+  // ---- Top bar hides while scrolling down the text and comes back when scrolling up (or near the top).
+  const [headH, setHeadH] = useState(64);
+  const headA = useRef(new Animated.Value(1)).current;
+  const headShown = useRef(true);
+  const lastY = useRef(0);
+  const setHead = (show) => {
+    if (headShown.current === show) return;
+    headShown.current = show;
+    Animated.timing(headA, { toValue: show ? 1 : 0, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+  };
+  const onReaderScroll = (e) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const dy = y - lastY.current;
+    lastY.current = y;
+    if (y < 40) setHead(true);
+    else if (dy > 6) setHead(false);
+    else if (dy < -12) setHead(true);
+    if (!navHidden && Math.abs(dy) > 2) hideNav();
+  };
   const [noteText, setNoteText] = useState('');
   const [compare, setCompare] = useState(!!params.compare);
   const nar = useNarration();
@@ -167,10 +219,23 @@ export default function BibleScreen({ params: routeParams }) {
     if (id !== tr) toast.show(`Reading in ${translationInfo(id).name}`, { icon: 'bible', haptic: 'select' });
   };
 
+  // "Romans 8:28", "Romans 8:28-30" or "Romans 8:3, 7"
+  const selLabel = () => {
+    if (!sel.length) return '';
+    const contiguous = sel.every((n, i) => i === 0 || n === sel[i - 1] + 1);
+    if (sel.length === 1) return refLabel(pos.bookId, pos.chapter, selected);
+    return contiguous ? `${refLabel(pos.bookId, pos.chapter, selected)}-${selEnd}` : `${refLabel(pos.bookId, pos.chapter, selected)}, ${sel.slice(1).join(', ')}`;
+  };
+  const selText = () => (sel.length === 1 ? verses[selected - 1] : sel.map((n) => `${n} ${verses[n - 1]}`).join(' '));
+  const selMessage = () => `“${selText()}” — ${selLabel()} (${showingFallback ? 'KJV' : tr})`;
+
   const share = async () => {
     if (!selected) return;
-    const message = `“${verses[selected - 1]}” — ${refLabel(pos.bookId, pos.chapter, selected)} (${tr})`;
-    try { await Share.share({ message }); } catch (e) { toast.show('Sharing isn’t available here', { tone: 'error' }); }
+    try { await Share.share({ message: selMessage() }); } catch (e) { toast.show('Sharing isn’t available here', { tone: 'error' }); }
+  };
+  const copy = async () => {
+    if (!selected) return;
+    try { await Clipboard.setStringAsync(selMessage()); toast.show(`Copied ${selLabel()}`, { icon: 'check', haptic: 'select' }); } catch (e) { toast.show('Couldn’t copy', { tone: 'error' }); }
   };
 
   const postToFeed = () => {
@@ -179,7 +244,7 @@ export default function BibleScreen({ params: routeParams }) {
       type: 'post',
       post: {
         kind: 'Verse',
-        text: `“${verses[selected - 1]}” — ${refLabel(pos.bookId, pos.chapter, selected)} (${showingFallback ? 'KJV' : tr})`,
+        text: selMessage(),
         passage: { bookId: pos.bookId, chapter: pos.chapter },
       },
     });
@@ -189,28 +254,62 @@ export default function BibleScreen({ params: routeParams }) {
   goRef.current = go;
   const trInfo = translationInfo(tr);
   const rtl = !!trInfo.rtl && !showingFallback;
+  // Reader tools menu (the ⋯ tools icon in the top bar). Books lives on the "John 3 ▾" title.
+  const runTool = (fn) => () => { setPicker(null); fn(); };
   const tools = [
-    // Books lives on the "John 3 ▾" title; Compare goes first so it is visible without scrolling
-    { key: 'compare', label: 'Compare', icon: 'bible', onPress: () => setCompare(!compare), active: compare },
-    { key: 'beyond', label: 'Beyond the 66', icon: 'book', onPress: () => nav.push('ExtraBooks') }, // Apocrypha, Enoch, Jubilees…
-    { key: 'search', label: 'Search', icon: 'search', onPress: () => nav.push('Search') },
-    { key: 'lexicon', label: 'Lexicon', icon: 'sparkles', onPress: () => nav.push('Concordance', selected ? { bookId: pos.bookId, chapter: pos.chapter, verse: selected } : {}) },
-    { key: 'commentary', label: 'Commentary', icon: 'book', onPress: () => nav.push('Study', { ...pos, verse: selected || undefined, tab: 'Commentary' }) },
+    { key: 'compare', label: compare ? 'Single view' : 'Compare', icon: 'bible', onPress: runTool(() => setCompare(!compare)), active: compare },
+    { key: 'listen', label: audio ? 'Pause' : 'Listen', icon: 'headphones', onPress: runTool(toggleNarration), active: audio },
+    { key: 'settings', label: 'Text & theme', icon: 'type', onPress: () => setPicker('settings') },
+    { key: 'commentary', label: 'Commentary', icon: 'book', onPress: runTool(() => nav.push('Study', { ...pos, verse: selected || undefined, tab: 'Commentary' })) },
+    { key: 'xref', label: 'Cross refs', icon: 'link', onPress: runTool(() => nav.push('Study', { ...pos, verse: selected || undefined, tab: 'Cross-references' })) },
+    { key: 'lexicon', label: 'Word study', icon: 'sparkles', onPress: runTool(() => nav.push('Concordance', selected ? { bookId: pos.bookId, chapter: pos.chapter, verse: selected } : {})) },
+    { key: 'beyond', label: 'Beyond the 66', icon: 'book', onPress: runTool(() => nav.push('ExtraBooks')) }, // Apocrypha, Enoch, Jubilees…
     {
       key: 'save',
-      label: bookmarked ? 'Saved' : 'Save',
+      label: bookmarked ? 'Saved' : 'Save chapter',
       icon: 'bookmark',
-      onPress: () => {
+      onPress: runTool(() => {
         dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter } });
         toast.show(bookmarked ? 'Bookmark removed' : `${bookName(pos.bookId)} ${pos.chapter} saved to your library`, { icon: 'bookmark' });
-      },
+      }),
       active: bookmarked,
     },
+    { key: 'library', label: 'My library', icon: 'highlight', onPress: runTool(() => nav.push('Library')) },
+    { key: 'plans', label: 'Reading plans', icon: 'calendar', onPress: runTool(() => nav.push('Learn', { tab: 'Plans' })) },
   ];
+
+  // Verse toolbar → study tools, in this exact order: Commentary, Exegesis, Cross Reference, Word Study, then the rest.
+  const verseCtx = () => ({ ...pos, verse: selected });
+  const studyTools = !selected ? [] : [
+    { k: 'commentary', label: 'Commentary', icon: 'book', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Commentary' }) },
+    { k: 'exegesis', label: 'Exegesis', icon: 'sparkles', onPress: () => nav.push('Exegesis', { bookId: pos.bookId, chapter: pos.chapter, verseStart: selected, verseEnd: selEnd, translation: showingFallback ? 'KJV' : tr }) },
+    { k: 'xref', label: 'Cross Reference', icon: 'link', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Cross-references' }) },
+    { k: 'word', label: 'Word Study', icon: 'search', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Word study' }) },
+    { k: 'compare', label: 'Compare', icon: 'bible', onPress: () => { setCompare(true); setSel([]); } },
+    { k: 'listen', label: 'Listen', icon: 'headphones', onPress: () => { nar.playChapter(pos.bookId, pos.chapter, { translation: tr, fromVerse: selected }); setSel([]); } },
+    { k: 'image', label: 'Share image', icon: 'image', onPress: () => setImageOpen(true) },
+    { k: 'lexicon', label: 'Word by word', icon: 'type', onPress: () => nav.push('Concordance', verseCtx()) },
+    { k: 'ask', label: 'Ask AI', icon: 'chat', onPress: () => nav.push('BibleChat', { context: verseCtx() }) },
+    { k: 'post', label: 'Post', icon: 'repost', onPress: postToFeed },
+    { k: 'pray', label: 'Intercede', icon: 'prayer', onPress: () => nav.push('NewPrayer', { verse: selLabel() }) },
+    { k: 'memorize', label: 'Memorize', icon: 'star', onPress: () => nav.push('Learn', { tab: 'Memorize' }) },
+  ];
+  const highlightSelection = (c) => {
+    const all = sel.every((n) => hl(n)?.color === c);
+    sel.forEach((n) => {
+      if (all || hl(n)?.color !== c) dispatch({ type: 'highlight', h: { bookId: pos.bookId, chapter: pos.chapter, verse: n, color: c, label: 'Highlight' } });
+    });
+    toast.show(all ? 'Highlight removed' : `Highlighted ${selLabel()}`, { icon: 'highlight', haptic: 'select' });
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: t.bg }]}>
-      {/* Header */}
+      {/* Header — minimal (book/chapter, translation, search, tools); slides away while scrolling down */}
+      <Animated.View
+        onLayout={(e) => { const h = Math.round(e.nativeEvent.layout.height); if (h && h !== headH) setHeadH(h); }}
+        pointerEvents="box-none"
+        style={[styles.headWrap, { backgroundColor: t.bg, borderBottomColor: t.border, opacity: headA, transform: [{ translateY: headA.interpolate({ inputRange: [0, 1], outputRange: [-headH, 0] }) }] }]}
+      >
       <View style={[styles.topBar, { backgroundColor: t.bg }]}>
         {isRoute ? (
           <Pressable onPress={() => nav.pop()} hitSlop={10} accessibilityLabel="Back" style={({ pressed }) => [styles.iconBtn, { backgroundColor: t.chip, borderColor: t.border, marginRight: 10 }, pressed && { opacity: 0.7 }]}>
@@ -228,42 +327,29 @@ export default function BibleScreen({ params: routeParams }) {
         </Pressable>
 
         <View style={styles.rightActions}>
-          <Pressable onPress={() => setPicker('translation')} style={({ pressed }) => [styles.trBadge, { backgroundColor: t.chip, borderColor: t.border }, pressed && { opacity: 0.7 }]}>
+          <Pressable onPress={() => setPicker('translation')} accessibilityLabel={`Translation ${tr}`} style={({ pressed }) => [styles.trBadge, { backgroundColor: t.chip, borderColor: t.border }, pressed && { opacity: 0.7 }]}>
             <Text style={[styles.trBadgeText, { color: t.accent }]}>{tr}</Text>
           </Pressable>
-          <Pressable onPress={() => setPicker('settings')} hitSlop={8} accessibilityLabel="Reading settings" style={({ pressed }) => [styles.iconBtn, { backgroundColor: t.chip, borderColor: t.border }, pressed && { opacity: 0.7 }]}>
-            <Icon name="type" size={18} color={t.fg} />
+          <Pressable onPress={() => nav.push('Search')} hitSlop={8} accessibilityLabel="Search the Bible" style={({ pressed }) => [styles.iconBtn, { backgroundColor: t.chip, borderColor: t.border }, pressed && { opacity: 0.7 }]}>
+            <Icon name="search" size={18} color={t.fg} />
           </Pressable>
-          <Pressable onPress={toggleNarration} hitSlop={8} accessibilityLabel="Narration" style={[styles.iconBtn, { backgroundColor: t.chip, borderColor: t.border }, audio && { backgroundColor: t.accent, borderColor: t.accent }]}>
-            <Pop trigger={audio}><Icon name="headphones" size={18} color={audio ? (t.dark ? t.bg : '#FFFFFF') : t.fg} /></Pop>
+          <Pressable onPress={() => setPicker('tools')} hitSlop={8} accessibilityLabel="Bible tools" style={({ pressed }) => [styles.iconBtn, { backgroundColor: t.chip, borderColor: t.border }, (audio || compare) && { backgroundColor: t.accentSoft, borderColor: t.accentSoft }, pressed && { opacity: 0.7 }]}>
+            <Pop trigger={audio}><Icon name="more-horizontal" size={18} color={audio || compare ? t.accent : t.fg} /></Pop>
           </Pressable>
-          {!isRoute ? <ProfileButton size={36} /> : null}
         </View>
       </View>
-
-      {/* Tools */}
-      <View style={[styles.toolBar, { backgroundColor: t.bg, borderBottomColor: t.borderStrong }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolScroll}>
-          {tools.map((tool) => (
-            <Pressable
-              key={tool.key}
-              onPress={tool.onPress}
-              style={({ pressed }) => [styles.toolChip, { backgroundColor: t.chip, borderColor: t.border }, tool.active && { backgroundColor: t.accentSoft, borderColor: t.accentSoft }, pressed && { opacity: 0.75 }]}
-            >
-              <Icon name={tool.icon} size={14} color={tool.active ? t.accent : t.muted} fill={tool.active ? 'solid' : 'none'} />
-              <Text style={[styles.toolChipText, { color: tool.active ? t.accent : t.fg }]}>{tool.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
+      </Animated.View>
 
       {/* Reader */}
       <ScrollView
         ref={scrollRef}
         {...pan.panHandlers}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 22, paddingTop: 8, paddingBottom: selected ? 230 : 40 }}
+        contentContainerStyle={{ paddingHorizontal: 22, paddingTop: headH + 4, paddingBottom: selected ? (studyOpen ? 330 : 220) : 72 }}
         showsVerticalScrollIndicator={false}
+        onScroll={onReaderScroll}
+        onScrollBeginDrag={hideNav}
+        scrollEventThrottle={32}
       >
         <Animated.View
           style={{
@@ -315,7 +401,7 @@ export default function BibleScreen({ params: routeParams }) {
             const n = i + 1;
             const h = hl(n);
             const notes = noteFor(n);
-            const isSel = selected === n;
+            const isSel = sel.includes(n);
             const isSpoken = narHere && nar.verse === n;
             const fs = Math.round(state.fontSize * 1.12);
 
@@ -323,8 +409,9 @@ export default function BibleScreen({ params: routeParams }) {
               <Pressable
                 key={n}
                 onLayout={(e) => { verseY.current[n] = e.nativeEvent.layout.y; }}
+                accessibilityState={{ selected: isSel }}
                 onPress={() => {
-                  setSelected(isSel ? null : n);
+                  toggleVerse(n);
                   setPanel(null);
                 }}
                 style={[styles.verseRow, h && { backgroundColor: alpha(h.color, t.dark ? 0.24 : 0.18) }, isSpoken && { backgroundColor: t.accentSoft, borderLeftWidth: 3, borderLeftColor: t.accent }, isSel && { backgroundColor: t.sel }]}
@@ -384,59 +471,84 @@ export default function BibleScreen({ params: routeParams }) {
         </Animated.View>
       </ScrollView>
 
-      {/* Verse action sheet */}
+      {/* Full-screen reading: small arrow handle at the bottom-left brings the tab bar back */}
+      {!isRoute ? (
+        <Animated.View pointerEvents={showHandle ? 'box-none' : 'none'} style={[styles.handleWrap, { opacity: handleA, transform: [{ translateX: handleA.interpolate({ inputRange: [0, 1], outputRange: [-36, 0] }) }] }]}>
+          <Pressable onPress={showNav} hitSlop={10} accessibilityRole="button" accessibilityLabel="Show navigation" style={({ pressed }) => [styles.handle, { backgroundColor: t.dark ? 'rgba(255,255,255,0.16)' : 'rgba(21,23,43,0.28)' }, pressed && { opacity: 0.7 }]}>
+            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none"><Path d="M9 6l6 6-6 6" stroke="#FFFFFF" strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>
+          </Pressable>
+        </Animated.View>
+      ) : null}
+
+      {/* Verse toolbar: highlight colours, Copy, Share, Bookmark, Note + an arrow that opens the study tools */}
       {selected && verses ? (
         <SlideUp style={[styles.sheet, { backgroundColor: t.surface }, t.dark && { borderTopWidth: 1, borderColor: t.border }]}>
           <View style={[styles.grabber, { backgroundColor: t.borderStrong }]} />
           <View style={styles.sheetHeader}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[styles.sheetEyebrow, { color: t.gold }]}>Verse {selected}</Text>
-              <Text style={[styles.sheetRef, { color: t.fg }]} numberOfLines={1}>{refLabel(pos.bookId, pos.chapter, selected)}</Text>
+              <Text style={[styles.sheetEyebrow, { color: t.gold }]}>{sel.length > 1 ? `${sel.length} verses` : `Verse ${selected}`}</Text>
+              <Text style={[styles.sheetRef, { color: t.fg }]} numberOfLines={1}>{selLabel()}</Text>
             </View>
-            <Pressable onPress={() => setSelected(null)} hitSlop={12} style={[styles.sheetCloseBtn, { backgroundColor: t.raised }]} accessibilityLabel="Close">
+            <View style={styles.hlRow}>
+              {HIGHLIGHT_COLORS.map((c) => {
+                const on = sel.every((n) => hl(n)?.color === c);
+                return (
+                  <Pressable key={c} accessibilityLabel="Highlight" accessibilityState={{ selected: on }} onPress={() => highlightSelection(c)} hitSlop={3} style={[styles.hlRing, on && { borderColor: c }]}>
+                    <View style={[styles.hlDot, { backgroundColor: c }]} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable onPress={() => setSel([])} hitSlop={12} style={[styles.sheetCloseBtn, { backgroundColor: t.raised }]} accessibilityLabel="Close">
               <Svg width={12} height={12} viewBox="0 0 24 24" fill="none"><Path d="M6 6l12 12M18 6L6 18" stroke={t.muted} strokeWidth={2.6} strokeLinecap="round" /></Svg>
             </Pressable>
           </View>
 
-          <View style={styles.colorPalette}>
-            {HIGHLIGHT_COLORS.map((c) => (
-              <Pressable
-                key={c}
-                accessibilityLabel="Highlight"
-                onPress={() => {
-                  const removing = hl(selected)?.color === c;
-                  dispatch({
-                    type: 'highlight',
-                    h: { bookId: pos.bookId, chapter: pos.chapter, verse: selected, color: c, label: 'Highlight' },
-                  });
-                  toast.show(removing ? 'Highlight removed' : `Highlighted ${refLabel(pos.bookId, pos.chapter, selected)}`, { icon: 'highlight', haptic: 'select' });
-                }}
-                style={[styles.colorDotRing, hl(selected)?.color === c && { borderColor: c }]}
-              >
-                <View style={[styles.colorDot, { backgroundColor: c }]} />
-              </Pressable>
-            ))}
+          <View style={styles.vbar}>
+            <View style={styles.vbarActions}>
+              {[
+                { k: 'copy', label: 'Copy', glyph: (col) => <CopyGlyph color={col} />, onPress: copy },
+                { k: 'share', label: 'Share', icon: 'share', onPress: share },
+                { k: 'save', label: verseSaved ? 'Saved' : 'Bookmark', icon: 'bookmark', active: verseSaved, onPress: () => { dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter, verse: selected } }); toast.show(verseSaved ? 'Removed from library' : `${refLabel(pos.bookId, pos.chapter, selected)} saved`, { icon: 'bookmark' }); } },
+                { k: 'note', label: 'Note', icon: 'edit', onPress: () => setPanel(panel === 'note' ? null : 'note'), active: panel === 'note' },
+              ].map((a) => {
+                const col = a.active ? t.accent : t.fg;
+                return (
+                  <Pressable key={a.k} onPress={a.onPress} accessibilityRole="button" accessibilityLabel={a.label} style={({ pressed }) => [styles.vbarAction, pressed && { opacity: 0.6 }]}>
+                    {a.glyph ? a.glyph(col) : <Icon name={a.icon} size={19} color={col} fill={a.active ? 'solid' : 'none'} />}
+                    <Text style={[styles.vbarLabel, { color: col }]} numberOfLines={1}>{a.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              onPress={() => setStudyOpen(!studyOpen)}
+              accessibilityRole="button"
+              accessibilityLabel={studyOpen ? 'Hide study tools' : 'More study tools'}
+              accessibilityState={{ expanded: studyOpen }}
+              style={({ pressed }) => [styles.moreArrow, { backgroundColor: studyOpen ? t.accent : t.accentSoft }, pressed && { opacity: 0.75 }]}
+            >
+              <RotateArrow open={studyOpen} color={studyOpen ? (t.dark ? t.bg : '#FFFFFF') : t.accent} />
+            </Pressable>
           </View>
 
-          <View style={styles.sheetActions}>
-            {[
-              { k: 'note', label: 'Note', icon: 'highlight', onPress: () => setPanel(panel === 'note' ? null : 'note'), active: panel === 'note' },
-              { k: 'save', label: verseSaved ? 'Saved' : 'Save', icon: 'bookmark', active: verseSaved, onPress: () => { dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter, verse: selected } }); toast.show(verseSaved ? 'Removed from library' : `${refLabel(pos.bookId, pos.chapter, selected)} saved`, { icon: 'bookmark' }); } },
-              { k: 'image', label: 'Image', icon: 'image', onPress: () => setImageOpen(true) },
-              { k: 'share', label: 'Share', icon: 'share', onPress: share },
-              { k: 'ask', label: 'Ask', icon: 'sparkles', onPress: () => nav.push('BibleChat', { context: { ...pos, verse: selected } }) },
-            ].map((a) => (
-              <Pressable key={a.k} onPress={a.onPress} style={({ pressed }) => [styles.sheetAction, { backgroundColor: a.active ? t.accentSoft : t.raised }, pressed && { opacity: 0.75 }]}>
-                <Icon name={a.icon} size={18} color={a.active ? t.accent : t.fg} />
-                <Text style={[styles.sheetActionText, { color: a.active ? t.accent : t.fg }]}>{a.label}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <Expand open={studyOpen}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.studyRow}>
+              {studyTools.map((s, i) => (
+                <Pressable key={s.k} onPress={s.onPress} accessibilityRole="button" accessibilityLabel={s.label} style={({ pressed }) => [styles.studyTool, pressed && { opacity: 0.6 }]}>
+                  <View style={[styles.studyIcon, { backgroundColor: i < 4 ? t.accentSoft : t.raised }]}>
+                    <Icon name={s.icon} size={20} color={i < 4 ? t.accent : t.fg} />
+                  </View>
+                  <Text style={[styles.studyLabel, { color: t.fg }]} numberOfLines={2}>{s.label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Expand>
 
           {panel === 'note' ? (
             <View style={{ marginTop: 12, gap: 10 }}>
               <Input
-                placeholder="Write a private reflection or study note…"
+                placeholder={`A private note on ${selLabel()}…`}
                 value={noteText}
                 onChangeText={setNoteText}
                 multiline
@@ -449,7 +561,7 @@ export default function BibleScreen({ params: routeParams }) {
                   if (noteText.trim()) {
                     dispatch({
                       type: 'note',
-                      n: { bookId: pos.bookId, chapter: pos.chapter, verse: selected, text: noteText.trim() },
+                      n: { bookId: pos.bookId, chapter: pos.chapter, verse: selected, text: sel.length > 1 ? `${selLabel()} — ${noteText.trim()}` : noteText.trim() },
                     });
                     setNoteText('');
                     setPanel(null);
@@ -459,34 +571,42 @@ export default function BibleScreen({ params: routeParams }) {
               />
             </View>
           ) : null}
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 14 }}>
-            {[
-              ['Listen from here', () => { nar.playChapter(pos.bookId, pos.chapter, { translation: tr, fromVerse: selected }); setSelected(null); }],
-              ['Post to feed', postToFeed],
-              ['Word by word', () => nav.push('Concordance', { bookId: pos.bookId, chapter: pos.chapter, verse: selected })],
-              ['Exegesis', () => nav.push('BibleChat', { context: { ...pos, verse: selected } })],
-              ['Commentary', () => nav.push('Study', { ...pos, verse: selected, tab: 'Commentary' })],
-              ['Cross-refs', () => nav.push('Study', { ...pos, verse: selected, tab: 'Cross-references' })],
-              ['Word study', () => nav.push('Study', { ...pos, verse: selected, tab: 'Word study' })],
-              ['Intercede', () => nav.push('NewPrayer', { verse: refLabel(pos.bookId, pos.chapter, selected) })],
-              ['Memorize', () => nav.push('Learn', { tab: 'Memorize' })],
-            ].map(([label, onPress]) => (
-              <Pressable key={label} onPress={onPress} style={({ pressed }) => [styles.studyChip, { borderColor: t.border }, pressed && { opacity: 0.7 }]}>
-                <Text style={[styles.studyChipText, { color: t.muted }]}>{label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
         </SlideUp>
       ) : null}
 
       <VerseImageSheet
         visible={imageOpen}
         onClose={() => setImageOpen(false)}
-        text={selected && verses ? verses[selected - 1] : ''}
-        reference={selected ? refLabel(pos.bookId, pos.chapter, selected) : ''}
+        text={selected && verses ? selText() : ''}
+        reference={selected ? selLabel() : ''}
         translation={tr}
       />
+
+      {/* Tools menu (top bar ⋯) */}
+      <AnimatedModal visible={picker === 'tools'} onRequestClose={() => setPicker(null)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={{ flex: 1 }} onPress={() => setPicker(null)} />
+          <View style={[styles.modalSheet, { backgroundColor: t.bg, paddingBottom: 26 + insets.bottom }]}>
+            <View style={[styles.grabber, { backgroundColor: t.borderStrong }]} />
+            <View style={styles.modalHead}>
+              <Text style={[styles.modalTitle, { color: t.fg }]}>Bible tools</Text>
+              <Pressable onPress={() => setPicker(null)} hitSlop={12} style={[styles.modalClose, { backgroundColor: t.fg }]}>
+                <Text style={[styles.modalCloseText, { color: t.bg }]}>Done</Text>
+              </Pressable>
+            </View>
+            <View style={styles.toolsGrid}>
+              {tools.map((tool) => (
+                <Pressable key={tool.key} onPress={tool.onPress} accessibilityRole="button" accessibilityLabel={tool.label} style={({ pressed }) => [styles.toolsCell, pressed && { opacity: 0.6 }]}>
+                  <View style={[styles.studyIcon, { backgroundColor: tool.active ? t.accent : t.chip, borderWidth: 1, borderColor: tool.active ? t.accent : t.border }]}>
+                    <Icon name={tool.icon} size={20} color={tool.active ? (t.dark ? t.bg : '#FFFFFF') : t.fg} />
+                  </View>
+                  <Text style={[styles.studyLabel, { color: t.fg }]} numberOfLines={2}>{tool.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </View>
+      </AnimatedModal>
 
       {/* Reading settings */}
       <AnimatedModal visible={picker === 'settings'} onRequestClose={() => setPicker(null)}>
@@ -656,6 +776,42 @@ function SlideUp({ children, style }) {
   );
 }
 
+// Right-pointing arrow that turns to point down when the study tools are open.
+function RotateArrow({ open, color }) {
+  const a = useRef(new Animated.Value(open ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(a, { toValue: open ? 1 : 0, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
+  }, [open]);
+  return (
+    <Animated.View style={{ transform: [{ rotate: a.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] }) }] }}>
+      <Svg width={16} height={16} viewBox="0 0 24 24" fill="none"><Path d="M9 6l6 6-6 6" stroke={color} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" /></Svg>
+    </Animated.View>
+  );
+}
+
+// Smooth height + fade expand for the study tools row.
+function Expand({ open, children }) {
+  const a = useRef(new Animated.Value(open ? 1 : 0)).current;
+  const [h, setH] = useState(0);
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) setMounted(true);
+    Animated.timing(a, { toValue: open ? 1 : 0, duration: open ? 300 : 220, easing: Easing.out(Easing.cubic), useNativeDriver: false })
+      .start(({ finished }) => { if (finished && !open) setMounted(false); });
+  }, [open]);
+  if (!mounted) return null;
+  return (
+    <Animated.View style={{ overflow: 'hidden', height: h ? a.interpolate({ inputRange: [0, 1], outputRange: [0, h] }) : undefined, opacity: a }}>
+      <Animated.View
+        onLayout={(e) => { const hh = Math.round(e.nativeEvent.layout.height); if (hh && hh !== h) setH(hh); }}
+        style={{ transform: [{ translateX: a.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] }}
+      >
+        {children}
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
 function CompareView({ pos, base, others, onPick }) {
   const cols = [base, ...others.filter((o) => o !== base)];
   const texts = useChapters(cols, pos.bookId, pos.chapter);
@@ -689,7 +845,29 @@ export { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen } from './Bibl
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.screen },
 
-  // Header
+  // Header (absolute, slides away on scroll)
+  headWrap: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 5, borderBottomWidth: StyleSheet.hairlineWidth },
+  // Full-screen handle (bottom-left, ~28dp)
+  handleWrap: { position: 'absolute', left: 0, bottom: 18, zIndex: 6 },
+  handle: { width: 30, height: 34, borderTopRightRadius: 17, borderBottomRightRadius: 17, alignItems: 'center', justifyContent: 'center', paddingRight: 2 },
+  // Verse toolbar
+  vbar: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  vbarScroll: { alignItems: 'center', gap: 4, paddingRight: 4 },
+  vbarDivider: { width: 1, height: 30, marginHorizontal: 6 },
+  vbarActions: { flex: 1, flexDirection: 'row', justifyContent: 'space-around' },
+  vbarAction: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 4 },
+  hlRow: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+  hlRing: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  hlDot: { width: 19, height: 19, borderRadius: 10 },
+  vbarLabel: { fontSize: 10.5, fontWeight: '600' },
+  moreArrow: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  studyRow: { paddingTop: 14, paddingBottom: 2, gap: 4 },
+  studyTool: { width: 74, alignItems: 'center', gap: 6 },
+  studyIcon: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  studyLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center', lineHeight: 14 },
+  toolsGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 10, rowGap: 16 },
+  toolsCell: { width: '20%', alignItems: 'center', gap: 6 },
+
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

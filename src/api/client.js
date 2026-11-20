@@ -2,6 +2,7 @@
 // request(method, path, body, opts) → parsed JSON. Non-2xx responses throw an ApiError carrying the
 // server's `{ error, code }` (plus `status`); network failures throw code 'NETWORK'.
 import { Platform } from 'react-native';
+import { notifyChatLimit } from './chatLimitEvents'; // CHAT LIMITS: 403 CHAT_LIMIT_REACHED → upgrade / invite prompt
 
 export class ApiError extends Error {
   constructor(message, { code = 'ERROR', status = 0, data = null } = {}) {
@@ -64,6 +65,7 @@ export function createRequest({ apiUrl, getToken, devUser }) {
     }
     if (!res.ok) {
       const msg = (data && data.error) || `Request failed (${res.status})`;
+      if (data && data.code === 'CHAT_LIMIT_REACHED') notifyChatLimit(data); // CHAT LIMITS (client #27)
       throw new ApiError(msg, { code: (data && data.code) || `HTTP_${res.status}`, status: res.status, data });
     }
     return data;

@@ -37,7 +37,7 @@ messages.patch('/messages/:id', async (c) => {
   if (!['text', 'verse', 'prayer'].includes(msg.kind)) throw bad('Only text messages can be edited', 'NOT_EDITABLE');
   if (msg.meta && msg.meta.gift) throw bad('Gift messages can’t be edited', 'NOT_EDITABLE');
   if (Date.now() - new Date(msg.created_at).getTime() > EDIT_WINDOW_HOURS * 3600e3) {
-    throw bad(`Messages can be edited for ${EDIT_WINDOW_HOURS} hours after sending`, 'EDIT_WINDOW_PASSED');
+    throw bad(`Messages can be edited for ${Math.round(EDIT_WINDOW_HOURS * 60)} minutes after sending`, 'EDIT_WINDOW_PASSED');
   }
   const b = await body(c);
   const text = str(b.text, { min: 1, max: 5000, field: 'text' }).trim();
@@ -110,6 +110,7 @@ messages.post('/messages/:id/pin', async (c) => {
 messages.post('/messages/:id/react', async (c) => {
   const { me, id, msg } = await ownedContext(c);
   if (msg.deleted) throw bad('This message was deleted', 'MESSAGE_DELETED');
+  if (msg.kind === 'system') throw bad('System messages can’t be reacted to', 'NOT_ALLOWED');
   const b = await body(c).catch(() => ({}));
   const emoji = b && b.emoji ? String(b.emoji) : null;
   if (emoji && !REACTIONS.includes(emoji)) throw bad('Unsupported reaction', 'BAD_REACTION');

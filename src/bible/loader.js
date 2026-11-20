@@ -37,7 +37,7 @@ function flatten(content) {
     if (c && c.noteId !== undefined) return ' '; // footnote marker: the source drops the space around it
     if (!c || c.heading) return '';
     if (c.lineBreak) return ' ';
-    if (c.text) return c.text;
+    if (c.text) return c.poem ? ` ${c.text} ` : c.text; // poetry lines arrive with no space between them
     if (c.content) return flatten(c.content);
     return '';
   }).join('');

@@ -271,10 +271,13 @@ export async function uploadVideo(request, video, onProgress) {
   if (sizeBytes && sizeBytes > limits.maxBytes) throw new ApiError('This video is too large (the limit is 2 GB)', { code: 'TOO_LARGE', status: 413 });
   // 4) the video itself — big files in parts (Workers take at most ~100 MB per request), small ones in one PUT
   const multipart = !!res.multipartURL && sizeBytes > limits.singlePutMaxBytes;
+  let done = null; // FEED VIDEO: the server's probe ({ codec, faststart, warnings }) comes back with the last request
   if (multipart) {
-    await multipartUpload({ res, limits, sizeBytes, blob, fileUri: prepared.uri, headers: { ...auth, ...tz }, onProgress: (p) => report(0.3 + p * 0.65) });
+    done = await multipartUpload({ res, limits, sizeBytes, blob, fileUri: prepared.uri, headers: { ...auth, ...tz }, onProgress: (p) => report(0.3 + p * 0.65) });
   } else if (IS_WEB) {
-    check(await webPut(res.uploadURL, blob, { ...auth, ...tz, 'Content-Type': 'video/mp4' }, (p) => report(0.3 + p * 0.65)), 'Video upload');
+    const put = await webPut(res.uploadURL, blob, { ...auth, ...tz, 'Content-Type': 'video/mp4' }, (p) => report(0.3 + p * 0.65));
+    check(put, 'Video upload');
+    done = parseJson(put.body);
   } else {
     let up;
     try {
@@ -283,6 +286,7 @@ export async function uploadVideo(request, video, onProgress) {
       throw new ApiError('Video upload failed — check your connection', { code: 'NETWORK' });
     }
     check(up, 'Video upload');
+    done = parseJson(up.body);
   }
   // 5) the poster frame (best effort — the video still works without it)
   if (thumb) {
@@ -292,7 +296,7 @@ export async function uploadVideo(request, video, onProgress) {
     } catch (e) { /* ignore */ }
   }
   report(1);
-  return { uid: res.uid };
+  return { uid: res.uid, codec: (done && done.codec) || null, faststart: done ? done.faststart : null, warnings: (done && done.warnings) || [] };
 }
 
 export const canPickMedia = true;

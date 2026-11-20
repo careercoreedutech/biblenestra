@@ -24,6 +24,8 @@ import { relTime } from '../components/social/shared';
 import { BannerImage, AvatarImage, EditProfileButton, AvatarEditBadge, FollowSummary } from '../components/social/ProfileMedia'; // SOCIAL (round 3)
 import { useCloudRecordings, uploadRecording, SERMON_RECORDING, MAX_MINUTES } from '../api/recordings'; // DISCOVER TOOLS (round 3)
 import { CloudRecordingList } from './RecordScreens'; // DISCOVER TOOLS (round 3)
+import { LearnCourses, LearnDevotionals } from './LearnContentScreens'; // LEARN CMS: courses + devotionals from the admin (online mode)
+import { useApi } from '../api/auth'; // LEARN CMS
 
 // ---------- Local building blocks ----------
 
@@ -790,6 +792,7 @@ export function LearnScreen({ params = {} }) {
   const { state, dispatch } = useStore();
   const [prefs, setPref] = usePrefs();
   const [tab, setTab] = useState(params.tab || 'Plans');
+  const cms = useApi().online; // LEARN CMS: real courses/devotionals when the app talks to the API
   const [mode, setMode] = useState({}); // memorize view per verse: hint | full | letters | type
   const [typed, setTyped] = useState({});
   const [browse, setBrowse] = useState(false);
@@ -870,7 +873,8 @@ export function LearnScreen({ params = {} }) {
           </FadeInUp>
         </View>
       ) : null}
-      {tab === 'Devotionals' ? DEVOTIONALS.map((d, idx) => {
+      {tab === 'Devotionals' && cms ? <LearnDevotionals /> : null}
+      {tab === 'Devotionals' && !cms ? DEVOTIONALS.map((d, idx) => {
         const playing = nar.active && nar.playing && nar.bookId === d.passage.bookId && nar.chapter === d.passage.chapter;
         return (
           <FadeInUp key={d.id} index={idx} style={styles.card}>
@@ -954,7 +958,8 @@ export function LearnScreen({ params = {} }) {
           </Group>
         </FadeInUp>
       ) : null}
-      {tab === 'Courses' ? COURSES.map((c, idx) => {
+      {tab === 'Courses' && cms ? <LearnCourses /> : null}
+      {tab === 'Courses' && !cms ? COURSES.map((c, idx) => {
         const done = courseDone[c.id] != null ? courseDone[c.id] : c.done;
         const enrolled = done > 0 || (state.enrolled || []).includes(c.id);
         const complete = done >= c.lessons;
@@ -2171,6 +2176,7 @@ export function ProfileScreen({ params = {} }) {
           <FadeInUp index={2} delay={80}>
           <Section title="Settings">
             <Group>
+              <Item icon="sun" tint={colors.gold} title="Notifications" subtitle="Daily moments with God · choose types and times" chevron onPress={() => nav.push('NotificationSettings')} />{/* NOTIFICATIONS */}
               <Item icon="bell" tint={colors.lavender} title="Scripture pop-ups" subtitle={popSub} chevron onPress={() => nav.push('ScripturePop')} />
               <Item
                 icon="coin"
@@ -2441,6 +2447,7 @@ export function ProfileScreen({ params = {} }) {
       {tab === 'Notifications' ? (
         <View style={{ marginTop: 18 }}>
           <Group style={{ marginBottom: 14 }}>
+            <Item icon="sun" tint={colors.gold} title="Daily moments with God" subtitle="Scripture, prayer, devotional, encouragement · your times" chevron onPress={() => nav.push('NotificationSettings')} />{/* NOTIFICATIONS */}
             <Item icon="bell" tint={colors.lavender} title="Scripture pop-ups" subtitle={popSub} chevron onPress={() => nav.push('ScripturePop')} />
           </Group>
           <Group>

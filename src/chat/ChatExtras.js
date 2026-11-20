@@ -8,15 +8,17 @@
 //   <CoinGiftSheet>    choose an amount (+ note) to gift
 //   <MeetPrompt>       open meet.google.com/new, then paste the meeting link to share it
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Dimensions, Image, Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useVideoPlayer, VideoView } from 'expo-video'; // CHAT 7.4: videos in chat
+import PdfReader from '../components/media/PdfReader'; // CHAT 7.4: in-app PDF reader
 import { Audio } from 'expo-av';
 import * as Clipboard from 'expo-clipboard';
 import { Icon } from '../components/Icons';
 import { AnimatedModal, PressScale, ScaleIn } from '../components/Motion';
 import { Button, alpha } from '../components/ui';
 import { colors, fonts, radius, shadow } from '../theme';
-import { resolveChatMedia, useChatMediaSource } from '../api/chatMedia';
-import { findMeetLink } from './messages';
+import { resolveChatMedia, useChatMediaSource, chatMediaLink, downloadChatFile } from '../api/chatMedia';
+import { findMeetLink, fmtBytes } from './messages';
 
 const IS_WEB = Platform.OS === 'web';
 export const MEET_NEW_URL = 'https://meet.google.com/new';
@@ -58,7 +60,13 @@ let playing = null; // { sound, stop } — one voice note at a time
 
 export function AudioBubble({ voice, request, mine }) {
   const [st, setSt] = useState({ loading: false, playing: false, pos: 0, dur: voice.durationMs || 0, error: null });
+  const [rate, setRate] = useState(1); // CHAT 7.3: 1× / 1.5× / 2×
   const sound = useRef(null);
+  const cycleRate = () => {
+    const next = rate === 1 ? 1.5 : rate === 1.5 ? 2 : 1;
+    setRate(next);
+    if (sound.current) sound.current.setRateAsync(next, true).catch(() => {});
+  };
   useEffect(() => () => {
     if (sound.current) { sound.current.unloadAsync().catch(() => {}); if (playing && playing.sound === sound.current) playing = null; }
   }, []);
@@ -78,7 +86,7 @@ export function AudioBubble({ voice, request, mine }) {
       const src = await resolveChatMedia(request, voice.key);
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(() => {});
       if (playing) playing.stop();
-      const { sound: snd } = await Audio.Sound.createAsync(src, { shouldPlay: true, progressUpdateIntervalMillis: 250 }, (s) => {
+      const { sound: snd } = await Audio.Sound.createAsync(src, { shouldPlay: true, rate, shouldCorrectPitch: true, progressUpdateIntervalMillis: 250 }, (s) => {
         if (!s.isLoaded) return;
         setSt((x) => ({ ...x, loading: false, playing: s.isPlaying, pos: s.positionMillis || 0, dur: s.durationMillis || x.dur }));
         if (s.didJustFinish) setSt((x) => ({ ...x, playing: false, pos: 0 }));
@@ -104,6 +112,9 @@ export function AudioBubble({ voice, request, mine }) {
         </View>
         <Text style={[styles.audioTime, { color: sub }]}>{st.error || (st.playing || st.pos ? `${fmtDur(st.pos)} / ${fmtDur(st.dur)}` : st.dur ? fmtDur(st.dur) : 'Tap to play')}</Text>
       </View>
+      <Pressable onPress={cycleRate} hitSlop={6} style={[styles.rateBtn, mine && { backgroundColor: 'rgba(255,255,255,0.2)' }]} accessibilityLabel={`Playback speed ${rate} times`}>
+        <Text style={[styles.rateText, { color: fg }]}>{rate}×</Text>
+      </Pressable>
     </View>
   );
 }
@@ -313,6 +324,8 @@ const styles = StyleSheet.create({
   track: { height: 4, borderRadius: 2, backgroundColor: colors.raised, overflow: 'hidden' },
   trackFill: { height: 4, borderRadius: 2, backgroundColor: colors.primary },
   audioTime: { fontSize: 11 },
+  rateBtn: { minWidth: 34, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
+  rateText: { fontSize: 11, fontWeight: '700' },
 
   gift: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 190, paddingVertical: 4, paddingHorizontal: 2 },
   giftMine: {},
@@ -352,4 +365,185 @@ const styles = StyleSheet.create({
   amount: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   amountOn: { backgroundColor: colors.gold, borderColor: colors.gold },
   amountText: { fontSize: 15, fontWeight: '700', color: colors.fg },
+});
+
+// ---------- CHAT 7.4: documents / files, videos, in-app viewers, upload progress, forward ----------
+const DOC_ICON = { pdf: 'PDF', doc: 'DOC', docx: 'DOC', ppt: 'PPT', pptx: 'PPT', xls: 'XLS', xlsx: 'XLS', csv: 'CSV', txt: 'TXT', zip: 'ZIP', epub: 'EPUB' };
+const extOf = (name = '') => ((String(name).match(/\.([a-z0-9]{1,6})$/i) || [])[1] || '').toLowerCase();
+export const isPdf = (f) => !!f && (/pdf/i.test(f.mime || '') || extOf(f.name) === 'pdf');
+
+export function FileBubble({ file, mine, onOpen, onDownload }) {
+  const ext = extOf(file.name);
+  const label = DOC_ICON[ext] || (ext ? ext.toUpperCase().slice(0, 4) : 'FILE');
+  const red = colors.negative || colors.rose;
+  return (
+    <Pressable onPress={onOpen} style={[xs.file, mine && xs.fileMine]} accessibilityRole="button" accessibilityLabel={`${file.name}. Tap to open`}>
+      <View style={[xs.fileIcon, ext === 'pdf' && { backgroundColor: alpha(red, 0.14) }]}>
+        <Text style={[xs.fileExt, ext === 'pdf' && { color: red }]}>{label}</Text>
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[xs.fileName, mine && { color: '#FFFFFF' }]} numberOfLines={2}>{file.name}</Text>
+        <Text style={[xs.fileMeta, mine && { color: 'rgba(255,255,255,0.7)' }]}>{[fmtBytes(file.size), isPdf(file) ? 'Tap to read' : 'Tap to open'].filter(Boolean).join(' · ')}</Text>
+      </View>
+      {onDownload ? (
+        <Pressable onPress={onDownload} hitSlop={8} style={[xs.dlBtn, mine && { backgroundColor: 'rgba(255,255,255,0.2)' }]} accessibilityLabel={`Download ${file.name}`}>
+          <Icon name="download" size={15} color={mine ? '#FFFFFF' : colors.primary} />
+        </Pressable>
+      ) : null}
+    </Pressable>
+  );
+}
+
+export function VideoBubble({ video, onOpen }) {
+  return (
+    <Pressable onPress={onOpen} style={xs.vid} accessibilityRole="button" accessibilityLabel="Video. Tap to play">
+      <View style={xs.vidPlay}><Icon name="play" size={22} color="#FFFFFF" /></View>
+      <Text style={xs.vidMeta} numberOfLines={1}>{['🎥', video.name, fmtBytes(video.size)].filter(Boolean).join(' ')}</Text>
+    </Pressable>
+  );
+}
+
+export function UploadBubble({ upload, mine }) {
+  const pct = Math.round((upload.progress || 0) * 100);
+  return (
+    <View style={xs.up}>
+      <Text style={[xs.fileName, mine && { color: '#FFFFFF' }]} numberOfLines={1}>{upload.label || 'Uploading…'}</Text>
+      <View style={[styles.track, mine && { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
+        <View style={[styles.trackFill, { width: `${Math.max(4, pct)}%` }, mine && { backgroundColor: '#FFFFFF' }]} />
+      </View>
+      <Text style={[xs.fileMeta, mine && { color: 'rgba(255,255,255,0.7)' }]}>{upload.failed ? 'Upload failed' : `${pct}%`}</Text>
+    </View>
+  );
+}
+
+function VideoPlayerView({ uri }) {
+  const player = useVideoPlayer(uri, (p) => { p.loop = false; });
+  return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls allowsFullscreen />;
+}
+
+/**
+ * Full-screen viewer for chat media. item = { kind: 'image'|'video'|'pdf'|'file'|'audio', key, name, mime }
+ * Images: auth-loaded; videos stream from a signed link; PDFs open in the in-app pdf.js reader (the same one the
+ * media library uses — WebView on phones, iframe on web); audio uses the voice-note player; other files offer Download.
+ */
+export function ChatMediaViewer({ item, request, onClose }) {
+  const [src, setSrc] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    setSrc(null); setErr(null);
+    if (!item) return undefined;
+    let alive = true;
+    (async () => {
+      try {
+        if (item.kind === 'image') {
+          const s = await resolveChatMedia(request, item.key);
+          if (alive) setSrc(s);
+        } else if (item.kind === 'video' || item.kind === 'pdf') {
+          const l = await chatMediaLink(request, item.key);
+          if (alive) setSrc({ uri: item.kind === 'pdf' ? l.viewerUrl : l.url });
+        } else if (alive) setSrc({ uri: null });
+      } catch (e) { if (alive) setErr('Couldn’t open this file'); }
+    })();
+    return () => { alive = false; };
+  }, [item && item.key]);
+  if (!item) return null;
+  const download = () => downloadChatFile(request, item.key, item.name).catch(() => setErr('Couldn’t download this file'));
+  return (
+    <Modal visible transparent={false} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <View style={xs.mv}>
+        <View style={xs.mvBar}>
+          <Pressable onPress={onClose} style={xs.mvBtn} accessibilityLabel="Close"><Icon name="x" size={18} color="#FFFFFF" /></Pressable>
+          <Text style={xs.mvTitle} numberOfLines={1}>{item.name || (item.kind === 'image' ? 'Photo' : item.kind === 'video' ? 'Video' : 'File')}</Text>
+          {item.kind !== 'audio' ? (
+            <Pressable onPress={download} style={xs.mvBtn} accessibilityLabel="Download"><Icon name="download" size={17} color="#FFFFFF" /></Pressable>
+          ) : <View style={xs.mvBtn} />}
+        </View>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          {err ? <Text style={xs.mvMsg}>{err}</Text> : !src ? <ActivityIndicator color="#FFFFFF" /> : null}
+          {src && !err && item.kind === 'image' ? <Image source={src} style={{ width: '100%', height: '100%' }} resizeMode="contain" /> : null}
+          {src && !err && item.kind === 'video' ? <VideoPlayerView uri={src.uri} /> : null}
+          {src && !err && item.kind === 'pdf' ? <PdfReader url={src.uri} style={{ flex: 1, alignSelf: 'stretch' }} onError={(m) => setErr(m)} /> : null}
+          {src && !err && item.kind === 'audio' ? (
+            <View style={xs.mvAudio}><AudioBubble voice={{ key: item.key, name: item.name, isFile: !!item.isFile, durationMs: item.durationMs }} request={request} /></View>
+          ) : null}
+          {src && !err && item.kind === 'file' ? (
+            <View style={{ alignItems: 'center', gap: 14, paddingHorizontal: 30 }}>
+              <Text style={xs.mvMsg}>{item.name}</Text>
+              <Button label="Download" icon={<Icon name="download" size={14} color="#FFFFFF" />} onPress={download} />
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// Forward to up to 5 chats (like WhatsApp)
+export function ForwardSheet({ message, chats, request, onClose, onDone }) {
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (message) { setPicked([]); setQ(''); setBusy(false); } }, [message && message.id]);
+  const list = (chats || []).filter((c) => /^[0-9a-f-]{36}$/i.test(c.id) && c.canMessage !== false && (c.with || '').toLowerCase().includes(q.toLowerCase())).slice(0, 60);
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 5 ? p : [...p, id]));
+  const send = async () => {
+    if (!picked.length || busy) return;
+    setBusy(true);
+    try {
+      const r = await request('POST', `/messages/${message.id}/forward`, { conversationIds: picked });
+      if (onDone) onDone(r.results || []);
+      onClose();
+    } catch (e) { setBusy(false); if (onDone) onDone(null, e); }
+  };
+  return (
+    <AnimatedModal visible={!!message} onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel="Dismiss" />
+        <View style={[styles.sheet, { maxHeight: '78%' }]}>
+          <View style={styles.grabber} />
+          <Text style={styles.sheetTitle}>Forward to…</Text>
+          <TextInput value={q} onChangeText={setQ} placeholder="Search chats" placeholderTextColor={colors.faint} style={[styles.input, styles.inputBox]} />
+          <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled">
+            {list.map((c) => {
+              const on = picked.includes(c.id);
+              return (
+                <Pressable key={c.id} onPress={() => toggle(c.id)} style={xs.fwdRow} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={c.with}>
+                  <Text style={xs.fwdName} numberOfLines={1}>{c.with}</Text>
+                  <Text style={xs.fwdKind}>{c.kind === 'group' ? 'Group' : c.kind === 'channel' ? 'Channel' : ''}</Text>
+                  <View style={[xs.check, on && xs.checkOn]}>{on ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} /> : null}</View>
+                </Pressable>
+              );
+            })}
+            {!list.length ? <Text style={styles.hint}>No chats found</Text> : null}
+          </ScrollView>
+          <Button label={busy ? 'Forwarding…' : picked.length ? `Forward to ${picked.length}` : 'Choose up to 5 chats'} disabled={!picked.length || busy} onPress={send} />
+        </View>
+      </View>
+    </AnimatedModal>
+  );
+}
+
+const xs = StyleSheet.create({
+  file: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 220, maxWidth: 280, padding: 8, borderRadius: 12, backgroundColor: colors.raised, marginVertical: 2 },
+  fileMine: { backgroundColor: 'rgba(255,255,255,0.14)' },
+  fileIcon: { width: 40, height: 46, borderRadius: 8, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  fileExt: { fontSize: 10.5, fontWeight: '800', color: colors.primary, letterSpacing: 0.5 },
+  fileName: { fontSize: 13.5, fontWeight: '600', color: colors.fg },
+  fileMeta: { fontSize: 11.5, color: colors.muted, marginTop: 2 },
+  dlBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  vid: { width: 230, maxWidth: '100%', aspectRatio: 16 / 10, borderRadius: 12, backgroundColor: '#111216', alignItems: 'center', justifyContent: 'center', marginVertical: 2, overflow: 'hidden' },
+  vidPlay: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
+  vidMeta: { position: 'absolute', left: 8, right: 8, bottom: 6, fontSize: 11, color: 'rgba(255,255,255,0.85)' },
+  up: { minWidth: 200, gap: 6, paddingVertical: 2 },
+  mv: { flex: 1, backgroundColor: '#0D0E12' },
+  mvBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 40, paddingHorizontal: 12, paddingBottom: 10 },
+  mvBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' },
+  mvTitle: { flex: 1, color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  mvMsg: { color: 'rgba(255,255,255,0.8)', fontSize: 14, textAlign: 'center' },
+  mvAudio: { width: '86%', backgroundColor: colors.surface, borderRadius: 16, padding: 14 },
+  fwdRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  fwdName: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.fg },
+  fwdKind: { fontSize: 12, color: colors.muted },
+  check: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
+  checkOn: { backgroundColor: colors.primary, borderColor: colors.primary },
 });

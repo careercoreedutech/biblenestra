@@ -45,6 +45,9 @@ export async function sendNotification(c, {
     title,
     body,
     data: { ...data, kind },
+    // NOTIFICATIONS: rich push image (Expo push `richContent.image`). Android shows it out of the box (with
+    // expo-notifications 0.29 as the large thumbnail on the right); iOS needs a Notification Service Extension.
+    ...(typeof data.image === 'string' && /^https:\/\//.test(data.image) ? { richContent: { image: data.image }, mutableContent: true } : {}),
   }));
 
   const pushTask = async () => {

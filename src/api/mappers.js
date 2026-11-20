@@ -84,6 +84,11 @@ export function mapVideoPost(p, prev) {
     sound: `Original Audio · ${a.displayName || 'Creator'}`,
     videoUrl: ready ? absoluteUrl(src) : null,
     poster: v.thumbnail ? absoluteUrl(v.thumbnail) : null,
+    // FEED VIDEO: upload probe (null on older posts) — card aspect ratio + HEVC-on-Android warning
+    codec: v.codec || null,
+    faststart: v.faststart == null ? null : !!v.faststart,
+    videoWidth: v.width || null,
+    videoHeight: v.height || null,
     videoUid: v.uid || null,
     videoStatus: v.status || 'processing',
     processing: !ready && v.status !== 'error',
@@ -153,6 +158,8 @@ export function mapPrayer(p) {
     status: p.status || 'active',
     praying: p.praying || 0,
     prayed: !!p.prayed,
+    candles: p.candles || 0, // LIGHT A CANDLE
+    lit: !!p.lit,
     updates,
     created: ago(p.createdAt),
     createdAt: toMs(p.createdAt),
@@ -255,6 +262,8 @@ export function mapConversation(c, prev) {
     membersCount: c.membersCount || 0,
     communityName: c.communityName || null,
     avatarKey: c.avatarKey,
+    avatarUrl: c.avatarUrl || null, // CHAT 7.4: group photo
+    settings: c.settings || null,
     otherUser: c.otherUser,
     role: c.role || 'member',
     muted: !!c.muted,
@@ -268,6 +277,8 @@ export function mapConversation(c, prev) {
       kind: c.lastMessage.kind,
       text: c.lastMessage.text,
       senderId: c.lastMessage.senderId,
+      senderName: c.lastMessage.senderName || null, // CHAT 7.3: "Grace: …" in group previews
+      createdAt: toMs(c.lastMessage.createdAt),
       time: ago(c.lastMessage.createdAt),
       deleted: !!c.lastMessage.deleted,
     } : null,

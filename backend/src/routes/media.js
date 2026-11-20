@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import { one, q } from '../lib/db.js';
 import { ApiError, bad, body, forbidden, int, notFound } from '../lib/http.js';
 import { mediaUrl } from '../lib/shape.js';
+import { maybeSweep, probeMp4 } from '../lib/videoUploads.js'; // FEED VIDEO: codec / faststart probe + abandoned-upload sweep
 
 const IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif' };
 const VOICE_TYPES = {
@@ -144,6 +145,7 @@ uploads.post('/uploads/video', async (c) => {
   }
   if (b.sizeBytes && Number(b.sizeBytes) > VIDEO_RULES.maxBytes) throw new ApiError(413, 'TOO_LARGE', 'This video is too large (the limit is 2 GB)');
   const uid = crypto.randomUUID().replace(/-/g, '');
+  maybeSweep(c); // FEED VIDEO: mark reservations that never finished (at most every 10 min per isolate)
   await q(c.env, 'INSERT INTO video_uploads (uid, user_id, duration, width, height) VALUES ($1, $2, $3, $4, $5)', [
     uid, me.id, duration, b.width ? int(Math.round(b.width), { max: 10000, field: 'width' }) : null, b.height ? int(Math.round(b.height), { max: 10000, field: 'height' }) : null,
   ]);
@@ -191,10 +193,29 @@ uploads.put('/uploads/video/:uid', async (c) => {
 const videoKey = (up) => `vid/${up.user_id}/${up.uid}.mp4`;
 const VIDEO_HTTP_META = { contentType: 'video/mp4', cacheControl: 'public, max-age=31536000, immutable' };
 async function markVideoReady(c, up, key, size) {
-  await q(c.env, `UPDATE video_uploads SET status = 'ready', video_key = $2, size_bytes = $3 WHERE uid = $1`, [up.uid, key, size]);
-  await q(c.env, `UPDATE posts SET video_url = $2, video_status = 'ready' WHERE video_uid = $1`, [up.uid, key]);
-  return { uid: up.uid, url: `${mediaBase(c)}/${key}`, status: 'ready', sizeBytes: size };
+  // FEED VIDEO: a few tiny range reads tell us the codec (HEVC won't play on many Android phones) and whether
+  // the MP4 index is at the front (faststart → playback can start before the whole file has arrived)
+  const probe = await probeMp4(c.env.MEDIA, key, size);
+  await q(c.env, `UPDATE video_uploads SET status = 'ready', video_key = $2, size_bytes = $3, codec = $4, faststart = $5, abandoned_at = NULL WHERE uid = $1`, [up.uid, key, size, probe.codec, probe.faststart]);
+  await q(c.env, `UPDATE posts SET video_url = $2, video_status = 'ready', video_codec = $3, video_faststart = $4,
+    video_width = COALESCE(video_width, $5), video_height = COALESCE(video_height, $6) WHERE video_uid = $1`, [up.uid, key, probe.codec, probe.faststart, up.width || null, up.height || null]);
+  const warnings = [];
+  if (probe.codec && probe.codec !== 'h264') warnings.push(probe.codec === 'hevc' ? 'HEVC_MAY_NOT_PLAY_ON_ANDROID' : 'UNUSUAL_CODEC');
+  if (probe.faststart === false) warnings.push('NOT_FASTSTART');
+  return { uid: up.uid, url: `${mediaBase(c)}/${key}`, status: 'ready', sizeBytes: size, codec: probe.codec, faststart: probe.faststart, warnings };
 }
+
+// FEED VIDEO: where an upload stands (the app checks this before retrying a publish) → { uid, status, url? }
+uploads.get('/uploads/video/:uid', async (c) => {
+  const up = await ownUpload(c);
+  return c.json({
+    uid: up.uid,
+    status: up.status, // uploading | ready | abandoned
+    url: up.video_key ? `${mediaBase(c)}/${up.video_key}` : null,
+    codec: up.codec || null,
+    faststart: up.faststart == null ? null : !!up.faststart,
+  });
+});
 
 // ---------- multipart: videos bigger than one Worker request ----------
 // 1) POST /uploads/video/:uid/multipart → { uploadId, partSize, minPartSize, maxParts }
@@ -213,6 +234,7 @@ uploads.post('/uploads/video/:uid/multipart', async (c) => {
   const up = await ownUpload(c);
   if (typeof c.env.MEDIA.createMultipartUpload !== 'function') throw new ApiError(501, 'MULTIPART_UNAVAILABLE', 'Large uploads are not supported by this storage');
   const mp = await c.env.MEDIA.createMultipartUpload(videoKey(up), { httpMetadata: VIDEO_HTTP_META });
+  await q(c.env, 'UPDATE video_uploads SET multipart_id = $2 WHERE uid = $1', [up.uid, mp.uploadId]); // FEED VIDEO: so the sweep can abort it
   return c.json({
     uploadId: mp.uploadId,
     partSize: VIDEO_RULES.partBytes,

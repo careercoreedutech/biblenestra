@@ -22,7 +22,7 @@ function SpeakerGlyph({ muted, size = 20 }) {
   );
 }
 
-function FullscreenGlyph({ size = 19 }) {
+export function FullscreenGlyph({ size = 19 }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" stroke={WHITE} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />

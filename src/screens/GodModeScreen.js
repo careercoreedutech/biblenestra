@@ -703,7 +703,11 @@ export function BibleChatScreen({ params = {} }) {
 }
 
 // ---------- Scripture Companion ----------
-export function CompanionScreen() {
+// SCRIPTURE COMPANION (client #6): the live screen is ./CompanionScreen.js (server pipeline, ≥7 validated verses,
+// explanations, encouragement, prayer, crisis helplines). App.js still imports CompanionScreen from here.
+export { CompanionScreen } from './CompanionScreen';
+// Previous local-only version, kept for reference (not routed).
+function LegacyCompanionScreen() {
   const nav = useNav();
   const { state, dispatch } = useStore();
   const toast = useToast();

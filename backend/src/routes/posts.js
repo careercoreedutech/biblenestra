@@ -34,13 +34,21 @@ r.get('/feed', async (c) => {
   const filter = c.req.query('filter') || 'forYou';
   const limit = Math.min(Number(c.req.query('limit')) || 20, 50);
   const where = {
-    forYou: '',
+    forYou: 'p.pinned_at IS NULL', // BROADCASTS: pinned posts are shown on top instead (below)
     following: '(p.author_id = $1 OR p.author_id IN (SELECT followee_id FROM follows WHERE follower_id = $1))',
     communities: "u.kind IN ('church','community','channel')",
     events: `p.kind IN (${RULES.eventKinds.map((k) => `'${k}'`).join(',')})`,
   }[filter];
   if (where === undefined) throw bad('Unknown filter');
-  return c.json(await page(c, where, [], limit));
+  const res = await page(c, where, [], limit);
+  // BROADCASTS: posts pinned by an admin (official account) sit on top of the first "For you" page
+  if (filter === 'forYou' && !c.req.query('cursor')) {
+    const me = c.get('user');
+    const pinned = await q(c.env, `${POST_SELECT} WHERE p.pinned_at IS NOT NULL AND NOT p.removed AND NOT u.banned
+      AND NOT EXISTS (SELECT 1 FROM hidden_posts h WHERE h.post_id = p.id AND h.user_id = $1) ORDER BY p.pinned_at DESC LIMIT 3`, [me.id]);
+    res.items = [...pinned.map((x) => postShape(x, me, c.env, origin(c))), ...res.items];
+  }
+  return c.json(res);
 });
 
 r.get('/videos', async (c) => {
@@ -65,18 +73,24 @@ r.post('/posts', async (c) => {
   if (videoUid) {
     video = await one(c.env, 'SELECT * FROM video_uploads WHERE uid = $1 AND user_id = $2', [videoUid, me.id]);
     if (!video) throw bad('Unknown video — upload it with POST /uploads/video first', 'BAD_VIDEO');
+    // FEED VIDEO: a retried publish (the app lost the first response) returns the post already made — never a duplicate
+    const existing = await one(c.env, 'SELECT id, removed FROM posts WHERE video_uid = $1 AND author_id = $2', [videoUid, me.id]);
+    if (existing && !existing.removed) return c.json(postShape(await loadPost(c, existing.id), me, c.env, origin(c)), 200);
+    if (existing) throw bad('That video was already posted and deleted — upload it again', 'VIDEO_USED');
+    if (video.status === 'abandoned') throw bad('That upload never finished — upload the video again', 'UPLOAD_ABANDONED');
   }
   const p = b.passage && typeof b.passage === 'object' ? b.passage : null;
   if (p && !/^[1-3A-Z]{3}$/.test(String(p.bookId || ''))) throw bad('passage.bookId must be a book id like JHN');
   // Image-style text card design (allow-listed); photo / video posts never carry one
   const theme = images.length || videoUid ? null : designFromBody(b, text);
-  const row = await one(c.env, `INSERT INTO posts (author_id, kind, body, passage_book, passage_ch, passage_verse, theme, category, video_uid, video_status, video_duration, video_url, video_thumb)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`, [
+  const row = await one(c.env, `INSERT INTO posts (author_id, kind, body, passage_book, passage_ch, passage_verse, theme, category, video_uid, video_status, video_duration, video_url, video_thumb, video_codec, video_faststart, video_width, video_height)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`, [
     me.id, kind, text,
     p ? p.bookId : null, p ? int(p.chapter, { min: 1, max: 150, field: 'chapter' }) : null, p && p.verse ? int(p.verse, { min: 1, max: 176, field: 'verse' }) : null,
     theme, str(b.category, { max: 40, optional: true }),
     videoUid, video ? (video.status === 'ready' ? 'ready' : 'uploading') : null, video ? video.duration : null,
     video ? video.video_key : null, video ? video.thumb_key : null,
+    video ? video.codec || null : null, video && video.faststart != null ? video.faststart : null, video ? video.width : null, video ? video.height : null,
   ]);
   for (let i = 0; i < images.length; i++) {
     const m = images[i];

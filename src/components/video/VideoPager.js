@@ -27,6 +27,8 @@ const MID_NOTICE_SEC = 3;
 const PREROLL_TTL_MS = 10 * 60 * 1000;
 const preRolledAt = new Map(); // id → ms
 const lastPos = new Map(); // id → { t, at }
+// FEED VIDEO: the inline feed player records where it got to, so "expand" continues from there in full screen
+export function rememberVideoPosition(id, t) { if (id && t > 1) lastPos.set(id, { t, at: Date.now() }); }
 const RESUME_TTL_MS = 5 * 60 * 1000;
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r({ shown: false, timeout: true }), ms))]);

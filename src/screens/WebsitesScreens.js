@@ -1,6 +1,7 @@
 // MEMBER WEBSITES
-//   WebsitesScreen       — the directory of approved member websites + "My websites" with review status
-//   AddWebsiteScreen     — a member adds their own website (an admin approves it before it's public)
+//   WebsitesScreen       — the directory of published websites (+ "My websites" for admins / when member submission is on)
+//   AddWebsiteScreen     — admins publish a website straight away; members only while website_feed.public_submission is on (then reviewed)
+// Brief 11.2: Website Feed is ADMIN-ONLY for now — ordinary users only view / open websites. Role + flag come from GET /me.
 //   WebsiteViewerScreen  — the website running inside Bible Nestra (WebView): links, videos, forms and its own ads
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Image, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -13,9 +14,18 @@ import { useToast } from '../components/Toast';
 import { colors, fonts, radius } from '../theme';
 import { useNav } from '../navigation';
 import { useApi } from '../api/auth';
+import { useSync } from '../api/sync';
 import { errorMessage } from '../api/client';
 import { useWebsites, useMyWebsites, addWebsite, removeWebsite, countOpen } from '../api/websites';
 import WebsiteFrame from '../components/WebsiteFrame';
+
+// { isAdmin, canSubmit } from /me — members can submit only when the server flag is on
+function useWebsiteRole() {
+  const sync = useSync();
+  const me = (sync && sync.me) || {};
+  const isAdmin = !!me.isAdmin;
+  return { isAdmin, canSubmit: isAdmin || !!me.websitePublicSubmission };
+}
 
 const STATUS = {
   pending: { label: 'In review', tint: colors.gold },
@@ -60,6 +70,7 @@ export function WebsitesScreen() {
   const [cat, setCat] = useState(null);
   const sites = useWebsites({ category: cat });
   const mine = useMyWebsites();
+  const { isAdmin, canSubmit } = useWebsiteRole();
   const cats = mine.categories && mine.categories.length ? mine.categories : ['Ministry', 'Church', 'Blog', 'Business', 'Education', 'Media', 'Charity', 'Other'];
 
   const remove = async (w) => {
@@ -70,22 +81,22 @@ export function WebsitesScreen() {
   if (!api.online) {
     return <Screen back title="Member websites"><Empty title="Sign in to see member websites" body="Member websites need the online version of Bible Nestra." /></Screen>;
   }
-  const canAdd = !mine.items || mine.items.filter((w) => w.status !== 'rejected').length < (mine.max || 3);
+  const canAdd = isAdmin || (canSubmit && (!mine.items || mine.items.filter((w) => w.status !== 'rejected').length < (mine.max || 3)));
 
   return (
     <Screen back title="Member websites" subtitle="Ministries, churches and creators">
       <FadeInUp>
         <View style={styles.hero}>
-          <Text style={styles.heroEyebrow}>FROM OUR MEMBERS</Text>
-          <Text style={styles.heroTitle}>Visit members’ websites without leaving Bible Nestra</Text>
-          <Text style={styles.heroBody}>Every website here belongs to a member and was checked by our team. It opens right inside the app.</Text>
-          {canAdd ? <Button label="Add your website" onPress={() => nav.push('AddWebsite')} style={{ marginTop: 14, alignSelf: 'flex-start' }} icon={<Icon name="plus" size={15} color="#FFFFFF" />} /> : null}
+          <Text style={styles.heroEyebrow}>{canSubmit && !isAdmin ? 'FROM OUR MEMBERS' : 'CHOSEN BY OUR TEAM'}</Text>
+          <Text style={styles.heroTitle}>Visit trusted Christian websites without leaving Bible Nestra</Text>
+          <Text style={styles.heroBody}>Every website here was checked by our team. It opens right inside the app.</Text>
+          {canAdd ? <Button label={isAdmin ? 'Add website' : 'Add your website'} onPress={() => nav.push('AddWebsite')} style={{ marginTop: 14, alignSelf: 'flex-start' }} icon={<Icon name="plus" size={15} color="#FFFFFF" />} /> : null}
         </View>
       </FadeInUp>
 
-      {mine.items && mine.items.length ? (
+      {canSubmit && mine.items && mine.items.length ? (
         <View style={{ marginTop: 6 }}>
-          <Text style={styles.section}>My websites</Text>
+          <Text style={styles.section}>{isAdmin ? 'Websites you published' : 'My websites'}</Text>
           {mine.items.map((w) => {
             const s = STATUS[w.status] || STATUS.pending;
             return (
@@ -124,7 +135,7 @@ export function WebsitesScreen() {
       ) : sites.error ? (
         <Empty title="Couldn’t load websites" body={sites.error} action="Try again" onAction={sites.refresh} />
       ) : !sites.items.length ? (
-        <Empty title="No websites yet" body={cat ? `No ${cat.toLowerCase()} websites yet.` : 'Be the first to add your ministry or church website.'} />
+        <Empty title="No websites yet" body={cat ? `No ${cat.toLowerCase()} websites yet.` : (isAdmin ? 'Tap “Add website” to publish the first one.' : 'New websites are added by our team. Check back soon.')} />
       ) : (
         sites.items.map((w) => <WebsiteCard key={w.id} site={w} onPress={() => openWebsite(nav, api, w)} />)
       )}
@@ -140,6 +151,7 @@ export function AddWebsiteScreen() {
   const api = useApi();
   const toast = useToast();
   const mine = useMyWebsites();
+  const { isAdmin, canSubmit } = useWebsiteRole();
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -152,19 +164,23 @@ export function AddWebsiteScreen() {
   const submit = async () => {
     setErr(null);
     if (!url.trim()) { setErr('Enter your website address'); return; }
-    if (!own) { setErr('Please confirm this is your own website'); return; }
+    if (!own && !isAdmin) { setErr('Please confirm this is your own website'); return; }
     setBusy(true);
     try {
       await addWebsite(api.request, { url: url.trim(), title: title.trim() || undefined, description: desc.trim() || undefined, category: cat || undefined, owner: true });
-      toast.show('Sent for review · you’ll be notified', { icon: 'check', haptic: 'success' });
+      toast.show(isAdmin ? 'Website published' : 'Sent for review · you’ll be notified', { icon: 'check', haptic: 'success' });
       nav.pop();
     } catch (e) { setErr(errorMessage(e, 'Couldn’t add the website')); }
     setBusy(false);
   };
 
+  if (!canSubmit) {
+    return <Screen back title="Websites"><Empty title="Only administrators add websites for now" body="You can open every published website from the Websites directory." /></Screen>;
+  }
+
   return (
-    <Screen back title="Add your website">
-      <Notice text="Add a website you own, such as your ministry, church, blog or business. Our team checks it first; once approved, members can open it inside Bible Nestra, with its own pages, videos and adverts." />
+    <Screen back title={isAdmin ? 'Add website' : 'Add your website'}>
+      <Notice text={isAdmin ? 'Websites you add are published straight away: members see them in the Websites directory and the Socials feed and open them inside Bible Nestra.' : 'Add a website you own, such as your ministry, church, blog or business. Our team checks it first; once approved, members can open it inside Bible Nestra, with its own pages, videos and adverts.'} />
       <Text style={styles.label}>Website address</Text>
       <TextInput value={url} onChangeText={setUrl} placeholder="https://yourministry.org" placeholderTextColor={colors.faint} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={styles.input} accessibilityLabel="Website address" />
       <Text style={styles.label}>Name (optional)</Text>
@@ -182,12 +198,12 @@ export function AddWebsiteScreen() {
           );
         })}
       </View>
-      <Pressable onPress={() => setOwn(!own)} style={styles.checkRow} accessibilityRole="checkbox" accessibilityState={{ checked: own }}>
+      {isAdmin ? null : <Pressable onPress={() => setOwn(!own)} style={styles.checkRow} accessibilityRole="checkbox" accessibilityState={{ checked: own }}>
         <View style={[styles.checkbox, own && styles.checkboxOn]}>{own ? <Icon name="check" size={13} color="#FFFFFF" strokeWidth={3} /> : null}</View>
         <Text style={styles.checkText}>This is my own website (or I manage it for my church or ministry)</Text>
-      </Pressable>
+      </Pressable>}
       {err ? <Text style={styles.error}>{err}</Text> : null}
-      <Button label={busy ? 'Sending…' : 'Send for review'} onPress={submit} disabled={busy} style={{ marginTop: 16 }} />
+      <Button label={busy ? (isAdmin ? 'Publishing…' : 'Sending…') : (isAdmin ? 'Publish website' : 'Send for review')} onPress={submit} disabled={busy} style={{ marginTop: 16 }} />
     </Screen>
   );
 }

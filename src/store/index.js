@@ -281,6 +281,8 @@ function reducer(s, a) {
     case 'scripturePop': return bump({ scripturePop: { ...(s.scripturePop || {}), ...a.patch } });
     case 'downloadedTranslation': return bump({ downloadedTranslations: Array.from(new Set([...(s.downloadedTranslations || ['KJV']), a.code])) });
     case 'publishVideo': return bump({ videos: [a.video, ...s.videos] });
+    // FEED VIDEO: retry a failed / interrupted upload (src/api/sync.js re-sends it; skips the bytes if they already arrived)
+    case 'retryVideo': return bump({ videos: mapItem(s.videos, a.id, (x) => ({ ...x, videoStatus: 'uploading', uploadFailed: false, uploadError: null, uploadProgress: x.uploadedUid ? 0.95 : 0 })) });
 
     // Jobs & Marketplace
     case 'postJob': return bump({ jobs: [{ id: 'job' + Date.now(), posted: 'Just now', proposalsCount: 0, status: 'open', client: { name: s.user.displayName, church: s.user.church?.name || 'Local Church', verified: true }, ...a.job }, ...s.jobs] });

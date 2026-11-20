@@ -6,7 +6,7 @@
 //   'grp:<groupId>:<channel>' → state.groupMessages[groupId][channel]
 
 export const REACTIONS = ['🙏', '❤️', '🙌', '👍', '😂', '😢', '🔥', '🕊️'];
-export const EDIT_WINDOW_MS = 24 * 3600e3;
+export const EDIT_WINDOW_MS = 15 * 60e3; // CHAT 7.3: short edit window (matches backend/src/lib/messages.js)
 export const MAX_PINS = 3;
 
 export const isServerId = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ''));
@@ -31,7 +31,11 @@ export function getScopeMsgs(s, scope) {
   return [];
 }
 
-const previewOf = (m) => (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.image ? '📷 Photo' : m.voice ? (m.voice.isFile ? '🎵 Audio' : '🎤 Voice message') : m.audio ? 'Voice message' : ''));
+const fmtSecs = (ms) => { const t = Math.max(0, Math.round((ms || 0) / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+// CHAT 7.3: one-line preview — "🎤 Voice note (0:42)", "📄 Notes.pdf", "🎥 Video"
+export const previewOf = (m) => (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.image ? '📷 Photo'
+  : m.video ? '🎥 Video' : m.file ? `📄 ${m.file.name || 'Document'}`
+    : m.voice ? (m.voice.isFile ? `🎵 ${m.voice.name || 'Audio'}` : `🎤 Voice note${m.voice.durationMs ? ` (${fmtSecs(m.voice.durationMs)})` : ''}`) : m.audio ? 'Voice message' : ''));
 
 // Google Meet links in messages ("Start a video call") — tappable to join
 export const MEET_LINK_RE = /https?:\/\/meet\.google\.com\/[a-z]{3,4}-[a-z]{4}-[a-z]{3,4}(\?[^\s]*)?/i;
@@ -43,8 +47,10 @@ export function findMeetLink(text = '') {
 }
 
 // Returns a store patch that writes `msgs` (and optional extra chat fields) into the scope.
-export function scopePatch(s, scope, msgs, chatExtra = {}) {
+export function scopePatch(s, scope, msgsIn, chatExtra = {}) {
   const p = parseScope(scope);
+  // CHAT 7.3: the device cache keeps the newest 1000 messages per thread (older ones reload from the server)
+  const msgs = msgsIn && msgsIn.length > 1000 ? msgsIn.slice(-1000) : msgsIn;
   if (p.kind === 'dm') {
     const list = s.chats || [];
     const exists = list.some((c) => c.id === p.chatId);
@@ -134,6 +140,12 @@ export function mapServerMessage(m, prev) {
     // chat media + coin gifts
     image: !m.deleted && m.kind === 'image' && m.mediaKey ? { key: m.mediaKey, width: meta.width || 0, height: meta.height || 0 } : undefined,
     voice: !m.deleted && m.kind === 'voice' && m.mediaKey ? { key: m.mediaKey, durationMs: meta.durationMs || 0, name: meta.name || null, isFile: !!meta.file } : undefined,
+    // CHAT 7.4: documents / any file, videos, system lines ("Grace added Daniel"), forwarded, @mentions
+    file: !m.deleted && m.kind === 'file' && m.mediaKey ? { key: m.mediaKey, name: meta.name || 'Document', mime: meta.mime || '', size: meta.size || 0 } : undefined,
+    video: !m.deleted && m.kind === 'video' && m.mediaKey ? { key: m.mediaKey, name: meta.name || 'Video', size: meta.size || 0, width: meta.width || 0, height: meta.height || 0, durationMs: meta.durationMs || 0 } : undefined,
+    system: m.kind === 'system' ? true : undefined,
+    forwarded: !m.deleted && meta.forwarded ? true : undefined,
+    mentions: !m.deleted && Array.isArray(meta.mentions) ? meta.mentions : undefined,
     gift: !m.deleted && meta.gift ? { coins: meta.gift.coins || 0, toUserId: meta.gift.toUserId, toName: meta.gift.toName || '', note: meta.gift.note || null } : undefined,
     praying: prev ? prev.praying : undefined,
     prayedByMe: prev ? prev.prayedByMe : undefined,
@@ -153,9 +165,17 @@ export function mergeServerPage(current, serverMsgs) {
   const byId = new Map(current.map((m) => [m.id, m]));
   const mapped = serverMsgs.map((m) => mapServerMessage(m, byId.get(m.id)));
   const ids = new Set(mapped.map((m) => m.id));
+  // CHAT 7.3: a local message whose server copy arrived (same clientId) is replaced; failed ones stay until retried
+  const delivered = new Set(serverMsgs.map((m) => m.clientId).filter(Boolean));
   const recent = Date.now() - 2 * 60e3;
-  const pending = current.filter((m) => !isServerId(m.id) && m.mine && (m.createdAt || 0) > recent && !ids.has(m.id));
-  return [...mapped, ...pending];
+  const pending = current.filter((m) => !isServerId(m.id) && m.mine && !ids.has(m.id) && !delivered.has(m.id)
+    && (m.status === 'failed' || (m.createdAt || 0) > recent));
+  // keep older history already on the device (loaded by scrolling up / cached) below the newest page
+  const oldest = mapped.length ? Math.min(...mapped.map((m) => m.createdAt || 0)) : 0;
+  const older = mapped.length && serverMsgs.length >= 50
+    ? current.filter((m) => isServerId(m.id) && !ids.has(m.id) && (m.createdAt || 0) < oldest)
+    : [];
+  return [...older, ...mapped, ...pending];
 }
 
 export function upsertMessage(list, msg, localId) {
@@ -169,7 +189,7 @@ export function upsertMessage(list, msg, localId) {
 
 export function canEditMessage(m) {
   if (!m || !m.mine || m.deleted) return false;
-  if (m.audio || m.gift || m.image || m.voice || (m.kind && !['text', 'verse', 'prayer'].includes(m.kind))) return false;
+  if (m.audio || m.gift || m.image || m.voice || m.file || m.video || m.system || m.forwarded || (m.kind && !['text', 'verse', 'prayer'].includes(m.kind))) return false;
   if (!m.text) return false;
   return !m.createdAt || Date.now() - m.createdAt < EDIT_WINDOW_MS;
 }
@@ -211,5 +231,82 @@ export function outgoingBody(m) {
   else if (m.prayer) body.kind = 'prayer';
   else if (m.event) { body.kind = 'event'; body.meta = { event: m.event === true ? {} : m.event }; }
   if (m.reply && isServerId(m.reply.id)) body.replyTo = m.reply.id;
+  if (m.mentions && m.mentions.length) body.meta = { ...(body.meta || {}), mentions: m.mentions }; // CHAT 7.4: @mentions
   return body;
 }
+
+// ---------- CHAT 7.3: ordering, ticks, times ----------
+// Server messages by time, then the ones still sending / failed at the bottom in the order they were written.
+export function sortThread(list) {
+  const sent = []; const pending = [];
+  for (const m of list || []) (isServerId(m.id) ? sent : pending).push(m);
+  sent.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  return pending.length ? [...sent, ...pending] : sent;
+}
+
+// 'sending' | 'failed' | 'sent' | 'delivered' | 'read' for my own messages (null for others').
+// receipts = { readAt, deliveredAt } — the oldest other member's (from the server).
+export function messageStatus(m, receipts) {
+  if (!m || !m.mine || m.system) return null;
+  if (m.status === 'failed') return 'failed';
+  if (!isServerId(m.id) || m.status === 'sending') return 'sending';
+  const at = m.createdAt || 0;
+  const r = receipts || {};
+  if (r.readAt && Date.parse(r.readAt) >= at - 1000) return 'read';
+  if (r.deliveredAt && Date.parse(r.deliveredAt) >= at - 1000) return 'delivered';
+  if (m.status === 'read') return 'read';
+  return 'sent';
+}
+
+// Chat-list time: "now", "5m", "14:20", "Yesterday", "Tue", "3 weeks ago", "2 months ago"
+export function relTime(ms) {
+  if (!ms) return '';
+  const d = new Date(ms); const now = new Date();
+  const diff = now - d;
+  if (diff < 60e3) return 'now';
+  if (diff < 3600e3) return `${Math.floor(diff / 60e3)}m`;
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
+  const days = Math.floor(diff / 864e5);
+  if (days < 7) return d.toLocaleDateString([], { weekday: 'short' });
+  if (days < 30) { const w = Math.floor(days / 7); return w === 1 ? 'a week ago' : `${w} weeks ago`; }
+  if (days < 365) { const mo = Math.floor(days / 30); return mo === 1 ? 'a month ago' : `${mo} months ago`; }
+  const yr = Math.floor(days / 365); return yr === 1 ? 'a year ago' : `${yr} years ago`;
+}
+
+// Day separators inside a thread: "Today", "Yesterday", "Monday", "12 March 2026"
+export function dayLabel(ms) {
+  const d = new Date(ms || Date.now()); const now = new Date();
+  if (d.toDateString() === now.toDateString()) return 'Today';
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
+  if (now - d < 6 * 864e5) return d.toLocaleDateString([], { weekday: 'long' });
+  return d.toLocaleDateString([], { day: 'numeric', month: 'long', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+}
+
+// "online", "last seen 5m ago", "last seen yesterday at 14:20"
+export function presenceLabel(p) {
+  if (!p || p.hidden) return '';
+  if (p.online) return 'online';
+  if (!p.lastSeenAt) return '';
+  const t = Date.parse(p.lastSeenAt); const diff = Date.now() - t;
+  if (diff < 3600e3) return `last seen ${Math.max(1, Math.floor(diff / 60e3))}m ago`;
+  const d = new Date(t); const now = new Date();
+  const hm = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return `last seen today at ${hm}`;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return `last seen yesterday at ${hm}`;
+  return `last seen ${d.toLocaleDateString([], { day: 'numeric', month: 'short' })}`;
+}
+
+export function typingLabel(names, isGroup) {
+  const n = (names || []).filter(Boolean);
+  if (!n.length) return '';
+  if (!isGroup) return 'Typing…';
+  if (n.length === 1) return `${n[0]} is typing…`;
+  if (n.length === 2) return `${n[0]} and ${n[1]} are typing…`;
+  return `${n.length} people are typing…`;
+}
+
+export const fmtBytes = (b) => (!b ? '' : b < 1024 ? `${b} B` : b < 1048576 ? `${Math.round(b / 1024)} KB` : `${(b / 1048576).toFixed(1)} MB`);

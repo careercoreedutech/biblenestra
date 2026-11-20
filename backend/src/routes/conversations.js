@@ -6,13 +6,28 @@ import { userJson } from '../lib/shape.js';
 import { notifyUser } from '../hub.js';
 import { sendNotification } from '../lib/push.js';
 import { MSG_SELECT, messageShape, loadMessage, pinsFor } from '../lib/messages.js';
+import { mediaUrl } from '../lib/shape.js';
+import {
+  groupContext, permissionsFor, systemMessage, settingsOf, touchPresence, presenceShape, receiptsFor, markDelivered, typingIn, RANK, addMembersTo,
+} from '../lib/chatGroups.js';
+import { assertCanStartDm, useSlotForFirstMessage } from '../lib/chatLimits.js'; // CHAT LIMITS (client #27): free users start ≤ 5 platform chats
 
 const conversations = new Hono();
 
 export { messageShape } from '../lib/messages.js';
 
 // Chat-list / push preview for messages that have no text of their own
-const KIND_PREVIEW = { image: '📷 Photo', voice: '🎤 Voice message' };
+const KIND_PREVIEW = { image: '📷 Photo', voice: '🎤 Voice message', video: '🎥 Video', file: '📄 Document' };
+const fmtSecs = (ms) => { const t = Math.max(0, Math.round((ms || 0) / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+// One-line preview for the chat list and pushes: "🎤 Voice note (0:42)", "📄 Notes.pdf", "🎥 Video"…
+export function previewText(kind, text, meta) {
+  const m = meta || {};
+  if (kind === 'voice') return m.file ? `🎵 ${m.name || 'Audio'}` : `🎤 Voice note${m.durationMs ? ` (${fmtSecs(m.durationMs)})` : ''}`;
+  if (kind === 'file') return `📄 ${m.name || 'Document'}`;
+  if (kind === 'image') return text || '📷 Photo';
+  if (kind === 'video') return text ? `🎥 ${text}` : '🎥 Video';
+  return text || KIND_PREVIEW[kind] || '';
+}
 const MAX_CHAT_GIFT = 10000;
 // A media message may only point at this chat's uploads (or the sender's own public uploads)
 const mediaKeyOk = (key, convId, meId) => {
@@ -24,15 +39,28 @@ const mediaKeyOk = (key, convId, meId) => {
 // GET /conversations — list user conversations with last message + unread count
 conversations.get('/conversations', async (c) => {
   const me = c.get('user');
+  // CHAT 7.3: opening the list = online + everything delivered to this device (double grey ticks for senders)
+  await touchPresence(c.env, me.id);
+  await markDelivered(c.env, me.id);
+  const meVis = (await one(c.env, 'SELECT last_seen_visibility FROM users WHERE id = $1', [me.id]))?.last_seen_visibility || 'everyone';
   const rows = await q(c.env,
     `SELECT c.id, c.kind, c.title, c.avatar_key, c.pinned_message_id, c.created_at, c.last_message_at,
-            c.description, c.is_public,
+            c.description, c.is_public, c.settings,
+            (SELECT COALESCE(json_agg(tu.display_name), '[]'::json) FROM conversation_members tm JOIN users tu ON tu.id = tm.user_id
+              WHERE tm.conversation_id = c.id AND tm.user_id <> $1 AND tm.typing_at > now() - interval '6 seconds') AS typing,
+            (SELECT json_build_object('presence_at', pu.presence_at, 'last_seen_visibility', pu.last_seen_visibility)
+               FROM conversation_members pm JOIN users pu ON pu.id = pm.user_id
+              WHERE c.kind = 'dm' AND pm.conversation_id = c.id AND pm.user_id <> $1 LIMIT 1) AS other_presence,
+            (SELECT MIN(rm.last_read_at) FROM conversation_members rm WHERE rm.conversation_id = c.id AND rm.user_id <> $1) AS others_read_at,
+            (SELECT MIN(COALESCE(rm.last_delivered_at, rm.last_read_at)) FROM conversation_members rm WHERE rm.conversation_id = c.id AND rm.user_id <> $1) AS others_delivered_at,
             (SELECT COUNT(*)::int FROM conversation_members cnt WHERE cnt.conversation_id = c.id) AS members_count,
             (SELECT co.name FROM community_channels cc JOIN communities co ON co.id = cc.community_id WHERE cc.conversation_id = c.id LIMIT 1) AS community_name,
             m.role, m.last_read_at, m.muted,
             (SELECT json_build_object(
                'id', msg.id, 'kind', msg.kind, 'body', CASE WHEN msg.deleted THEN 'This message was deleted' ELSE msg.body END,
-               'senderId', msg.sender_id, 'createdAt', msg.created_at, 'deleted', msg.deleted
+               'senderId', msg.sender_id, 'createdAt', msg.created_at, 'deleted', msg.deleted,
+               'meta', CASE WHEN msg.deleted THEN NULL ELSE msg.meta END,
+               'senderName', (SELECT su.display_name FROM users su WHERE su.id = msg.sender_id)
              )
              FROM messages msg WHERE msg.conversation_id = c.id
                AND NOT EXISTS (SELECT 1 FROM message_hides h WHERE h.message_id = msg.id AND h.user_id = $1)
@@ -41,6 +69,7 @@ conversations.get('/conversations', async (c) => {
              WHERE unread.conversation_id = c.id
                AND unread.created_at > m.last_read_at
                AND unread.sender_id <> $1
+               AND unread.kind <> 'system'
                AND unread.deleted = false) AS unread_count,
             (SELECT ${userJson('other_u')}
              FROM conversation_members other_m
@@ -69,12 +98,24 @@ conversations.get('/conversations', async (c) => {
   const items = rows.map((r) => {
     const otherUser = r.other_user ? (typeof r.other_user === 'string' ? JSON.parse(r.other_user) : r.other_user) : null;
     const lastMsg = r.last_message ? (typeof r.last_message === 'string' ? JSON.parse(r.last_message) : r.last_message) : null;
+    const parseJ = (v) => (v == null ? null : typeof v === 'string' ? JSON.parse(v) : v);
+    const settings = settingsOf(r);
+    const perms = permissionsFor({ conv: r, rank: RANK[r.role] ?? 0, settings });
     return {
       id: r.id,
       kind: r.kind,
       title: r.kind === 'dm' && otherUser ? otherUser.displayName : (r.title || 'Conversation'),
       avatarKey: r.avatar_key,
+      avatarUrl: r.avatar_key ? mediaUrl(c.env, new URL(c.req.url).origin, r.avatar_key) : null,
       otherUser,
+      // CHAT 7.3: live "Typing…" in the list, online / last seen (privacy-aware), read receipt for my last message
+      typing: parseJ(r.typing) || [],
+      presence: r.kind === 'dm' ? presenceShape(parseJ(r.other_presence), meVis) : null,
+      receipts: {
+        readAt: r.others_read_at ? new Date(r.others_read_at).toISOString() : null,
+        deliveredAt: r.others_delivered_at ? new Date(r.others_delivered_at).toISOString() : null,
+      },
+      settings,
       role: r.role,
       muted: !!r.muted,
       unreadCount: r.unread_count || 0,
@@ -83,7 +124,7 @@ conversations.get('/conversations', async (c) => {
       otherFollowsMe: !!r.other_follows_me,
       iFollowOther: !!r.i_follow_other,
       // WhatsApp-style: anyone can message anyone (blocks still apply); in a channel only its admins post
-      canMessage: r.kind !== 'channel' || ['owner', 'admin'].includes(r.role),
+      canMessage: perms.canSend,
       description: r.description || '',
       isPublic: r.is_public !== false,
       membersCount: r.members_count || 0,
@@ -91,8 +132,10 @@ conversations.get('/conversations', async (c) => {
       lastMessage: lastMsg ? {
         id: lastMsg.id,
         kind: lastMsg.kind,
-        text: lastMsg.body || KIND_PREVIEW[lastMsg.kind] || '',
+        text: lastMsg.deleted ? lastMsg.body : previewText(lastMsg.kind, lastMsg.body, lastMsg.meta),
         senderId: lastMsg.senderId,
+        senderName: lastMsg.senderName || null,
+        durationMs: lastMsg.meta && lastMsg.meta.durationMs ? lastMsg.meta.durationMs : undefined,
         createdAt: new Date(lastMsg.createdAt).toISOString(),
         deleted: !!lastMsg.deleted,
       } : null,
@@ -142,6 +185,9 @@ conversations.post('/conversations/dm', async (c) => {
     });
   }
 
+  // CHAT LIMITS: a free user with no free slot left can't open a NEW chat with a non-invited user (403 CHAT_LIMIT_REACHED)
+  await assertCanStartDm(c.env, me, targetUserId, null);
+
   // Create new DM conversation
   const conv = await one(c.env, `INSERT INTO conversations (kind) VALUES ('dm') RETURNING *`);
   await q(c.env,
@@ -172,6 +218,9 @@ conversations.get('/conversations/:id/messages', async (c) => {
   const member = await one(c.env, `SELECT * FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`, [convId, me.id]);
   if (!member) throw forbidden('Not a member of this conversation');
 
+  // CHAT 7.3: reading a thread = online + delivered
+  await touchPresence(c.env, me.id);
+  await markDelivered(c.env, me.id, convId);
   const after = c.req.query('after');
   const cursor = decodeCursor(c.req.query('cursor'));
   const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '30', 10)));
@@ -209,8 +258,21 @@ conversations.get('/conversations/:id/messages', async (c) => {
   // ROUND 4: pinned messages ride along with the first page
   const pins = cursor ? undefined : await pinsFor(c.env, convId, me.id);
   const myRole = member.role;
+  if (cursor) return c.json({ items, cursor: nextCursor, hasMore, myRole });
 
-  return c.json({ items, cursor: nextCursor, hasMore, pins, myRole });
+  // CHAT 7.3 / 7.4: the first page also carries receipts (ticks), who's typing, the other person's presence (DMs)
+  // and what I may do here (group permissions) — so the 5 s polling fallback keeps all of it fresh too.
+  const ctx = await groupContext(c.env, convId, me.id);
+  const permissions = permissionsFor(ctx);
+  const [receipts, typing] = await Promise.all([receiptsFor(c.env, convId, me.id), typingIn(c.env, convId, me.id)]);
+  let presence = null;
+  if (ctx.conv.kind === 'dm') {
+    const other = await one(c.env, `SELECT u.presence_at, u.last_seen_visibility FROM conversation_members m JOIN users u ON u.id = m.user_id
+      WHERE m.conversation_id = $1 AND m.user_id <> $2 LIMIT 1`, [convId, me.id]);
+    const mine = await one(c.env, 'SELECT last_seen_visibility FROM users WHERE id = $1', [me.id]);
+    presence = presenceShape(other, mine && mine.last_seen_visibility);
+  }
+  return c.json({ items, cursor: nextCursor, hasMore, pins, myRole, receipts, typing, presence, permissions, settings: ctx.settings });
 });
 
 // POST /conversations/:id/messages — send message
@@ -220,7 +282,7 @@ conversations.post('/conversations/:id/messages', async (c) => {
   const b = await body(c);
 
   const kind = b.kind || 'text';
-  if (!['text', 'image', 'voice', 'verse', 'prayer', 'event'].includes(kind)) throw bad('Invalid message kind');
+  if (!['text', 'image', 'voice', 'verse', 'prayer', 'event', 'video', 'file'].includes(kind)) throw bad('Invalid message kind');
   const text = str(b.text || '', { max: 5000, optional: true }) || '';
   const mediaKey = b.mediaKey ? str(b.mediaKey, { max: 500 }) : null;
   const meta = b.meta && typeof b.meta === 'object' ? b.meta : null;
@@ -228,7 +290,8 @@ conversations.post('/conversations/:id/messages', async (c) => {
   const clientId = b.clientId ? str(b.clientId, { max: 100 }) : null;
 
   if (!text && !mediaKey && !meta) throw bad('Message content required', 'EMPTY_MESSAGE');
-  if ((kind === 'image' || kind === 'voice') && !mediaKey) throw bad('Attach the uploaded file (mediaKey)', 'MEDIA_REQUIRED');
+  if (['image', 'voice', 'video', 'file'].includes(kind) && !mediaKey) throw bad('Attach the uploaded file (mediaKey)', 'MEDIA_REQUIRED');
+  if (meta && meta.system) throw bad('Not allowed', 'BAD_META');
   if (mediaKey && !mediaKeyOk(mediaKey, convId, me.id)) throw bad('That file does not belong to this chat', 'BAD_MEDIA');
   // coin gifts only come from POST /conversations/:id/coins
   if (meta && meta.gift) throw bad('Send coins with the gift button', 'BAD_META');
@@ -255,6 +318,19 @@ conversations.post('/conversations/:id/messages', async (c) => {
   if (convData.kind === 'channel') {
     const mine = await one(c.env, 'SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [convId, me.id]);
     if (!mine || !['owner', 'admin'].includes(mine.role)) throw forbidden('Only the channel’s admins can post here', 'CHANNEL_ADMINS_ONLY');
+  }
+  // CHAT 7.4: group permissions — "only admins can send" and slow mode (admins & moderators are exempt)
+  if (convData.kind === 'group') {
+    const gctx = await groupContext(c.env, convId, me.id);
+    const perms = permissionsFor(gctx);
+    if (!perms.canSend) throw forbidden('Only admins can send messages in this group', 'ADMINS_ONLY_SEND');
+    const slow = gctx.settings.slowModeSec;
+    if (slow && !perms.isModerator) {
+      const last = await one(c.env, `SELECT EXTRACT(EPOCH FROM (now() - last_sent_at))::float AS ago FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`, [convId, me.id]);
+      if (last && last.ago != null && last.ago < slow) {
+        throw bad(`Slow mode is on — you can send again in ${Math.ceil(slow - last.ago)}s`, 'SLOW_MODE');
+      }
+    }
   }
   if ((recentCount?.count || 0) >= 30) {
     throw bad('You are sending messages too quickly. Please wait a moment.', 'RATE_LIMITED');
@@ -293,6 +369,9 @@ conversations.post('/conversations/:id/messages', async (c) => {
     if (!target) throw bad('The message you replied to is not in this conversation', 'BAD_REPLY');
   }
 
+  // CHAT LIMITS: the free user's first message of a new 1:1 chat uses a slot (idempotent; 403 CHAT_LIMIT_REACHED when none left)
+  if (convData.kind === 'dm' && otherMembers.length > 0) await useSlotForFirstMessage(c.env, me, convId, otherMembers[0].user_id);
+
   // Insert message and touch conversation timestamps in a single atomic CTE query
   const row = await one(c.env,
     `WITH inserted AS (
@@ -304,7 +383,7 @@ conversations.post('/conversations/:id/messages', async (c) => {
        UPDATE conversations SET last_message_at = now() WHERE id = $1
      ),
      up_mem AS (
-       UPDATE conversation_members SET last_read_at = now() WHERE conversation_id = $1 AND user_id = $2
+       UPDATE conversation_members SET last_read_at = now(), last_sent_at = now(), typing_at = NULL WHERE conversation_id = $1 AND user_id = $2
      )
      SELECT i.*, ${userJson('u')} AS sender
      FROM inserted i
@@ -314,22 +393,28 @@ conversations.post('/conversations/:id/messages', async (c) => {
 
   const formatted = replyTo ? await loadMessage(c.env, row.id, me.id) : messageShape(row, me.id);
 
+  // CHAT 7.4: @mentions (meta.mentions = [userId]) reach people even when they muted the chat, like WhatsApp/Telegram
+  const mentioned = new Set(meta && Array.isArray(meta.mentions) ? meta.mentions.map(String) : []);
+  const preview = previewText(kind, text, meta).slice(0, 100) || 'New message';
+  const isGroupish = convData.kind !== 'dm';
   // Notify all other members in parallel
   await Promise.all(
     otherMembers.map(async (m) => {
       await notifyUser(c.env, m.user_id, {
         type: 'message.new',
         conversationId: convId,
-        message: formatted,
+        message: { ...formatted, isMe: false }, // shaped for the recipient
       });
-      if (!m.muted) {
-        // awaited: an un-awaited inbox insert can be dropped once the response has been sent
+      const isMention = mentioned.has(m.user_id);
+      if (!m.muted || isMention) {
+        // awaited: an un-awaited inbox insert can be dropped once the response has been sent.
+        // data.threadId groups a chat's pushes together on the device (one conversation = one group).
         await sendNotification(c, {
           userId: m.user_id,
           kind: convData.kind === 'group' ? 'group' : 'message',
-          title: convData.kind === 'group' ? (convData.title || 'Group Message') : me.display_name,
-          body: kind === 'image' ? (text ? `📷 ${text.slice(0, 90)}` : '📷 Photo') : kind === 'voice' ? (meta && meta.file ? '🎵 Audio' : '🎤 Voice message') : (text.slice(0, 100) || 'New message'),
-          data: { conversationId: convId, messageId: row.id },
+          title: isGroupish ? (convData.title || 'Group Message') : me.display_name,
+          body: isMention ? `${me.display_name} mentioned you: ${preview}` : isGroupish ? `${me.display_name}: ${preview}` : preview,
+          data: { conversationId: convId, messageId: row.id, threadId: `chat:${convId}`, ...(isMention ? { mention: true } : {}) },
         });
       }
     })
@@ -380,6 +465,8 @@ conversations.post('/conversations/:id/coins', async (c) => {
     }
   }
 
+  // CHAT LIMITS: a coin gift as the first message of a new 1:1 chat uses a slot too (no slot-free way to start a chat)
+  if (conv.kind === 'dm') await useSlotForFirstMessage(c.env, me, convId, toId);
   const text = `🎁 Sent ${coins} coin${coins === 1 ? '' : 's'}${note ? ` — ${note}` : ''}`;
   const meta = { gift: { coins, toUserId: toId, toName: recipient.display_name, note: note || null } };
   const row = await one(c.env,
@@ -553,28 +640,23 @@ conversations.post('/conversations/group', async (c) => {
   const ids = cleanIds(b.memberIds, me.id);
   const conv = await one(c.env, `INSERT INTO conversations (kind, title, description, created_by) VALUES ('group', $1, $2, $3) RETURNING *`, [title, description, me.id]);
   await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'owner')`, [conv.id, me.id]);
-  if (ids.length) {
-    await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role)
-      SELECT $1, u.id, 'member' FROM users u WHERE u.id = ANY($2::uuid[]) AND NOT u.banned
-        AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = u.id AND b.blocked_id = $3) OR (b.blocker_id = $3 AND b.blocked_id = u.id))
-      ON CONFLICT DO NOTHING`, [conv.id, ids, me.id]);
-    for (const id of ids) {
-      await notifyUser(c.env, id, { type: 'conversation.new', conversationId: conv.id }).catch(() => {});
-    }
-  }
+  // CHAT 7.4: "Grace created the group", then "Grace added Daniel and Ruth" (members remember who added them)
+  await systemMessage(c.env, conv.id, me.id, `${me.display_name} created the group “${title}”`, { action: 'created' });
+  if (ids.length) await addMembersTo(c, conv.id, me, ids, { sendPush: (n) => sendNotification(c, n) });
   return c.json({ id: conv.id, kind: 'group', title }, 201);
 });
 
-// POST /conversations/:id/members — { userIds[] }: group owners and admins add people
+// POST /conversations/:id/members — { userIds[] }: admins add people (or every member when the group allows it)
 conversations.post('/conversations/:id/members', async (c) => {
   const me = c.get('user');
   const convId = uuidParam(c, 'id');
   const mine = await one(c.env, `SELECT m.role, c.kind FROM conversation_members m JOIN conversations c ON c.id = m.conversation_id WHERE m.conversation_id = $1 AND m.user_id = $2`, [convId, me.id]);
-  if (!mine || mine.kind !== 'group' || !['owner', 'admin'].includes(mine.role)) throw forbidden('Only group admins can add people', 'ADMIN_ONLY');
+  if (!mine || mine.kind !== 'group') throw forbidden('Only group admins can add people', 'ADMIN_ONLY');
+  const ctx = await groupContext(c.env, convId, me.id);
+  if (!permissionsFor(ctx).canAddMembers) throw forbidden('Only group admins can add people', 'ADMIN_ONLY');
   const ids = cleanIds((await body(c)).userIds, me.id);
-  const added = ids.length ? await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role)
-      SELECT $1, u.id, 'member' FROM users u WHERE u.id = ANY($2::uuid[]) AND NOT u.banned ON CONFLICT DO NOTHING RETURNING user_id`, [convId, ids]) : [];
-  return c.json({ added: added.length });
+  const added = await addMembersTo(c, convId, me, ids, { sendPush: (n) => sendNotification(c, n) });
+  return c.json({ added: added.length, members: added });
 });
 
 // POST /conversations/:id/leave — leave a group or unfollow a channel
@@ -583,11 +665,13 @@ conversations.post('/conversations/:id/leave', async (c) => {
   const convId = uuidParam(c, 'id');
   const conv = await one(c.env, 'SELECT kind FROM conversations WHERE id = $1', [convId]);
   if (!conv || conv.kind === 'dm') throw bad('Only groups and channels can be left');
-  await q(c.env, 'DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [convId, me.id]);
+  const left = await one(c.env, 'DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2 RETURNING role', [convId, me.id]);
   // a group or channel never keeps zero owners
   await q(c.env, `UPDATE conversation_members SET role = 'owner' WHERE conversation_id = $1 AND user_id = (
-      SELECT user_id FROM conversation_members WHERE conversation_id = $1 ORDER BY (role = 'admin') DESC, joined_at LIMIT 1)
+      SELECT user_id FROM conversation_members WHERE conversation_id = $1 ORDER BY (role = 'admin') DESC, (role = 'moderator') DESC, joined_at LIMIT 1)
     AND NOT EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND role = 'owner')`, [convId]);
+  // CHAT 7.4: "Paul left" (groups only — channel followers come and go quietly)
+  if (left && conv.kind === 'group') await systemMessage(c.env, convId, me.id, `${me.display_name} left`, { action: 'left' });
   return c.json({ ok: true });
 });
 

@@ -1217,3 +1217,378 @@ CREATE TABLE IF NOT EXISTS member_websites (
 );
 CREATE INDEX IF NOT EXISTS member_websites_approved ON member_websites (created_at DESC, id DESC) WHERE status = 'approved';
 CREATE INDEX IF NOT EXISTS member_websites_pending ON member_websites (created_at) WHERE status = 'pending';
+
+-- ---------- PRAYER WALL CANDLES + CHRISTIAN CARE NETWORK (Talk to a Priest, Talk to an Apostle) ----------
+-- "Light a Candle" on a prayer: one candle per user per prayer (toggle). "I am praying" stays in prayer_intercessions.
+CREATE TABLE IF NOT EXISTS prayer_candles (
+  prayer_id  uuid NOT NULL REFERENCES prayers(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (prayer_id, user_id)
+);
+ALTER TABLE prayers ADD COLUMN IF NOT EXISTS candle_count integer NOT NULL DEFAULT 0;
+-- Grouped "N people lit a candle / are praying" notices to the poster: one inbox row per prayer+action,
+-- updated in place while it is recent (no new push), a fresh push only after the quiet window.
+CREATE TABLE IF NOT EXISTS prayer_support_notices (
+  prayer_id       uuid NOT NULL REFERENCES prayers(id) ON DELETE CASCADE,
+  action          text NOT NULL CHECK (action IN ('pray','candle')),
+  notification_id uuid,
+  last_count      integer NOT NULL DEFAULT 0,
+  last_push_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (prayer_id, action)
+);
+-- Talk to a Priest: verified Catholic priests. Only status = 'approved' (and a non-banned account) is listed.
+CREATE TABLE IF NOT EXISTS care_priests (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        uuid NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  title          text NOT NULL DEFAULT 'Rev. Fr.' CHECK (char_length(title) BETWEEN 1 AND 40),
+  name           text NOT NULL CHECK (char_length(name) BETWEEN 2 AND 120),
+  photo_url      text CHECK (photo_url IS NULL OR photo_url ~ '^https://'),
+  parish         text NOT NULL DEFAULT '' CHECK (char_length(parish) <= 160),
+  diocese        text NOT NULL DEFAULT '' CHECK (char_length(diocese) <= 160),
+  country        text NOT NULL CHECK (char_length(country) BETWEEN 2 AND 80),
+  languages      text[] NOT NULL DEFAULT '{}',
+  bio            text NOT NULL DEFAULT '' CHECK (char_length(bio) <= 1200),
+  availability   text NOT NULL DEFAULT 'available' CHECK (availability IN ('available','busy','away')),
+  reference_note text NOT NULL DEFAULT '' CHECK (char_length(reference_note) <= 2000), -- admins only
+  status         text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','hidden','suspended')),
+  reject_reason  text,
+  reviewed_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at    timestamptz,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS care_priests_status ON care_priests (status, created_at);
+-- Care settings (admin-editable), e.g. key 'apostle' → { userId, greeting }
+CREATE TABLE IF NOT EXISTS care_settings (
+  key        text PRIMARY KEY,
+  value      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+-- Labels on chats started from the Care network, so the Apostle / a priest can filter their inbox.
+CREATE TABLE IF NOT EXISTS care_conversations (
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  kind            text NOT NULL CHECK (kind IN ('apostle','priest')),
+  requester_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (conversation_id, kind)
+);
+CREATE INDEX IF NOT EXISTS care_conversations_target ON care_conversations (target_id, kind, created_at DESC);
+
+-- ---------- TODAY'S JOURNEY: Daily Bread (scheduled verse + image) and blessing videos (admin uploads) ----------
+-- The verse TEXT is never stored: the app reads it from its Bible data (any translation) using book/chapter/verse.
+CREATE TABLE IF NOT EXISTS daily_bread (
+  day          date PRIMARY KEY,
+  book_id      text NOT NULL CHECK (book_id ~ '^[1-3]?[A-Z]{2,3}$'),
+  chapter      integer NOT NULL CHECK (chapter BETWEEN 1 AND 150),
+  verse        integer NOT NULL CHECK (verse BETWEEN 1 AND 176),
+  verse_end    integer CHECK (verse_end IS NULL OR verse_end BETWEEN 1 AND 176),
+  label        text NOT NULL,
+  image_key    text,
+  reflection   text NOT NULL DEFAULT '' CHECK (char_length(reflection) <= 1500),
+  created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS blessing_videos (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 120),
+  description  text NOT NULL DEFAULT '' CHECK (char_length(description) <= 600),
+  video_uid    text,
+  video_key    text NOT NULL,
+  thumb_key    text,
+  duration_sec integer,
+  width        integer,
+  height       integer,
+  publish_on   date NOT NULL DEFAULT CURRENT_DATE,
+  hidden       boolean NOT NULL DEFAULT false,
+  created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS blessing_videos_published ON blessing_videos (publish_on DESC, created_at DESC) WHERE NOT hidden;
+-- Small key/value settings for Today (e.g. 'daily_journey.auto_highlight' → false)
+CREATE TABLE IF NOT EXISTS daily_settings (
+  key          text PRIMARY KEY,
+  value        jsonb NOT NULL,
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+-- WATCH ON TODAY: per-channel feed options, hidden videos, and the cached "latest videos" list (refreshed ~30 min)
+ALTER TABLE youtube_channels ADD COLUMN IF NOT EXISTS today_source text NOT NULL DEFAULT 'uploads';
+ALTER TABLE youtube_channels ADD COLUMN IF NOT EXISTS today_playlist_id text;
+ALTER TABLE youtube_channels ADD COLUMN IF NOT EXISTS today_shorts boolean NOT NULL DEFAULT true;
+ALTER TABLE youtube_channels ADD COLUMN IF NOT EXISTS show_on_today boolean NOT NULL DEFAULT true;
+CREATE TABLE IF NOT EXISTS youtube_hidden_videos (
+  video_id     text PRIMARY KEY CHECK (video_id ~ '^[A-Za-z0-9_-]{11}$'),
+  title        text,
+  hidden_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS youtube_latest_cache (
+  id           integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  data         jsonb NOT NULL,
+  fetched_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- ---------- EXEGESIS: one-tap AI exegesis, cached per verse range + translation ----------
+-- sections = { a: {historical, cultural, literary, originalLanguage}, b: {keyTerms, interpretation, theology, authorIntent},
+--              c: {crossReferences, application} } — parts are merged in as they are generated.
+CREATE TABLE IF NOT EXISTS exegesis_cache (
+  cache_key    text PRIMARY KEY,
+  book_id      text NOT NULL,
+  chapter      integer NOT NULL,
+  verse_start  integer NOT NULL,
+  verse_end    integer NOT NULL,
+  translation  text NOT NULL,
+  passage_text text NOT NULL DEFAULT '',
+  sections     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  model        text,
+  hits         integer NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+-- One row per freshly generated part (daily per-user limit on uncached generations).
+CREATE TABLE IF NOT EXISTS exegesis_generations (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  cache_key   text NOT NULL,
+  part        text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS exegesis_generations_user ON exegesis_generations (user_id, created_at DESC);
+
+-- ---------- BROADCASTS: admin broadcasts to every user's inbox, or to Socials as the official account (src/lib/broadcasts.js) ----------
+-- One row per send. Inbox fan-out goes through broadcast_deliveries (PK broadcast+user → nobody gets two copies) in
+-- batches; a daily-repeating broadcast is a template (repeat_daily) whose daily copies have parent_id set.
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  target        text NOT NULL CHECK (target IN ('inbox','socials')),
+  status        text NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','sending','sent','failed','cancelled')),
+  title         text NOT NULL DEFAULT '' CHECK (char_length(title) <= 120),
+  body          text NOT NULL DEFAULT '' CHECK (char_length(body) <= 5000),
+  media         jsonb NOT NULL DEFAULT '[]'::jsonb,   -- [{ type: image|video, key, url, thumbUrl, … }]
+  links         jsonb NOT NULL DEFAULT '[]'::jsonb,   -- [{ url, label, host, title, description, image }]
+  pin           boolean NOT NULL DEFAULT false,       -- socials: pin the post to the top of the feed
+  post_id       uuid REFERENCES posts(id) ON DELETE SET NULL,
+  sender_name   text NOT NULL DEFAULT 'BibleNestra',
+  sender_logo   text,
+  idem_key      text UNIQUE,
+  content_hash  text NOT NULL,
+  created_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  parent_id     uuid REFERENCES broadcasts(id) ON DELETE SET NULL,
+  scheduled_at  timestamptz,
+  timezone      text,
+  local_time    text,
+  repeat_daily  boolean NOT NULL DEFAULT false,
+  occurrences   integer NOT NULL DEFAULT 0,
+  fanout_cursor uuid,
+  lease_until   timestamptz,
+  attempts      integer NOT NULL DEFAULT 0,
+  recipients    integer NOT NULL DEFAULT 0,
+  push_sent     integer NOT NULL DEFAULT 0,
+  push_failed   integer NOT NULL DEFAULT 0,
+  opened        integer NOT NULL DEFAULT 0,
+  link_clicks   integer NOT NULL DEFAULT 0,
+  clickers      integer NOT NULL DEFAULT 0,
+  error         text,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  started_at    timestamptz,
+  sent_at       timestamptz
+);
+CREATE INDEX IF NOT EXISTS broadcasts_recent ON broadcasts (created_at DESC);
+CREATE INDEX IF NOT EXISTS broadcasts_due ON broadcasts (scheduled_at) WHERE status = 'scheduled';
+CREATE INDEX IF NOT EXISTS broadcasts_sending ON broadcasts (started_at) WHERE status = 'sending';
+CREATE INDEX IF NOT EXISTS broadcasts_hash ON broadcasts (content_hash, created_at DESC);
+CREATE TABLE IF NOT EXISTS broadcast_deliveries (
+  broadcast_id uuid NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  delivered_at timestamptz NOT NULL DEFAULT now(),
+  pushed_at    timestamptz,
+  opened_at    timestamptz,
+  clicked_at   timestamptz,
+  clicks       integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (broadcast_id, user_id)
+);
+-- Socials: admin-pinned posts sit on top of the "For you" feed
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS pinned_at timestamptz;
+CREATE INDEX IF NOT EXISTS posts_pinned ON posts (pinned_at DESC) WHERE pinned_at IS NOT NULL AND NOT removed;
+
+-- ---------- CHAT LIMITS + REFERRALS + PAYWALL GUARD (client #27, section 7.5 / 10.3) ----------
+-- Subscriber flag (no billing yet: set by an admin or, later, by server-side Play receipt verification).
+-- premium_until NULL = no end date; a trial is premium with premium_until = trial end.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS premium boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until timestamptz;
+-- Personal invite code (created on first GET /me/invite) and the permanent "who invited me" link.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code text UNIQUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by uuid REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_at timestamptz;
+CREATE INDEX IF NOT EXISTS users_referred_by ON users (referred_by) WHERE referred_by IS NOT NULL;
+-- One row per platform user a FREE user started a 1:1 chat with (one slot each; idempotent per counterparty).
+CREATE TABLE IF NOT EXISTS chat_slots (
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  counterparty_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id uuid REFERENCES conversations(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, counterparty_id),
+  CHECK (user_id <> counterparty_id)
+);
+-- Subscription prompt impressions (frequency cap paywall.max_impressions_per_day, per local day)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS paywall_last_shown_at timestamptz;
+CREATE TABLE IF NOT EXISTS paywall_impressions (
+  id         bigserial PRIMARY KEY,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day        date NOT NULL,
+  placement  text NOT NULL CHECK (char_length(placement) BETWEEN 1 AND 40),
+  shown_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS paywall_impressions_day ON paywall_impressions (user_id, day);
+
+-- ---------- FEED VIDEO RELIABILITY (client #18 / #19 / #29, section 7.1) ----------
+-- Upload probe (codec + whether the MP4 index "moov" sits before the media data = can start playing early)
+-- and the sweep that marks uploads which never finished (app closed / network lost mid-upload).
+ALTER TABLE video_uploads ADD COLUMN IF NOT EXISTS multipart_id text;      -- R2 multipart uploadId (abort on sweep)
+ALTER TABLE video_uploads ADD COLUMN IF NOT EXISTS codec text;             -- 'h264' | 'hevc' | 'av1' | 'vp9' | 'other'
+ALTER TABLE video_uploads ADD COLUMN IF NOT EXISTS faststart boolean;      -- moov before mdat
+ALTER TABLE video_uploads ADD COLUMN IF NOT EXISTS abandoned_at timestamptz;
+CREATE INDEX IF NOT EXISTS video_uploads_stale ON video_uploads (created_at) WHERE status = 'uploading';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS video_codec text;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS video_faststart boolean;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS video_width integer;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS video_height integer;
+
+-- ---------- CHAT 7.3 / 7.4: group roles & permissions, invite links, join requests, system messages, files,
+-- delivery receipts, typing and presence (routes/conversations.js, routes/chatGroups.js, lib/chatGroups.js) ----------
+ALTER TABLE conversation_members DROP CONSTRAINT IF EXISTS conversation_members_role_check;
+ALTER TABLE conversation_members ADD CONSTRAINT conversation_members_role_check CHECK (role IN ('owner','admin','moderator','member'));
+ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS added_by uuid REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS last_delivered_at timestamptz;   -- delivery ticks
+ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS typing_at timestamptz;           -- "Typing…" (polling fallback for the socket event)
+ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS last_sent_at timestamptz;        -- slow mode
+-- { sendMessages: 'all'|'admins', addMembers: 'admins'|'all', editInfo: 'admins'|'all', approveJoins: bool, slowModeSec: int }
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_kind_check;
+ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system'));
+CREATE INDEX IF NOT EXISTS messages_conv_kind ON messages (conversation_id, kind, created_at DESC);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS presence_at timestamptz;                         -- "online" = seen in the last ~70 s
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_visibility text NOT NULL DEFAULT 'everyone';
+CREATE TABLE IF NOT EXISTS conversation_invites (
+  code            text PRIMARY KEY,
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  created_by      uuid REFERENCES users(id) ON DELETE SET NULL,
+  uses            integer NOT NULL DEFAULT 0,
+  revoked_at      timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS conversation_invites_conv ON conversation_invites (conversation_id) WHERE revoked_at IS NULL;
+CREATE TABLE IF NOT EXISTS conversation_join_requests (
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','declined')),
+  decided_by      uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (conversation_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS conversation_reports (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason          text NOT NULL DEFAULT '' CHECK (char_length(reason) <= 1000),
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+-- LEARN CMS: courses (ordered lessons: in-app excerpt + blog link), devotionals, and per-user progress
+CREATE TABLE IF NOT EXISTS learn_courses (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 120),
+  provider     text NOT NULL DEFAULT '' CHECK (char_length(provider) <= 80),
+  icon         text NOT NULL DEFAULT 'book',
+  cover_key    text,
+  level        text NOT NULL DEFAULT 'Beginner',
+  format       text NOT NULL DEFAULT 'self_study' CHECK (format IN ('self_study', 'live_cohort')),
+  duration     text NOT NULL DEFAULT '' CHECK (char_length(duration) <= 40),
+  certificate  boolean NOT NULL DEFAULT false,
+  summary      text NOT NULL DEFAULT '' CHECK (char_length(summary) <= 600),
+  published    boolean NOT NULL DEFAULT false,
+  sort_order   integer NOT NULL DEFAULT 0,
+  created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS learn_lessons (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id    uuid NOT NULL REFERENCES learn_courses(id) ON DELETE CASCADE,
+  position     integer NOT NULL DEFAULT 1,
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 140),
+  excerpt      text NOT NULL DEFAULT '' CHECK (char_length(excerpt) <= 4000),
+  image_key    text,
+  blog_url     text NOT NULL,
+  read_minutes integer CHECK (read_minutes IS NULL OR read_minutes BETWEEN 1 AND 240),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS learn_lessons_course ON learn_lessons (course_id, position);
+CREATE TABLE IF NOT EXISTS learn_enrollments (
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  course_id    uuid NOT NULL REFERENCES learn_courses(id) ON DELETE CASCADE,
+  enrolled_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, course_id)
+);
+CREATE TABLE IF NOT EXISTS learn_lesson_progress (
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  lesson_id    uuid NOT NULL REFERENCES learn_lessons(id) ON DELETE CASCADE,
+  course_id    uuid NOT NULL REFERENCES learn_courses(id) ON DELETE CASCADE,
+  via          text NOT NULL DEFAULT 'button' CHECK (via IN ('blog', 'button')),
+  completed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, lesson_id)
+);
+CREATE INDEX IF NOT EXISTS learn_lesson_progress_course ON learn_lesson_progress (user_id, course_id);
+CREATE TABLE IF NOT EXISTS learn_devotionals (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 120),
+  author       text NOT NULL DEFAULT '' CHECK (char_length(author) <= 80),
+  cover_key    text,
+  publish_on   date NOT NULL DEFAULT CURRENT_DATE,
+  excerpt      text NOT NULL DEFAULT '' CHECK (char_length(excerpt) <= 4000),
+  blog_url     text NOT NULL,
+  published    boolean NOT NULL DEFAULT true,
+  created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS learn_devotionals_live ON learn_devotionals (publish_on DESC, created_at DESC) WHERE published;
+CREATE TABLE IF NOT EXISTS learn_devotional_reads (
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  devotional_id uuid NOT NULL REFERENCES learn_devotionals(id) ON DELETE CASCADE,
+  via           text NOT NULL DEFAULT 'button' CHECK (via IN ('blog', 'button')),
+  read_at       timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, devotional_id)
+);
+
+-- ---------- SCRIPTURE COMPANION: situation → ≥7 validated scriptures + explanations, encouragement, prayer ----------
+-- One row per request. The person's message itself is NOT stored (the app re-sends it for the compose step);
+-- only the chosen verses, the extracted themes and the compose output, so a retry or re-open is cheap.
+CREATE TABLE IF NOT EXISTS companion_requests (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  translation  text NOT NULL DEFAULT 'KJV',
+  analysis     jsonb NOT NULL DEFAULT '{}'::jsonb,   -- { themes, specifics, summary, crisis, model }
+  verses       jsonb NOT NULL DEFAULT '[]'::jsonb,   -- [{ ref, label, bookId, chapter, verseStart, verseEnd, translation, text, themes }]
+  composed     jsonb NOT NULL DEFAULT '{}'::jsonb,   -- { x1: {explanations}, x2: {explanations}, p: {encouragement, prayer} }
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS companion_requests_user ON companion_requests (user_id, created_at DESC);
+-- The verses each user was given recently (one row per verse), so new replies avoid repeating them (last ~50 kept).
+CREATE TABLE IF NOT EXISTS companion_delivered (
+  id          bigserial PRIMARY KEY,
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  verse_key   text NOT NULL,                         -- "PSA 34:18"
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS companion_delivered_user ON companion_delivered (user_id, id DESC);
+
+-- ---------- COMMENTARIES: server cache of public-domain commentary chapters (Free Use Bible API) ----------
+CREATE TABLE IF NOT EXISTS commentary_cache (
+  cache_key   text PRIMARY KEY,                      -- "<commentaryId>/<BOOK>/<chapter>"
+  entries     jsonb NOT NULL DEFAULT '[]'::jsonb,    -- [{ verse: number|null, text }]
+  hits        integer NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);

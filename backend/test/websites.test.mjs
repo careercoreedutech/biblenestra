@@ -56,9 +56,48 @@ test('preview: name, description, picture and icon come from the page', async ()
   assert.equal(none.title, null);
 });
 
-test('add → pending → approved; only approved sites are listed; owner is notified', async () => {
+test('admin-only by default: members get 403, admins publish immediately (app + dashboard)', async () => {
   for (const u of ['boss', 'ann', 'ben']) ids[u] = (await call(u, 'GET', '/me')).json.id;
   await q(env, `UPDATE users SET role = 'admin' WHERE id = $1`, [ids.boss]);
+  const annMe = (await call('ann', 'GET', '/me')).json;
+  assert.equal(annMe.isAdmin, false);
+  assert.equal(annMe.websitePublicSubmission, false);
+  assert.equal((await call('boss', 'GET', '/me')).json.isAdmin, true);
+
+  const denied = await call('ann', 'POST', '/websites', { url: 'gracetruth.org', owner: true });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.json.code, 'ADMIN_ONLY');
+
+  const pub = await call('boss', 'POST', '/websites', { url: 'gracetruth.org', category: 'Ministry' });
+  assert.equal(pub.status, 201, JSON.stringify(pub.json));
+  assert.equal(pub.json.status, 'approved', 'admins publish straight away');
+  assert.equal(pub.json.title, 'Grace & Truth Ministry');
+  assert.equal(pub.json.ownerType, 'admin');
+  assert.equal((await call('ann', 'PATCH', `/websites/${pub.json.id}`, { title: 'Mine now' })).status, 403);
+  assert.equal((await call('ann', 'DELETE', `/websites/${pub.json.id}`)).status, 403);
+  const edited = await call('boss', 'PATCH', `/websites/${pub.json.id}`, { title: 'Grace & Truth', url: 'https://gracetruth.org/home' });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.json.status, 'approved', 'an admin edit stays live');
+
+  assert.equal((await call('ann', 'POST', '/admin/api/websites', { url: 'one-admin.org' })).status, 403);
+  const dash = await call('boss', 'POST', '/admin/api/websites', { url: 'https://psalms-daily.org', title: 'Psalms Daily', description: 'A psalm a day', category: 'Blog' });
+  assert.equal(dash.status, 201, JSON.stringify(dash.json));
+  assert.equal(dash.json.status, 'approved');
+  assert.equal((await call('boss', 'POST', '/admin/api/websites', { url: 'psalms-daily.org' })).status, 409);
+  assert.ok(await one(env, `SELECT 1 AS x FROM admin_actions WHERE action = 'website.add'`));
+
+  const list = await call('ben', 'GET', '/websites');
+  assert.equal(list.json.items.length, 2, 'members see what admins publish');
+  assert.equal(list.json.items[0].title, 'Psalms Daily');
+
+  // admins can remove; clean up so the member-flow tests below start from an empty feed
+  for (const id of [pub.json.id, dash.json.id]) assert.equal((await call('boss', 'DELETE', `/websites/${id}`)).status, 200);
+  assert.equal((await call('ben', 'GET', '/websites')).json.items.length, 0);
+});
+
+test('flag on: add → pending → approved; only approved sites are listed; owner is notified', async () => {
+  env.WEBSITE_FEED_PUBLIC_SUBMISSION = 'true'; // website_feed.public_submission ON restores member submission
+  assert.equal((await call('ann', 'GET', '/me')).json.websitePublicSubmission, true);
 
   assert.equal((await call('ann', 'POST', '/websites', { url: 'gracetruth.org' })).json.code, 'NOT_CONFIRMED');
   const add = await call('ann', 'POST', '/websites', { url: 'gracetruth.org', owner: true, category: 'Ministry' });

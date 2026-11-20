@@ -1,18 +1,22 @@
-// Sign-in (online mode). Shown instead of the app while signed out.
-// Continue with Google · Continue with Apple (iOS — required by Apple when Google sign-in is offered) ·
-// email → 6-digit code (signs in an existing account or creates a new one).
+// Sign-in (online mode) — the last onboarding screen (brief §4): logo, tagline, three full-width buttons
+//   Continue with Google · Continue with Apple (iOS only — Apple requires it when another social login is
+//   offered) · Continue with Email (6-digit email code by default, or email + password with
+//   "Forgot password"), and small Terms / Privacy links. Shown instead of the app while signed out.
 //
 // `SignInView` is the presentational part (also used by the dev-only `SignInPreview` route);
-// the default export wires it to Clerk.
+// the default export wires it to Clerk (useSSO for Google/Apple, useSignIn/useSignUp for email).
+// Clerk links accounts by verified email, so Google and email sign-ins with the same address land on one user.
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import Svg, { Path } from 'react-native-svg';
 import { colors, fonts, radius, shadow } from '../theme';
-import { NightGlow, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { FadeInUp, PressScale, ScaleIn } from '../components/Motion';
 import { useToast, haptic } from '../components/Toast';
+import { BrandLogo } from '../components/BrandLogo';
+import { TAGLINE, TERMS_URL, PRIVACY_URL } from '../data/onboarding';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const SHOW_APPLE = Platform.OS === 'ios';
@@ -45,20 +49,32 @@ function MailGlyph({ size = 18, color = colors.faint }) {
   );
 }
 
-function SocialButton({ label, glyph, dark, busy, disabled, onPress }) {
+function WideButton({ label, glyph, kind = 'light', busy, disabled, onPress }) {
+  const dark = kind === 'dark';
+  const primary = kind === 'primary';
+  const fg = dark || primary ? '#FFFFFF' : colors.fg;
   return (
-    <PressScale onPress={onPress} disabled={disabled} scaleTo={0.97} style={[styles.social, dark && styles.socialDark, disabled && !busy && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={label}>
-      {busy ? <ActivityIndicator size="small" color={dark ? '#FFFFFF' : colors.primary} /> : glyph}
-      <Text style={[styles.socialText, dark && { color: '#FFFFFF' }]}>{label}</Text>
+    <PressScale onPress={onPress} disabled={disabled || busy} scaleTo={0.97} style={[styles.wide, dark && styles.wideDark, primary && styles.widePrimary, disabled && !busy && { opacity: 0.45 }]} accessibilityRole="button" accessibilityLabel={label}>
+      <View style={styles.wideGlyph}>{busy ? <ActivityIndicator size="small" color={fg} /> : glyph}</View>
+      <Text style={[styles.wideText, { color: fg }]}>{label}</Text>
+      <View style={styles.wideGlyph} />
     </PressScale>
   );
 }
 
-function PrimaryButton({ label, onPress, disabled, busy }) {
+function Field({ icon, ...props }) {
   return (
-    <PressScale onPress={onPress} disabled={disabled || busy} scaleTo={0.97} style={[styles.primary, (disabled || busy) && { opacity: busy ? 0.75 : 0.45 }]} accessibilityRole="button" accessibilityLabel={label}>
-      {busy ? <ActivityIndicator size="small" color={colors.primaryFg} /> : null}
-      <Text style={styles.primaryText}>{label}</Text>
+    <View style={styles.field}>
+      {icon}
+      <TextInput placeholderTextColor={colors.faint} autoCapitalize="none" autoCorrect={false} style={styles.fieldInput} {...props} />
+    </View>
+  );
+}
+
+function Link({ label, onPress, disabled, style }) {
+  return (
+    <PressScale onPress={onPress} disabled={disabled} hitSlop={8} accessibilityRole="button" style={style}>
+      <Text style={styles.link}>{label}</Text>
     </PressScale>
   );
 }
@@ -100,17 +116,23 @@ function CodeBoxes({ value, onChange, onSubmit }) {
   );
 }
 
+const open = (url) => { Linking.openURL(url).catch(() => {}); };
+
 /**
- * Presentational sign-in. Handlers return promises; they should throw an Error with a friendly
- * `message` on failure (shown in a toast).
+ * Presentational sign-in. Handlers return promises and throw an Error with a friendly `message` on failure
+ * (shown in a toast):
+ *   onGoogle() · onApple() · onSendCode(email) · onVerifyCode(code) · onPassword(email, password)
+ *   onForgot(email) — emails a reset code · onReset(code, newPassword)
  */
-export function SignInView({ onGoogle, onApple, onSendCode, onVerifyCode, showApple = SHOW_APPLE }) {
+export function SignInView({ onGoogle, onApple, onSendCode, onVerifyCode, onPassword, onForgot, onReset, showApple = SHOW_APPLE }) {
   const toast = useToast();
-  const [step, setStep] = useState('start'); // 'start' | 'code'
+  const [step, setStep] = useState('start'); // start | email | password | code | reset
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [busy, setBusy] = useState(null); // 'google' | 'apple' | 'email' | 'code' | 'resend'
+  const [busy, setBusy] = useState(null);
   const emailOk = EMAIL_RE.test(email.trim());
+  const em = email.trim().toLowerCase();
 
   const run = async (key, fn, after) => {
     if (busy) return;
@@ -124,88 +146,103 @@ export function SignInView({ onGoogle, onApple, onSendCode, onVerifyCode, showAp
       setBusy(null);
     }
   };
-
-  const sendCode = (resend) => run(resend ? 'resend' : 'email', () => onSendCode(email.trim().toLowerCase()), () => {
-    setStep('code');
-    setCode('');
-    haptic('success');
+  const sendCode = (resend) => run(resend ? 'resend' : 'email', () => onSendCode(em), () => {
+    setStep('code'); setCode(''); haptic('success');
     toast.show(resend ? 'A new code is on its way' : `Code sent to ${email.trim()}`, { icon: 'message' });
   });
-  const verify = (c = code) => run('code', () => onVerifyCode(c), () => haptic('success'));
+  const verify = (c = code) => run('code', () => onVerifyCode(c), (r) => {
+    haptic('success');
+    if (r && r.next === 'code') { setStep('code'); setCode(''); }
+  });
+  const signInPassword = () => run('password', () => onPassword(em, password), (r) => {
+    if (r && r.next === 'code') { setStep('code'); setCode(''); toast.show(`We sent a code to ${email.trim()} to confirm it’s you`, { icon: 'message' }); }
+  });
+  const forgot = () => {
+    if (!emailOk) { toast.show('Type your email first', { icon: 'message' }); return; }
+    run('forgot', () => onForgot(em), () => { setStep('reset'); setCode(''); setPassword(''); toast.show(`Reset code sent to ${email.trim()}`, { icon: 'message' }); });
+  };
+  const reset = () => run('reset', () => onReset(code, password), () => haptic('success'));
+  const back = () => { setStep(step === 'password' || step === 'reset' || step === 'code' ? 'email' : 'start'); setCode(''); };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <FadeInUp distance={12} style={styles.hero}>
-          <NightGlow intensity={1.1} />
-          <ScaleIn delay={120} from={0.5} style={styles.mark}>
-            <Icon name="cross" size={26} color={colors.goldLight} strokeWidth={2.2} />
-          </ScaleIn>
-          <Text style={styles.heroEyebrow}>BibleNestra</Text>
-          <Text style={styles.heroTitle}>Your home for the Word and the people who love it</Text>
-          <Text style={styles.heroVerse}>“Thy word is a lamp unto my feet, and a light unto my path.”</Text>
-          <Text style={styles.heroRef}>Psalm 119:105</Text>
+        {step !== 'start' ? (
+          <PressScale onPress={back} hitSlop={10} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Back">
+            <Icon name="chevron-left" size={20} color={colors.fg} strokeWidth={2.2} />
+          </PressScale>
+        ) : <View style={{ height: 40 }} />}
+
+        <FadeInUp distance={10} style={[styles.hero, step !== 'start' && { marginTop: 4 }]}>
+          <BrandLogo size={step === 'start' ? 92 : 64} />
+          {step === 'start' ? <Text style={styles.brand}>BibleNestra</Text> : null}
+          {step === 'start' ? <Text style={styles.tagline}>{TAGLINE}</Text> : null}
         </FadeInUp>
 
+        <View style={{ flex: step === 'start' ? 1 : 0, minHeight: 24 }} />
+
         {step === 'start' ? (
-          <FadeInUp key="start" delay={120} distance={10} style={styles.card}>
-            <Text style={styles.title}>Welcome</Text>
-            <Text style={styles.sub}>Sign in to share posts, pray together and keep your coins on every device.</Text>
-
-            <View style={{ gap: 10, marginTop: 18 }}>
-              <SocialButton label="Continue with Google" glyph={<GoogleGlyph />} busy={busy === 'google'} disabled={!!busy} onPress={() => run('google', onGoogle)} />
-              {showApple ? (
-                <SocialButton dark label="Continue with Apple" glyph={<AppleGlyph />} busy={busy === 'apple'} disabled={!!busy} onPress={() => run('apple', onApple)} />
-              ) : null}
-            </View>
-
-            <View style={styles.orRow}>
-              <View style={styles.orLine} />
-              <Text style={styles.orText}>or use your email</Text>
-              <View style={styles.orLine} />
-            </View>
-
-            <View style={styles.emailWrap}>
-              <MailGlyph size={18} />
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                placeholderTextColor={colors.faint}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="email"
-                textContentType="emailAddress"
-                returnKeyType="send"
-                onSubmitEditing={() => emailOk && sendCode(false)}
-                style={styles.emailInput}
-                accessibilityLabel="Email address"
-              />
-            </View>
-            <PrimaryButton label="Email me a 6-digit code" disabled={!emailOk} busy={busy === 'email'} onPress={() => sendCode(false)} />
+          <FadeInUp key="start" delay={80} distance={10} style={styles.actions}>
+            <WideButton label="Continue with Google" glyph={<GoogleGlyph />} busy={busy === 'google'} disabled={!!busy} onPress={() => run('google', onGoogle)} />
+            {showApple ? <WideButton kind="dark" label="Continue with Apple" glyph={<AppleGlyph />} busy={busy === 'apple'} disabled={!!busy} onPress={() => run('apple', onApple)} /> : null}
+            <WideButton kind="primary" label="Continue with Email" glyph={<MailGlyph color="#FFFFFF" />} disabled={!!busy} onPress={() => setStep('email')} />
           </FadeInUp>
-        ) : (
-          <FadeInUp key="code" distance={10} style={styles.card}>
-            <View style={styles.codeIcon}><MailGlyph size={21} color={colors.primary} /></View>
+        ) : null}
+
+        {step === 'email' ? (
+          <FadeInUp key="email" distance={10} style={styles.actions}>
+            <Text style={styles.title}>Continue with email</Text>
+            <Text style={styles.sub}>We’ll email you a 6-digit code — no password needed. New here? This creates your account.</Text>
+            <Field icon={<MailGlyph />} value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoComplete="email" textContentType="emailAddress" returnKeyType="send" onSubmitEditing={() => emailOk && sendCode(false)} accessibilityLabel="Email address" autoFocus />
+            <WideButton kind="primary" label="Email me a code" glyph={null} busy={busy === 'email'} disabled={!emailOk || !!busy} onPress={() => sendCode(false)} />
+            <Link label="Use a password instead" onPress={() => setStep('password')} disabled={!!busy} style={{ alignSelf: 'center', marginTop: 6 }} />
+          </FadeInUp>
+        ) : null}
+
+        {step === 'password' ? (
+          <FadeInUp key="password" distance={10} style={styles.actions}>
+            <Text style={styles.title}>Sign in with password</Text>
+            <Text style={styles.sub}>New here? We’ll create your account and email you a code to confirm the address.</Text>
+            <Field icon={<MailGlyph />} value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoComplete="email" textContentType="emailAddress" accessibilityLabel="Email address" />
+            <Field icon={<Icon name="lock" size={18} color={colors.faint} />} value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry autoComplete="password" textContentType="password" returnKeyType="go" onSubmitEditing={() => emailOk && password && signInPassword()} accessibilityLabel="Password" />
+            <WideButton kind="primary" label="Continue" glyph={null} busy={busy === 'password'} disabled={!emailOk || !password || !!busy} onPress={signInPassword} />
+            <View style={styles.linkRow}>
+              <Link label={busy === 'forgot' ? 'Sending…' : 'Forgot password?'} onPress={forgot} disabled={!!busy} />
+              <Link label="Email me a code instead" onPress={() => setStep('email')} disabled={!!busy} />
+            </View>
+          </FadeInUp>
+        ) : null}
+
+        {step === 'code' ? (
+          <FadeInUp key="code" distance={10} style={styles.actions}>
             <Text style={styles.title}>Check your inbox</Text>
-            <Text style={styles.sub}>
-              Enter the 6-digit code we sent to <Text style={styles.subStrong}>{email.trim()}</Text>
-            </Text>
+            <Text style={styles.sub}>Enter the 6-digit code we sent to <Text style={styles.subStrong}>{email.trim()}</Text></Text>
             <CodeBoxes value={code} onChange={setCode} onSubmit={(c) => verify(c)} />
-            <PrimaryButton label="Verify & continue" disabled={code.length !== 6} busy={busy === 'code'} onPress={() => verify()} />
-            <View style={styles.codeLinks}>
-              <PressScale onPress={() => { setStep('start'); setCode(''); }} disabled={!!busy} hitSlop={8}>
-                <Text style={styles.link}>Use a different email</Text>
-              </PressScale>
-              <PressScale onPress={() => sendCode(true)} disabled={!!busy} hitSlop={8}>
-                <Text style={styles.link}>{busy === 'resend' ? 'Sending…' : 'Resend code'}</Text>
-              </PressScale>
+            <WideButton kind="primary" label="Verify & continue" glyph={null} busy={busy === 'code'} disabled={code.length !== 6 || !!busy} onPress={() => verify()} />
+            <View style={styles.linkRow}>
+              <Link label="Use a different email" onPress={() => { setStep('email'); setCode(''); }} disabled={!!busy} />
+              <Link label={busy === 'resend' ? 'Sending…' : 'Resend code'} onPress={() => sendCode(true)} disabled={!!busy} />
             </View>
           </FadeInUp>
-        )}
+        ) : null}
 
-        <Text style={styles.legal}>By continuing you agree to BibleNestra’s Terms and Privacy Policy. Your Bible notes and highlights stay on this device.</Text>
+        {step === 'reset' ? (
+          <FadeInUp key="reset" distance={10} style={styles.actions}>
+            <Text style={styles.title}>Choose a new password</Text>
+            <Text style={styles.sub}>Enter the code we sent to <Text style={styles.subStrong}>{email.trim()}</Text> and your new password.</Text>
+            <CodeBoxes value={code} onChange={setCode} />
+            <Field icon={<Icon name="lock" size={18} color={colors.faint} />} value={password} onChangeText={setPassword} placeholder="New password" secureTextEntry autoComplete="password-new" textContentType="newPassword" accessibilityLabel="New password" />
+            <WideButton kind="primary" label="Save & sign in" glyph={null} busy={busy === 'reset'} disabled={code.length !== 6 || !password || !!busy} onPress={reset} />
+          </FadeInUp>
+        ) : null}
+
+        <Text style={styles.legal}>
+          By continuing you agree to our{' '}
+          <Text style={styles.legalLink} onPress={() => open(TERMS_URL)} accessibilityRole="link">Terms</Text>
+          {' '}and{' '}
+          <Text style={styles.legalLink} onPress={() => open(PRIVACY_URL)} accessibilityRole="link">Privacy Policy</Text>.
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -238,7 +275,10 @@ export default function SignInScreen() {
     }
     return undefined;
   }, []);
+  const ready = () => { if (!isLoaded || !signUpLoaded) throw new Error('Still loading — try again in a moment'); };
 
+  // Google / Apple through Clerk's SSO flow (needs the provider enabled in the Clerk dashboard and, for
+  // production, your own Google / Apple credentials + the app's redirect URL allow-listed).
   const oauth = async (strategy) => {
     let res;
     try {
@@ -250,13 +290,12 @@ export default function SignInScreen() {
       await (res.setActive || setActive)({ session: res.createdSessionId });
       return;
     }
-    // Cancelled by the user, or more steps needed (e.g. missing requirements on sign-up)
     if (res && res.authSessionResult && res.authSessionResult.type !== 'success') throw new Error('Sign-in cancelled');
-    throw new Error('We couldn’t finish signing you in — try the email code instead');
+    throw new Error('We couldn’t finish signing you in — try Continue with Email instead');
   };
 
   const sendCode = async (email) => {
-    if (!isLoaded || !signUpLoaded) throw new Error('Still loading — try again in a moment');
+    ready();
     try {
       const si = await signIn.create({ identifier: email });
       const factor = (si.supportedFirstFactors || []).find((f) => f.strategy === 'email_code');
@@ -265,7 +304,6 @@ export default function SignInScreen() {
       flow.current = 'signIn';
     } catch (e) {
       if (clerkCode(e) === 'form_identifier_not_found') {
-        // New here → create the account with the same email code
         try {
           await signUp.create({ emailAddress: email });
           await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
@@ -297,7 +335,63 @@ export default function SignInScreen() {
     }
   };
 
-  return <SignInView onGoogle={() => oauth('oauth_google')} onApple={() => oauth('oauth_apple')} onSendCode={sendCode} onVerifyCode={verifyCode} />;
+  // Email + password: signs in, or (no account yet) creates one and confirms the email with a code.
+  const password = async (email, pw) => {
+    ready();
+    try {
+      const res = await signIn.create({ identifier: email, password: pw });
+      if (res.status === 'complete') { await setActive({ session: res.createdSessionId }); return null; }
+      throw new Error('Additional verification is required for this account');
+    } catch (e) {
+      const c = clerkCode(e);
+      if (c === 'form_identifier_not_found') {
+        try {
+          await signUp.create({ emailAddress: email, password: pw });
+          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+          flow.current = 'signUp';
+          return { next: 'code' };
+        } catch (err) {
+          throw new Error(clerkMessage(err, 'We couldn’t create your account'));
+        }
+      }
+      if (c === 'form_password_incorrect') throw new Error('That password isn’t right — try again or tap “Forgot password?”');
+      if (c === 'strategy_for_user_invalid') throw new Error('This account doesn’t use a password — use Google or an email code');
+      throw new Error(clerkMessage(e, 'We couldn’t sign you in'));
+    }
+  };
+
+  const forgot = async (email) => {
+    ready();
+    try {
+      await signIn.create({ strategy: 'reset_password_email_code', identifier: email });
+    } catch (e) {
+      throw new Error(clerkMessage(e, 'We couldn’t send a reset code to that email'));
+    }
+  };
+
+  const reset = async (code, pw) => {
+    try {
+      const res = await signIn.attemptFirstFactor({ strategy: 'reset_password_email_code', code, password: pw });
+      if (res.status === 'complete') return setActive({ session: res.createdSessionId });
+      throw new Error('Additional verification is required for this account');
+    } catch (e) {
+      const c = clerkCode(e);
+      if (c === 'form_code_incorrect') throw new Error('That code isn’t right — check it and try again');
+      throw new Error(clerkMessage(e, 'We couldn’t reset your password'));
+    }
+  };
+
+  return (
+    <SignInView
+      onGoogle={() => oauth('oauth_google')}
+      onApple={() => oauth('oauth_apple')}
+      onSendCode={sendCode}
+      onVerifyCode={verifyCode}
+      onPassword={password}
+      onForgot={forgot}
+      onReset={reset}
+    />
+  );
 }
 
 // Dev-only preview of the design (no Clerk): /?route=SignInPreview
@@ -310,48 +404,44 @@ export function SignInPreviewScreen() {
       onApple={async () => { await wait(600); throw new Error('Preview only — Apple sign-in needs a Clerk key'); }}
       onSendCode={async () => { await wait(500); }}
       onVerifyCode={async () => { await wait(500); throw new Error('That code isn’t right — check it and try again'); }}
+      onPassword={async () => { await wait(500); throw new Error('Preview only — needs a Clerk key'); }}
+      onForgot={async () => { await wait(500); }}
+      onReset={async () => { await wait(500); throw new Error('Preview only — needs a Clerk key'); }}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.screen },
-  scroll: { flexGrow: 1, padding: 18, paddingBottom: 28 },
-  hero: { borderRadius: 26, overflow: 'hidden', paddingHorizontal: 22, paddingTop: 26, paddingBottom: 24, backgroundColor: colors.night, ...shadow.md },
-  mark: { width: 54, height: 54, borderRadius: 27, borderWidth: 1, borderColor: alpha(colors.goldLight, 0.45), backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
-  heroEyebrow: { marginTop: 18, fontSize: 10.5, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', color: colors.goldLight },
-  heroTitle: { marginTop: 6, fontFamily: fonts.serifBold, fontSize: 27, lineHeight: 33, letterSpacing: -0.5, color: colors.nightFg },
-  heroVerse: { marginTop: 14, fontFamily: fonts.serifItalic, fontSize: 15, lineHeight: 22, color: colors.nightMuted },
-  heroRef: { marginTop: 6, fontSize: 10.5, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase', color: colors.goldLight },
+  safe: { flex: 1, backgroundColor: '#FFFFFF' },
+  scroll: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 22, width: '100%', maxWidth: 520, alignSelf: 'center' },
+  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised, marginTop: 6, marginLeft: -4 },
+  hero: { alignItems: 'center', marginTop: 40 },
+  brand: { marginTop: 18, fontFamily: fonts.serifBold, fontSize: 30, letterSpacing: -0.6, color: colors.fg },
+  tagline: { marginTop: 8, fontFamily: fonts.serifItalic, fontSize: 18, lineHeight: 25, color: colors.muted, textAlign: 'center' },
 
-  card: { marginTop: 16, backgroundColor: colors.surface, borderRadius: 22, borderWidth: 1, borderColor: colors.border, padding: 20, ...shadow.sm },
-  title: { fontFamily: fonts.serifBold, fontSize: 24, letterSpacing: -0.4, color: colors.fg },
-  sub: { marginTop: 4, fontSize: 14, lineHeight: 20, color: colors.muted },
+  actions: { gap: 12 },
+  title: { fontFamily: fonts.serifBold, fontSize: 25, letterSpacing: -0.4, color: colors.fg },
+  sub: { marginTop: -4, marginBottom: 4, fontSize: 14, lineHeight: 20, color: colors.muted },
   subStrong: { color: colors.fg, fontWeight: '700' },
 
-  social: { height: 50, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  socialDark: { backgroundColor: '#000000', borderColor: '#000000' },
-  socialText: { fontSize: 15, fontWeight: '700', color: colors.fg },
+  wide: { height: 54, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18 },
+  wideDark: { backgroundColor: '#000000', borderColor: '#000000' },
+  widePrimary: { backgroundColor: colors.primary, borderColor: colors.primary, ...shadow.sm },
+  wideGlyph: { width: 24, alignItems: 'center', justifyContent: 'center' },
+  wideText: { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700' },
 
-  orRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 18 },
-  orLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  orText: { fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: colors.faint },
+  field: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 54, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised, paddingHorizontal: 14 },
+  fieldInput: { flex: 1, height: 52, fontSize: 16, color: colors.fg },
+  linkRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  link: { fontSize: 14, fontWeight: '700', color: colors.primary },
 
-  emailWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised, paddingHorizontal: 14, marginBottom: 12 },
-  emailInput: { flex: 1, height: 48, fontSize: 15, color: colors.fg },
-
-  primary: { height: 50, borderRadius: radius.pill, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  primaryText: { color: colors.primaryFg, fontSize: 15, fontWeight: '700' },
-
-  codeIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  codeRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 20, marginBottom: 16, position: 'relative' },
+  codeRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginVertical: 6, position: 'relative' },
   codeBox: { flex: 1, height: 56, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   codeBoxFilled: { backgroundColor: colors.surface, borderColor: colors.borderStrong },
   codeBoxActive: { borderColor: colors.primary, borderWidth: 2, backgroundColor: colors.surface },
   codeChar: { fontFamily: fonts.serifBold, fontSize: 26, color: colors.fg },
   codeHidden: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, opacity: 0.01, color: 'transparent', fontSize: 1 },
-  codeLinks: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
-  link: { fontSize: 13.5, fontWeight: '700', color: colors.primary },
 
-  legal: { marginTop: 18, paddingHorizontal: 8, fontSize: 11.5, lineHeight: 17, color: colors.faint, textAlign: 'center' },
+  legal: { marginTop: 22, paddingHorizontal: 8, fontSize: 12, lineHeight: 18, color: colors.faint, textAlign: 'center' },
+  legalLink: { color: colors.muted, fontWeight: '700', textDecorationLine: 'underline' },
 });

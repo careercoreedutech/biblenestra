@@ -13,6 +13,9 @@ import { useToast, haptic } from '../components/Toast';
 import { AnimatedModal, FadeInUp, PressScale, ScaleIn, Pop } from '../components/Motion';
 import { errorMessage } from '../api/client';
 import { useOpportunitiesApi, isWebUrl } from '../api/opportunities';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAds } from '../ads/Ads';
+import { NightGlow } from '../components/ui';
 
 // ---------- kinds ----------
 export const KIND_META = {
@@ -105,6 +108,7 @@ export function OpportunitiesScreen({ params = {} }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const openLink = useOpenLink();
+  const ads = useAds();
 
   const [kind, setKind] = useState(params.kind || 'all'); // 'all' | kind | 'saved'
   const [query, setQuery] = useState('');
@@ -211,6 +215,29 @@ export function OpportunitiesScreen({ params = {} }) {
       toast.show('Saved — find it under Saved', { icon: 'bookmark', haptic: 'success' });
     }
   }, [state.savedOpportunities, dispatch, toast]);
+
+  // Brief 12.2: the detail sheet preloads an interstitial; "Apply on …" shows it, then opens the site in the
+  // in-app browser. If no ad opens within ~2 s (or caps / Plus say no ad) we go straight to the site.
+  useEffect(() => { if (selected) ads.preloadInterstitial(); }, [selected]);
+  const proceeding = useRef(false);
+  const proceedToSite = useCallback(async (it) => {
+    if (!it || !isWebUrl(it.url) || proceeding.current) { if (it && !isWebUrl(it.url)) openLink(it.url); return; }
+    proceeding.current = true;
+    try {
+      // full-screen ads can't reliably stack over our own sheet, so slide it away first (the user comes back to the list)
+      setSelected(null);
+      await new Promise((r) => setTimeout(r, 280));
+      try {
+        await Promise.race([
+          ads.showInterstitial({ surface: 'other', placement: 'opportunity', loadTimeoutMs: 2000, skipAfterSec: 3 }),
+          new Promise((r) => setTimeout(r, 2000 + 3 * 60 * 1000)), // safety net: never hold the user forever
+        ]);
+      } catch (e) { /* never block the redirect */ }
+      await openLink(it.url);
+    } finally {
+      proceeding.current = false;
+    }
+  }, [ads, openLink]);
 
   const share = async (it) => {
     try {
@@ -443,8 +470,10 @@ export function OpportunitiesScreen({ params = {} }) {
         onClose={() => setSelected(null)}
         onToggleSave={() => selected && toggleSave(selected)}
         onOpen={openLink}
+        onProceed={proceedToSite}
         onShare={share}
       />
+      <CareerPrayerCard />
     </Screen>
   );
 }
@@ -583,7 +612,7 @@ function OpportunityCard({ item, saved, onPress, onToggleSave }) {
   );
 }
 
-function OpportunitySheet({ item, saved, onClose, onToggleSave, onOpen, onShare }) {
+function OpportunitySheet({ item, saved, onClose, onToggleSave, onOpen, onProceed, onShare }) {
   // keep the last item while the sheet animates closed
   const last = useRef(item);
   if (item) last.current = item;
@@ -675,7 +704,7 @@ function OpportunitySheet({ item, saved, onClose, onToggleSave, onOpen, onShare 
               <Icon name="share" size={16} color={colors.fg} />
             </PressScale>
             <PressScale
-              onPress={() => onOpen(it.url)}
+              onPress={() => (onProceed ? onProceed(it) : onOpen(it.url))}
               disabled={!it.url}
               scaleTo={0.96}
               accessibilityRole="link"
@@ -1047,4 +1076,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+});
+
+// ---------- Brief 12.4: opening prayer for "Christian Career & Opportunities Worldwide" ----------
+// Shown when the user opens Opportunities (or the Jobs marketplace), at most once per day (date kept on the device).
+export const CAREER_PRAYER = 'May the Lord open doors of global opportunities for you. May He connect you with the right people, grant you favour and establish you in the career you desire. May your dream job become a testimony. In Jesus’ name, Amen.';
+const PRAYER_KEY = 'bn.careerPrayer.lastShown';
+const localDay = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+export function CareerPrayerCard() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      let last = null;
+      try { last = await AsyncStorage.getItem(PRAYER_KEY); } catch (e) { /* storage unavailable → show it */ }
+      if (alive && last !== localDay()) setVisible(true);
+    })();
+    return () => { alive = false; };
+  }, []);
+  const close = () => {
+    haptic('success');
+    setVisible(false);
+    AsyncStorage.setItem(PRAYER_KEY, localDay()).catch(() => {});
+  };
+  return (
+    <AnimatedModal visible={visible} onRequestClose={close}>
+      <View style={prayerStyles.overlay}>
+        <View style={prayerStyles.card} accessibilityRole="alert">
+          <NightGlow intensity={1.1} />
+          <View style={prayerStyles.icon}><Text style={prayerStyles.iconText}>🙏</Text></View>
+          <Text style={prayerStyles.eyebrow}>A prayer for your career</Text>
+          <Text style={prayerStyles.body}>“{CAREER_PRAYER}”</Text>
+          <ScaleIn delay={250} style={{ alignSelf: 'stretch' }}>
+            <PressScale onPress={close} scaleTo={0.96} accessibilityRole="button" accessibilityLabel="Amen, continue" style={prayerStyles.btn}>
+              <Text style={prayerStyles.btnText}>Amen 🙏 Continue</Text>
+            </PressScale>
+          </ScaleIn>
+        </View>
+      </View>
+    </AnimatedModal>
+  );
+}
+
+const prayerStyles = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 22 },
+  card: { width: '100%', maxWidth: 400, borderRadius: 28, backgroundColor: colors.night, paddingHorizontal: 24, paddingTop: 26, paddingBottom: 22, alignItems: 'center', overflow: 'hidden', ...shadow.md },
+  icon: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(212,168,82,0.18)', alignItems: 'center', justifyContent: 'center' },
+  iconText: { fontSize: 28 },
+  eyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.goldLight, marginTop: 14 },
+  body: { fontFamily: fonts.serifItalic, fontSize: 18, lineHeight: 27, color: colors.nightFg, textAlign: 'center', marginTop: 12 },
+  btn: { marginTop: 22, height: 52, borderRadius: 26, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
+  btnText: { fontSize: 16, fontWeight: '800', color: colors.night },
 });

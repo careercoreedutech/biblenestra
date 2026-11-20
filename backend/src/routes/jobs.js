@@ -3,6 +3,7 @@ import { one, q } from '../lib/db.js';
 import { ApiError, bad, body, decodeCursor, encodeCursor, forbidden, notFound, str, uuidParam } from '../lib/http.js';
 import { userJson } from '../lib/shape.js';
 import { RULES } from '../lib/rules.js';
+import { jobAdsNeeded } from '../lib/rules.js';
 
 const r = new Hono();
 
@@ -84,7 +85,7 @@ r.post('/jobs/:id/bids', async (c) => {
     const dup = await one(c.env, 'SELECT 1 FROM bids WHERE job_id = $1 AND bidder_id = $2', [id, me.id]);
     if (dup) throw new ApiError(409, 'ALREADY_BID', 'You have already bid on this job');
     const u = await one(c.env, 'SELECT coins FROM users WHERE id = $1', [me.id]);
-    throw new ApiError(402, 'INSUFFICIENT_COINS', `Bidding costs ${fee} coins — you have ${u.coins}. Watch ${RULES.jobAdsNeeded} ads to unlock ${RULES.jobAdCoins} coins.`);
+    throw new ApiError(402, 'INSUFFICIENT_COINS', `Bidding costs ${fee} coins — you have ${u.coins}. Watch ${jobAdsNeeded(c.env)} ads to unlock ${RULES.jobAdCoins} coins.`);
   }
   return c.json({ bid: bidShape(row), coins: row.coins_left }, 201);
 });

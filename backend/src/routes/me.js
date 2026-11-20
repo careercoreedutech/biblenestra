@@ -3,6 +3,19 @@ import { one, q } from '../lib/db.js';
 import { body, bad, notFound, str, uuidParam, today } from '../lib/http.js';
 import { meShape, userJson } from '../lib/shape.js';
 import { RULES } from '../lib/rules.js';
+import { jobAdsNeeded } from '../lib/rules.js';
+import { websitePublicSubmission } from '../lib/websites.js';
+
+// Remote config the app reads from /me (no release needed to change these).
+const meExtrasJobsWebsites = (env, u) => ({
+  jobAdsNeeded: jobAdsNeeded(env),
+  isAdmin: u.role === 'admin',
+  websitePublicSubmission: websitePublicSubmission(env),
+  premium: isSubscriber(u), // CHAT LIMITS: subscriber (users.premium, not expired) → unlimited chats, no paywall
+  premiumUntil: u.premium && u.premium_until ? new Date(u.premium_until).toISOString() : null, // CHAT LIMITS
+  chatFreeSlots: chatFreeSlots(env), // CHAT LIMITS: remote config chat.free_platform_slots
+});
+import { isSubscriber, chatFreeSlots } from '../lib/chatLimits.js'; // CHAT LIMITS
 import { getUserStreak } from '../lib/rhythm.js';
 import { profileImage } from './social.js';
 import { notifyUser } from '../hub.js';
@@ -21,6 +34,8 @@ export async function meResponse(env, userId) {
     supportAdsToday: Math.min(RULES.supportAdsDaily, s.support_today), supportAdsDaily: RULES.supportAdsDaily,
     jobAdsNeeded: RULES.jobAdsNeeded, bidFee: RULES.bidFee, followers: s.followers, following: s.following,
     adsClientClaim: env.ADS_CLIENT_CLAIM === 'true',
+    ...meExtrasJobsWebsites(env, u), // jobs.bid_required_ads + website_feed.public_submission + admin flag
+
     streak, bestStreak, graceUsedThisWeek,
   });
 }

@@ -2,7 +2,7 @@
 import { Hono } from 'hono';
 import { one, q } from '../lib/db.js';
 import { ApiError, bad, body, int, isUuid, str, today } from '../lib/http.js';
-import { RULES } from '../lib/rules.js';
+import { RULES, jobAdsNeeded } from '../lib/rules.js';
 import { verifySsv } from '../lib/admob.js';
 import { meResponse } from './me.js';
 
@@ -26,7 +26,7 @@ export async function applyAdReward(env, userId, purpose, { transactionId = null
           job_ad_credits = CASE WHEN job_ad_credits + 1 >= $2 THEN 0 ELSE job_ad_credits + 1 END
         WHERE id = $1 RETURNING coins, job_ad_credits),
       led AS (INSERT INTO coin_ledger (user_id, amount, reason) SELECT $1, $3, 'job_ads' FROM up WHERE up.job_ad_credits = 0)
-      SELECT * FROM up`, [userId, RULES.jobAdsNeeded, RULES.jobAdCoins]);
+      SELECT * FROM up`, [userId, jobAdsNeeded(env), RULES.jobAdCoins]);
     return { unlocked: u.job_ad_credits === 0 ? RULES.jobAdCoins : 0 };
   }
   throw bad('purpose must be support or job');

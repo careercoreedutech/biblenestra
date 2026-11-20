@@ -8,7 +8,8 @@ import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import * as BibleData from '../data/bible';
-import { COMMENTARIES, loadCommentary, loadTaggedChapter, useAsync } from '../bible/study';
+import { COMMENTARIES, commentariesFor, loadCommentary, loadTaggedChapter, useAsync } from '../bible/study';
+import { useEffect } from 'react';
 import {
   BOOKS,
   TRANSLATIONS,
@@ -109,14 +110,22 @@ export function StudyScreen({ params }) {
 }
 
 // ---------- Commentary (public-domain commentaries, read in-app) ----------
+let lastCommentary = null;
 function CommentaryPanel({ bookId, chapter, verse, testament }) {
   const { dispatch } = useStore();
   const toast = useToast();
-  const list = COMMENTARIES.filter((c) => !c.otOnly || testament === 'OT');
-  const [cid, setCid] = useState(list[0].id);
+  // COMMENTARIES (client #9): only sources with notes on this book; remembers the last source chosen this session.
+  const list = commentariesFor(bookId).filter((c) => !c.otOnly || testament === 'OT');
+  const [cid, setCid] = useState(list.some((c) => c.id === lastCommentary) ? lastCommentary : list[0].id);
   const [open, setOpen] = useState({});
   const info = list.find((c) => c.id === cid) || list[0];
-  const res = useAsync(() => loadCommentary(cid, bookId, chapter), [cid, bookId, chapter]);
+  const res = useAsync(() => loadCommentary(info.id, bookId, chapter), [info.id, bookId, chapter]);
+  useEffect(() => {
+    lastCommentary = info.id;
+    // warm the neighbouring sources so switching feels instant (device + server cache)
+    const i = list.indexOf(info);
+    [list[i + 1], list[i - 1]].filter(Boolean).forEach((c) => loadCommentary(c.id, bookId, chapter).catch(() => {}));
+  }, [info.id, bookId, chapter]);
   const entries = res.data || [];
   // The note that covers the chosen verse is the last one that starts at or before it.
   const focus = verse ? entries.filter((e) => e.verse && e.verse <= verse).pop() : null;
@@ -161,14 +170,14 @@ function CommentaryPanel({ bookId, chapter, verse, testament }) {
           </PressScale>
         ))}
       </ScrollView>
-      <Text style={styles.commAbout}>{info.name} · {info.about}</Text>
+      <Text style={styles.commAbout}>{info.name}{info.author && info.author !== info.name ? ` · by ${info.author}` : ''} · {info.about}</Text>
       {res.loading ? [0, 1, 2].map((i) => <Shimmer key={i} style={{ height: 96, borderRadius: 16, marginTop: 12 }} />) : null}
       {res.error ? <Empty title="You're offline" body="Commentaries download the first time you open them, then stay on your phone for offline study." /> : null}
       {!res.loading && !res.error && !entries.length ? <Empty title={`${info.short} has no notes on this chapter`} body="Try another commentator above." /> : null}
       {focus ? <Card e={focus} i={0} highlight /> : null}
       {focus && rest.length ? <Text style={styles.commRestHead}>The rest of chapter {chapter}</Text> : null}
       {rest.map((e, i) => <Card key={`${e.verse}-${i}`} e={e} i={i + 1} />)}
-      {entries.length ? <Text style={styles.commSrc}>{info.name} · {info.licence}</Text> : null}
+      {entries.length ? <Text style={styles.commSrc}>{info.name}{info.author && info.author !== info.name ? ` (${info.author})` : ''} · {info.licence}</Text> : null}
     </View>
   );
 }

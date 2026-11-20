@@ -17,11 +17,14 @@ import { IntroGate } from './src/screens/IntroScreens';
 import { ExtraBooksScreen, ExtraBookScreen } from './src/screens/ExtraBooksScreens'; // BEYOND THE 66
 import { WebsitesScreen, AddWebsiteScreen, WebsiteViewerScreen } from './src/screens/WebsitesScreens'; // MEMBER WEBSITES
 import EngagementPopup from './src/components/EngagementPopup';
+import { ChatLimitHost, useInviteLinks } from './src/components/ChatLimit'; // CHAT LIMITS: upgrade/invite prompt on CHAT_LIMIT_REACHED + invite deep links
+import InviteFriendsScreen from './src/screens/InviteFriendsScreen'; // CHAT LIMITS: Invite friends (invited friends are unlimited)
 import { PlansScreen, PlansGate } from './src/screens/PlansScreen';
 import { ContestsScreen, ContestScreen, ContestEntryScreen, ContestSubmitScreen, CertificateScreen } from './src/screens/ContestsScreens';
 import { ContestOrganizeScreen, ContestEditorScreen, ContestManageScreen, ContestJudgeScreen } from './src/screens/ContestOrganizeScreens';
 import { BattleScreen } from './src/screens/BattleScreens';
 import { ChatsHomeScreen, NewGroupScreen } from './src/screens/ChatsHome';
+import { ChatInfoScreen, JoinGroupScreen } from './src/screens/ChatInfoScreen'; // CHAT 7.4: Group Info / contact info, join by invite link
 import { SyncProvider } from './src/api/sync';
 import { SignInPreviewScreen } from './src/screens/SignInScreen';
 import { colors, fonts, FONT_ASSETS, readerThemes } from './src/theme';
@@ -38,7 +41,10 @@ import ConcordanceScreen from './src/screens/ConcordanceScreen';
 import ScripturePopScreen from './src/screens/ScripturePopScreen';
 import { useScripturePop } from './src/notifications/scripturePop';
 import { useSocialsDark, useSocialsImmersive } from './src/ui/chrome';
+import { useBibleImmersive } from './src/ui/chrome'; // BIBLE FULL SCREEN: reader hides the tab bar
+import ExegesisScreen from './src/screens/ExegesisScreen'; // EXEGESIS: one-tap structured exegesis
 import JobsScreen from './src/screens/JobsScreen';
+import { PriestsScreen, PriestProfileScreen, PriestApplyScreen, CareInboxScreen } from './src/screens/CareNetworkScreens'; // CARE NETWORK: Talk to a Priest / Talk to an Apostle
 import UserProfileScreen from './src/screens/UserProfileScreen'; // SOCIAL (round 3)
 import EditProfileScreen from './src/screens/EditProfileScreen'; // SOCIAL (round 3)
 import ActivityScreen from './src/screens/ActivityScreen'; // SOCIAL (round 3)
@@ -46,14 +52,22 @@ import { RecordingDetailScreen } from './src/screens/RecordScreens'; // DISCOVER
 import RemindersScreen from './src/screens/RemindersScreen'; // DISCOVER TOOLS (round 3)
 import { WatchScreen, YouTubeChannelScreen } from './src/screens/WatchScreens'; // DISCOVER TOOLS (round 3)
 import YouTubeWatchScreen from './src/screens/YouTubeWatchScreen'; // YOUTUBE LIVE: big player + Bible Nestra comments
+import { DailyVerseScreen, BlessingVideosScreen, ChannelVideosScreen } from './src/screens/DailyScreens'; // TODAY'S JOURNEY: Daily Bread, blessing videos, Watch: From Our Channels
+import { LessonPreviewScreen, DevotionalPreviewScreen } from './src/screens/LearnContentScreens'; // LEARN CMS: lesson / devotional preview → blog
+import { SplashView } from './src/components/BrandLogo'; // ONBOARDING: logo-only splash while the app really starts
 import { EmbedViewerScreen } from './src/components/EmbedViewer'; // YOUTUBE LIVE: full-screen embeds for video links
 import { useLivePushOpen } from './src/notifications/livePush'; // YOUTUBE LIVE
+import { useBroadcastPushOpen } from './src/notifications/broadcastPush'; // BROADCASTS
 import { useReminders } from './src/notifications/reminders'; // DISCOVER TOOLS (round 3)
 import { FundMeHomeScreen, FundraiserScreen, FundraiserEditScreen, FundraiserDonationsScreen } from './src/screens/FundMeScreens'; // FUND ME (round 3)
 import { OpportunitiesScreen } from './src/screens/OpportunitiesScreen'; // OPPORTUNITIES
 import { MediaLibraryScreen, MediaListScreen, MediaUploadScreen, BookReaderScreen } from './src/screens/MediaLibraryScreens'; // MEDIA LIBRARY: audio + Christian books
 import { AudioPlayerProvider } from './src/audio/Player'; // MEDIA LIBRARY: global audio player (continuous playback)
 import { LibraryMiniBar } from './src/components/MiniPlayer'; // MEDIA LIBRARY
+import NotificationSettingsScreen from './src/screens/NotificationSettingsScreen'; // NOTIFICATIONS: Settings › Notifications › Daily moments
+import { useDailyMoments } from './src/notifications/daily'; // NOTIFICATIONS: daily moments (local, user's time zone)
+import { useDeepLinks } from './src/notifications/deepLinks'; // NOTIFICATIONS + WIDGETS: biblenestra:// deep links
+import { useHomeWidgets } from './src/widgets'; // WIDGETS: Android home-screen widgets (registers the widget task on import; no-op on web/iOS)
 
 class ErrorBoundary extends Component {
   state = { hasError: false, error: null };
@@ -90,8 +104,11 @@ const ROUTES = {
   Websites: WebsitesScreen, AddWebsite: AddWebsiteScreen, WebsiteViewer: WebsiteViewerScreen, // MEMBER WEBSITES (open inside the app)
   Bible: BibleScreen, Study: StudyScreen, Factbook: FactbookScreen, Search: SearchScreen, Library: LibraryScreen,
   Reading: ReadingScreen, BibleChat: BibleChatScreen, Companion: CompanionScreen,
+  Exegesis: ExegesisScreen, // EXEGESIS
   Prayer: PrayerDetailScreen, NewPrayer: NewPrayerScreen, PrayerTab: PrayerScreen, PrayerWall: PrayerScreen,
   Communities: CommunitiesScreen, Group: GroupScreen, ChatList: ChatsHomeScreen, NewGroup: NewGroupScreen, Chat: ChatScreen, Calendar: CalendarScreen,
+  ChatInfo: ChatInfoScreen, JoinGroup: JoinGroupScreen, // CHAT 7.4
+  Priests: PriestsScreen, PriestProfile: PriestProfileScreen, PriestApply: PriestApplyScreen, CareInbox: CareInboxScreen, // CARE NETWORK
   People: PeopleScreen, Person: PersonScreen, Care: CareScreen, Wishes: WishesScreen, Live: LiveScreen, Feed: SocialsScreen, // Feed is merged into Socials
   Learn: LearnScreen, Plan: PlanScreen, Lesson: LessonScreen, SermonStudio: SermonStudioScreen, Transcript: TranscriptScreen,
   Create: CreateScreen, Profile: ProfileScreen, Onboarding: OnboardingScreen, Plans: PlansScreen, Contests: ContestsScreen, Contest: ContestScreen, ContestEntry: ContestEntryScreen, ContestSubmit: ContestSubmitScreen, Certificate: CertificateScreen,
@@ -103,9 +120,13 @@ const ROUTES = {
   Opportunities: OpportunitiesScreen, // OPPORTUNITIES (external listings)
   MediaLibrary: MediaLibraryScreen, MediaList: MediaListScreen, MediaUpload: MediaUploadScreen, BookReader: BookReaderScreen, // MEDIA LIBRARY
   YouTubeWatch: YouTubeWatchScreen, EmbedViewer: EmbedViewerScreen, // YOUTUBE LIVE
+  DailyVerse: DailyVerseScreen, BlessingVideos: BlessingVideosScreen, ChannelVideos: ChannelVideosScreen, // TODAY'S JOURNEY
+  NotificationSettings: NotificationSettingsScreen, // NOTIFICATIONS
+  LessonPreview: LessonPreviewScreen, DevotionalPreview: DevotionalPreviewScreen, // LEARN CMS
 };
 // Dev-only: preview the online sign-in design without a Clerk key (/?route=SignInPreview)
 if (__DEV__) ROUTES.SignInPreview = SignInPreviewScreen;
+ROUTES.InviteFriends = InviteFriendsScreen; // CHAT LIMITS
 
 // Gentle enter animation: pushed screens slide in from the right, tab switches cross-fade up.
 function Transition({ kind, children, skip }) {
@@ -178,11 +199,17 @@ function Root() {
   const nav = useNav();
   const socialsDark = useSocialsDark();
   const socialsImmersive = useSocialsImmersive(); // Videos section: hide the tab bar + mini-player
+  const bibleImmersive = useBibleImmersive(); // BIBLE FULL SCREEN: tab bar slides away while reading
   const [tab, setTab] = useState('Today');
   // Scripture pop-ups: keep the next couple of days scheduled; open the verse when one is tapped
   useScripturePop(ready ? state.scripturePop : null, nav);
   useReminders(nav); // DISCOVER TOOLS (round 3): reminders + daily verse (local notifications)
   useLivePushOpen(nav); // YOUTUBE LIVE: tapping a LIVE NOW push opens the Watch screen
+  useBroadcastPushOpen(nav); // BROADCASTS: tapping an official-message push opens it in Activity
+  useDailyMoments(nav); // NOTIFICATIONS: schedule the chosen daily moments + open their screen when tapped
+  useDeepLinks(nav); // NOTIFICATIONS + WIDGETS: biblenestra://daily, //prayer, //bible … open their screens
+  useHomeWidgets(state, ready); // WIDGETS: redraw Android widgets when reading progress / the day changes
+  useInviteLinks(); // CHAT LIMITS: biblenestra://invite/<code> → POST /me/referral once signed in
   // Android hardware back pops the in-app stack before leaving the app
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -199,10 +226,13 @@ function Root() {
   if (sigRef.current !== sig) { sigRef.current = sig; changedAt.current = Date.now(); }
   const [, force] = useState(0);
   useEffect(() => { const t = setTimeout(() => force((n) => n + 1), 460); return () => clearTimeout(t); }, [sig]);
-  if (!ready) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
+  // First-run taps: the Plus offer waits until the next launch for someone who onboarded in this one
+  const onboardedAtLaunch = useRef(null);
+  if (ready && onboardedAtLaunch.current === null) onboardedAtLaunch.current = !!state.onboarded;
+  if (!ready) return <SplashView />; // ONBOARDING: same logo splash while the saved state loads
   if (!state.onboarded) return <OnboardingScreen />;
   // BibleNestra Plus (/week · $35/year): shown once after onboarding, with 'Continue free'
-  if (!state.plansSeen) return <PlansGate onDone={() => dispatch({ type: 'set', patch: { plansSeen: true } })} />;
+  if (!state.plansSeen && onboardedAtLaunch.current) return <PlansGate onDone={() => dispatch({ type: 'set', patch: { plansSeen: true } })} />;
   const top = nav.stack[nav.stack.length - 1];
   const animating = Date.now() - changedAt.current < 440;
   const Tab = TABS[tab];
@@ -247,9 +277,10 @@ function Root() {
         </KeyboardAvoidingView>
         {!immersive && !(tab === 'Bible' && !top) && !(top && top.name === 'Bible') ? <MiniPlayer bg={top ? colors.screen : pageBg} /> : null}
         {(tab === 'Bible' && !top) || (top && top.name === 'Bible') ? <LibraryMiniBar bg={pageBg} /> : null}{/* MEDIA LIBRARY: library audio keeps its bar in the Bible reader */}
-        {!top && !immersive ? <TabBar active={tab} variant={variant} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
+        {!top && !immersive ? <TabBar active={tab} variant={variant} hidden={tab === 'Bible' && bibleImmersive} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
         <NowPlayingSheet />
-        <EngagementPopup />
+        {onboardedAtLaunch.current ? <EngagementPopup /> : null}{/* not on the very first launch: new users reach Today in few taps */}
+        <ChatLimitHost />{/* CHAT LIMITS: subscription prompt when a free user hits the 5-chat limit */}
       </View>
     </SafeAreaView>
   );
@@ -258,7 +289,7 @@ function Root() {
 export default function App() {
   const [fontsLoaded, fontError] = useFonts(FONT_ASSETS);
   if (!fontsLoaded && !fontError) {
-    return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
+    return <SplashView />; // ONBOARDING: logo-only splash while fonts load (real work, no added delay)
   }
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>

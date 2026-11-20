@@ -3,7 +3,7 @@
 // params: { videoId } | { channelId, live: true } (channel live page) · optional { title, channelTitle, muted }
 // The player is the official YouTube IFrame embed with YouTube's own controls; nothing is drawn over it.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Dimensions, Image, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import YouTubePlayer from '../components/YouTubePlayer';
 import { Icon } from '../components/Icons';
@@ -87,12 +87,16 @@ export default function YouTubeWatchScreen({ params = {} }) {
   const watchUrl = videoId ? `https://www.youtube.com/watch?v=${videoId}` : channelId ? `https://www.youtube.com/channel/${channelId}/live` : 'https://www.youtube.com';
 
   const box = useRef(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [size, setSize] = useState(() => { const d = Dimensions.get('window'); return { w: d.width, h: d.height }; }); // window size until the first real layout (so full screen can open right away)
   const fs = useFullscreen(box);
   const expanded = fs.on && !fs.browserFs();
-  const sideways = expanded && size.h > size.w; // phone held upright → turn the video sideways
+  const sideways = expanded && size.h > size.w && !params.vertical; // phone held upright → turn the video sideways (not Shorts: { vertical: true })
   // leaving the screen while expanded: drop out of full screen
   useEffect(() => { if (!focused && fs.on) fs.exit(); }, [focused]);
+  // WATCH ON TODAY: { fullscreen: true } opens straight into the expanded player; closing it goes back
+  const autoFs = !!params.fullscreen;
+  useEffect(() => { if (autoFs && embedUrl) fs.enter(); }, []);
+  const closeFs = () => { fs.exit(); if (autoFs) nav.pop(); };
 
   const playerBox = expanded
     ? (sideways
@@ -103,7 +107,7 @@ export default function YouTubeWatchScreen({ params = {} }) {
       : size.w && size.w * 9 / 16 > size.h * 0.6 ? [styles.player, { aspectRatio: undefined, height: Math.round(size.h * 0.6) }] : styles.player;
 
   return (
-    <View style={styles.root} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
+    <View style={styles.root} onLayout={(e) => { const { width: w, height: h } = e.nativeEvent.layout; if (w > 0 && h > 0) setSize({ w, h }); }}>
       <StatusBar style={expanded ? 'light' : 'dark'} hidden={expanded} />
       <View style={styles.bar}>
         <Pressable onPress={() => nav.pop()} hitSlop={10} style={styles.barBtn} accessibilityRole="button" accessibilityLabel="Back">
@@ -123,7 +127,7 @@ export default function YouTubeWatchScreen({ params = {} }) {
         ) : <View style={[styles.fill, { backgroundColor: '#000' }]} />}
       </View>
       {expanded ? (
-        <Pressable onPress={fs.exit} style={[styles.exitFs, sideways && styles.exitFsSideways]} hitSlop={12} accessibilityRole="button" accessibilityLabel="Exit full screen">
+        <Pressable onPress={closeFs} style={[styles.exitFs, sideways && styles.exitFsSideways]} hitSlop={12} accessibilityRole="button" accessibilityLabel="Exit full screen">
           <Icon name="x" size={18} color="#FFFFFF" />
         </Pressable>
       ) : null}

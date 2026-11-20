@@ -7,8 +7,10 @@
 //
 //   const api = useApi();  // { mode, online, request(method, path, body), email, signOut }
 //   request() throws ApiError (with `.code`) on `{ error, code }` responses — see ./client.js
-import React, { createContext, useCallback, useContext, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SplashView } from '../components/BrandLogo'; // ONBOARDING: logo splash while Clerk restores the session
 import { API_CONFIG } from './config';
 import { createRequest } from './client';
 import { colors } from '../theme';
@@ -67,7 +69,30 @@ function ClerkBridge({ children }) {
     () => ({ mode: 'online', online: true, request, email, clerkName, clerkUserId: user ? user.id : null, signOut: doSignOut }),
     [request, email, clerkName, user && user.id, doSignOut],
   );
-  return <ApiCtx.Provider value={value}>{children}</ApiCtx.Provider>;
+  return <ApiCtx.Provider value={value}><WelcomeGate user={user} clerkName={clerkName}>{children}</WelcomeGate></ApiCtx.Provider>;
+}
+
+// ONBOARDING: one light personalisation step after the first sign-in, only when the account has no name
+// (email sign-ups). Google / Apple accounts carry their name and go straight to Today.
+function WelcomeGate({ user, clerkName, children }) {
+  const key = user ? `biblenestra:welcome:${user.id}` : null;
+  const [done, setDone] = useState(clerkName ? true : null);
+  useEffect(() => {
+    if (clerkName || !key) { setDone(true); return undefined; }
+    let alive = true;
+    AsyncStorage.getItem(key).then((v) => { if (alive) setDone(v === '1'); }).catch(() => { if (alive) setDone(true); });
+    return () => { alive = false; };
+  }, [key, !!clerkName]);
+  if (done === null) return <SplashView />;
+  if (done) return children;
+  // eslint-disable-next-line global-require
+  const { WelcomeSetupView } = require('../screens/WelcomeSetupScreen');
+  return (
+    <WelcomeSetupView
+      saveName={async (n) => { const [first, ...rest] = n.split(/\s+/); await user.update({ firstName: first, lastName: rest.join(' ') || undefined }); }}
+      onDone={() => { AsyncStorage.setItem(key, '1').catch(() => {}); setDone(true); }}
+    />
+  );
 }
 
 function ClerkGate({ children }) {
@@ -76,7 +101,7 @@ function ClerkGate({ children }) {
   const { ClerkProvider, ClerkLoaded, ClerkLoading, SignedIn, SignedOut } = Clerk;
   return (
     <ClerkProvider publishableKey={API_CONFIG.clerkKey} tokenCache={clerkTokenCache}>
-      <ClerkLoading><Spinner /></ClerkLoading>
+      <ClerkLoading><SplashView /></ClerkLoading>
       <ClerkLoaded>
         <SignedIn><ClerkBridge>{children}</ClerkBridge></SignedIn>
         <SignedOut><SignInScreen /></SignedOut>

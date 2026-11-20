@@ -18,6 +18,7 @@ import { rewards, ssv } from './routes/rewards.js';
 // Phase 2 routes
 import conversations from './routes/conversations.js';
 import messages from './routes/messages.js'; // ROUND 4: message actions
+import chatGroups, { chatPublic } from './routes/chatGroups.js'; // CHAT 7.3/7.4: Group Info, roles, invites, media, files, typing, presence, search
 import communities from './routes/communities.js';
 import events from './routes/events.js';
 import wishes from './routes/wishes.js';
@@ -40,6 +41,14 @@ import { battles } from './routes/battles.js'; // CONTEST CENTRE: live Bible bat
 import { youtubePublic, youtubeComments, adminYouTubeLive } from './routes/youtubeLive.js'; // YOUTUBE LIVE: live alerts + comments per video
 import { adsPublic, ads, adminAds } from './routes/ads.js'; // ADS: remote ad rules, ad events, admin Ads tab
 import { library, libraryPublic, adminLibrary } from './routes/library.js'; // MEDIA LIBRARY: audio library, Christian books (PDF), personal & group uploads
+import { dailyPublic, adminDaily } from './routes/daily.js'; // TODAY'S JOURNEY: Daily Bread, blessing videos, Watch on Today (latest channel videos)
+import exegesis from './routes/exegesis.js'; // EXEGESIS: POST /study/exegesis (one-tap AI exegesis, cached)
+import { care, adminCare } from './routes/care.js'; // CARE NETWORK: Talk to a Priest (verified directory) + Talk to an Apostle
+import { broadcastsApp, adminBroadcasts } from './routes/broadcasts.js'; // BROADCASTS: admin broadcasts to all inboxes / to Socials
+import { referrals, referralsPublic, adminReferrals } from './routes/referrals.js'; // CHAT LIMITS: invite links, free-chat counter, paywall frequency guard
+import { learnApp, adminLearn } from './routes/learn.js'; // LEARN CMS: courses + devotionals (excerpt in app, full post on the blog)
+import companion from './routes/companion.js'; // SCRIPTURE COMPANION: /companion/safety, /companion/verses, /companion/compose (signed in)
+import { commentariesPublic } from './routes/commentaries.js'; // COMMENTARIES: GET /study/commentaries, /study/commentary/:id/:book/:chapter (public, cached)
 import { runContestCron } from './lib/contestCron.js';
 
 export function createApp() {
@@ -56,6 +65,7 @@ export function createApp() {
   }));
 
   app.onError((err, c) => {
+    if (err instanceof ApiError && err.details) return c.json({ error: err.message, code: err.code, ...err.details }, err.status); // CHAT LIMITS: e.g. CHAT_LIMIT_REACHED { used, limit }
     if (err instanceof ApiError) return c.json({ error: err.message, code: err.code }, err.status);
     console.error(err);
     return c.json({ error: 'Something went wrong on our side', code: 'INTERNAL' }, 500);
@@ -98,6 +108,10 @@ export function createApp() {
   app.route('/', extraBooks); // BEYOND THE 66: public book texts (cached)
   app.route('/', adsPublic); // ADS: GET /ads/config (public, cached)
   app.route('/', libraryPublic); // MEDIA LIBRARY: GET /library/file/* (Range streaming, signed links) + /library/viewer (pdf.js)
+  app.route('/', chatPublic); // CHAT 7.4: signed chat-file links (+ pdf.js viewer) for in-app viewing and downloads
+  app.route('/', dailyPublic); // TODAY'S JOURNEY: GET /daily/today, /daily/videos, /youtube/latest (public, cached)
+  app.route('/', commentariesPublic); // COMMENTARIES: library + cached chapters (public)
+  app.route('/', referralsPublic); // CHAT LIMITS: GET /i/:code invite landing page, GET /invite/:code preview
 
   // everything below needs a signed-in user
   app.use('*', requireUser());
@@ -122,6 +136,7 @@ export function createApp() {
   app.route('/', chatMedia);
   app.route('/', conversations);
   app.route('/', messages); // ROUND 4
+  app.route('/', chatGroups); // CHAT 7.3/7.4
   app.route('/', communities);
   app.route('/', events);
   app.route('/', wishes);
@@ -149,9 +164,23 @@ export function createApp() {
   app.route('/', adminYouTubeLive); // YOUTUBE LIVE: /admin/api/youtube/live (admin only)
   app.route('/', library); // MEDIA LIBRARY: /library/* (signed in)
   app.route('/', adminLibrary); // MEDIA LIBRARY: /admin/api/library/* (admin only)
+  app.route('/', broadcastsApp); // BROADCASTS: /broadcasts/:id (+ /open, /click read stats)
+  app.route('/', adminBroadcasts); // BROADCASTS: /admin/api/broadcasts (admin only)
+  app.route('/', adminDaily); // TODAY'S JOURNEY: /admin/api/daily/*, /admin/api/youtube/today/* (admin only)
+  app.route('/', exegesis); // EXEGESIS: POST /study/exegesis (signed in)
+  app.route('/', companion); // SCRIPTURE COMPANION: /companion/* (signed in)
+
+  app.route('/', care); // CARE NETWORK: /care/* (signed in)
+  app.route('/', adminCare); // CARE NETWORK: /admin/api/care/* priests verification + apostle settings (admin only)
+  app.route('/', learnApp); // LEARN CMS: /learn/* courses, lessons, devotionals + my progress (signed in)
+  app.route('/', adminLearn); // LEARN CMS: /admin/api/learn/* (admin only)
+  app.route('/', referrals); // CHAT LIMITS: /me/invite, /me/referral, /chat/allowance, /paywall/*
+  app.route('/', adminReferrals); // CHAT LIMITS: PUT /admin/api/users/:id/premium (admin only)
 
   return app;
 }
+
+import { sweepAbandonedUploads } from './lib/videoUploads.js';
 
 export { Hub };
 
@@ -159,5 +188,8 @@ const app = createApp();
 // fetch for HTTP; scheduled for the cron trigger in wrangler.toml (contest payouts and reminders)
 export default {
   fetch: (req, env, ctx) => app.fetch(req, env, ctx),
-  scheduled: (event, env, ctx) => ctx.waitUntil(runContestCron(env, ctx)),
+  scheduled: (event, env, ctx) => ctx.waitUntil(Promise.all([
+    runContestCron(env, ctx),
+    sweepAbandonedUploads(env).catch((e) => console.error('upload sweep failed', e)),
+  ])),
 };

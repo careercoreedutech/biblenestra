@@ -1,8 +1,8 @@
 // WhatsApp-style messaging home: Chats · Groups · Channels · Find Believers.
 // Anyone can message anyone (no request to accept). Groups: everyone talks. Channels: only admins post,
 // anyone can follow. Server: backend/src/routes/conversations.js.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen, Button, Empty, Notice, Pills, Badge } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { PressScale, FadeInUp, Pulse } from '../components/Motion';
@@ -15,6 +15,9 @@ import { useApi } from '../api/auth';
 import { useSync } from '../api/sync';
 import { errorMessage } from '../api/client';
 import { PEOPLE } from '../data/seed';
+import { ChatListRow, CHAT_ROW_HEIGHT } from '../components/chat/ChatListRow'; // CHAT 7.3
+import { relTime } from '../chat/messages';
+import { ChatSlotsCounter } from '../components/ChatLimit'; // CHAT LIMITS: "3 of 5 free chats used" (prompt itself is global, App.js)
 
 const TABS = ['Chats', 'Groups', 'Communities', 'Channels', 'Find Believers'];
 
@@ -84,7 +87,10 @@ export function useOpenDm() {
       const r = await api.request('POST', '/conversations/dm', { userId: person.id });
       nav.push('Chat', { id: r.id, to: person.displayName, userId: person.id });
       if (sync.refresh) sync.refresh({ quiet: true });
-    } catch (e) { toast.show(errorMessage(e, 'Couldn’t open the chat'), { tone: 'error', icon: 'x' }); }
+    } catch (e) {
+      if (e && e.code === 'CHAT_LIMIT_REACHED') return; // CHAT LIMITS: the upgrade / invite prompt opens instead of a toast
+      toast.show(errorMessage(e, 'Couldn’t open the chat'), { tone: 'error', icon: 'x' });
+    }
   }, [api, nav, toast, sync]);
 }
 
@@ -115,6 +121,7 @@ function FindBelievers() {
   }
   return (
     <View>
+      <ChatSlotsCounter />{/* CHAT LIMITS: free-chat counter in the new-chat flow */}
       <SearchBox value={q} onChange={setQ} placeholder="Search by name, @handle or church" />
       {error ? <Notice tint={colors.negative} text={error} /> : null}
       {!people && !error ? <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View> : null}
@@ -211,75 +218,155 @@ export function ChatsHomeScreen({ params = {} }) {
     else setTab('Find Believers');
   };
 
-  return (
-    <Screen
-      back
-      title="Chats"
-      subtitle="Chats · groups · communities · channels"
-      right={(
-        <PressScale onPress={plus} scaleTo={0.9} style={styles.plus} accessibilityRole="button" accessibilityLabel={tab === 'Groups' ? 'New group' : tab === 'Channels' ? 'New channel' : 'New chat'}>
-          <Icon name="plus" size={18} color="#FFFFFF" strokeWidth={2.4} />
-        </PressScale>
-      )}
-      refreshControl={<RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={colors.primary} />}
-    >
-      <Pills items={TABS} value={tab} onChange={setTab} style={{ marginTop: 10 }} />
+  // CHAT 7.3: clean Messages list — "Search Messages", virtualised memo rows, floating "+"
+  const listTab = tab === 'Chats' || tab === 'Groups';
+  const listData = tab === 'Groups' ? myGroups : direct;
+  const myId = (sync.me && sync.me.id) || null;
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState(null);
+  const term = query.trim().toLowerCase();
+  const shown = useMemo(() => (term ? listData.filter((c) => (c.with || '').toLowerCase().includes(term)) : listData), [listData, term]);
+  useEffect(() => {
+    setHits(null);
+    if (!api.online || term.length < 2) return undefined;
+    const t = setTimeout(() => api.request('GET', `/chats/search?q=${encodeURIComponent(term)}`).then((r) => setHits(r.items || [])).catch(() => setHits([])), 300);
+    return () => clearTimeout(t);
+  }, [term, api.online]);
+  const openRow = useCallback((c) => nav.push('Chat', { id: c.id, to: c.with }), [nav]);
+  const rowPress = useRef(new Map());
+  const pressFor = (c) => {
+    // stable onPress per chat so memoised rows don't re-render
+    let fn = rowPress.current.get(c.id);
+    if (!fn) { fn = () => openRow(c); rowPress.current.set(c.id, fn); }
+    return fn;
+  };
+  useEffect(() => { rowPress.current.clear(); }, [state.chats]);
 
-      {tab === 'Chats' ? (
-        <View>
-          <PressScale onPress={() => nav.push('BibleChat', {})} scaleTo={0.985} style={styles.row} accessibilityRole="button" accessibilityLabel="Bible Exegesis Chat">
-            <View style={[styles.groupIcon, { backgroundColor: colors.night }]}>
+  const listHeader = (
+    <View>
+      <View style={styles.searchMsgs}>
+        <Icon name="search" size={16} color={colors.faint} />
+        <TextInput value={query} onChangeText={setQuery} placeholder="Search Messages" placeholderTextColor={colors.faint} style={styles.searchInput} autoCorrect={false} accessibilityLabel="Search Messages" />
+        {query ? <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Clear search"><Icon name="x" size={14} color={colors.muted} /></Pressable> : null}
+      </View>
+      {!term && tab === 'Chats' ? (
+        <>
+          <PressScale onPress={() => nav.push('BibleChat', {})} scaleTo={0.985} style={styles.listRow} accessibilityRole="button" accessibilityLabel="Bible Exegesis Chat">
+            <View style={[styles.groupIcon, { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.night }]}>
               <Pulse min={0.9} max={1.1} duration={1400}><Icon name="sparkles" size={18} color={colors.goldLight} /></Pulse>
             </View>
             <View style={styles.rowMid}>
-              <Text style={styles.rowName}>Bible Exegesis Chat</Text>
+              <Text style={styles.listName}>Bible Exegesis Chat</Text>
               <Text style={styles.rowLast} numberOfLines={1}>Ask the AI Scripture companion</Text>
             </View>
           </PressScale>
-          {direct.map((c, i) => <ConversationRow key={c.id} index={i} c={c} onPress={() => open(c)} />)}
-          {!direct.length ? <Empty title="No chats yet" body="Find a believer and say hello — no request needed." action="Find Believers" onAction={() => setTab('Find Believers')} /> : null}
-        </View>
+          {api.online ? <View style={{ paddingHorizontal: 16 }}><CreateRow icon="users" title="Invite friends" sub="Friends who join with your link chat with you free, always" onPress={() => nav.push('InviteFriends')} /></View> : null}{/* CHAT LIMITS */}
+        </>
       ) : null}
-
-      {tab === 'Groups' ? (
-        <View>
+      {!term && tab === 'Groups' ? (
+        <View style={{ paddingHorizontal: 16 }}>
           <CreateRow icon="users" title="New group" sub="Chat together with friends, church or a study group" onPress={() => nav.push('NewGroup', { kind: 'group' })} />
-          {myGroups.map((c, i) => <ConversationRow key={c.id} index={i} c={c} icon="users" onPress={() => open(c)} />)}
-          {!myGroups.length ? <Text style={styles.hint}>Groups you create or are added to show up here.</Text> : null}
+          {api.online ? <CreateRow icon="link" title="Join with a link" sub="Paste an invite link someone shared" onPress={() => nav.push('JoinGroup')} /> : null}
         </View>
       ) : null}
+      {term && shown.length ? <Text style={[styles.sectionLabel, { paddingHorizontal: 16 }]}>Chats</Text> : null}
+    </View>
+  );
+  const listFooter = term ? (
+    <View style={{ paddingHorizontal: 16, paddingBottom: 90 }}>
+      {term.length >= 2 ? <Text style={styles.sectionLabel}>Messages</Text> : null}
+      {term.length >= 2 && !hits && api.online ? <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} /> : null}
+      {hits && !hits.length ? <Text style={styles.hint}>No messages match “{query.trim()}”.</Text> : null}
+      {(hits || []).map((h) => (
+        <Pressable key={h.id} onPress={() => nav.push('Chat', { id: h.conversationId, to: h.chatTitle })} style={({ pressed }) => [styles.hitRow, pressed && { backgroundColor: colors.raised }]} accessibilityRole="button">
+          <View style={styles.rowTop}>
+            <Text style={styles.listName} numberOfLines={1}>{h.chatTitle}</Text>
+            <Text style={styles.rowTime}>{relTime(Date.parse(h.createdAt))}</Text>
+          </View>
+          <Text style={styles.rowLast} numberOfLines={2}>{h.isMe ? 'You' : h.senderName}: {h.text}</Text>
+        </Pressable>
+      ))}
+    </View>
+  ) : <View style={{ height: 90 }} />;
 
-      {tab === 'Communities' ? (
-        <View>
-          <CreateRow icon="church" title="Explore communities" sub="Join churches and study circles near you" onPress={() => nav.push('Communities')} />
-          {joinedCommunities.length ? <Text style={styles.sectionLabel}>Your communities</Text> : null}
-          {joinedCommunities.map((co, i) => (
-            <ConversationRow
-              key={co.id}
-              index={i}
-              c={{ with: co.name, kind: 'group' }}
-              icon="church"
-              subtitle={`${(co.members || 0).toLocaleString()} members${co.region ? ` · ${co.region}` : ''}`}
-              onPress={() => nav.push('Group', { id: co.id })}
-            />
-          ))}
-          {communityChats.length ? <Text style={styles.sectionLabel}>Community chats</Text> : null}
-          {communityChats.map((c, i) => <ConversationRow key={c.id} index={i} c={c} icon="users" subtitle={`${c.communityName} · ${lastText(c) || 'No messages yet'}`} onPress={() => open(c)} />)}
-          <CreateRow icon="plus" title="Create a community" sub="For your church, ministry or study group" onPress={() => nav.push('Create', { kind: 'Group' })} />
-          {!joinedCommunities.length ? <Text style={styles.hint}>Communities you join show up here, each with its own channels.</Text> : null}
-        </View>
+  return (
+    <Screen
+      back
+      title="Messages"
+      subtitle="Chats · groups · communities · channels"
+      scroll={false}
+      padded={false}
+      right={(
+        <PressScale onPress={() => nav.push('JoinGroup')} scaleTo={0.9} style={styles.headBtn} accessibilityRole="button" accessibilityLabel="Join a group with a link">
+          <Icon name="link" size={17} color={colors.fg} />
+        </PressScale>
+      )}
+    >
+      <View style={{ paddingHorizontal: 16 }}>
+        <Pills items={TABS} value={tab} onChange={(t) => { setTab(t); setQuery(''); }} style={{ marginTop: 10, marginBottom: 6 }} />
+      </View>
+
+      {listTab ? (
+        <FlatList
+          style={styles.list}
+          data={shown}
+          keyExtractor={(c) => c.id}
+          renderItem={({ item }) => <ChatListRow c={item} myId={myId} onPress={pressFor(item)} />}
+          getItemLayout={(_, index) => ({ length: CHAT_ROW_HEIGHT, offset: CHAT_ROW_HEIGHT * index, index })}
+          ListHeaderComponent={listHeader}
+          ListFooterComponent={listFooter}
+          ListEmptyComponent={term ? null : tab === 'Groups'
+            ? <Text style={[styles.hint, { paddingHorizontal: 16 }]}>Groups you create or are added to show up here.</Text>
+            : <Empty title="No chats yet" body="Find a believer and say hello — no request needed." action="Find Believers" onAction={() => setTab('Find Believers')} />}
+          initialNumToRender={14}
+          maxToRenderPerBatch={12}
+          windowSize={9}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={colors.primary} />}
+        />
+      ) : (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={colors.primary} />}>
+          {tab === 'Communities' ? (
+            <View>
+              <CreateRow icon="church" title="Explore communities" sub="Join churches and study circles near you" onPress={() => nav.push('Communities')} />
+              {joinedCommunities.length ? <Text style={styles.sectionLabel}>Your communities</Text> : null}
+              {joinedCommunities.map((co, i) => (
+                <ConversationRow
+                  key={co.id}
+                  index={i}
+                  c={{ with: co.name, kind: 'group' }}
+                  icon="church"
+                  subtitle={`${(co.members || 0).toLocaleString()} members${co.region ? ` · ${co.region}` : ''}`}
+                  onPress={() => nav.push('Group', { id: co.id })}
+                />
+              ))}
+              {communityChats.length ? <Text style={styles.sectionLabel}>Community chats</Text> : null}
+              {communityChats.map((c, i) => <ConversationRow key={c.id} index={i} c={c} icon="users" subtitle={`${c.communityName} · ${lastText(c) || 'No messages yet'}`} onPress={() => open(c)} />)}
+              <CreateRow icon="plus" title="Create a community" sub="For your church, ministry or study group" onPress={() => nav.push('Create', { kind: 'Group' })} />
+              {!joinedCommunities.length ? <Text style={styles.hint}>Communities you join show up here, each with its own channels.</Text> : null}
+            </View>
+          ) : null}
+
+          {tab === 'Channels' ? (
+            <View>
+              <CreateRow icon="volume" title="New channel" sub="Share updates with followers — only admins post" onPress={() => nav.push('NewGroup', { kind: 'channel' })} />
+              {channels.length ? <Text style={styles.sectionLabel}>Your channels</Text> : null}
+              {channels.map((c, i) => <ConversationRow key={c.id} index={i} c={c} icon="volume" subtitle={`${['owner', 'admin'].includes(c.role) ? 'Admin · ' : ''}${lastText(c) || 'No posts yet'}`} onPress={() => open(c)} />)}
+              {api.online ? <ChannelDirectory key={dirKey} onFollowed={() => sync.refresh && sync.refresh({ quiet: true })} /> : <Notice text="Sign in to create and follow channels." />}
+            </View>
+          ) : null}
+
+          {tab === 'Find Believers' ? <FindBelievers /> : null}
+        </ScrollView>
+      )}
+
+      {listTab ? (
+        <PressScale onPress={plus} scaleTo={0.9} style={styles.fab} accessibilityRole="button" accessibilityLabel={tab === 'Groups' ? 'New group' : 'New chat'}>
+          <Icon name="plus" size={24} color="#FFFFFF" strokeWidth={2.4} />
+        </PressScale>
       ) : null}
-
-      {tab === 'Channels' ? (
-        <View>
-          <CreateRow icon="volume" title="New channel" sub="Share updates with followers — only admins post" onPress={() => nav.push('NewGroup', { kind: 'channel' })} />
-          {channels.length ? <Text style={styles.sectionLabel}>Your channels</Text> : null}
-          {channels.map((c, i) => <ConversationRow key={c.id} index={i} c={c} icon="volume" subtitle={`${['owner', 'admin'].includes(c.role) ? 'Admin · ' : ''}${lastText(c) || 'No posts yet'}`} onPress={() => open(c)} />)}
-          {api.online ? <ChannelDirectory key={dirKey} onFollowed={() => sync.refresh && sync.refresh({ quiet: true })} /> : <Notice text="Sign in to create and follow channels." />}
-        </View>
-      ) : null}
-
-      {tab === 'Find Believers' ? <FindBelievers /> : null}
     </Screen>
   );
 }
@@ -374,6 +461,14 @@ export function NewGroupScreen({ params = {} }) {
 const styles = StyleSheet.create({
   loading: { paddingVertical: 24, alignItems: 'center' },
   plus: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', ...shadow.sm },
+  // CHAT 7.3: Messages list
+  list: { flex: 1, backgroundColor: colors.surface },
+  listRow: { flexDirection: 'row', alignItems: 'center', gap: 13, height: 72, paddingHorizontal: 16 },
+  listName: { flexShrink: 1, fontSize: 15.5, fontWeight: '600', color: colors.fg },
+  searchMsgs: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 10, marginBottom: 6, paddingHorizontal: 14, height: 42, borderRadius: radius.pill, backgroundColor: colors.raised },
+  headBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  fab: { position: 'absolute', right: 18, bottom: 22, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', ...shadow.lg },
+  hitRow: { paddingVertical: 10, paddingHorizontal: 4, borderRadius: radius.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   personTap: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 0 },
   rowMid: { flex: 1, minWidth: 0 },

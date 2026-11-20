@@ -11,6 +11,73 @@ import { useNav } from '../navigation';
 import { useToast } from '../components/Toast';
 import { PressScale, FadeInUp, ScaleIn, Pop, Burst, AnimatedNumber, LiveRing } from '../components/Motion';
 import { BOOKS, DAILY_VERSES, getChapter, refLabel, verseOfDay } from '../data/bible';
+import { useApi } from '../api/auth';
+import { useIsFocused } from '../navigation';
+import { CandleCeremony, LitCandleMark, SupportActions, SupportersSheet } from '../components/PrayerCandle';
+
+// ---------- LIGHT A CANDLE (brief 6.6) ----------
+const isServerId = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(String(id || ''));
+
+// Toggle my candle: optimistic, then the server's counts (rolled back on error). Returns true when lit.
+function useCandle() {
+  const api = useApi();
+  const { dispatch } = useStore();
+  const toast = useToast();
+  return (p) => {
+    const want = !p.lit;
+    const before = { lit: !!p.lit, candles: p.candles || 0 };
+    dispatch({ type: 'patchItem', slice: 'prayers', id: p.id, patch: { lit: want, candles: Math.max(0, before.candles + (want ? 1 : -1)) } });
+    if (want) setTimeout(() => toast.show('Your candle is burning for this prayer', { icon: 'flame' }), 900);
+    else toast.show('Candle put out', { icon: 'flame', haptic: 'select' });
+    if (api.online && isServerId(p.id)) {
+      api.request('POST', `/prayers/${p.id}/candle`, { lit: want })
+        .then((r) => dispatch({ type: 'patchItem', slice: 'prayers', id: p.id, patch: { lit: !!r.lit, candles: r.candles } }))
+        .catch(() => {
+          dispatch({ type: 'patchItem', slice: 'prayers', id: p.id, patch: before });
+          toast.show('Couldn’t light your candle — please try again', { tone: 'error', icon: 'x' });
+        });
+    }
+    return want;
+  };
+}
+
+// Live counts while the wall is open: refresh the praying / candle counts of the cards every 20 s.
+function useLiveSupport(prayers) {
+  const api = useApi();
+  const focused = useIsFocused();
+  const { dispatch } = useStore();
+  const ref = useRef(prayers);
+  ref.current = prayers;
+  useEffect(() => {
+    if (!api.online || focused === false) return undefined;
+    let alive = true;
+    const tick = async () => {
+      const list = (ref.current || []).filter((p) => isServerId(p.id)).slice(0, 60);
+      if (!list.length) return;
+      try {
+        const r = await api.request('GET', `/prayers/support?ids=${list.map((p) => p.id).join(',')}`);
+        if (!alive) return;
+        const byId = new Map(list.map((p) => [p.id, p]));
+        (r.items || []).forEach((x) => {
+          const p = byId.get(x.id);
+          if (p && (p.praying !== x.praying || (p.candles || 0) !== x.candles || !!p.prayed !== x.prayed || !!p.lit !== x.lit)) {
+            dispatch({ type: 'patchItem', slice: 'prayers', id: x.id, patch: { praying: x.praying, candles: x.candles, prayed: x.prayed, lit: x.lit } });
+          }
+        });
+      } catch (e) { /* quiet: next tick */ }
+    };
+    const t = setInterval(tick, 20000);
+    return () => { alive = false; clearInterval(t); };
+  }, [api.online, focused]);
+}
+
+function useSupportersLoader() {
+  const api = useApi();
+  return (p, action) => () => {
+    if (!api.online || !isServerId(p.id)) return Promise.reject(new Error('The list appears once you are online.'));
+    return api.request('GET', `/prayers/${p.id}/supporters?action=${action}`).then((r) => r.items || []);
+  };
+}
 
 // Parse "PHP 4:6", "PSA 23", "John 3:16" or "1 John 4:19" into { bookId, chapter, verse }.
 function parseRef(ref) {
@@ -107,45 +174,6 @@ function StatusBadge({ status, animate }) {
   return animate ? <ScaleIn key={status}>{badge}</ScaleIn> : badge;
 }
 
-// Card footer for the wall: "I'm praying" pops + sparkles when you join in; the count tweens.
-function PrayAction({ p, onToggle }) {
-  const [burst, setBurst] = useState(0);
-  const press = () => {
-    if (!p.prayed) setBurst((b) => b + 1);
-    onToggle(p);
-  };
-  return (
-    <View style={styles.actions}>
-      <View style={{ position: 'relative' }}>
-        <PressScale
-          onPress={press}
-          accessibilityLabel={p.prayed ? 'Stop praying' : "I'm praying"}
-          hitSlop={6}
-          scaleTo={0.93}
-          style={[styles.pray, p.prayed && styles.prayOn]}
-        >
-          <Pop trigger={p.prayed}>
-            <Icon name={p.prayed ? 'check' : 'prayer'} size={14} color={p.prayed ? colors.primaryFg : colors.primary} strokeWidth={2.2} />
-          </Pop>
-          <Text style={[styles.prayText, p.prayed && { color: colors.primaryFg }]}>
-            {p.prayed ? 'Praying' : "I'm praying"}
-          </Text>
-        </PressScale>
-        <Burst trigger={burst} count={8} radius={38} size={10} />
-      </View>
-      <View style={styles.metaWrap}>
-        <Icon name="users" size={13} color={colors.faint} />
-        <Pop trigger={p.praying} amount={1.18}>
-          <AnimatedNumber value={p.praying} style={[styles.meta, styles.metaNum]} />
-        </Pop>
-        <Text style={styles.meta}>
-          praying{p.updates.length ? ` · ${p.updates.length} update${p.updates.length > 1 ? 's' : ''}` : ''}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
 export default function PrayerScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
@@ -182,6 +210,13 @@ export default function PrayerScreen({ params = {} }) {
     if (p.prayed) toast.show('Removed from your prayer list', { icon: 'prayer', haptic: 'select' });
     else toast.show(`Praying for “${p.title}”`, { icon: 'prayer', haptic: 'success' });
   };
+  // LIGHT A CANDLE: ceremony on the card you lit, live counts, who prayed / lit
+  const toggleCandle = useCandle();
+  const [ceremony, setCeremony] = useState({ id: null, n: 0 });
+  const [supporters, setSupporters] = useState(null); // { p, action }
+  const supportersLoader = useSupportersLoader();
+  useLiveSupport(filtered);
+  const lightCandle = (p) => { if (toggleCandle(p)) setCeremony((c) => ({ id: p.id, n: c.n + 1 })); };
 
   return (
     <Screen
@@ -266,6 +301,7 @@ export default function PrayerScreen({ params = {} }) {
                   <Text style={styles.author} numberOfLines={1}>{p.author}</Text>
                   <Text style={styles.authorMeta} numberOfLines={1}>{p.audience} · {p.created}</Text>
                 </View>
+                {p.lit ? <LitCandleMark /> : null}
                 <StatusBadge status={p.status} animate />
               </View>
 
@@ -279,7 +315,15 @@ export default function PrayerScreen({ params = {} }) {
                 </View>
               ) : null}
 
-              <PrayAction p={p} onToggle={togglePray} />
+              <SupportActions
+                p={p}
+                archived={p.status === 'archived'}
+                onPray={togglePray}
+                onCandle={lightCandle}
+                onShowSupporters={(x, action) => setSupporters({ p: x, action })}
+              />
+              {p.updates.length ? <Text style={[styles.meta, { marginTop: 8 }]}>{p.updates.length} update{p.updates.length > 1 ? 's' : ''}</Text> : null}
+              <CandleCeremony trigger={ceremony.id === p.id ? ceremony.n : 0} />
             </PressScale>
           </FadeInUp>
         ))}
@@ -299,6 +343,14 @@ export default function PrayerScreen({ params = {} }) {
       <View style={{ marginTop: 10 }}>
         <Notice text="Prayer requests are holy and private. Sensitive requests stay secure and are never shared for advertising." />
       </View>
+      <SupportersSheet
+        visible={!!supporters}
+        action={supporters ? supporters.action : 'pray'}
+        count={supporters ? (supporters.action === 'candle' ? (state.prayers.find((x) => x.id === supporters.p.id) || supporters.p).candles : (state.prayers.find((x) => x.id === supporters.p.id) || supporters.p).praying) : 0}
+        load={supporters ? supportersLoader(supporters.p, supporters.action) : null}
+        onClose={() => setSupporters(null)}
+        onOpenUser={(u) => { setSupporters(null); nav.push('UserProfile', { id: u.id, name: u.displayName, handle: u.handle }); }}
+      />
     </Screen>
   );
 }
@@ -315,6 +367,10 @@ export function PrayerDetailScreen({ params = {} }) {
   const [prayBurst, setPrayBurst] = useState(0);
   const [answerBurst, setAnswerBurst] = useState(0);
   const [freshBurst, setFreshBurst] = useState(0);
+  const toggleCandle = useCandle(); // LIGHT A CANDLE
+  const [candleN, setCandleN] = useState(0);
+  const [supporters, setSupporters] = useState(null); // 'pray' | 'candle' | null
+  const supportersLoader = useSupportersLoader();
   useEffect(() => {
     if (!params.fresh) return undefined;
     const t = setTimeout(() => setFreshBurst(1), 260);
@@ -334,6 +390,7 @@ export function PrayerDetailScreen({ params = {} }) {
   const canDm = !p.mine && !p.anonymous && p.author !== 'Anonymous';
   const choices = sheet === 'scripture' ? scriptureChoices() : [];
 
+  const lightCandle = () => { if (toggleCandle(p)) setCandleN((n) => n + 1); };
   const togglePray = () => {
     if (!p.prayed) setPrayBurst((b) => b + 1);
     dispatch({ type: 'pray', id: p.id });
@@ -459,9 +516,28 @@ export function PrayerDetailScreen({ params = {} }) {
           <Pop trigger={p.praying} amount={1.2}>
             <AnimatedNumber value={p.praying} style={[styles.prayingCountText, { color: colors.fg, fontWeight: '700' }]} />
           </Pop>
-          <Text style={styles.prayingCountText}>{p.praying === 1 ? 'person is' : 'people are'} praying</Text>
+          <Pressable onPress={() => setSupporters('pray')} hitSlop={6} accessibilityRole="button">
+            <Text style={styles.prayingCountText}>{p.praying === 1 ? 'person is' : 'people are'} praying</Text>
+          </Pressable>
+          <Text style={styles.prayingCountText}>·</Text>
+          <Pressable onPress={() => setSupporters('candle')} hitSlop={6} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Pop trigger={p.candles} amount={1.2}>
+              <AnimatedNumber value={p.candles || 0} style={[styles.prayingCountText, { color: colors.goldMuted, fontWeight: '700' }]} />
+            </Pop>
+            <Text style={styles.prayingCountText}>{p.candles === 1 ? 'candle' : 'candles'} lit</Text>
+          </Pressable>
+          {p.lit ? <LitCandleMark /> : null}
         </View>
+        <CandleCeremony trigger={candleN} />
       </FadeInUp>
+      <SupportersSheet
+        visible={!!supporters}
+        action={supporters || 'pray'}
+        count={supporters === 'candle' ? p.candles || 0 : p.praying}
+        load={supporters ? supportersLoader(p, supporters) : null}
+        onClose={() => setSupporters(null)}
+        onOpenUser={(u) => { setSupporters(null); nav.push('UserProfile', { id: u.id, name: u.displayName, handle: u.handle }); }}
+      />
 
       {p.status !== 'archived' ? (
         <FadeInUp index={1} style={{ marginTop: 16, position: 'relative' }}>
@@ -474,6 +550,15 @@ export function PrayerDetailScreen({ params = {} }) {
             />
           </Pop>
           <Burst trigger={prayBurst} count={12} radius={64} size={12} />
+          <Pop trigger={p.lit} amount={1.035}>
+            <Button
+              label={`${p.lit ? 'Candle lit' : 'Light a Candle'} (${p.candles || 0})`}
+              kind="ghost"
+              style={{ marginTop: 8 }}
+              icon={<Text style={{ fontSize: 15 }}>🕯️</Text>}
+              onPress={lightCandle}
+            />
+          </Pop>
         </FadeInUp>
       ) : (
         <Button label="Restore to Prayer Wall" style={{ marginTop: 16 }} onPress={restore} icon={<Icon name="repost" size={15} color={colors.primaryFg} />} />
@@ -877,6 +962,7 @@ const styles = StyleSheet.create({
   prayingCount: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 7,
     marginTop: 16,
     paddingTop: 14,

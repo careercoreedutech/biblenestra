@@ -80,6 +80,13 @@ export async function channelVideos(env, channelId, { cache = true } = {}) {
   return parseFeed(xml);
 }
 
+// WATCH ON TODAY: a playlist's public feed (same RSS format as a channel's uploads)
+export const PLAYLIST_ID_RE = /^(PL|UU|LL|FL|OL)[A-Za-z0-9_-]{10,40}$/;
+export async function playlistVideos(env, playlistId, { cache = true } = {}) {
+  const xml = await getText(env, `https://www.youtube.com/feeds/videos.xml?playlist_id=${encodeURIComponent(playlistId)}`, { cache });
+  return parseFeed(xml);
+}
+
 export const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 export const videoEmbedUrl = (videoId) => `https://www.youtube.com/embed/${videoId}?playsinline=1&rel=0&modestbranding=1`;
 

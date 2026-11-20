@@ -42,7 +42,7 @@ export const AD_RULES = {
   dailySupportAds: 4, // Today: "support us" fire tasks
   gameInterstitialEvery: 4, // games: one ad after every 4th question
   jobBidCost: 20, // coins needed to place a bid
-  jobAdsForCoins: 5, // rewarded ads to unlock jobAdCoins
+  jobAdsForCoins: 2, // rewarded ads to unlock jobAdCoins (fallback — online the server's /me jobAdsNeeded wins: jobs.bid_required_ads)
   jobAdCoins: 20,
   feedAdEvery: 3, // Socials feed: one native ad card after every 3 posts (overwritten at runtime from the admin "Ads" rules, see ./remote.js)
   videoAdEvery: 3, // Videos: a short ad before every 3rd video opened (not on every one)

@@ -1662,278 +1662,8 @@ export function ChatListScreen() {
   );
 }
 
-export function ChatScreen({ params = {} }) {
-  const nav = useNav();
-  const toast = useToast();
-  const { state, dispatch } = useStore();
-  const sync = useSync();
-  let chat = state.chats.find((c) => c.id === params.id) || state.chats.find((c) => c.with === params.to);
-  if (!chat && params.id && /^[0-9a-f-]{36}$/i.test(params.id)) {
-    chat = { id: params.id, with: params.to || 'Direct message', type: 'Direct message', messages: [] };
-  }
-  const [kindMenu, setKindMenu] = useState(false);
-  const stick = useStickToBottom();
-  // ROUND 4: load the thread from the server (online) and give every message reply / react / copy / edit / pin / delete
-  const cScope = dmScope(chat ? chat.id : 'none');
-  const { myRole: chatRole } = useThreadLoader(cScope, scopeConversationId(state, cScope));
-  const isGroupChat = !!chat && (chat.kind === 'group' || chat.kind === 'channel');
-  const isDm = !isGroupChat && (!chat || chat.kind !== 'group');
-  const otherUserId = (chat && chat.otherUser && chat.otherUser.id) || params.userId;
-  const otherHandle = chat && chat.otherUser && chat.otherUser.handle;
-  const iFollowTarget = otherUserId ? ((state.follows || []).includes(otherUserId) || (otherHandle && (state.follows || []).includes(otherHandle))) : false;
-  const otherFollowsMe = chat && chat.otherFollowsMe !== undefined ? !!chat.otherFollowsMe : (params.otherFollowsMe !== undefined ? !!params.otherFollowsMe : false);
-  // WhatsApp-style: anyone can message anyone; only a channel limits posting to its admins
-  const isChannel = !!chat && chat.kind === 'channel';
-  const canMessage = !isChannel || chat.canMessage !== false;
-
-  const chatAdmin = ['owner', 'admin'].includes(chatRole);
-  const cActions = useMessageActions({
-    scope: cScope,
-    isGroup: isGroupChat,
-    canPin: !isGroupChat || chatAdmin || !sync.online,
-    canModerate: chatAdmin,
-    onSend: (t, reply) => dispatch({ type: 'dm', cid: chat.id, with: chat.with || params.to, text: t, reply, localId: 'x' + Date.now() }),
-  });
-  // CHAT EXTRAS: photos, voice notes / audio files, Google Meet links, coin gifts (media + gifts need the API)
-  const api = useApi();
-  const mediaOk = !!api.online && !!chat && isChatServerId(chat.id) && canMessage;
-  const [tray, setTray] = useState(false);
-  const [meetOpen, setMeetOpen] = useState(false);
-  const [giftOpen, setGiftOpen] = useState(false);
-  const [viewer, setViewer] = useState(null);
-  const [busy, setBusy] = useState(null);
-  const recorder = useVoiceRecorder({ onError: (msg) => toast.show(msg, { tone: 'error' }) });
-  const needOnline = () => toast.show('Photos, voice notes and coin gifts need you to be signed in online', { icon: 'lock' });
-  const postMedia = async (body) => {
-    const res = await api.request('POST', `/conversations/${chat.id}/messages`, { ...body, clientId: `m_${Date.now()}_${Math.random().toString(36).slice(2, 7)}` });
-    dispatch({ type: 'msgUpsert', scope: cScope, message: mapServerMessage(res), local: true });
-  };
-  const withBusy = async (label, fn) => {
-    setBusy(label);
-    try { await fn(); } catch (e) { toast.show(errorMessage(e, 'Couldn’t send that'), { tone: 'error' }); } finally { setBusy(null); }
-  };
-  const sendPhotos = async () => {
-    if (!mediaOk) return needOnline();
-    let photos;
-    try { photos = await pickPhotos(4); } catch (e) { toast.show(errorMessage(e, 'Couldn’t open your photos'), { tone: 'error' }); return; }
-    if (!photos.length) return;
-    await withBusy(photos.length > 1 ? `Sending ${photos.length} photos…` : 'Sending photo…', async () => {
-      for (const p of photos) {
-        const up = await uploadChatImage(api.request, chat.id, p);
-        await postMedia({ kind: 'image', mediaKey: up.key, meta: { width: up.width || 0, height: up.height || 0 } });
-      }
-    });
-  };
-  const sendAudioFile = async () => {
-    if (!mediaOk) return needOnline();
-    let a;
-    try { a = await pickAudio(); } catch (e) { toast.show(errorMessage(e, 'Couldn’t open your files'), { tone: 'error' }); return; }
-    if (!a) return;
-    if (a.size && a.size > MAX_CHAT_AUDIO) { toast.show('Audio files can be up to 20 MB', { tone: 'error' }); return; }
-    await withBusy('Sending audio…', async () => {
-      const up = await uploadChatAudio(api.request, chat.id, { ...a, isFile: true });
-      await postMedia({ kind: 'voice', mediaKey: up.key, meta: { file: true, name: String(a.name || 'Audio').slice(0, 120) } });
-    });
-  };
-  const startVoice = async () => {
-    if (!mediaOk) return needOnline();
-    await recorder.start();
-  };
-  const finishVoice = async () => {
-    const clip = await recorder.stop(true);
-    if (!clip) return;
-    await withBusy('Sending voice message…', async () => {
-      const up = await uploadChatAudio(api.request, chat.id, clip);
-      await postMedia({ kind: 'voice', mediaKey: up.key, meta: { durationMs: Math.round(clip.durationMs) } });
-    });
-  };
-  const sendCoins = async (coins, note) => {
-    try {
-      const res = await sendChatCoins(api.request, chat.id, { coins, note });
-      dispatch({ type: 'serverSync', patch: { coins: res.coinsRemaining }, local: true });
-      if (res.message) dispatch({ type: 'msgUpsert', scope: cScope, message: mapServerMessage(res.message), local: true });
-      toast.show(`🎁 Sent ${coins} coin${coins === 1 ? '' : 's'} to ${chat.with}`, { icon: 'gift', haptic: 'success' });
-      return true;
-    } catch (e) {
-      toast.show(errorMessage(e, 'Couldn’t send coins'), { tone: 'error' });
-      return false;
-    }
-  };
-  const shareMeet = (link) => dispatch({ type: 'dm', cid: chat.id, with: chat.with || params.to, text: `📹 Join my video call: ${link}`, localId: 'x' + Date.now() });
-  if (!chat && params.to) {
-    return (
-      <Screen back title={params.to} subtitle="New conversation" scroll={false}>
-        <View style={styles.newChatHero}>
-          <ScaleIn from={0.6}>
-            <Avatar name={params.to} size={64} ring />
-          </ScaleIn>
-          <FadeInUp delay={120} distance={8} style={{ alignItems: 'center', gap: 8 }}>
-            <Text style={styles.aboutTitle}>{params.to}</Text>
-            {params.kind ? <Badge label={params.kind} tint={colors.primary} /> : null}
-          </FadeInUp>
-        </View>
-        <FadeInUp delay={220} distance={8}>
-          <Notice tint={colors.teal} text="Direct messaging is private and respectful. You can block or report at any time." />
-        </FadeInUp>
-        <View style={{ flex: 1 }} />
-        <View style={{ paddingBottom: 10 }}>
-          {canMessage ? (
-            <AskBar placeholder="Say hello..." onSend={(t) => { dispatch({ type: 'newChat', name: params.to, kind: params.kind, text: t, id: params.id, cid: params.id, userId: params.userId }); toast.show(`Message sent to ${params.to}`, { icon: 'chat' }); nav.replace('Chat', { id: params.id, to: params.to, userId: params.userId }); }} />
-          ) : (
-            <View style={styles.followLockedCard}>
-              <View style={styles.followLockedIconCircle}>
-                <Icon name="user" size={20} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                <Text style={styles.followLockedTitle}>Waiting for {params.to} to follow you back</Text>
-                <Text style={styles.followLockedSub}>
-                  {params.to} needs to follow you back before you can message them.
-                </Text>
-                {!iFollowTarget && otherUserId ? (
-                  <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                    <Button
-                      small
-                      label={`Follow ${params.to}`}
-                      icon={<Icon name="plus" size={12} color="#FFFFFF" strokeWidth={2.6} />}
-                      onPress={async () => {
-                        try {
-                          dispatch({ type: 'follow', id: otherUserId, local: true });
-                          await sync.request('POST', `/users/${otherUserId}/follow`, { following: true });
-                          toast.show(`Followed ${params.to}`, { icon: 'check', haptic: 'success' });
-                          sync.refresh({ quiet: true });
-                        } catch (e) {
-                          toast.show(`Could not update follow${e && e.message ? `: ${e.message}` : ''}`, { tone: 'error' });
-                        }
-                      }}
-                    />
-                  </View>
-                ) : (
-                  <View style={styles.followWaitingPill}>
-                    <Icon name="check" size={11} color={colors.primary} />
-                    <Text style={styles.followWaitingText}>You're following · Waiting for follow back</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
-        </View>
-      </Screen>
-    );
-  }
-  if (!chat) return <Screen back title="Chat"><Empty title="Conversation not found" body="It may have been deleted or the link is out of date." action="All chats" onAction={() => nav.replace('ChatList')} /></Screen>;
-  const muted = (state.mutedChats || []).includes(chat.id);
-  const person = PEOPLE.find((p) => p.name === chat.with);
-  const runOption = (o) => {
-    setKindMenu(false);
-    if (o.startsWith('Convert to')) {
-      const kind = o.replace('Convert to ', '');
-      dispatch({ type: 'dm', cid: chat.id, text: `Invited ${chat.with} to turn this into a ${kind}.` });
-      toast.show(`Invite sent · ${chat.with} needs to accept`, { icon: 'check' });
-    } else if (o === 'Start a video call') {
-      setMeetOpen(true);
-    } else if (o === 'Schedule a call') {
-      nav.push('Create', { kind: 'Event' });
-    } else if (o === 'Mute' || o === 'Unmute') {
-      const list = state.mutedChats || [];
-      dispatch({ type: 'set', patch: { mutedChats: muted ? list.filter((x) => x !== chat.id) : [...list, chat.id] } });
-      toast.show(muted ? 'Notifications on' : `${chat.with} muted`, { icon: muted ? 'bell' : 'volume' });
-    } else if (o === 'Block') {
-      if (person) dispatch({ type: 'block', id: person.id });
-      dispatch({ type: 'set', patch: { chats: state.chats.filter((c) => c.id !== chat.id) } });
-      toast.show(`${chat.with} is blocked`, { icon: 'shield' });
-      nav.pop();
-    } else if (o === 'Report') {
-      toast.show('Report sent · our safety team will review it', { icon: 'shield' });
-    }
-  };
-  return (
-    <Screen back title={chat.with} subtitle={`${chat.type}${muted ? ' · Muted' : ''}`} scroll={false} padded={false}
-      right={<HeaderIconBtn label="Conversation options" active={kindMenu} onPress={() => setKindMenu(!kindMenu)}><Glyph name="more" size={17} color={kindMenu ? '#FFFFFF' : colors.fg} /></HeaderIconBtn>}>
-      {kindMenu ? (
-        <FadeInUp distance={-8} duration={220} style={styles.menu}>
-          {['Convert to Bible study', 'Convert to prayer conversation', 'Convert to mentor conversation', 'Start a video call', 'Schedule a call', muted ? 'Unmute' : 'Mute', 'Block', 'Report'].map((o, i) => (
-            <Pressable key={o} onPress={() => runOption(o)} style={({ pressed }) => [styles.menuRow, i === 5 && styles.menuRowDivider, pressed && styles.pressedFill]}>
-              <Text style={[styles.menuItem, (o === 'Block' || o === 'Report') && { color: colors.negative }]}>{o}</Text>
-            </Pressable>
-          ))}
-          <Text style={styles.menuFoot}>Conversions need both people's consent.</Text>
-        </FadeInUp>
-      ) : null}
-      <PinnedBar pins={cActions.pins} onOpen={(p) => cActions.jumpTo(p.id)} />
-      <ScrollView ref={(r) => { stick.ref.current = r; cActions.scrollRef.current = r; }} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 12 }} showsVerticalScrollIndicator={false}>
-        <FadeInUp distance={6} style={styles.encryptPill}>
-          <Icon name="lock" size={11} color={colors.muted} />
-          <Text style={styles.encryptText}>{isChannel ? 'Channel · only admins post' : isGroupChat ? 'Group chat · visible to its members' : 'Private chat · only the two of you see it'}</Text>
-        </FadeInUp>
-        {chat.messages.length && cActions.tipVisible ? <Text style={styles.chatTip}>Tip: press and hold a message to reply, react, copy, edit, pin or delete.</Text> : null}
-        {!chat.messages.length ? <ScaleIn from={0.92}><Empty title="No messages yet" body={`Say hello to ${chat.with}.`} /></ScaleIn> : null}
-        {chat.messages.map((m) => (
-          <ChatMessage
-            key={m.id}
-            m={m}
-            showSender={isGroupChat}
-            highlighted={cActions.highlight === m.id}
-            onLayout={cActions.layoutFor(m.id)}
-            onLongPress={() => cActions.open(m)}
-            onReact={(e) => cActions.react(m, e)}
-            onOpenReply={cActions.jumpTo}
-          >
-            {m.image ? <ChatImage image={m.image} request={api.request} onOpen={setViewer} /> : null}
-            {m.voice ? <AudioBubble voice={m.voice} request={api.request} mine={m.mine} /> : null}
-            {m.gift ? <GiftCard gift={m.gift} mine={m.mine} from={m.from} /> : null}
-            {m.text && !m.gift ? <MeetJoin text={m.text} mine={m.mine} /> : null}
-          </ChatMessage>
-        ))}
-      </ScrollView>
-      {canMessage ? (
-        <View style={styles.composerWrap}>
-          {cActions.banner}
-          {busy ? <Text style={styles.chatBusy}>{busy}</Text> : null}
-          {recorder.recording ? (
-            <RecorderBar ms={recorder.ms} onCancel={() => recorder.stop(false)} onSend={finishVoice} />
-          ) : (
-            <View style={styles.chatComposerRow}>
-              {!cActions.editing ? (
-                <HeaderIconBtn label="Attach photo, audio, call or gift" onPress={() => setTray(true)}><Icon name="plus" size={18} color={colors.fg} /></HeaderIconBtn>
-              ) : null}
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <AskBar placeholder={cActions.editing ? 'Edit your message' : 'Message...'} {...cActions.composer} />
-              </View>
-              {!cActions.editing ? (
-                <HeaderIconBtn label="Record a voice message" onPress={startVoice}><Icon name="mic" size={18} color={mediaOk ? colors.fg : colors.faint} /></HeaderIconBtn>
-              ) : null}
-            </View>
-          )}
-        </View>
-      ) : (
-        <View style={styles.followLockedCard}>
-          <View style={styles.followLockedIconCircle}>
-            <Icon name="volume" size={20} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-            <Text style={styles.followLockedTitle}>Only admins can post in this channel</Text>
-            <Text style={styles.followLockedSub}>You’ll see every new post here.</Text>
-          </View>
-        </View>
-      )}
-      {cActions.sheet}
-      <AttachTray
-        visible={tray}
-        onClose={() => setTray(false)}
-        items={[
-          { label: 'Photo', icon: 'image', tint: colors.sky, disabled: !mediaOk, onPress: sendPhotos },
-          { label: 'Voice message', icon: 'mic', tint: colors.rose, disabled: !mediaOk, onPress: startVoice },
-          { label: 'Audio file', icon: 'music', tint: colors.lavender, disabled: !mediaOk, onPress: sendAudioFile },
-          { label: 'Video call', icon: 'video', tint: colors.teal, onPress: () => setMeetOpen(true) },
-          ...(isDm && !isGroupChat ? [{ label: 'Gift coins', icon: 'gift', tint: colors.gold, disabled: !mediaOk, onPress: () => (mediaOk ? setGiftOpen(true) : needOnline()) }] : []),
-        ]}
-      />
-      <MeetPrompt visible={meetOpen} onClose={() => setMeetOpen(false)} onShare={shareMeet} />
-      <CoinGiftSheet visible={giftOpen} name={chat.with} balance={state.coins || 0} onClose={() => setGiftOpen(false)} onSend={sendCoins} onEarn={() => nav.push('Learn', { tab: 'Games' })} />
-      <ImageViewer source={viewer} onClose={() => setViewer(null)} />
-    </Screen>
-  );
-}
+// CHAT 7.3: the conversation screen moved to ./ChatScreen.js (virtualised thread, ticks, typing, files, search …)
+export { ChatScreen } from './ChatScreen';
 
 // ---------- Calendar ----------
 const KIND_TINT = { Observance: colors.gold, Season: colors.lavender, 'Church event': colors.primary, Community: colors.sage };
@@ -2204,6 +1934,7 @@ export function PersonScreen({ params = {} }) {
 }
 
 // ---------- Care Network ----------
+import { CareNetworkOptions, useCareSummary } from './CareNetworkScreens'; // CARE NETWORK: Talk to a Priest + Talk to an Apostle
 const CARE_ICONS = [
   ['chat', colors.primary], ['prayer', colors.gold], ['sparkles', colors.gold], ['book', colors.primary], ['church', colors.lavender],
   ['shield', colors.teal], ['briefcase', colors.sky], ['heart', colors.rose], ['users', colors.sage],
@@ -2212,6 +1943,7 @@ export function CareScreen({ params = {} }) {
   const nav = useNav();
   const { state } = useStore();
   const [choice, setChoice] = useState(params.preselect || null);
+  const { data: careSummary } = useCareSummary(); // CARE NETWORK: apostle availability, my priest profile, care inboxes
   const match = {
     'I need someone to talk to': ['p1', 'p5', 'p4'], 'I need prayer': ['p1', 'p6'], 'I need encouragement': ['p5', 'p1'], 'I want to study the Bible with someone': ['p4'],
     'I need pastoral guidance': ['p1'], 'I want a qualified counselor': ['p3'], 'I need a career or ministry mentor': ['p2', 'p5'], 'I want to encourage others': [], 'I want to join a support group': [],
@@ -2235,6 +1967,8 @@ export function CareScreen({ params = {} }) {
         <Text style={styles.careTitle}>{choice ? 'People who can walk with you' : 'How can we help today?'}</Text>
         <Text style={styles.careSub}>Sensitive conversations are private by default and never shared or monetized.</Text>
       </FadeInUp>
+      {!choice ? <CareNetworkOptions summary={careSummary} /> : null}
+      {!choice ? <Text style={[styles.careSub, { marginTop: 18, marginBottom: 2, fontWeight: '700' }]}>Or tell us what you need</Text> : null}
       {!choice ? CARE_OPTIONS.map((o, i) => {
         const [ic, tint] = CARE_ICONS[i % CARE_ICONS.length];
         return (

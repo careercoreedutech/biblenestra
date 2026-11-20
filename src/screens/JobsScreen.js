@@ -14,14 +14,14 @@ import { AnimatedModal, PressScale, FadeInUp, ScaleIn, Pop, Burst, AnimatedNumbe
 import ProfileButton from '../components/ProfileButton';
 import { useAds } from '../ads/Ads';
 import { AD_RULES } from '../ads/config';
-import { OpportunitiesEntryCard } from './OpportunitiesScreen'; // OPPORTUNITIES
+import { OpportunitiesEntryCard, CareerPrayerCard } from './OpportunitiesScreen'; // OPPORTUNITIES (+ daily career prayer, brief 12.4)
 
 const hasNumber = (v) => /\d/.test(String(v || ''));
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 
 // Bidding economy: posting is free; placing a bid costs coins, which can also be unlocked by watching rewarded ads.
 const BID_COST = AD_RULES.jobBidCost; // 20
-const ADS_NEEDED = AD_RULES.jobAdsForCoins; // 5
+const ADS_NEEDED_DEFAULT = AD_RULES.jobAdsForCoins; // 2 — online the server decides (GET /me jobAdsNeeded = jobs.bid_required_ads)
 const AD_COINS = AD_RULES.jobAdCoins; // 20
 const TOPUP_COINS = 100; // same simulated purchase as the Profile wallet's "+ Add 100 Coins"
 
@@ -89,6 +89,8 @@ export default function JobsScreen({ params = {} }) {
   const celebrateTimer = useRef(null);
   const applyScroll = useRef(null);
   useEffect(() => () => { clearTimeout(closeTimer.current); clearTimeout(celebrateTimer.current); }, []);
+  // Bid step open → start loading the rewarded ad now so "Watch ad" opens instantly (the next one loads while it plays)
+  useEffect(() => { if (showApplyModal && applyStep === 'bid') ads.preloadRewarded('job'); }, [showApplyModal, applyStep]);
 
   // Post Job/Task Form State
   const [postTitle, setPostTitle] = useState('');
@@ -106,6 +108,7 @@ export default function JobsScreen({ params = {} }) {
   const bidOn = (id) => bids[id] || null; // { coins, time } once the bid fee was paid for this job
   const coins = state.coins || 0;
   const adCredits = state.jobAdCredits || 0;
+  const ADS_NEEDED = (sync.me && sync.me.jobAdsNeeded) || ADS_NEEDED_DEFAULT; // rewarded ads per coin unlock (remote config)
   const openCount = jobs.filter((j) => j.status !== 'closed').length;
   const myListings = jobs.filter((j) => j.mine);
 
@@ -797,6 +800,7 @@ export default function JobsScreen({ params = {} }) {
                   proposal={{ bidRate: bidRate.trim(), deliveryTime: deliveryTime.trim() || 'Flexible' }}
                   coins={coins}
                   credits={adCredits}
+                  adsNeeded={ADS_NEEDED}
                   adBusy={adBusy}
                   celebrating={celebrating}
                   unlockFx={unlockFx}
@@ -1062,6 +1066,7 @@ export default function JobsScreen({ params = {} }) {
           </View>
         </View>
       </AnimatedModal>
+      <CareerPrayerCard />
     </Screen>
   );
 }
@@ -1075,7 +1080,8 @@ function PlusIcon({ size = 16, color = '#FFFFFF' }) {
 }
 
 // "Place your bid" — step 2 of applying. Two ways to cover the fee: pay coins, or watch rewarded ads to unlock coins.
-function BidGate({ job, proposal, coins, credits, adBusy, celebrating, unlockFx, onPay, onWatchAd, onBuy, onEdit }) {
+function BidGate({ job, proposal, coins, credits, adsNeeded, adBusy, celebrating, unlockFx, onPay, onWatchAd, onBuy, onEdit }) {
+  const ADS_NEEDED = adsNeeded || ADS_NEEDED_DEFAULT;
   const enough = coins >= BID_COST;
   const short = Math.max(0, BID_COST - coins);
   const lit = celebrating ? ADS_NEEDED : credits; // dots shown filled (all 5 during the unlock celebration)
@@ -1156,7 +1162,7 @@ function BidGate({ job, proposal, coins, credits, adBusy, celebrating, unlockFx,
           </View>
         </View>
 
-        {/* 5-step progress */}
+        {/* N-step progress (N = jobs.bid_required_ads, 2 by default) */}
         <View style={styles.dotsRow} accessibilityLabel={`${lit} of ${ADS_NEEDED} ads watched`}>
           {Array.from({ length: ADS_NEEDED }).map((_, i) => {
             const done = i < lit;
@@ -1190,7 +1196,7 @@ function BidGate({ job, proposal, coins, credits, adBusy, celebrating, unlockFx,
             </ScaleIn>
           ) : (
             <Text style={styles.dotsCaption}>
-              {credits ? `${credits} of ${ADS_NEEDED} watched · ${ADS_NEEDED - credits} to go` : `0 of ${ADS_NEEDED} watched`}
+              {credits ? `${credits} of ${ADS_NEEDED} ads watched · ${ADS_NEEDED - credits} to go` : `0 of ${ADS_NEEDED} ads watched`}
             </Text>
           )}
         </View>
