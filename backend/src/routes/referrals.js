@@ -6,7 +6,9 @@
 //            GET  /chat/allowance[?userId] counter for the new-chat flow (+ whether messaging userId uses a slot)
 //            GET  /paywall/eligibility?placement=…   may the subscription prompt be shown now?
 //            POST /paywall/impression { placement }  record a showing (capped per local day; idempotent-ish via cap)
+//            POST /chat/pass { idempotencyKey }      CHAT WEEK PASS: spend coins on 7 days of extra new chats
 //   admin:   PUT  /admin/api/users/:id/premium { premium, until? }  set subscriber status (no billing yet)
+//            GET  /admin/api/chat-passes             CHAT WEEK PASS: purchase log ("Chat passes" admin tab)
 import { Hono } from 'hono';
 import { ApiError, body, bad, notFound, forbidden, str, uuidParam, today, isUuid } from '../lib/http.js';
 import { one, q } from '../lib/db.js';
@@ -14,8 +16,13 @@ import { userJson } from '../lib/shape.js';
 import { notifyUser } from '../hub.js';
 import {
   chatAllowance, slotNeed, ensureInviteCode, normalizeCode, referralClaimDays,
-  isSubscriber, paywallMaxPerDay, REQUESTED_PLACEMENTS,
+  isSubscriber, isAdmin, paywallMaxPerDay, REQUESTED_PLACEMENTS,
+  buyWeekPass, weekPassOffer,
 } from '../lib/chatLimits.js';
+import { requireAdmin, registerAdminScript } from './admin.js';
+import { CHAT_PASS_ADMIN_SCRIPT } from '../lib/chatPassAdminPage.js';
+
+registerAdminScript(CHAT_PASS_ADMIN_SCRIPT); // CHAT WEEK PASS: "Chat passes" admin tab
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const PLAY_URL = (env, code) => `${(env && env.PLAY_STORE_URL) || 'https://play.google.com/store/apps/details?id=com.biblenestra.app'}&referrer=${encodeURIComponent(`invite=${code}`)}`;
@@ -141,6 +148,7 @@ async function paywallState(env, user, placement) {
   const r = await one(env, 'SELECT count(*)::int AS n FROM paywall_impressions WHERE user_id = $1 AND day = $2', [user.id, day]);
   const shownToday = r ? r.n : 0;
   const lastShownAt = user.paywall_last_shown_at ? new Date(user.paywall_last_shown_at).toISOString() : null;
+  if (isAdmin(user)) return { show: false, reason: 'admin', shownToday, max, lastShownAt, day }; // admins: no chat limits, no paywall
   if (isSubscriber(user)) return { show: false, reason: 'subscriber', shownToday, max, lastShownAt, day };
   if (REQUESTED_PLACEMENTS.has(placement)) return { show: true, reason: 'requested', shownToday, max, lastShownAt, day };
   if (shownToday >= max) return { show: false, reason: 'cap', shownToday, max, lastShownAt, day };
@@ -169,8 +177,39 @@ referrals.post('/paywall/impression', async (c) => {
   return c.json({ recorded: true, show: true, reason: s.reason, shownToday: s.shownToday + 1, max: s.max, lastShownAt: new Date(ins[0].shown_at).toISOString() });
 });
 
+// CHAT WEEK PASS: spend coins → 7 days of extra new chats. idempotencyKey (8–100 chars, made once per purchase tap
+// by the app) makes retries safe: the same key never charges twice and returns the original purchase.
+referrals.post('/chat/pass', async (c) => {
+  const me = c.get('user');
+  const key = str((await body(c)).idempotencyKey, { min: 8, max: 100, field: 'idempotencyKey' });
+  const r = await buyWeekPass(c.env, me, key);
+  return c.json({ ...r, passOffer: weekPassOffer(c.env) }, r.replay ? 200 : 201);
+});
+
 // ---------- admin ----------
 export const adminReferrals = new Hono();
+
+// CHAT WEEK PASS purchase log (read-only, newest first). Price/size are Worker vars, not editable here.
+adminReferrals.get('/admin/api/chat-passes', requireAdmin, async (c) => {
+  const before = parseInt(c.req.query('before') || '', 10);
+  const rows = await q(c.env, `SELECT p.id, p.coins, p.extra_slots, p.expires_at, p.extended, p.created_at,
+        u.id AS user_id, u.display_name, u.handle
+      FROM chat_passes p JOIN users u ON u.id = p.user_id
+      WHERE ($1::bigint IS NULL OR p.id < $1) ORDER BY p.id DESC LIMIT 50`, [Number.isInteger(before) ? before : null]);
+  const t = await one(c.env, `SELECT count(*)::int AS n, COALESCE(sum(coins), 0)::int AS coins,
+        count(*) FILTER (WHERE created_at > now() - interval '7 days')::int AS n7,
+        (SELECT count(*)::int FROM users WHERE chat_pass_until > now()) AS active
+      FROM chat_passes`);
+  return c.json({
+    offer: weekPassOffer(c.env),
+    totals: { purchases: t.n, coinsSpent: t.coins, purchases7d: t.n7, activePasses: t.active },
+    items: rows.map((r) => ({
+      id: String(r.id), coins: r.coins, extraSlots: r.extra_slots === -1 ? null : r.extra_slots, extended: r.extended,
+      expiresAt: new Date(r.expires_at).toISOString(), createdAt: new Date(r.created_at).toISOString(),
+      user: { id: r.user_id, displayName: r.display_name, handle: r.handle },
+    })),
+  });
+});
 
 adminReferrals.put('/admin/api/users/:id/premium', async (c) => {
   if (c.get('user').role !== 'admin') throw forbidden('Admins only', 'ADMIN_ONLY');

@@ -42,6 +42,8 @@ function normalizeItem(it) {
     deadline: it.deadline || null,
     postedAt: it.postedAt || null,
     salary: it.salary ? cleanText(it.salary) : null,
+    category: typeof it.category === 'string' ? it.category : null, // JOBS FEEDS
+    openTo: ['nigeria', 'africa', 'worldwide'].includes(it.openTo) ? it.openTo : null, // JOBS FEEDS
     source: {
       key: (it.source && it.source.key) || 'source',
       name: cleanText(it.source && it.source.name) || 'the original site',
@@ -54,11 +56,15 @@ export function useOpportunitiesApi() {
   const api = useApi();
   return useMemo(() => ({
     online: !!api.online,
-    async list({ kind, q, remote, cursor, limit = PAGE_SIZE } = {}) {
+    async list({ kind, q, remote, category, africa, source, cursor, limit = PAGE_SIZE } = {}) {
       const p = [`limit=${limit}`];
       if (kind && kind !== 'all') p.push(`kind=${encodeURIComponent(kind)}`);
       if (q && q.trim()) p.push(`q=${encodeURIComponent(q.trim())}`);
       if (remote) p.push('remote=1');
+      // JOBS FEEDS filters
+      if (category && category !== 'all') p.push(`category=${encodeURIComponent(category)}`);
+      if (africa) p.push('open=africa');
+      if (source) p.push(`source=${encodeURIComponent(source)}`);
       if (cursor) p.push(`cursor=${encodeURIComponent(cursor)}`);
       const res = (await api.request('GET', `/opportunities?${p.join('&')}`)) || {};
       const items = (Array.isArray(res.items) ? res.items : []).map(normalizeItem).filter(Boolean);
@@ -69,8 +75,30 @@ export function useOpportunitiesApi() {
       return {
         kinds: Array.isArray(res.kinds) ? res.kinds.filter((k) => k && k.kind) : [],
         sources: Array.isArray(res.sources) ? res.sources.filter((s) => s && s.name) : [],
+        categories: Array.isArray(res.categories) ? res.categories.filter((g) => g && g.id) : [], // JOBS FEEDS
+        openToAfrica: Number(res.openToAfrica) || 0,
         updatedAt: res.updatedAt || null,
       };
+    },
+    // JOBS FEEDS: the Job & Academic Directory (51 platforms in 7 categories)
+    async directory() {
+      const res = (await api.request('GET', '/opportunities/directory')) || {};
+      const categories = (Array.isArray(res.categories) ? res.categories : []).filter((g) => g && g.id).map((g) => ({
+        id: String(g.id),
+        label: cleanText(g.label) || String(g.id),
+        short: cleanText(g.short) || cleanText(g.label),
+        blurb: cleanText(g.blurb),
+        items: (Array.isArray(g.items) ? g.items : []).filter((d) => d && d.slug && d.name && isWebUrl(d.url)).map((d) => ({
+          slug: String(d.slug),
+          name: cleanText(d.name),
+          url: d.url.trim(),
+          description: cleanText(d.description),
+          live: !!d.live,
+          sourceKey: d.sourceKey || null,
+          listings: Number(d.listings) || 0,
+        })),
+      }));
+      return { categories };
     },
   }), [api.online, api.request]);
 }

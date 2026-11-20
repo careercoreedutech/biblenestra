@@ -17,7 +17,7 @@ import { errorMessage } from '../api/client';
 import { PEOPLE } from '../data/seed';
 import { ChatListRow, CHAT_ROW_HEIGHT } from '../components/chat/ChatListRow'; // CHAT 7.3
 import { relTime } from '../chat/messages';
-import { ChatSlotsCounter } from '../components/ChatLimit'; // CHAT LIMITS: "3 of 5 free chats used" (prompt itself is global, App.js)
+import { ChatSlotsCounter, ChatPassBadge } from '../components/ChatLimit'; // CHAT LIMITS: "3 of 5 free chats used" (prompt itself is global, App.js)
 
 const TABS = ['Chats', 'Groups', 'Communities', 'Channels', 'Find Believers'];
 
@@ -304,6 +304,7 @@ export function ChatsHomeScreen({ params = {} }) {
     >
       <View style={{ paddingHorizontal: 16 }}>
         <Pills items={TABS} value={tab} onChange={(t) => { setTab(t); setQuery(''); }} style={{ marginTop: 10, marginBottom: 6 }} />
+        {listTab ? <ChatPassBadge /> : null}{/* CHAT WEEK PASS: "Extra chats until Tue 26 Nov" (only while a pass is active) */}
       </View>
 
       {listTab ? (

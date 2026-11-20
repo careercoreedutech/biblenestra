@@ -116,7 +116,13 @@ function CodeBoxes({ value, onChange, onSubmit }) {
   );
 }
 
-const open = (url) => { Linking.openURL(url).catch(() => {}); };
+// LEGAL: Terms / Privacy open in the in-app browser (expo-web-browser), falling back to the system browser.
+const open = (url) => {
+  try {
+    // eslint-disable-next-line global-require
+    require('expo-web-browser').openBrowserAsync(url).catch(() => Linking.openURL(url).catch(() => {}));
+  } catch (e) { Linking.openURL(url).catch(() => {}); }
+};
 
 /**
  * Presentational sign-in. Handlers return promises and throw an Error with a friendly `message` on failure

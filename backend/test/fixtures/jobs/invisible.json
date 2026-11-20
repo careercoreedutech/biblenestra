@@ -1,0 +1,27 @@
+{
+ "jobs": [
+  {
+   "id": 7000001,
+   "internal_job_id": 7000002,
+   "title": "AI Data Trainer",
+   "company_name": "Invisible Technologies",
+   "absolute_url": "https://job-boards.greenhouse.io/x/jobs/7000001",
+   "location": {
+    "name": "Remote - Anywhere"
+   },
+   "updated_at": "2026-11-16T12:00:00.000Z",
+   "first_published": "2026-11-14T12:00:00.000Z",
+   "application_deadline": null,
+   "content": "&lt;div&gt;&lt;p&gt;About the role&lt;/p&gt;&lt;/div&gt;",
+   "departments": [
+    {
+     "id": 1,
+     "name": "Enterprise AI"
+    }
+   ]
+  }
+ ],
+ "meta": {
+  "total": 1
+ }
+}

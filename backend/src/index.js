@@ -53,6 +53,9 @@ import { companionVectorsCron } from './lib/companionSemantic.js'; // COMPANION 
 import { commentariesPublic } from './routes/commentaries.js'; // COMMENTARIES: GET /study/commentaries, /study/commentary/:id/:book/:chapter (public, cached)
 import { chatGaps, chatGapsPublic } from './routes/chatGaps.js'; // CHAT GAPS: /g/:code group-invite landing page, group bans
 import { runContestCron } from './lib/contestCron.js';
+import { blogPublic, adminBlog } from './routes/blog.js'; // BLOG: public /blog pages + JSON, admin Blog tab with AI auto-posting
+import { runBlogCron } from './lib/blog.js'; // BLOG: cron publishes scheduled posts and runs AI schedules
+import { legalPublic, accountDeletion, adminAccountDeletions } from './routes/legal.js'; // LEGAL: /terms, /privacy, /delete-account + account deletion
 
 export function createApp() {
   const app = new Hono();
@@ -116,6 +119,8 @@ export function createApp() {
   app.route('/', commentariesPublic); // COMMENTARIES: library + cached chapters (public)
   app.route('/', referralsPublic); // CHAT LIMITS: GET /i/:code invite landing page, GET /invite/:code preview
   app.route('/', chatGapsPublic); // CHAT GAPS: GET /g/:code (and /join/:code) group-invite landing page
+  app.route('/', blogPublic); // BLOG: GET /blog, /blog/:slug, /blog/api/posts[/:slug] (public, published posts only)
+  app.route('/', legalPublic); // LEGAL: GET /terms, /privacy, /delete-account (public HTML)
 
   // everything below needs a signed-in user
   app.use('*', requireUser());
@@ -182,6 +187,9 @@ export function createApp() {
   app.route('/', referrals); // CHAT LIMITS: /me/invite, /me/referral, /chat/allowance, /paywall/*
   app.route('/', adminReferrals); // CHAT LIMITS: PUT /admin/api/users/:id/premium (admin only)
   app.route('/', chatGaps); // CHAT GAPS: GET/DELETE /conversations/:id/bans (group admins)
+  app.route('/', adminBlog); // BLOG: /admin/api/blog/* posts, AI generation, schedules, runs, settings (admin only)
+  app.route('/', accountDeletion); // LEGAL: POST /me/delete-account (signed in)
+  app.route('/', adminAccountDeletions); // LEGAL: /admin/api/account-deletions (admin only)
 
   return app;
 }
@@ -198,5 +206,6 @@ export default {
     runContestCron(env, ctx),
     sweepAbandonedUploads(env).catch((e) => console.error('upload sweep failed', e)),
     companionVectorsCron(env).catch((e) => console.error('companion vectors failed', e)), // COMPANION MEANING SEARCH: embeds ≤15 missing verses per run
+    runBlogCron(env).catch((e) => console.error('blog cron failed', e)), // BLOG: publish due posts, run due AI schedules (≤ BLOG_CRON_POSTS posts per tick)
   ])),
 };

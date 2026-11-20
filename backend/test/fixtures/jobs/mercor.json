@@ -1,0 +1,80 @@
+{
+ "apiVersion": "1",
+ "jobs": [
+  {
+   "id": "m-1",
+   "title": "Expert Reviewer",
+   "department": "Revenue",
+   "team": "Ops",
+   "employmentType": "FullTime",
+   "location": "Remote",
+   "secondaryLocations": [],
+   "publishedAt": "2026-11-15T12:00:00.000Z",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Remote",
+   "address": {
+    "postalAddress": {
+     "addressCountry": ""
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/x/m-1",
+   "applyUrl": "https://jobs.ashbyhq.com/x/m-1/application",
+   "descriptionHtml": "<p>Hi</p>",
+   "descriptionPlain": "About the job.",
+   "compensation": {
+    "scrapeableCompensationSalarySummary": "$80K - $100K"
+   }
+  },
+  {
+   "id": "m-2",
+   "title": "Office Manager",
+   "department": "Revenue",
+   "team": "Ops",
+   "employmentType": "FullTime",
+   "location": "San Francisco",
+   "secondaryLocations": [],
+   "publishedAt": "2026-11-15T12:00:00.000Z",
+   "isListed": true,
+   "isRemote": false,
+   "workplaceType": "OnSite",
+   "address": {
+    "postalAddress": {
+     "addressCountry": "United States"
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/x/m-2",
+   "applyUrl": "https://jobs.ashbyhq.com/x/m-2/application",
+   "descriptionHtml": "<p>Hi</p>",
+   "descriptionPlain": "About the job.",
+   "compensation": {
+    "scrapeableCompensationSalarySummary": "$80K - $100K"
+   }
+  },
+  {
+   "id": "m-3",
+   "title": "Unlisted",
+   "department": "Revenue",
+   "team": "Ops",
+   "employmentType": "FullTime",
+   "location": "Remote",
+   "secondaryLocations": [],
+   "publishedAt": "2026-11-15T12:00:00.000Z",
+   "isListed": false,
+   "isRemote": true,
+   "workplaceType": "Remote",
+   "address": {
+    "postalAddress": {
+     "addressCountry": ""
+    }
+   },
+   "jobUrl": "https://jobs.ashbyhq.com/x/m-3",
+   "applyUrl": "https://jobs.ashbyhq.com/x/m-3/application",
+   "descriptionHtml": "<p>Hi</p>",
+   "descriptionPlain": "About the job.",
+   "compensation": {
+    "scrapeableCompensationSalarySummary": "$80K - $100K"
+   }
+  }
+ ]
+}

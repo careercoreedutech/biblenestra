@@ -1,33 +1,41 @@
-// BibleNestra logo — an open book with a cross, in the warm brand colours — and the logo-only splash
-// shown while the app really starts (fonts, saved state, intro flag, Clerk session). No timers here:
-// the splash is visible exactly as long as that work takes.
+// BibleNestra logo — a flat open book in our orange/gold with a white cross on the right page and wave bands
+// beneath in the onboarding slide colours (yellow, blue, green) — and the logo-only splash shown while the
+// app really starts (fonts, saved state, intro flag, Clerk session). No timers here: the splash is visible
+// exactly as long as that work takes. The same drawing is rendered to assets/splash-white.png for the
+// native splash (keep them in sync).
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
 
 export const SPLASH_BG = '#FFFFFF';
 
+// Shared path data (also used to render the native splash PNG)
+export const LOGO_PATHS = {
+  leftPage: 'M60 34C47 25 29 22 10 25v50c19-3 37 0 50 9z',
+  rightPage: 'M60 34c13-9 31-12 50-9v50c-19-3-37 0-50 9z',
+  spine: 'M60 34v50',
+  band1: 'M10 84c19-3 37 0 50 9 13-9 31-12 50-9',
+  band2: 'M10 94c19-3 37 0 50 9 13-9 31-12 50-9',
+  band3: 'M10 104c19-3 37 0 50 9 13-9 31-12 50-9',
+};
+export const LOGO_COLORS = { left: '#F5A524', right: '#F07A35', spine: '#D9621F', band1: '#F8BE14', band2: '#3FA2E3', band3: '#4CAF82' };
+
 export function BrandLogo({ size = 96 }) {
+  const P = LOGO_PATHS;
+  const C = LOGO_COLORS;
   return (
-    <Svg width={size} height={size} viewBox="0 0 120 120" accessibilityLabel="BibleNestra">
-      <Defs>
-        <LinearGradient id="bnPage" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor="#F2B23E" />
-          <Stop offset="1" stopColor="#E07B2C" />
-        </LinearGradient>
-        <LinearGradient id="bnCross" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor="#C2551F" />
-          <Stop offset="1" stopColor="#9E3F17" />
-        </LinearGradient>
-      </Defs>
-      {/* cross rising from the spine */}
-      <Path d="M56 10h8v18h14v8H64v28h-8V36H42v-8h14z" fill="url(#bnCross)" />
-      {/* left page */}
-      <Path d="M58 66C47 58 31 55 12 57v41c19-2 35 1 46 9z" fill="url(#bnPage)" />
-      {/* right page */}
-      <Path d="M62 66c11-8 27-11 46-9v41c-19-2-35 1-46 9z" fill="url(#bnPage)" />
-      {/* page lines */}
-      <Path d="M22 68c11-.6 21 1.2 29 5M22 78c11-.6 21 1.2 29 5M98 68c-11-.6-21 1.2-29 5M98 78c-11-.6-21 1.2-29 5" stroke="#FFFFFF" strokeOpacity={0.55} strokeWidth={2.4} strokeLinecap="round" fill="none" />
+    <Svg width={size} height={size} viewBox="0 9 120 120" accessibilityLabel="BibleNestra">
+      {/* pages */}
+      <Path d={P.leftPage} fill={C.left} />
+      <Path d={P.rightPage} fill={C.right} />
+      <Path d={P.spine} stroke={C.spine} strokeWidth={2} strokeLinecap="round" />
+      {/* white cross on the right page */}
+      <Rect x={81} y={36} width={7} height={34} rx={1.5} fill="#FFFFFF" />
+      <Rect x={73} y={45} width={23} height={7} rx={1.5} fill="#FFFFFF" />
+      {/* wave bands under the pages */}
+      <Path d={P.band1} stroke={C.band1} strokeWidth={7} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <Path d={P.band2} stroke={C.band2} strokeWidth={7} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <Path d={P.band3} stroke={C.band3} strokeWidth={7} strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </Svg>
   );
 }
@@ -35,7 +43,7 @@ export function BrandLogo({ size = 96 }) {
 export function SplashView() {
   return (
     <View style={styles.splash} accessibilityLabel="BibleNestra is starting">
-      <BrandLogo size={104} />
+      <BrandLogo size={168} />
     </View>
   );
 }

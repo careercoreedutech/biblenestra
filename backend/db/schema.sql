@@ -1628,3 +1628,143 @@ CREATE TABLE IF NOT EXISTS conversation_bans (
   created_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (conversation_id, user_id)
 );
+
+-- ---------- CHAT WEEK PASS (client: "when chat reach limits, people can purchase coins to unlock weekly chats") ----------
+-- lib/chatLimits.js buyWeekPass(): coins → 7 days of extra NEW chats (CHAT_WEEK_PASS_COINS / CHAT_WEEK_PASS_EXTRA_SLOTS).
+-- Chats started through a pass are tagged via_pass so the free count never exceeds chat.free_platform_slots.
+ALTER TABLE chat_slots ADD COLUMN IF NOT EXISTS via_pass boolean NOT NULL DEFAULT false;
+-- current pass chain (extends from the current expiry while active; a purchase after expiry starts a new chain)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_pass_started_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_pass_until timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS chat_pass_extra integer NOT NULL DEFAULT 0; -- extra new chats in the chain, -1 = unlimited
+-- append-only purchase log (admin "Chat passes" tab); UNIQUE key = no double charge on retries
+CREATE TABLE IF NOT EXISTS chat_passes (
+  id              bigserial PRIMARY KEY,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  idempotency_key text NOT NULL CHECK (char_length(idempotency_key) BETWEEN 8 AND 100),
+  coins           integer NOT NULL CHECK (coins > 0),
+  extra_slots     integer NOT NULL,              -- -1 = unlimited
+  expires_at      timestamptz NOT NULL,          -- the chain's expiry after this purchase
+  extended        boolean NOT NULL DEFAULT false, -- bought while a pass was still active
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS chat_passes_created ON chat_passes (created_at DESC);
+-- PLAY BILLING HOOK (Phase 3, lib/coinPurchases.js creditPurchasedCoins): one credit per Play purchase token
+CREATE UNIQUE INDEX IF NOT EXISTS coin_ledger_purchase_ref ON coin_ledger (ref) WHERE reason = 'purchase';
+
+-- ---------- BLOG: our own blog at /blog (routes/blog.js, lib/blog.js) + AI auto-posting schedules ----------
+CREATE TABLE IF NOT EXISTS blog_schedules (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name           text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 80),
+  topics         jsonb NOT NULL DEFAULT '[]'::jsonb,      -- ["Prayer", "Faith", "my custom topic"] (rotated in order)
+  prompt         text NOT NULL DEFAULT '',                -- free guidance for the writer
+  tone           text NOT NULL DEFAULT 'warm',
+  length         text NOT NULL DEFAULT 'medium' CHECK (length IN ('short','medium','long')),
+  posts_per_run  integer NOT NULL DEFAULT 1 CHECK (posts_per_run BETWEEN 1 AND 5),
+  frequency      text NOT NULL DEFAULT 'daily' CHECK (frequency IN ('daily','weekly','monthly')),
+  weekdays       jsonb NOT NULL DEFAULT '[1]'::jsonb,     -- weekly: 0 = Sunday … 6 = Saturday
+  month_day      integer NOT NULL DEFAULT 1 CHECK (month_day BETWEEN 1 AND 31), -- monthly (31 → last day of short months)
+  time_of_day    text NOT NULL DEFAULT '08:00',           -- local HH:MM in timezone
+  timezone       text NOT NULL DEFAULT 'Africa/Lagos',
+  publish_mode   text NOT NULL DEFAULT 'draft' CHECK (publish_mode IN ('draft','publish')),
+  notify         boolean NOT NULL DEFAULT false,          -- queue an inbox broadcast when its post is published
+  active         boolean NOT NULL DEFAULT true,
+  base_url       text,                                    -- public origin captured from the admin (for notification links)
+  next_run_at    timestamptz,
+  last_run_at    timestamptz,
+  pending        integer NOT NULL DEFAULT 0,              -- posts still to write for the current run
+  pending_run_id uuid,
+  topic_cursor   integer NOT NULL DEFAULT 0,              -- rotation position in topics
+  created_by     uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS blog_schedules_due ON blog_schedules (next_run_at) WHERE active;
+CREATE TABLE IF NOT EXISTS blog_posts (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug            text NOT NULL UNIQUE,
+  title           text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 160),
+  excerpt         text NOT NULL DEFAULT '',
+  body            text NOT NULL DEFAULT '',               -- simple Markdown (rendered + escaped server-side)
+  cover_key       text,                                   -- R2 key from /uploads/image or an https URL
+  topic           text,
+  tags            jsonb NOT NULL DEFAULT '[]'::jsonb,
+  status          text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','scheduled','published')),
+  publish_at      timestamptz,                            -- scheduled: goes live at this time
+  published_at    timestamptz,
+  author          text NOT NULL DEFAULT 'BibleNestra',
+  source          text NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','ai')),
+  schedule_id     uuid REFERENCES blog_schedules(id) ON DELETE SET NULL,
+  run_id          uuid,
+  seo_description text NOT NULL DEFAULT '',
+  reading_minutes integer NOT NULL DEFAULT 1,
+  views           integer NOT NULL DEFAULT 0,
+  review_note     text,                                   -- e.g. "Held for review: politics"
+  notified_at     timestamptz,
+  created_by      uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS blog_posts_live ON blog_posts (published_at DESC) WHERE status = 'published';
+CREATE INDEX IF NOT EXISTS blog_posts_due ON blog_posts (publish_at) WHERE status = 'scheduled';
+CREATE INDEX IF NOT EXISTS blog_posts_recent ON blog_posts (created_at DESC);
+CREATE TABLE IF NOT EXISTS blog_runs (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  schedule_id  uuid REFERENCES blog_schedules(id) ON DELETE CASCADE,
+  trigger      text NOT NULL DEFAULT 'cron' CHECK (trigger IN ('cron','manual')),
+  status       text NOT NULL DEFAULT 'running' CHECK (status IN ('running','success','partial','failed')),
+  wanted       integer NOT NULL DEFAULT 1,
+  made         integer NOT NULL DEFAULT 0,
+  failed       integer NOT NULL DEFAULT 0,
+  post_ids     jsonb NOT NULL DEFAULT '[]'::jsonb,
+  notes        jsonb NOT NULL DEFAULT '[]'::jsonb,
+  error        text,
+  started_at   timestamptz NOT NULL DEFAULT now(),
+  finished_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS blog_runs_recent ON blog_runs (started_at DESC);
+CREATE TABLE IF NOT EXISTS blog_settings (
+  id              integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  disclaimer      boolean NOT NULL DEFAULT false,         -- show a line under AI-written posts
+  disclaimer_text text,
+  author_name     text,
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- ---------- LEGAL: account deletion log (routes/legal.js, lib/accountDeletion.js) ----------
+-- One row per deleted account. Holds NO personal data (no user id, name, email or handle): only when, how and
+-- what was removed, so a deletion can be shown as done. pending_login_id is the Clerk id ONLY while the Clerk login
+-- still needs deleting (admin "Retry"); it is cleared as soon as that succeeds.
+CREATE TABLE IF NOT EXISTS account_deletions (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source           text NOT NULL CHECK (source IN ('app','admin')),
+  status           text NOT NULL CHECK (status IN ('done','partial')),
+  files_deleted    integer NOT NULL DEFAULT 0,
+  files_failed     integer NOT NULL DEFAULT 0,
+  login_deleted    boolean NOT NULL DEFAULT false,
+  pending_login_id text,
+  note             text,
+  requested_at     timestamptz NOT NULL DEFAULT now(),
+  completed_at     timestamptz
+);
+CREATE INDEX IF NOT EXISTS account_deletions_requested ON account_deletions (requested_at DESC);
+
+-- ---------- JOBS FEEDS (round 2): who can apply, permission-gated sources, the Job & Academic Directory ----------
+-- open_to: 'nigeria' | 'africa' | 'worldwide' | NULL (unknown) — set by the importer where the source data says so
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS open_to text;
+CREATE INDEX IF NOT EXISTS opportunities_open_to ON opportunities (open_to) WHERE open_to IS NOT NULL;
+-- admin_on: set when an admin switches a source on; sources whose terms need permission run only when true
+ALTER TABLE opportunity_sources ADD COLUMN IF NOT EXISTS admin_on boolean NOT NULL DEFAULT false;
+-- Admin edits to the directory (defaults live in src/lib/jobsDirectory.js; a row here overrides the default with the
+-- same slug, or adds a new entry)
+CREATE TABLE IF NOT EXISTS opportunity_directory (
+  slug        text PRIMARY KEY CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,39}$'),
+  category    text NOT NULL,
+  name        text NOT NULL,
+  url         text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  hidden      boolean NOT NULL DEFAULT false,
+  sort        integer,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);

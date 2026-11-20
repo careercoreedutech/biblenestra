@@ -1,18 +1,18 @@
-// First-run onboarding (brief §4): logo splash → three swipeable value slides → sign-in.
-//   Each slide: top ~62% solid saturated colour with a full-bleed photo of a real person and large white ring
-//   outlines; bottom ~38% white card with rounded top corners overlapping the photo — pagination dots (active =
-//   pill in the slide colour), a short bold title, one grey sentence, "Skip" bottom-left and a round next
-//   button bottom-right. Nothing else.
-//   Skip (or Next on the last slide) → the sign-in screen (online mode) or straight into the app (local mode).
+// First-run onboarding (brief §4): logo splash → four swipeable value slides → sign-in.
+//   Each slide follows the client's reference: the top ~60% is a full-bleed photo of a person standing on a
+//   solid colour (the photo's own studio background is recoloured to the slide colour), with thick white ring
+//   outlines partly off the edges; then a white card with rounded top corners overlapping the photo —
+//   pagination dots (active = pill in the slide colour), a short bold title, a two-line body, "Skip"
+//   bottom-left and a round arrow button in the slide colour bottom-right. Nothing else.
+//   Skip (or the arrow on the last slide) → the sign-in screen (online mode) or straight into the app (local mode).
 //   Shown once per install; returning users go straight to Today.
-// Copy, colours and photo URLs live in src/data/onboarding.js.
+// Copy, colours and photos live in src/data/onboarding.js.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, fonts } from '../theme';
+import { colors } from '../theme';
 import { Icon } from '../components/Icons';
 import { PressScale } from '../components/Motion';
 import { SplashView } from '../components/BrandLogo';
@@ -20,28 +20,24 @@ import { ONBOARDING_SLIDES } from '../data/onboarding';
 
 export const INTRO_KEY = 'biblenestra:introSeen:v1';
 const SLIDES = ONBOARDING_SLIDES;
+const OVERLAP = 34; // how far the white card runs up over the photo
 
-// Large decorative ring outlines, partly cropped by the edges of the colour area
+// Thick white ring outlines, partly cropped by the edges of the colour area (as in the reference).
+// Kept to the edges so they frame the person rather than cross the face.
 function Rings({ w, h }) {
-  const big = Math.max(w, h) * 0.95;
-  const mid = w * 0.78;
-  const small = w * 0.34;
+  const t = Math.max(8, Math.round(w * 0.032)); // ring thickness
+  const ring = (key, d, cx, cy, bw = t) => (
+    <View key={key} style={[styles.ring, { width: d, height: d, borderRadius: d / 2, left: cx - d / 2, top: cy - d / 2, borderWidth: bw }]} />
+  );
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <View style={[styles.ring, { width: big, height: big, borderRadius: big / 2, left: -big * 0.42, top: -big * 0.18, borderWidth: 2.5 }]} />
-      <View style={[styles.ring, { width: mid, height: mid, borderRadius: mid / 2, right: -mid * 0.38, top: h * 0.3, borderWidth: 2 }]} />
-      <View style={[styles.ring, { width: small, height: small, borderRadius: small / 2, right: w * 0.08, top: h * 0.06, borderWidth: 1.6, opacity: 0.8 }]} />
+      {ring('a', w * 0.7, w * -0.06, h * 0.1)}
+      {ring('b', w * 0.46, w * 1.04, h * 0.5)}
+      {ring('c', w * 0.13, w * 0.86, h * 0.13, Math.round(t * 0.7))}
+      {ring('d', w * 0.3, w * -0.02, h * 0.8, Math.round(t * 0.85))}
     </View>
   );
 }
-
-// One ring drawn over the photo so it sits "inside" the decoration
-function FrontRing({ w, h }) {
-  const d = w * 0.5;
-  return <View pointerEvents="none" style={[styles.ring, { width: d, height: d, borderRadius: d / 2, left: -d * 0.3, top: h * 0.52, borderWidth: 2 }]} />;
-}
-
-const alphaHex = (hex, a) => `${hex}${Math.round(a * 255).toString(16).padStart(2, '0')}`;
 
 function Dots({ count, active, color }) {
   return (
@@ -53,40 +49,42 @@ function Dots({ count, active, color }) {
   );
 }
 
-function Slide({ s, index, width, height, insetTop, insetBottom, onSkip, onNext, last }) {
-  const topH = Math.round(height * 0.62);
-  const archW = Math.min(width * 0.8, (topH - insetTop) * 0.82);
+// Card metrics: room for everything the card can hold (2-line title, 3-line body) is reserved up front,
+// so on short phones the photo gives way and the text never clips.
+function cardMetrics(height, insetBottom) {
+  const compact = height < 720;
+  const m = compact
+    ? { padTop: 20, gapTitle: 14, title: 25, titleLH: 30, gapBody: 8, body: 14.5, bodyLH: 21, btn: 56, gapFoot: 14 }
+    : { padTop: 26, gapTitle: 18, title: 28, titleLH: 34, gapBody: 10, body: 15.5, bodyLH: 23, btn: 64, gapFoot: 18 };
+  m.padBottom = Math.max(insetBottom, 14) + (compact ? 6 : 10);
+  m.need = m.padTop + 8 + m.gapTitle + m.titleLH * 2 + m.gapBody + m.bodyLH * 3 + m.gapFoot + m.btn + m.padBottom;
+  return m;
+}
+
+function Slide({ s, index, width, height, insetBottom, onSkip, onNext, last }) {
+  const m = cardMetrics(height, insetBottom);
+  const topH = Math.round(Math.min(height * 0.6, height - m.need)); // where the card starts
   const [failed, setFailed] = useState(false);
   const photo = typeof s.photo === 'string' ? { uri: s.photo } : s.photo;
   return (
     <View style={{ width, height, backgroundColor: '#FFFFFF', overflow: 'hidden' }} accessibilityLabel={`${index + 1} of ${SLIDES.length}: ${s.title}`}>
-      <View style={[styles.top, { height: topH + 34, backgroundColor: s.color }]}>
-        <Rings w={width} h={topH} />
+      <View style={[styles.top, { height: topH + OVERLAP, backgroundColor: s.color }]}>
         {photo && !failed ? (
-          s.cutout ? (
-            // a transparent PNG of the person: stands straight on the colour, edge to edge
-            <Image source={photo} onError={() => setFailed(true)} resizeMode="contain" style={[styles.cutout, { top: insetTop + 12 }]} accessibilityIgnoresInvertColors />
-          ) : (
-            // a regular photo: a tall arch on the solid colour, running under the white card
-            <View style={[styles.arch, { width: archW, height: topH + 34 - insetTop - 22, borderTopLeftRadius: archW / 2, borderTopRightRadius: archW / 2, left: (width - archW) / 2 }]}>
-              <Image source={photo} onError={() => setFailed(true)} resizeMode="cover" style={StyleSheet.absoluteFill} accessibilityIgnoresInvertColors />
-              <LinearGradient pointerEvents="none" colors={['transparent', alphaHex(s.color, 0.35)]} style={styles.archFade} />
-            </View>
-          )
+          <Image source={photo} onError={() => setFailed(true)} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width, height: topH + OVERLAP }} accessibilityIgnoresInvertColors />
         ) : null}
-        <FrontRing w={width} h={topH} />
+        {s.ringsInPhoto ? null : <Rings w={width} h={topH + OVERLAP} />}
       </View>
-      <View style={[styles.card, { top: topH, paddingBottom: Math.max(insetBottom, 14) + 10 }]}>
+      <View style={[styles.card, { top: topH, paddingTop: m.padTop, paddingBottom: m.padBottom }]}>
         <Dots count={SLIDES.length} active={index} color={s.color} />
-        <Text style={styles.title} numberOfLines={2} accessibilityRole="header">{s.title}</Text>
-        <Text style={styles.body} numberOfLines={3}>{s.body}</Text>
-        <View style={{ flex: 1 }} />
+        <Text style={[styles.title, { marginTop: m.gapTitle, fontSize: m.title, lineHeight: m.titleLH }]} numberOfLines={2} accessibilityRole="header">{s.title}</Text>
+        <Text style={[styles.body, { marginTop: m.gapBody, fontSize: m.body, lineHeight: m.bodyLH }]} numberOfLines={3}>{s.body}</Text>
+        <View style={{ flex: 1, minHeight: m.gapFoot }} />
         <View style={styles.footer}>
           <PressScale onPress={onSkip} hitSlop={14} accessibilityRole="button" accessibilityLabel="Skip the introduction">
             <Text style={styles.skip}>Skip</Text>
           </PressScale>
-          <PressScale onPress={onNext} scaleTo={0.92} style={[styles.next, { backgroundColor: s.color }]} accessibilityRole="button" accessibilityLabel={last ? 'Get started' : 'Next'}>
-            <Icon name="arrow-right" size={24} color="#FFFFFF" strokeWidth={2.4} />
+          <PressScale onPress={onNext} scaleTo={0.92} style={[styles.next, { width: m.btn, height: m.btn, borderRadius: m.btn / 2, backgroundColor: s.color }]} accessibilityRole="button" accessibilityLabel={last ? 'Get started' : 'Next'}>
+            <Icon name="arrow-right" size={m.btn > 60 ? 26 : 23} color="#FFFFFF" strokeWidth={2.6} />
           </PressScale>
         </View>
       </View>
@@ -139,7 +137,6 @@ export function IntroView({ onDone }) {
             index={i}
             width={width}
             height={height}
-            insetTop={insets.top}
             insetBottom={insets.bottom}
             last={i === SLIDES.length - 1}
             onSkip={() => onDone('skip')}
@@ -187,28 +184,25 @@ export function IntroGate({ children }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#FFFFFF' },
   top: { position: 'absolute', left: 0, right: 0, top: 0, overflow: 'hidden' },
-  arch: { position: 'absolute', bottom: 0, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.18)' },
-  archFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '40%' },
-  cutout: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  ring: { position: 'absolute', borderColor: 'rgba(255,255,255,0.85)' },
+  ring: { position: 'absolute', borderColor: '#FFFFFF' },
   card: {
-    position: 'absolute', left: 0, right: 0, bottom: 0, // starts 34dp above the end of the colour area (overlap)
+    position: 'absolute', left: 0, right: 0, bottom: 0, // starts OVERLAP dp above the end of the colour area
     backgroundColor: '#FFFFFF', borderTopLeftRadius: 34, borderTopRightRadius: 34,
-    paddingHorizontal: 28, paddingTop: 26,
+    paddingHorizontal: 28,
     ...Platform.select({
       web: { boxShadow: '0 -8px 24px rgba(21,23,43,0.08)' },
       default: { shadowColor: '#15172B', shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 8 },
     }),
   },
-  dots: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#E2DED6' },
-  dotOn: { width: 28 },
-  title: { marginTop: 20, fontFamily: fonts.serifBold, fontSize: 30, lineHeight: 36, letterSpacing: -0.6, color: colors.fg },
-  body: { marginTop: 10, fontSize: 15.5, lineHeight: 23, color: '#7A7468' },
+  dots: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#E4E1DA' },
+  dotOn: { width: 26 },
+  title: { fontWeight: '800', letterSpacing: -0.5, color: colors.fg },
+  body: { color: '#85807A' },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   skip: { fontSize: 16, fontWeight: '600', color: '#8E887C', paddingVertical: 8, paddingRight: 12 },
   next: {
-    width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
     ...Platform.select({
       web: { boxShadow: '0 8px 18px rgba(21,23,43,0.18)' },
       default: { shadowColor: '#15172B', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 12, elevation: 6 },

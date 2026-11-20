@@ -1,0 +1,41 @@
+{
+ "status": "success",
+ "result": {
+  "total_count": 1,
+  "users": {},
+  "projects": [
+   {
+    "id": 40827350,
+    "title": "Travel Agency Website Build",
+    "seo_url": "web-development/Travel-Agency-Website-Build",
+    "status": "active",
+    "type": "fixed",
+    "currency": {
+     "code": "USD",
+     "sign": "$",
+     "exchange_rate": 1
+    },
+    "budget": {
+     "minimum": 250,
+     "maximum": 750
+    },
+    "time_submitted": 1795003200,
+    "bidperiod": 7,
+    "preview_description": "I run a tour company...",
+    "jobs": [
+     {
+      "id": 3,
+      "name": "PHP"
+     },
+     {
+      "id": 17,
+      "name": "Website Design"
+     }
+    ],
+    "location": {
+     "country": {}
+    }
+   }
+  ]
+ }
+}

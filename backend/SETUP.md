@@ -89,6 +89,26 @@ Then build with EAS (`eas build`). Without these two values the app runs in **lo
    but Donate replies "Donations open soon".
 6. Rebuild the app: `eas build --profile preview --platform android` (new native packages: webview, document picker, clipboard).
 
+## Chat week pass (coins) — price and size
+Free users who reach the new-chat limit (`CHAT_FREE_PLATFORM_SLOTS`, default 5) can spend coins on a **7-day chat
+pass**. Admins (`users.role = 'admin'`) and subscribers never hit the limit and never see the sheet. Change the offer
+with Worker vars (in `wrangler.toml` `[vars]`, or Cloudflare dashboard → Worker → Settings → Variables), then deploy.
+No app release is needed: the app reads the offer from `GET /chat/allowance`.
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `CHAT_WEEK_PASS_COINS` | `100` | Price of one pass in coins (1 to 100000) |
+| `CHAT_WEEK_PASS_EXTRA_SLOTS` | `10` | Extra **new** chats per pass (1 to 1000), or `unlimited` = no new-chat limit while the pass runs |
+
+Buying again while a pass is active adds 7 days from the current expiry and adds the extra chats. When it expires,
+chats already started stay open; only new chats are limited again. Purchases are listed in `/admin` → **Chat passes**
+and in each user's coin history (reason `chat_week_pass`). Run `schema.sql` first (adds `chat_passes`,
+`chat_slots.via_pass`, `users.chat_pass_*`).
+
+**Buying coins with real money is not live.** It needs Google Play Billing (Phase 3). The one place that will credit
+purchased coins is `creditPurchasedCoins()` in `src/lib/coinPurchases.js` (idempotent per Play purchase token). Until
+then "Buy coins" opens the Kingdom Wallet with a "coming soon" note.
+
 ## Production checklist
 - `PAYMENTS_MODE` not set (never `test`) in production.
 - `AUTH_DEV_MODE="false"` and `ADS_CLIENT_CLAIM="false"` in `wrangler.toml` (they are by default).

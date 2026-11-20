@@ -1,0 +1,68 @@
+{
+ "totalCount": 4,
+ "jobs": [
+  {
+   "title": "Backend Engineer",
+   "excerpt": "Backend Engineer — join our remote team.",
+   "companyName": "Acme Remote",
+   "companySlug": "acme",
+   "employmentType": "Full Time",
+   "seniority": [
+    "Mid-level"
+   ],
+   "minSalary": 40000,
+   "maxSalary": 60000,
+   "currency": "USD",
+   "salaryPeriod": "annual",
+   "locationRestrictions": [],
+   "timezoneRestrictions": [
+    0,
+    1
+   ],
+   "categories": [
+    "Software-Engineer"
+   ],
+   "parentCategories": [
+    "Developer"
+   ],
+   "description": "<p>Build <b>things</b>.</p>",
+   "pubDate": 1795003200,
+   "expiryDate": 4070908800,
+   "applicationLink": "https://himalayas.app/companies/acme/jobs/backend-engineer?utm_source=api",
+   "guid": "https://himalayas.app/companies/acme/jobs/backend-engineer"
+  },
+  {
+   "title": "Customer Support Lead",
+   "excerpt": "Customer Support Lead — join our remote team.",
+   "companyName": "Acme Remote",
+   "companySlug": "acme",
+   "employmentType": "Full Time",
+   "seniority": [
+    "Mid-level"
+   ],
+   "minSalary": 40000,
+   "maxSalary": 60000,
+   "currency": "USD",
+   "salaryPeriod": "annual",
+   "locationRestrictions": [
+    "Nigeria",
+    "Ghana"
+   ],
+   "timezoneRestrictions": [
+    0,
+    1
+   ],
+   "categories": [
+    "Software-Engineer"
+   ],
+   "parentCategories": [
+    "Developer"
+   ],
+   "description": "<p>Build <b>things</b>.</p>",
+   "pubDate": 1795003200,
+   "expiryDate": 4070908800,
+   "applicationLink": "https://himalayas.app/companies/acme/jobs/support-lead?utm_source=api",
+   "guid": "https://himalayas.app/companies/acme/jobs/support-lead"
+  }
+ ]
+}

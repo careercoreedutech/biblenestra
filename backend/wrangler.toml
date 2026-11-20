@@ -45,6 +45,9 @@ CLERK_PUBLISHABLE_KEY = "pk_test_YmVsb3ZlZC1mb3hob3VuZC04NDU1LmNsZXJrLmFjY291bnR
 # Sermon notes model (Workers AI text generation). Transcription uses @cf/openai/whisper-large-v3-turbo.
 NOTES_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8"
 ADMIN_USERNAME = "benjamin"
+# CHAT WEEK PASS (coins → 7 days of extra new chats). Uncomment to change the defaults; see SETUP.md.
+# CHAT_WEEK_PASS_COINS = "100"
+# CHAT_WEEK_PASS_EXTRA_SLOTS = "10"   # or "unlimited"
 
 # Secrets (set with `npx wrangler secret put NAME`, never commit them):
 #   DATABASE_URL            Neon connection string (postgresql://…?sslmode=require)

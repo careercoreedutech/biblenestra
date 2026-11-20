@@ -1,0 +1,47 @@
+{
+ "jobs": [
+  {
+   "id": 6128357004,
+   "internal_job_id": 6128357005,
+   "title": "AI Engagement Lead",
+   "company_name": "Turing",
+   "absolute_url": "https://job-boards.greenhouse.io/x/jobs/6128357004",
+   "location": {
+    "name": "New York, New York, United States"
+   },
+   "updated_at": "2026-11-16T12:00:00.000Z",
+   "first_published": "2026-11-14T12:00:00.000Z",
+   "application_deadline": null,
+   "content": "&lt;div&gt;&lt;p&gt;About the role&lt;/p&gt;&lt;/div&gt;",
+   "departments": [
+    {
+     "id": 1,
+     "name": "Enterprise AI"
+    }
+   ]
+  },
+  {
+   "id": 6128357005,
+   "internal_job_id": 6128357006,
+   "title": "LLM Trainer (Remote, Africa)",
+   "company_name": "Turing",
+   "absolute_url": "https://job-boards.greenhouse.io/x/jobs/6128357005",
+   "location": {
+    "name": "Remote - Africa"
+   },
+   "updated_at": "2026-11-16T12:00:00.000Z",
+   "first_published": "2026-11-14T12:00:00.000Z",
+   "application_deadline": null,
+   "content": "&lt;div&gt;&lt;p&gt;About the role&lt;/p&gt;&lt;/div&gt;",
+   "departments": [
+    {
+     "id": 1,
+     "name": "Enterprise AI"
+    }
+   ]
+  }
+ ],
+ "meta": {
+  "total": 2
+ }
+}

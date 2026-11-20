@@ -33,6 +33,19 @@ export const KIND_META = {
 };
 const kindMeta = (k) => KIND_META[k] || KIND_META.other;
 
+// JOBS FEEDS: the 7 categories of the Job & Academic Directory (ids match backend/src/lib/jobsDirectory.js)
+export const DIR_CATEGORIES = [
+  { id: 'intl', label: 'Remote & global', icon: 'globe', tint: colors.sky },
+  { id: 'africa', label: 'Nigeria & Africa', icon: 'map-pin', tint: colors.sage },
+  { id: 'freelance', label: 'Freelance', icon: 'briefcase', tint: colors.terracotta },
+  { id: 'ai', label: 'AI & tech', icon: 'sparkles', tint: colors.indigo },
+  { id: 'academic', label: 'Academic', icon: 'book', tint: colors.lavender },
+  { id: 'research', label: 'Research', icon: 'search', tint: colors.teal },
+  { id: 'funding', label: 'Scholarships', icon: 'coin', tint: colors.gold },
+];
+const catMeta = (id) => DIR_CATEGORIES.find((g) => g.id === id) || { label: 'Other', icon: 'compass', tint: colors.slate };
+const OPEN_TO_LABEL = { nigeria: 'Open to Nigeria', africa: 'Open to Africa', worldwide: 'Worldwide' };
+
 // ---------- dates ----------
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -114,6 +127,14 @@ export function OpportunitiesScreen({ params = {} }) {
   const [query, setQuery] = useState('');
   const [q, setQ] = useState(''); // debounced
   const [remoteOnly, setRemoteOnly] = useState(false);
+  // JOBS FEEDS: 7 categories, "Open to Africa", one-source filter (from the directory), and the Directory view
+  const [view, setView] = useState(params.view === 'directory' ? 'directory' : 'listings');
+  const [category, setCategory] = useState(params.category || 'all');
+  const [africaOnly, setAfricaOnly] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState(null); // { key, name }
+  const [directory, setDirectory] = useState(null);
+  const [dirLoading, setDirLoading] = useState(false);
+  const [dirError, setDirError] = useState(null);
 
   const [items, setItems] = useState([]);
   const [cursor, setCursor] = useState(null);
@@ -154,7 +175,7 @@ export function OpportunitiesScreen({ params = {} }) {
     else { setLoading(true); setItems([]); setCursor(null); setHasMore(false); }
     setError(null);
     try {
-      const res = await api.list({ kind, q, remote: remoteOnly });
+      const res = await api.list({ kind, q, remote: remoteOnly, category, africa: africaOnly, source: sourceFilter && sourceFilter.key });
       if (id !== reqId.current) return;
       setItems(res.items);
       setCursor(res.cursor);
@@ -167,14 +188,14 @@ export function OpportunitiesScreen({ params = {} }) {
     } finally {
       if (id === reqId.current) { setLoading(false); setRefreshing(false); }
     }
-  }, [api, kind, q, remoteOnly]);
+  }, [api, kind, q, remoteOnly, category, africaOnly, sourceFilter]);
 
   const loadMore = useCallback(async () => {
-    if (!api.online || kind === 'saved' || !hasMore || !cursor || loading || loadingMore || refreshing) return;
+    if (!api.online || kind === 'saved' || view === 'directory' || !hasMore || !cursor || loading || loadingMore || refreshing) return;
     const id = reqId.current;
     setLoadingMore(true);
     try {
-      const res = await api.list({ kind, q, remote: remoteOnly, cursor });
+      const res = await api.list({ kind, q, remote: remoteOnly, category, africa: africaOnly, source: sourceFilter && sourceFilter.key, cursor });
       if (id !== reqId.current) return; // filters changed meanwhile
       setItems((prev) => {
         const seen = new Set(prev.map((x) => x.id));
@@ -187,10 +208,18 @@ export function OpportunitiesScreen({ params = {} }) {
     } finally {
       if (id === reqId.current) setLoadingMore(false);
     }
-  }, [api, kind, q, remoteOnly, cursor, hasMore, loading, loadingMore, refreshing, toast]);
+  }, [api, kind, view, q, remoteOnly, category, africaOnly, sourceFilter, cursor, hasMore, loading, loadingMore, refreshing, toast]);
+
+  // JOBS FEEDS: the directory loads once, when first opened
+  const loadDirectory = useCallback(async () => {
+    if (!api.online) return;
+    setDirLoading(true); setDirError(null);
+    try { setDirectory(await api.directory()); } catch (e) { setDirError(e); } finally { setDirLoading(false); }
+  }, [api]);
+  useEffect(() => { if (view === 'directory' && !directory && !dirLoading && !dirError) loadDirectory(); }, [view, directory, dirLoading, dirError, loadDirectory]);
 
   useEffect(() => { loadSummary(); }, [loadSummary]);
-  useEffect(() => { loadFirst(); }, [loadFirst]);
+  useEffect(() => { if (view === 'listings') loadFirst(); }, [loadFirst, view]);
 
   const onRefresh = useCallback(() => {
     if (!api.online || kind === 'saved') return;
@@ -218,26 +247,41 @@ export function OpportunitiesScreen({ params = {} }) {
 
   // Brief 12.2: the detail sheet preloads an interstitial; "Apply on …" shows it, then opens the site in the
   // in-app browser. If no ad opens within ~2 s (or caps / Plus say no ad) we go straight to the site.
-  useEffect(() => { if (selected) ads.preloadInterstitial(); }, [selected]);
+  // JOBS FEEDS: the Directory's "Open" buttons go through the same interstitial-then-in-app-browser path.
+  useEffect(() => { if (selected || view === 'directory') ads.preloadInterstitial(); }, [selected, view]);
   const proceeding = useRef(false);
-  const proceedToSite = useCallback(async (it) => {
-    if (!it || !isWebUrl(it.url) || proceeding.current) { if (it && !isWebUrl(it.url)) openLink(it.url); return; }
+  const proceedToUrl = useCallback(async (url, { closeSheet = false } = {}) => {
+    if (!isWebUrl(url)) { openLink(url); return; }
+    if (proceeding.current) return;
     proceeding.current = true;
     try {
       // full-screen ads can't reliably stack over our own sheet, so slide it away first (the user comes back to the list)
-      setSelected(null);
-      await new Promise((r) => setTimeout(r, 280));
+      if (closeSheet) {
+        setSelected(null);
+        await new Promise((r) => setTimeout(r, 280));
+      }
       try {
         await Promise.race([
           ads.showInterstitial({ surface: 'other', placement: 'opportunity', loadTimeoutMs: 2000, skipAfterSec: 3 }),
           new Promise((r) => setTimeout(r, 2000 + 3 * 60 * 1000)), // safety net: never hold the user forever
         ]);
       } catch (e) { /* never block the redirect */ }
-      await openLink(it.url);
+      await openLink(url);
+      ads.preloadInterstitial(); // ready for the next one
     } finally {
       proceeding.current = false;
     }
   }, [ads, openLink]);
+  const proceedToSite = useCallback((it) => { if (it) proceedToUrl(it.url, { closeSheet: true }); }, [proceedToUrl]);
+
+  // Directory → "See listings": jump to the listings view filtered to that source
+  const showSourceListings = useCallback((entry) => {
+    haptic('select');
+    setSourceFilter({ key: entry.sourceKey, name: entry.name });
+    setCategory('all'); setKind('all'); setAfricaOnly(false); setRemoteOnly(false); setQuery(''); setQ('');
+    setView('listings');
+    listRef.current?.scrollToOffset?.({ offset: 0, animated: false });
+  }, []);
 
   const share = async (it) => {
     try {
@@ -252,13 +296,31 @@ export function OpportunitiesScreen({ params = {} }) {
     const needle = q.toLowerCase();
     return saved.filter((it) => {
       if (remoteOnly && !it.remote) return false;
+      if (africaOnly && !it.openTo) return false;
+      if (category !== 'all' && it.category !== category) return false;
       if (!needle) return true;
       return [it.title, it.org, it.location, it.excerpt, ...(it.tags || [])].some((s) => String(s || '').toLowerCase().includes(needle));
     });
-  }, [saved, q, remoteOnly]);
+  }, [saved, q, remoteOnly, africaOnly, category]);
 
-  const isSaved = kind === 'saved';
-  const data = isSaved ? savedFiltered : api.online ? items : [];
+  // JOBS FEEDS: directory rows (a heading per category, then its platforms), filtered by category + search
+  const isDir = view === 'directory';
+  const dirRows = useMemo(() => {
+    if (!directory) return [];
+    const needle = q.toLowerCase();
+    const rows = [];
+    directory.categories.filter((g) => category === 'all' || g.id === category).forEach((g) => {
+      const list = g.items.filter((d) => !needle || `${d.name} ${d.description}`.toLowerCase().includes(needle));
+      if (!list.length) return;
+      rows.push({ type: 'cat', id: `cat-${g.id}`, cat: g, n: list.length });
+      list.forEach((d) => rows.push({ type: 'entry', id: `dir-${d.slug}`, entry: d }));
+    });
+    return rows;
+  }, [directory, category, q]);
+  const dirTotal = useMemo(() => (directory ? directory.categories.reduce((n, g) => n + g.items.length, 0) : 0), [directory]);
+
+  const isSaved = kind === 'saved' && !isDir;
+  const data = isDir ? dirRows : isSaved ? savedFiltered : api.online ? items : [];
 
   // Chips: All + kinds with listings + Saved
   const kindChips = useMemo(() => {
@@ -277,9 +339,32 @@ export function OpportunitiesScreen({ params = {} }) {
     return Array.from(m.values());
   }, [summary, items, saved]);
 
+  // JOBS FEEDS: category chips (counts from the summary in the listings view)
+  const categoryChips = useMemo(() => {
+    const counts = Object.fromEntries(((summary && summary.categories) || []).map((g) => [g.id, g.count]));
+    return DIR_CATEGORIES.map((g) => ({ ...g, count: isDir ? null : counts[g.id] || null }));
+  }, [summary, isDir]);
+  const selectCategory = (id) => {
+    if (id === category) return;
+    haptic('select');
+    setCategory(id);
+    listRef.current?.scrollToOffset?.({ offset: 0, animated: false });
+  };
+  const switchView = (v) => {
+    if (v === view) return;
+    haptic('select');
+    if (v === 'directory' && kind === 'saved') setKind('all');
+    setView(v);
+    listRef.current?.scrollToOffset?.({ offset: 0, animated: false });
+  };
+  const filtersOn = !!(q || remoteOnly || africaOnly || kind !== 'all' || category !== 'all' || sourceFilter);
+  const clearFilters = () => { setQuery(''); setQ(''); setRemoteOnly(false); setAfricaOnly(false); setKind('all'); setCategory('all'); setSourceFilter(null); };
+
   let statusText = '';
-  if (isSaved && data.length) statusText = `${data.length} saved ${data.length === 1 ? 'listing' : 'listings'}${q || remoteOnly ? ' · filtered' : ''}`;
-  else if (!isSaved && data.length) statusText = `${hasMore ? `${data.length}+` : data.length} ${data.length === 1 ? 'opportunity' : 'opportunities'}${remoteOnly ? ' · remote' : ''}${q ? ` for “${q}”` : ''}`;
+  const filterNote = `${remoteOnly ? ' · remote' : ''}${africaOnly ? ' · open to Africa' : ''}`;
+  if (isDir && data.length) statusText = `${data.filter((r) => r.type === 'entry').length} platforms${q ? ` for “${q}”` : ''}`;
+  else if (isSaved && data.length) statusText = `${data.length} saved ${data.length === 1 ? 'listing' : 'listings'}${q || remoteOnly || africaOnly ? ' · filtered' : ''}`;
+  else if (!isSaved && data.length) statusText = `${hasMore ? `${data.length}+` : data.length} ${data.length === 1 ? 'opportunity' : 'opportunities'}${filterNote}${q ? ` for “${q}”` : ''}`;
 
   // ---------- header / footer / empty ----------
   const header = (
@@ -298,7 +383,8 @@ export function OpportunitiesScreen({ params = {} }) {
         <View style={styles.heroStats}>
           <HeroStat icon="briefcase" text={totalCount ? `${totalCount.toLocaleString()} open` : 'Fresh daily'} />
           <HeroStat icon="shield" text={sources.length ? `${sources.length} sources` : 'Trusted sources'} />
-          <PressScale onPress={() => selectKind('saved')} scaleTo={0.92} hitSlop={6} accessibilityLabel="View saved opportunities" style={styles.heroStat}>
+          {summary && summary.openToAfrica ? <HeroStat icon="map-pin" text={`${summary.openToAfrica.toLocaleString()} open to Africa`} /> : null}
+          <PressScale onPress={() => { switchView('listings'); selectKind('saved'); }} scaleTo={0.92} hitSlop={6} accessibilityLabel="View saved opportunities" style={styles.heroStat}>
             <Icon name="bookmark" size={13} color={colors.goldLight} />
             <Pop trigger={saved.length} amount={1.3}>
               <Text style={[styles.heroStatText, { color: colors.goldLight, fontWeight: '700' }]}>{saved.length}</Text>
@@ -308,11 +394,21 @@ export function OpportunitiesScreen({ params = {} }) {
         </View>
       </FadeInUp>
 
+      {/* JOBS FEEDS: Listings | Directory */}
+      <View style={styles.segment} accessibilityRole="tablist">
+        {[['listings', 'Listings', 'briefcase'], ['directory', `Directory${dirTotal ? ` · ${dirTotal}` : ''}`, 'compass']].map(([v, label, icon]) => (
+          <PressScale key={v} onPress={() => switchView(v)} scaleTo={0.96} accessibilityRole="tab" accessibilityState={{ selected: view === v }} accessibilityLabel={label} style={[styles.segmentBtn, view === v && styles.segmentBtnOn]}>
+            <Icon name={icon} size={13} color={view === v ? colors.fg : colors.muted} />
+            <Text style={[styles.segmentText, view === v && styles.segmentTextOn]} numberOfLines={1}>{label}</Text>
+          </PressScale>
+        ))}
+      </View>
+
       {/* Search */}
       <View style={styles.searchBar}>
         <Icon name="search" size={16} color={colors.muted} />
         <TextInput
-          placeholder={isSaved ? 'Search your saved listings…' : 'Search roles, scholarships, skills…'}
+          placeholder={isDir ? 'Search 51 job & academic platforms…' : isSaved ? 'Search your saved listings…' : 'Search roles, scholarships, skills…'}
           placeholderTextColor={colors.faint}
           value={query}
           onChangeText={setQuery}
@@ -331,8 +427,28 @@ export function OpportunitiesScreen({ params = {} }) {
         ) : null}
       </View>
 
-      {/* Remote toggle + kind chips */}
+      {/* JOBS FEEDS: the 7 categories (filter listings and the directory) */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipRow} keyboardShouldPersistTaps="handled">
+        <Chip label="All categories" active={category === 'all'} onPress={() => selectCategory('all')} />
+        {categoryChips.map((g) => (
+          <Chip key={g.id} label={g.label} icon={g.icon} tint={g.tint} count={g.count} active={category === g.id} onPress={() => selectCategory(g.id)} />
+        ))}
+      </ScrollView>
+
+      {/* Remote / Open to Africa toggles + kind chips (listings only) */}
+      {!isDir ? (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.chipScroll, { marginTop: 8 }]} contentContainerStyle={styles.chipRow} keyboardShouldPersistTaps="handled">
+        <PressScale
+          onPress={() => { haptic('select'); setAfricaOnly((v) => !v); }}
+          scaleTo={0.93}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: africaOnly }}
+          accessibilityLabel="Open to Africa"
+          style={[styles.chip, styles.africaChip, africaOnly && styles.africaChipOn]}
+        >
+          <Icon name={africaOnly ? 'check' : 'map-pin'} size={13} color={africaOnly ? '#FFFFFF' : colors.sage} strokeWidth={africaOnly ? 2.6 : 2} />
+          <Text style={[styles.chipText, { color: africaOnly ? '#FFFFFF' : colors.sage, fontWeight: '700' }]}>Open to Africa</Text>
+        </PressScale>
         <PressScale
           onPress={() => { haptic('select'); setRemoteOnly((v) => !v); }}
           scaleTo={0.93}
@@ -351,10 +467,21 @@ export function OpportunitiesScreen({ params = {} }) {
         ))}
         <Chip label="Saved" icon="bookmark" tint={colors.gold} count={saved.length || null} active={isSaved} onPress={() => selectKind('saved')} />
       </ScrollView>
+      ) : null}
+
+      {/* JOBS FEEDS: one-source filter set from the directory */}
+      {!isDir && sourceFilter ? (
+        <View style={styles.sourcePillRow}>
+          <PressScale onPress={() => { haptic('select'); setSourceFilter(null); }} scaleTo={0.94} accessibilityRole="button" accessibilityLabel={`Showing listings from ${sourceFilter.name}. Tap to show all sources`} style={styles.sourcePill}>
+            <Text style={styles.sourcePillText} numberOfLines={1}>From {sourceFilter.name}</Text>
+            <Icon name="x" size={11} color={colors.primary} strokeWidth={2.6} />
+          </PressScale>
+        </View>
+      ) : null}
 
       {/* Result count / status line */}
       {statusText ? <Text style={styles.resultsCount}>{statusText}</Text> : <View style={{ height: 14 }} />}
-      {error && items.length && !isSaved ? (
+      {error && items.length && !isSaved && !isDir ? (
         <View style={styles.inlineError}>
           <Icon name="x" size={12} color={colors.negative} strokeWidth={2.6} />
           <Text style={styles.inlineErrorText} numberOfLines={2}>Couldn’t refresh: {errorMessage(error)}</Text>
@@ -364,14 +491,20 @@ export function OpportunitiesScreen({ params = {} }) {
   );
 
   let empty = null;
-  if (isSaved) {
+  if (isDir) {
+    // JOBS FEEDS: directory states
+    if (!api.online) empty = <EmptyCard icon="compass" title="Sign in online to see the directory" body="The Job & Academic Directory lists 51 trusted job, research and scholarship platforms. It needs an online BibleNestra account." />;
+    else if (dirLoading || (!directory && !dirError)) empty = <View>{[0, 1, 2].map((i) => <SkeletonCard key={i} />)}</View>;
+    else if (dirError) empty = <EmptyCard icon="x" tint={colors.negative} title="Couldn’t load the directory" body={`${errorMessage(dirError, 'Please check your connection.')}`} action="Try again" onAction={loadDirectory} />;
+    else empty = <EmptyCard icon="search" title="No matching platforms" body="Try another search or category." action="Clear filters" onAction={clearFilters} />;
+  } else if (isSaved) {
     empty = (
       <EmptyCard
         icon="bookmark"
         title={saved.length ? 'No saved matches' : 'Nothing saved yet'}
-        body={saved.length ? 'Try a different search, or turn off “Remote only”.' : 'Tap the bookmark on any listing to keep it here — saved listings stay on this device, even offline.'}
+        body={saved.length ? 'Try a different search, or turn off “Remote only” / “Open to Africa”.' : 'Tap the bookmark on any listing to keep it here — saved listings stay on this device, even offline.'}
         action={saved.length ? 'Clear filters' : api.online ? 'Browse opportunities' : null}
-        onAction={() => { if (saved.length) { setQuery(''); setQ(''); setRemoteOnly(false); } else selectKind('all'); }}
+        onAction={() => { if (saved.length) { setQuery(''); setQ(''); setRemoteOnly(false); setAfricaOnly(false); setCategory('all'); } else selectKind('all'); }}
       />
     );
   } else if (!api.online) {
@@ -406,10 +539,10 @@ export function OpportunitiesScreen({ params = {} }) {
       <EmptyCard
         icon="search"
         title="No matches"
-        body={q || remoteOnly || kind !== 'all' ? 'Try another search or category, or turn off “Remote only”.' : 'New listings arrive throughout the day — check back soon.'}
-        action={q || remoteOnly || kind !== 'all' ? 'Clear filters' : 'Refresh'}
+        body={filtersOn ? 'Try another search or category, or turn off “Remote only” / “Open to Africa”. The Directory also links to 51 platforms you can search directly.' : 'New listings arrive throughout the day — check back soon.'}
+        action={filtersOn ? 'Clear filters' : 'Refresh'}
         onAction={() => {
-          if (q || remoteOnly || kind !== 'all') { setQuery(''); setQ(''); setRemoteOnly(false); setKind('all'); } else onRefresh();
+          if (filtersOn) clearFilters(); else onRefresh();
         }}
       />
     );
@@ -422,23 +555,43 @@ export function OpportunitiesScreen({ params = {} }) {
           <ActivityIndicator color={colors.primary} />
           <Text style={styles.moreLoadingText}>Loading more…</Text>
         </View>
-      ) : !isSaved && api.online && data.length && !hasMore && !loading ? (
+      ) : !isSaved && !isDir && api.online && data.length && !hasMore && !loading ? (
         <Text style={styles.endText}>✦  You’ve reached the end</Text>
       ) : null}
-      <SourcesFooter sources={sources} onOpen={openLink} />
+      {isDir ? (
+        <View style={styles.sourcesBox}>
+          <View style={[styles.disclaimerRow, { marginTop: 0 }]}>
+            <Icon name="shield" size={13} color={colors.faint} />
+            <Text style={styles.disclaimerText}>These platforms are run by other organisations; BibleNestra isn’t affiliated with them. Platforms marked “Live in app” also feed listings into Opportunities. Never pay to apply for a job.</Text>
+          </View>
+        </View>
+      ) : <SourcesFooter sources={sources} onOpen={openLink} />}
     </View>
   );
 
-  const renderItem = ({ item, index }) => (
-    <FadeInUp index={Math.min(index % PAGE_STAGGER, 6)} distance={12} duration={360}>
-      <OpportunityCard
-        item={item}
-        saved={savedIds.has(item.id)}
-        onPress={() => setSelected(item)}
-        onToggleSave={() => toggleSave(item)}
-      />
-    </FadeInUp>
-  );
+  const renderItem = ({ item, index }) => {
+    // JOBS FEEDS: directory rows
+    if (item.type === 'cat') return <DirectoryHeading cat={item.cat} n={item.n} />;
+    if (item.type === 'entry') {
+      return (
+        <DirectoryCard
+          entry={item.entry}
+          onOpen={() => proceedToUrl(item.entry.url)}
+          onListings={item.entry.live && item.entry.listings ? () => showSourceListings(item.entry) : null}
+        />
+      );
+    }
+    return (
+      <FadeInUp index={Math.min(index % PAGE_STAGGER, 6)} distance={12} duration={360}>
+        <OpportunityCard
+          item={item}
+          saved={savedIds.has(item.id)}
+          onPress={() => setSelected(item)}
+          onToggleSave={() => toggleSave(item)}
+        />
+      </FadeInUp>
+    );
+  };
 
   return (
     <Screen back title="Opportunities" subtitle="Jobs, scholarships, grants & more from trusted sources" scroll={false} padded={false}>
@@ -459,7 +612,7 @@ export function OpportunitiesScreen({ params = {} }) {
         initialNumToRender={8}
         windowSize={11}
         // pull-to-refresh is native-only (react-native-web has no RefreshControl; web uses the empty-state "Refresh")
-        refreshControl={api.online && !isSaved && Platform.OS !== 'web' ? (
+        refreshControl={api.online && !isSaved && !isDir && Platform.OS !== 'web' ? (
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
         ) : undefined}
       />
@@ -567,6 +720,7 @@ function OpportunityCard({ item, saved, onPress, onToggleSave }) {
         </View>
         <Badge label={meta.one} tint={meta.tint} />
         {item.remote && item.kind !== 'remote' ? <Badge label="Remote" tint={colors.sky} /> : null}
+        {item.openTo ? <Badge label={OPEN_TO_LABEL[item.openTo]} tint={colors.sage} /> : null}
         <View style={{ flex: 1 }} />
         <View style={{ width: 34, height: 34 }} />
       </View>
@@ -601,8 +755,11 @@ function OpportunityCard({ item, saved, onPress, onToggleSave }) {
           <Text style={styles.postedText} numberOfLines={1}>{posted}</Text>
         ) : <View />}
         <View style={{ flex: 1 }} />
-        <Text style={styles.viaText} numberOfLines={1}>via <Text style={styles.viaName}>{item.source.name}</Text></Text>
-        <Icon name="arrow-up-right" size={13} color={colors.primary} strokeWidth={2.2} />
+        {/* JOBS FEEDS: source badge — every listing credits where it came from */}
+        <View style={styles.viaBadge}>
+          <Text style={styles.viaText} numberOfLines={1}>via <Text style={styles.viaName}>{item.source.name}</Text></Text>
+          <Icon name="arrow-up-right" size={12} color={colors.primary} strokeWidth={2.2} />
+        </View>
       </View>
     </PressScale>
     <View style={styles.cardSave}>
@@ -636,6 +793,7 @@ function OpportunitySheet({ item, saved, onClose, onToggleSave, onOpen, onProcee
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <Badge label={meta.one} tint={meta.tint} />
                 {it.remote ? <Badge label="Remote" tint={colors.sky} /> : null}
+                {it.openTo ? <Badge label={OPEN_TO_LABEL[it.openTo]} tint={colors.sage} /> : null}
               </View>
               <Text style={styles.sheetTitle}>{it.title}</Text>
               {it.org ? <Text style={styles.sheetOrg}>{it.org}</Text> : null}
@@ -652,6 +810,8 @@ function OpportunitySheet({ item, saved, onClose, onToggleSave, onOpen, onProcee
               {it.salary ? <Fact icon="coin" label={it.kind === 'scholarship' || it.kind === 'grant' || it.kind === 'fellowship' ? 'Award' : 'Pay'} value={it.salary} /> : null}
               {dl ? <Fact icon="clock" label="Deadline" value={dl.text} urgent={dl.urgent} /> : null}
               {posted ? <Fact icon="calendar" label="Posted" value={posted.replace(/^Posted (\w)/, (_, c) => c.toUpperCase())} /> : null}
+              {it.openTo ? <Fact icon="globe" label="Who" value={it.openTo === 'worldwide' ? 'Open worldwide' : OPEN_TO_LABEL[it.openTo]} /> : null}
+              {it.category ? <Fact icon={catMeta(it.category).icon} label="Area" value={catMeta(it.category).label} /> : null}
               <Fact icon="link" label="Source" value={it.source.name} last />
             </View>
 
@@ -761,6 +921,51 @@ function SourcesFooter({ sources, onOpen }) {
         <Icon name="shield" size={13} color={colors.faint} />
         <Text style={styles.disclaimerText}>{DISCLAIMER}</Text>
       </View>
+    </View>
+  );
+}
+
+// ---------- JOBS FEEDS: Job & Academic Directory ----------
+function DirectoryHeading({ cat, n }) {
+  const m = catMeta(cat.id);
+  return (
+    <View style={styles.dirHeading}>
+      <View style={[styles.kindIcon, { backgroundColor: alpha(m.tint, 0.12) }]}>
+        <Icon name={m.icon} size={15} color={m.tint} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={styles.dirHeadingTitle}>{cat.label} <Text style={styles.dirHeadingCount}>· {n}</Text></Text>
+        {cat.blurb ? <Text style={styles.dirHeadingBlurb}>{cat.blurb}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+function DirectoryCard({ entry, onOpen, onListings }) {
+  // Open is a sibling of the listings chip (no nested buttons on web)
+  return (
+    <View style={styles.dirCard}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={styles.dirName} numberOfLines={1}>{entry.name}</Text>
+        {entry.description ? <Text style={styles.dirDesc} numberOfLines={3}>{entry.description}</Text> : null}
+        <View style={styles.dirMetaRow}>
+          <Text style={styles.dirHost} numberOfLines={1}>{hostOf(entry.url) || ''}</Text>
+          {entry.live ? (
+            onListings ? (
+              <PressScale onPress={onListings} scaleTo={0.94} accessibilityRole="button" accessibilityLabel={`See ${entry.listings} listings from ${entry.name} in the app`} style={styles.liveChip}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveChipText}>Live in app · {entry.listings}</Text>
+              </PressScale>
+            ) : (
+              <View style={styles.liveChip}><View style={styles.liveDot} /><Text style={styles.liveChipText}>Live in app</Text></View>
+            )
+          ) : null}
+        </View>
+      </View>
+      <PressScale onPress={onOpen} scaleTo={0.92} accessibilityRole="link" accessibilityLabel={`Open ${entry.name}`} style={styles.dirOpenBtn}>
+        <Text style={styles.dirOpenText}>Open</Text>
+        <Icon name="arrow-up-right" size={13} color={colors.primaryFg} strokeWidth={2.4} />
+      </PressScale>
     </View>
   );
 }
@@ -935,6 +1140,32 @@ const styles = StyleSheet.create({
   postedText: { fontSize: 11.5, color: colors.faint, flexShrink: 1 },
   viaText: { fontSize: 11.5, color: colors.faint, flexShrink: 1, textAlign: 'right' },
   viaName: { color: colors.primary, fontWeight: '700' },
+  // JOBS FEEDS
+  viaBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.primarySoft, flexShrink: 1, maxWidth: '62%' },
+  segment: { flexDirection: 'row', gap: 4, padding: 4, marginTop: 14, borderRadius: radius.pill, backgroundColor: colors.raised },
+  segmentBtn: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 36, paddingHorizontal: 10, borderRadius: radius.pill },
+  segmentBtnOn: { backgroundColor: colors.surface, ...shadow.sm },
+  segmentText: { flexShrink: 1, fontSize: 12.5, fontWeight: '600', color: colors.muted },
+  segmentTextOn: { color: colors.fg, fontWeight: '700' },
+  africaChip: { borderColor: alpha(colors.sage, 0.4), backgroundColor: alpha(colors.sage, 0.08) },
+  africaChipOn: { backgroundColor: colors.sage, borderColor: colors.sage },
+  sourcePillRow: { flexDirection: 'row', marginTop: 10 },
+  sourcePill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 30, borderRadius: radius.pill, backgroundColor: colors.primarySoft, maxWidth: '100%' },
+  sourcePillText: { fontSize: 12.5, fontWeight: '700', color: colors.primaryInk, flexShrink: 1 },
+  dirHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 10, marginBottom: 10 },
+  dirHeadingTitle: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg, letterSpacing: -0.2 },
+  dirHeadingCount: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.faint, fontWeight: '600' },
+  dirHeadingBlurb: { fontSize: 12.5, color: colors.muted, lineHeight: 17.5, marginTop: 2 },
+  dirCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: 14, marginBottom: 10, ...shadow.sm },
+  dirName: { fontSize: 15.5, fontWeight: '700', color: colors.fg },
+  dirDesc: { fontSize: 13, color: colors.muted, lineHeight: 18.5, marginTop: 3 },
+  dirMetaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  dirHost: { fontSize: 11.5, color: colors.faint, flexShrink: 1 },
+  liveChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: alpha(colors.sage, 0.12) },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.sage },
+  liveChipText: { fontSize: 11, fontWeight: '700', color: colors.sage },
+  dirOpenBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.primaryBg },
+  dirOpenText: { fontSize: 13, fontWeight: '700', color: colors.primaryFg },
 
   // Footer
   moreLoading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14 },

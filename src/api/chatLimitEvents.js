@@ -14,8 +14,18 @@ export function notifyChatLimit(data) {
   const now = Date.now();
   if (now - lastAt < 800) return; // the dm + message calls of one tap → one prompt
   lastAt = now;
-  const info = { used: Number(data && data.used) || 0, limit: Number(data && data.limit) || 5 };
+  const info = {
+    used: Number(data && data.used) || 0,
+    limit: Number(data && data.limit) || 5,
+    pass: (data && data.pass) || null, // CHAT WEEK PASS: active pass (its extra chats are used up) or null
+    passOffer: (data && data.passOffer) || null, // CHAT WEEK PASS: { coins, extraSlots, unlimited, days }
+  };
   listeners.forEach((fn) => { try { fn(info); } catch (e) { /* ignore */ } });
 }
 
 export const isChatLimitError = (e) => !!e && e.code === 'CHAT_LIMIT_REACHED';
+
+// CHAT WEEK PASS: after a pass is bought, counters (useChatAllowance) reload.
+const passListeners = new Set();
+export function onChatPassChange(fn) { passListeners.add(fn); return () => passListeners.delete(fn); }
+export function notifyChatPassChange(data) { passListeners.forEach((fn) => { try { fn(data); } catch (e) { /* ignore */ } }); }

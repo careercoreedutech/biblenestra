@@ -216,6 +216,7 @@ const REASONS = {
   contest_prize: 'Contest prize',
   game: 'Bible game reward',
   purchase: 'Coin purchase',
+  chat_week_pass: 'Chat week pass (extra new chats)', // CHAT WEEK PASS
   gift: 'Gift',
 };
 export function mapLedger(items) {

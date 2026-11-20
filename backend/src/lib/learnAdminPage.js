@@ -260,3 +260,72 @@ window.registerAdminTab('Courses & Devotionals', function(box, ctx){
 });
 })();
 `;
+
+// BLOG link-up (appended): adds "Pick a blog post…" and "✨ Write it with AI" under every lesson / devotional
+// "blog link" field of the Courses & Devotionals tab. It finds those fields by their placeholder, so the tab above is
+// unchanged. Picking fills in <this server>/blog/<slug>; "Write it with AI" drafts a post from the title + excerpt
+// (POST /admin/api/blog/generate), offers to publish it, then fills in its link. Registered from routes/blog.js.
+// NOTE: plain JS in a string — no backticks, no "${", no backslashes inside.
+export const LEARN_BLOG_LINK_SCRIPT = `
+(function(){
+var posts = null, loading = null;
+function api(m, p, b){ return window.adminApi(m, p, b); }
+function toast(m, e){ if (window.adminToast) window.adminToast(m, e); }
+function loadPosts(force){
+  if (posts && !force) return Promise.resolve(posts);
+  if (loading && !force) return loading;
+  loading = api('GET', '/admin/api/blog/posts?limit=300').then(function(d){ posts = d.items.filter(function(p){ return p.status !== 'draft'; }); return posts; }).catch(function(){ posts = []; return posts; });
+  return loading;
+}
+function enhance(input){
+  if (input.getAttribute('data-blog-pick') || !window.adminH || !window.adminApi) return;
+  input.setAttribute('data-blog-pick', '1');
+  var h = window.adminH;
+  var isDev = input.getAttribute('placeholder').indexOf('devotional') !== -1;
+  var pick = h('select', { style: 'max-width:340px' }, [h('option', { value: '', text: 'Pick a blog post…' })]);
+  var ai = h('button', { class: 'btn ghost small', text: '✨ Write it with AI' });
+  var row = h('div', { class: 'row', style: 'gap:8px;margin-top:6px;flex-wrap:wrap' }, [pick, ai, h('span', { class: 'meta', text: 'or paste any link' })]);
+  input.parentNode.insertBefore(row, input.nextSibling);
+  var filled = false;
+  function fill(force){
+    if (filled && !force) return;
+    filled = true;
+    loadPosts(force).then(function(list){
+      while (pick.options.length > 1) pick.remove(1);
+      if (!list.length) pick.appendChild(h('option', { value: '', text: '(no published posts yet — see the Blog tab)', disabled: true }));
+      list.forEach(function(p){ pick.appendChild(h('option', { value: p.id, text: p.title + (p.status === 'scheduled' ? ' (scheduled)' : '') })); });
+    });
+  }
+  pick.onfocus = function(){ fill(false); };
+  pick.onmousedown = function(){ fill(false); };
+  pick.onchange = function(){
+    var p = (posts || []).find(function(x){ return x.id === pick.value; });
+    if (!p) return;
+    input.value = p.url; input.dispatchEvent(new Event('input'));
+    toast('Linked to “' + p.title + '”');
+  };
+  ai.onclick = async function(e){
+    e.preventDefault();
+    var card = input.closest('.card');
+    var title = null;
+    if (card) card.querySelectorAll('input').forEach(function(x){ if (!title && (!x.type || x.type === 'text') && x !== input && x.value.trim() && x.getAttribute('placeholder') !== 'or paste an https image link') title = x; });
+    var ex = card ? card.querySelector('textarea') : null;
+    if (!title) { toast('Type the title first', true); return; }
+    ai.disabled = true; ai.textContent = 'Writing… (up to a minute)';
+    try {
+      var p = await api('POST', '/admin/api/blog/generate', { title: title.value.trim(), excerpt: ex ? ex.value.trim() : '', topic: isDev ? 'Devotional' : 'Courses' });
+      if (window.confirm('Draft “' + p.title + '” is written. Publish it now so readers can open it? (Cancel keeps it as a draft in the Blog tab.)')) {
+        p = await api('PATCH', '/admin/api/blog/posts/' + p.id, { status: 'published' });
+        toast('Published and linked');
+      } else toast('Saved as a draft — publish it in the Blog tab before readers open the link');
+      input.value = p.url; input.dispatchEvent(new Event('input'));
+      fill(true);
+    } catch (err) { toast(err.message, true); }
+    ai.disabled = false; ai.textContent = '✨ Write it with AI';
+  };
+}
+function scan(){ document.querySelectorAll('input[placeholder^="https://yourblog.com/"]').forEach(enhance); }
+function start(){ scan(); new MutationObserver(scan).observe(document.body, { childList: true, subtree: true }); }
+if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
+`;

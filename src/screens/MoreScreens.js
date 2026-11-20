@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Audio } from 'expo-av';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Eyebrow, alpha, NightGlow } from '../components/ui';
 import { Toggle } from './PrayerScreen';
@@ -26,6 +26,7 @@ import { useCloudRecordings, uploadRecording, SERMON_RECORDING, MAX_MINUTES } fr
 import { CloudRecordingList } from './RecordScreens'; // DISCOVER TOOLS (round 3)
 import { LearnCourses, LearnDevotionals } from './LearnContentScreens'; // LEARN CMS: courses + devotionals from the admin (online mode)
 import { useApi } from '../api/auth'; // LEARN CMS
+import { TERMS_URL, PRIVACY_URL, DELETE_ACCOUNT_URL } from '../data/onboarding'; // LEGAL: Terms / Privacy / delete-account pages
 
 // ---------- Local building blocks ----------
 
@@ -2030,6 +2031,70 @@ function AccountSync() {
   );
 }
 
+// LEGAL: Profile → Account: Terms, Privacy Policy and "Delete my account" (POST /me/delete-account, then sign out).
+// In local mode there is no server account, so "Delete my account" opens the web page that explains deletion.
+function openLegal(url) {
+  // eslint-disable-next-line global-require
+  const WebBrowser = require('expo-web-browser');
+  WebBrowser.openBrowserAsync(url).catch(() => Linking.openURL(url).catch(() => {}));
+}
+function AccountLegal() {
+  const sync = useSync();
+  const api = useApi();
+  const nav = useNav();
+  const toast = useToast();
+  const [asking, setAsking] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const serverAccount = !!(api.online && api.request);
+  const ok = typed.trim().toUpperCase() === 'DELETE';
+  const doDelete = async () => {
+    if (!ok || busy) return;
+    setBusy(true);
+    try {
+      await api.request('POST', '/me/delete-account', { confirm: 'DELETE' });
+      setAsking(false);
+      toast.show('Your account was deleted', { icon: 'trash', haptic: 'warning' });
+      nav.reset();
+      await sync.signOut();
+    } catch (e) {
+      toast.show((e && e.message) || 'Couldn’t delete your account — please try again', { tone: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <View>
+      <Group style={{ marginTop: 14 }}>
+        <Item icon="book" tint={colors.primary} title="Terms of Service" chevron onPress={() => openLegal(TERMS_URL)} />
+        <Item icon="shield" tint={colors.primary} title="Privacy Policy" chevron onPress={() => openLegal(PRIVACY_URL)} />
+        <Item
+          icon="trash"
+          tint={colors.negative}
+          title="Delete my account"
+          titleStyle={{ color: colors.negative }}
+          subtitle={serverAccount ? 'Permanently delete your BibleNestra account and its data' : 'How to delete a BibleNestra account'}
+          onPress={() => (serverAccount ? setAsking(true) : openLegal(DELETE_ACCOUNT_URL))}
+        />
+      </Group>
+      {asking ? (
+        <FadeInUp distance={8} duration={300} style={styles.confirmBox}>
+          <Text style={[styles.cardTitle, { fontSize: 15.5 }]}>Delete your account forever?</Text>
+          <Text style={[styles.cardMeta, { marginTop: 4 }]}>
+            This permanently deletes your profile, posts, prayers, messages you sent, uploads, recordings, coins and everything else linked to your account, and signs you out. It can’t be undone. Notes kept only on this phone stay until you reset local data.
+          </Text>
+          <Text style={[styles.cardMeta, { marginTop: 10 }]} onPress={() => openLegal(DELETE_ACCOUNT_URL)}>What is deleted and what is kept →</Text>
+          <Input value={typed} onChangeText={setTyped} placeholder="Type DELETE to confirm" autoCapitalize="characters" autoCorrect={false} style={{ marginTop: 12 }} accessibilityLabel="Type DELETE to confirm" />
+          <View style={[styles.btnRow, { marginTop: 12 }]}>
+            <Button small kind="danger" label={busy ? 'Deleting…' : 'Delete forever'} disabled={!ok || busy} onPress={doDelete} />
+            <Button small kind="ghost" label="Cancel" disabled={busy} onPress={() => { setAsking(false); setTyped(''); }} />
+          </View>
+        </FadeInUp>
+      ) : null}
+    </View>
+  );
+}
+
 export function ProfileScreen({ params = {} }) {
   const nav = useNav();
   const toast = useToast();
@@ -2498,8 +2563,9 @@ export function ProfileScreen({ params = {} }) {
             <Item icon="star" tint={colors.gold} title={state.premium ? 'BibleNestra Plus' : 'Plan · Free'} subtitle={state.premium ? 'Ad-free games · supporter badge · manage in Google Play' : 'Go ad-free with Plus · $4 a week or $35 a year'} onPress={() => nav.push('Plans')} />
             <Item title="Redo onboarding" subtitle="Walk through setup again" onPress={() => nav.push('Onboarding', { step: 0 })} />
           </Group>
+          <AccountLegal />{/* LEGAL: Terms, Privacy, Delete my account */}
           <Group style={{ marginTop: 14 }}>
-            <Item title="Delete account & local data" subtitle="Erase everything stored on this device" titleStyle={{ color: colors.negative }} onPress={() => setConfirmReset(true)} />
+            <Item title="Erase data on this device" subtitle="Reset everything stored on this phone (your online account is not deleted)" titleStyle={{ color: colors.negative }} onPress={() => setConfirmReset(true)} />
           </Group>
           {confirmReset ? (
             <InlineConfirm

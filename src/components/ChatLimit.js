@@ -5,10 +5,13 @@
 //                         subscription prompt — plan cards in the Plans style, trial wording placeholder,
 //                         "Upgrade" → Plans screen (billing isn't connected yet: nothing is charged here),
 //                         "Invite a friend instead" → Invite friends screen.
+//                         CHAT WEEK PASS: "Unlock more chats for a week with coins" (POST /chat/pass, idempotent),
+//                         balance + ways to earn coins + "Buy coins" (→ Kingdom Wallet; Play Billing is Phase 3).
+//   The counter shows "Extra chats until Tue 26 Nov" while a pass is active.
 //   useInviteLinks()      biblenestra://invite/<code> (or web ?invite=<code>) → remembered, then redeemed
 //                         with POST /me/referral once signed in (permanent "invited by").
-import React, { useCallback, useEffect, useState } from 'react';
-import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Linking, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, fonts, radius, shadow } from '../theme';
 import { NightGlow, alpha } from './ui';
@@ -18,8 +21,9 @@ import { useApi } from '../api/auth';
 import { useNav, useIsFocused } from '../navigation';
 import { useToast } from './Toast';
 import { useStore } from '../store';
-import { onChatLimit } from '../api/chatLimitEvents';
+import { onChatLimit, notifyChatLimit, onChatPassChange, notifyChatPassChange } from '../api/chatLimitEvents';
 import { PLANS } from '../billing';
+import { AD_RULES } from '../ads/config'; // CHAT WEEK PASS: "ways to earn coins" numbers
 
 // Trial wording placeholder (brief 10.3). Replace the price/date with the store offer once Play Billing is live.
 const TRIAL_DAYS = 3;
@@ -46,28 +50,119 @@ export function useChatAllowance() {
   }, [api]);
   useEffect(() => { if (focused) load(); }, [focused, load]);
   useEffect(() => onChatLimit(() => load()), [load]);
+  useEffect(() => onChatPassChange(() => load()), [load]); // CHAT WEEK PASS: bought → refresh the counter
   return { allowance, reload: load };
 }
+
+// CHAT WEEK PASS: "Tue 26 Nov"
+export function passDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.getDate()} ${d.toLocaleDateString(undefined, { month: 'short' })}`;
+}
+const passGrant = (offer) => (!offer ? '' : offer.unlimited ? `Unlimited new chats for ${offer.days} days` : `+${offer.extraSlots} new chats for ${offer.days} days`);
 
 // ---------- counter ----------
 export function ChatSlotsCounter({ style }) {
   const nav = useNav();
   const { allowance } = useChatAllowance();
   if (!allowance || allowance.unlimited || !allowance.limit) return null;
-  const { used, limit } = allowance;
+  const { used, limit, pass } = allowance;
   const full = used >= limit;
+  const blocked = allowance.remaining !== null && allowance.remaining <= 0; // free slots and any pass extras used up
+  const passLine = pass ? `Extra chats until ${passDate(pass.until)} · ${pass.unlimited ? 'unlimited' : `${pass.remaining} of ${pass.extra} left`}` : null;
+  const openSheet = () => notifyChatLimit({ used, limit, pass: allowance.pass, passOffer: allowance.passOffer });
   return (
-    <View style={[s.counter, full && s.counterFull, style]} accessibilityRole="summary" accessibilityLabel={`${Math.min(used, limit)} of ${limit} free chats used`}>
+    <View style={[s.counter, full && s.counterFull, style]} accessibilityRole="summary" accessibilityLabel={`${Math.min(used, limit)} of ${limit} free chats used${passLine ? `. ${passLine}` : ''}`}>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={s.counterTitle}>{Math.min(used, limit)} of {limit} free chats used</Text>
         <View style={s.dots}>
           {Array.from({ length: Math.min(limit, 12) }).map((_, i) => <View key={i} style={[s.dot, i < used && (full ? s.dotFull : s.dotOn)]} />)}
         </View>
+        {passLine ? (
+          <View style={s.passLine}>
+            <Icon name="coin" size={12} color={colors.gold} />
+            <Text style={s.passLineText} numberOfLines={2}>{passLine}</Text>
+          </View>
+        ) : null}
         <Text style={s.counterSub}>{full ? 'Replies, groups and invited friends are still free.' : 'Invited friends, replies and groups don’t count.'}</Text>
       </View>
-      <PressScale onPress={() => nav.push(full ? 'Plans' : 'InviteFriends')} scaleTo={0.95} style={[s.counterBtn, full && { backgroundColor: colors.primary }]} accessibilityRole="button" accessibilityLabel={full ? 'Upgrade' : 'Invite friends'}>
-        <Text style={[s.counterBtnText, full && { color: '#FFFFFF' }]}>{full ? 'Upgrade' : 'Invite'}</Text>
+      <PressScale onPress={() => (blocked ? openSheet() : nav.push('InviteFriends'))} scaleTo={0.95} style={[s.counterBtn, blocked && { backgroundColor: colors.primary }]} accessibilityRole="button" accessibilityLabel={blocked ? 'Unlock more chats' : 'Invite friends'}>
+        <Text style={[s.counterBtnText, blocked && { color: '#FFFFFF' }]}>{blocked ? 'Unlock' : 'Invite'}</Text>
       </PressScale>
+    </View>
+  );
+}
+
+/** CHAT WEEK PASS: compact line for the chat list while a pass is active ("Extra chats until Tue 26 Nov · 7 left"). */
+export function ChatPassBadge({ style }) {
+  const { allowance } = useChatAllowance();
+  const pass = allowance && !allowance.unlimited ? allowance.pass : null;
+  if (!pass) return null;
+  const left = pass.unlimited ? 'unlimited new chats' : `${pass.remaining} new ${pass.remaining === 1 ? 'chat' : 'chats'} left`;
+  return (
+    <View style={[s.badgeLine, style]} accessibilityRole="text" accessibilityLabel={`Extra chats until ${passDate(pass.until)}, ${left}`}>
+      <Icon name="coin" size={12} color={colors.gold} />
+      <Text style={s.passLineText} numberOfLines={1}>Extra chats until {passDate(pass.until)} · {left}</Text>
+    </View>
+  );
+}
+
+// ---------- CHAT WEEK PASS card (inside the limit sheet) ----------
+// Ways to earn coins that already exist in the app (server-side rewards): daily Bible games, rewarded ads in
+// Jobs, contest prizes. Real-money coin packs wait on Google Play Billing (Phase 3) — see
+// backend/src/lib/coinPurchases.js creditPurchasedCoins().
+const EARN_WAYS = [
+  { icon: 'quiz', title: 'Play today’s Bible games', body: '5 coins for every correct answer in your first round', route: 'Learn', params: { tab: 'Games' } },
+  { icon: 'play', title: 'Watch short ads in Jobs', body: `${AD_RULES.jobAdsForCoins} short ads unlock ${AD_RULES.jobAdCoins} coins`, route: 'Jobs' },
+  { icon: 'star', title: 'Enter contests', body: 'Winners receive coin prizes', route: 'Contests' },
+];
+
+function WeekPassCard({ offer, pass, coins, busy, onBuy, onEarn, onBuyCoins }) {
+  if (!offer) return null;
+  const enough = coins != null && coins >= offer.coins;
+  const short = coins == null ? offer.coins : Math.max(0, offer.coins - coins);
+  return (
+    <View style={s.pass}>
+      <View style={s.passHead}>
+        <View style={s.passIcon}><Icon name="coin" size={17} color={colors.gold} strokeWidth={2} /></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.passTitle}>Unlock more chats for a week with coins</Text>
+          <Text style={s.passBody}>{passGrant(offer)} · {offer.coins} coins</Text>
+        </View>
+      </View>
+      {pass ? (
+        <Text style={s.passActive}>Extra chats until {passDate(pass.until)}{pass.unlimited ? '' : ` · ${pass.remaining} of ${pass.extra} left`}. Buying again adds a week from that date.</Text>
+      ) : null}
+      <View style={s.balanceRow}>
+        <Text style={s.balance}>Your balance: <Text style={{ fontWeight: '700', color: colors.fg }}>{coins == null ? '…' : coins} coins</Text></Text>
+        {!enough && coins != null ? <Text style={s.need}>{short} more needed</Text> : null}
+      </View>
+      {enough ? (
+        <PressScale onPress={busy ? undefined : onBuy} scaleTo={0.97} style={[s.passCta, busy && { opacity: 0.6 }]} accessibilityRole="button" accessibilityState={{ busy: !!busy }} accessibilityLabel={`${pass ? 'Add a week' : 'Unlock'} for ${offer.coins} coins`}>
+          <Icon name="coin" size={15} color="#FFFFFF" />
+          <Text style={s.ctaText} numberOfLines={1}>{busy ? 'Unlocking…' : `${pass ? 'Add a week' : 'Unlock'} for ${offer.coins} coins`}</Text>
+        </PressScale>
+      ) : coins == null ? null : (
+        <View>
+          <Text style={s.earnHead}>Ways to earn coins</Text>
+          {EARN_WAYS.map((w) => (
+            <PressScale key={w.title} onPress={() => onEarn(w)} scaleTo={0.98} style={s.earn} accessibilityRole="button" accessibilityLabel={`${w.title}. ${w.body}`}>
+              <Icon name={w.icon} size={15} color={colors.primary} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={s.earnTitle}>{w.title}</Text>
+                <Text style={s.earnBody}>{w.body}</Text>
+              </View>
+              <Icon name="chevron-right" size={14} color={colors.faint} />
+            </PressScale>
+          ))}
+          <PressScale onPress={onBuyCoins} scaleTo={0.97} style={s.buyCoins} accessibilityRole="button" accessibilityLabel="Buy coins. Coin packs are coming soon; opens your Kingdom Wallet">
+            <Icon name="coin" size={15} color={colors.goldMuted} />
+            <Text style={s.buyCoinsText}>Buy coins</Text>
+          </PressScale>
+          <Text style={s.fine}>Coin packs with Google Play are coming soon — nothing can be charged yet. Buy coins opens your Kingdom Wallet.</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -92,13 +187,14 @@ function MiniPlan({ plan, selected, onPress }) {
   );
 }
 
-export function ChatLimitPrompt({ visible, used = 5, limit = 5, onClose, onUpgrade, onInvite }) {
+export function ChatLimitPrompt({ visible, used = 5, limit = 5, onClose, onUpgrade, onInvite, pass, passOffer, coins, buying, onBuyPass, onEarn, onBuyCoins }) {
   const [choice, setChoice] = useState('yearly');
   const plan = PLANS.find((p) => p.id === choice) || PLANS[0];
+  const { height } = useWindowDimensions();
   return (
     <AnimatedModal visible={visible} onRequestClose={onClose}>
       <View style={s.sheetWrap}>
-        <View style={s.sheet}>
+        <View style={[s.sheet, { maxHeight: Math.round(height * 0.94) }]}>
           <View style={s.hero}>
             <NightGlow intensity={1.1} />
             <View style={s.heroInner}>
@@ -110,12 +206,14 @@ export function ChatLimitPrompt({ visible, used = 5, limit = 5, onClose, onUpgra
               </ScaleIn>
               <Text style={s.eyebrow}>BibleNestra Plus</Text>
               <Text style={s.title}>You've connected with {limit} believers</Text>
-              <Text style={s.sub}>Upgrade for unlimited conversations.</Text>
+              <Text style={s.sub}>{passOffer ? 'Unlock more chats for a week with coins, or upgrade for unlimited conversations.' : 'Upgrade for unlimited conversations.'}</Text>
             </View>
             <PressScale onPress={onClose} style={s.close} accessibilityRole="button" accessibilityLabel="Close"><Icon name="x" size={16} color={colors.nightFg} /></PressScale>
           </View>
 
-          <View style={s.body}>
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+            <WeekPassCard offer={passOffer} pass={pass} coins={coins} busy={buying} onBuy={onBuyPass} onEarn={onEarn} onBuyCoins={onBuyCoins} />
+            {passOffer ? <Text style={s.orHead}>Or go unlimited with BibleNestra Plus</Text> : null}
             {BENEFITS.map((b, i) => (
               <FadeInUp key={b.title} index={i} delay={80} distance={6} duration={300}>
                 <View style={s.benefit}>
@@ -144,31 +242,90 @@ export function ChatLimitPrompt({ visible, used = 5, limit = 5, onClose, onUpgra
               </View>
             </PressScale>
             <Text style={s.fine}>{used} of {limit} free chats used · replies and groups stay free. Billed through Google Play when subscriptions open — nothing is charged today.</Text>
-          </View>
+          </ScrollView>
         </View>
       </View>
     </AnimatedModal>
   );
 }
 
+const newPassKey = () => `pass_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+
 /** Mounted once (App.js, inside the navigator): shows the prompt whenever the server says CHAT_LIMIT_REACHED. */
 export function ChatLimitHost() {
   const nav = useNav();
   const api = useApi();
-  const { state } = useStore();
+  const toast = useToast();
+  const { state, dispatch } = useStore();
   const [info, setInfo] = useState(null);
+  const [coins, setCoins] = useState(null);
+  const [buying, setBuying] = useState(false);
+  // CHAT WEEK PASS: one idempotency key per purchase attempt. A retry after a dropped connection reuses it, so the
+  // server never charges twice; a new key is made after a success or when the sheet opens again.
+  const passKey = useRef(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   useEffect(() => onChatLimit((i) => {
-    if (state.premium) return; // stale: the server will agree on the next sync
+    const st = stateRef.current;
+    if (st.premium) return; // stale: the server will agree on the next sync
     setInfo(i);
+    setCoins(typeof st.coins === 'number' ? st.coins : null);
+    passKey.current = newPassKey();
+    if (!api.online) return;
     // frequency guard bookkeeping (server-tracked last shown); the chat-limit prompt answers a tap, so it's always shown
-    if (api.online) api.request('POST', '/paywall/impression', { placement: 'chat_limit' }).catch(() => {});
-  }), [api, state.premium]);
+    api.request('POST', '/paywall/impression', { placement: 'chat_limit' }).catch(() => {});
+    // fresh balance + offer + pass for the sheet
+    api.request('GET', '/chat/allowance').then((a) => {
+      if (a.unlimited) { setInfo(null); return; } // admin / subscriber: nothing to show
+      setCoins(a.coins);
+      setInfo((cur) => (cur ? { ...cur, pass: a.pass, passOffer: a.passOffer || cur.passOffer } : cur));
+    }).catch(() => {});
+  }), [api]);
   const close = () => setInfo(null);
+  const buyPass = async () => {
+    if (!api.online || buying) return;
+    setBuying(true);
+    try {
+      const r = await api.request('POST', '/chat/pass', { idempotencyKey: passKey.current });
+      passKey.current = newPassKey();
+      setCoins(r.coins);
+      const st = stateRef.current;
+      dispatch({ type: 'serverSync', patch: {
+        coins: r.coins,
+        coinLog: r.replay ? st.coinLog : [{ id: 'cl' + Date.now(), amount: -r.purchase.coins, reason: 'Chat week pass (extra new chats)', time: new Date().toISOString() }, ...(st.coinLog || [])].slice(0, 60),
+      } });
+      notifyChatPassChange(r);
+      close();
+      toast.show(`Extra chats until ${passDate(r.pass ? r.pass.until : r.purchase.expiresAt)}. Go ahead and say hello`, { icon: 'chat', haptic: 'success', duration: 3600 });
+    } catch (e) {
+      if (e && e.code === 'INSUFFICIENT_COINS') {
+        const bal = e.data && typeof e.data.balance === 'number' ? e.data.balance : null;
+        if (bal != null) { setCoins(bal); dispatch({ type: 'serverSync', patch: { coins: bal } }); }
+        toast.show(e.message || 'Not enough coins yet', { icon: 'coin' });
+      } else if (e && e.code === 'PASS_NOT_NEEDED') {
+        close();
+        toast.show(e.message, { icon: 'chat' });
+      } else {
+        toast.show((e && e.message) || 'Couldn’t unlock chats. Please try again', { icon: 'x' });
+      }
+    } finally { setBuying(false); }
+  };
   return (
     <ChatLimitPrompt
       visible={!!info}
       used={info ? info.used : 0}
       limit={info ? info.limit : 5}
+      pass={info ? info.pass : null}
+      passOffer={info && api.online ? info.passOffer : null}
+      coins={coins}
+      buying={buying}
+      onBuyPass={buyPass}
+      onEarn={(w) => { close(); nav.push(w.route, w.params); }}
+      onBuyCoins={() => {
+        close();
+        nav.push('Profile', { tab: 'Wallet & Gifts' });
+        toast.show('Coin packs are coming soon with Google Play. Earn coins from games, ads and contests meanwhile', { icon: 'coin', duration: 4200 });
+      }}
       onClose={close}
       onUpgrade={() => { close(); nav.push('Plans'); }}
       onInvite={() => { close(); nav.push('InviteFriends'); }}
@@ -226,6 +383,28 @@ const s = StyleSheet.create({
   dotFull: { backgroundColor: colors.gold },
   counterBtn: { paddingHorizontal: 14, height: 34, borderRadius: radius.pill, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   counterBtnText: { fontSize: 13, fontWeight: '700', color: colors.primary },
+  passLine: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
+  badgeLine: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginBottom: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.cardGold },
+  passLineText: { flexShrink: 1, fontSize: 12.5, fontWeight: '700', color: colors.goldMuted },
+
+  // CHAT WEEK PASS card
+  pass: { padding: 12, borderRadius: radius.lg, backgroundColor: colors.cardGold, borderWidth: 1, borderColor: alpha('#D4A852', 0.4), marginBottom: 12 },
+  passHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  passIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: alpha('#D4A852', 0.18), alignItems: 'center', justifyContent: 'center' },
+  passTitle: { fontFamily: fonts.serifBold, fontSize: 16, lineHeight: 20, color: colors.fg },
+  passBody: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
+  passActive: { marginTop: 8, fontSize: 12.5, lineHeight: 17, fontWeight: '600', color: colors.goldMuted },
+  balanceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  balance: { fontSize: 13, color: colors.muted },
+  need: { fontSize: 12, fontWeight: '700', color: colors.goldMuted },
+  passCta: { marginTop: 10, height: 46, borderRadius: radius.pill, backgroundColor: colors.primary, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 },
+  earnHead: { marginTop: 10, marginBottom: 4, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: colors.muted },
+  earn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12, backgroundColor: colors.surface, marginTop: 6 },
+  earnTitle: { fontSize: 13.5, fontWeight: '700', color: colors.fg },
+  earnBody: { fontSize: 12, color: colors.muted },
+  buyCoins: { marginTop: 10, height: 44, borderRadius: radius.pill, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: alpha('#D4A852', 0.6), backgroundColor: colors.surface },
+  buyCoinsText: { fontSize: 14, fontWeight: '700', color: colors.goldMuted },
+  orHead: { marginBottom: 8, fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: colors.muted, textAlign: 'center' },
 
   sheetWrap: { flex: 1, justifyContent: 'flex-end', alignItems: 'center' },
   sheet: { width: '100%', maxWidth: 520, borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: 'hidden', backgroundColor: colors.screen, ...shadow.md },

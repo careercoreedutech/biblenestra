@@ -55,8 +55,10 @@ test('text helpers: dates, deadlines, html', () => {
   assert.equal(kindFromWords(['Something else']), 'other');
 });
 
+// JOBS FEEDS: the round-2 sources have their own test (jobsFeeds.test.mjs); this file covers the first ten
+const FIRST_TEN = SOURCES.filter((s) => fixtureFor[s.key]);
 test('every adapter turns its sample into valid listings', () => {
-  for (const s of SOURCES) {
+  for (const s of FIRST_TEN) {
     const raw = s.parse(fs.readFileSync(path.join(FIX, fixtureFor[s.key]), 'utf8'));
     const items = s.adapt(raw);
     assert.ok(items.length > 0, `${s.key} produced items`);
@@ -75,7 +77,7 @@ test('every adapter turns its sample into valid listings', () => {
 });
 
 test('import: all ten sources load through the fake network, re-import does not duplicate', async () => {
-  for (const s of SOURCES) {
+  for (const s of FIRST_TEN) {
     const r = await importSource(env, s.key, { fetchImpl: fakeFetch }); // eslint-disable-line no-await-in-loop
     assert.ok(r.count > 0, `${s.key}: ${JSON.stringify(r)}`);
   }
@@ -104,7 +106,8 @@ test('cron runs only due sources, a few at a time', async () => {
   const r = await runOpportunityCron(env, { fetchImpl: fakeFetch, limit: 3 });
   assert.equal(r.results.length, 3);
   calls.length = 0;
-  await sql(`UPDATE opportunity_sources SET last_run_at = now()`);
+  // JOBS FEEDS: give every source (incl. the round-2 ones never imported here) a fresh run time
+  await sql(`INSERT INTO opportunity_sources (key, last_run_at) SELECT k, now() FROM unnest($1::text[]) AS k ON CONFLICT (key) DO UPDATE SET last_run_at = now()`, [SOURCES.map((s) => s.key)]);
   const r2 = await runOpportunityCron(env, { fetchImpl: fakeFetch });
   assert.equal(r2.results.length, 0, 'nothing due right after a run');
   assert.equal(calls.length, 0);
@@ -149,7 +152,7 @@ test('summary: counts per kind and the source credits', async () => {
   assert.equal(s.status, 200);
   assert.ok(s.json.kinds.find((k) => k.kind === 'remote').count > 0);
   assert.ok(s.json.kinds.find((k) => k.kind === 'scholarship').count > 0);
-  assert.equal(s.json.sources.length, SOURCES.length);
+  assert.equal(s.json.sources.length, SOURCES.filter((x) => !x.defaultOff && !x.needsEnv).length, 'active sources only (JOBS FEEDS: permission/key-gated ones are off)');
   assert.ok(s.json.updatedAt);
 });
 

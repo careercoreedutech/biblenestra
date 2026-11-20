@@ -1,0 +1,29 @@
+{
+ "totalCount": 2,
+ "jobs": [
+  {
+   "id": -8890000000001,
+   "title": "Sales Executive",
+   "location": "Lagos",
+   "snippet": "&nbsp;...Sales role in <b>Lagos</b>...",
+   "salary": "₦250,000",
+   "source": "jobberman.com",
+   "type": "Full-time",
+   "link": "https://ng.jooble.org/desc/-8890000000001",
+   "company": "Acme NG",
+   "updated": "2026-11-18T12:00:00.000Z"
+  },
+  {
+   "id": 4410000000002,
+   "title": "Remote Virtual Assistant",
+   "location": "Nigeria",
+   "snippet": "Work from home",
+   "salary": "",
+   "source": "x",
+   "type": "",
+   "link": "https://ng.jooble.org/desc/4410000000002",
+   "company": "",
+   "updated": "2026-11-17T12:00:00.000Z"
+  }
+ ]
+}
