@@ -28,7 +28,7 @@ export function settingsOf(conv) {
 // The conversation + the caller's membership. Throws 404 when the conversation doesn't exist, 403 when not a member.
 export async function groupContext(env, convId, userId, { allowNonMember = false } = {}) {
   const row = await one(env,
-    `SELECT c.*, m.role AS my_role, m.muted AS my_muted, m.joined_at AS my_joined_at
+    `SELECT c.*, m.role AS my_role, (m.muted AND (m.muted_until IS NULL OR m.muted_until > now())) AS my_muted, m.muted_until AS my_muted_until, m.joined_at AS my_joined_at
        FROM conversations c
        LEFT JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = $2
       WHERE c.id = $1`, [convId, userId]);
@@ -164,8 +164,15 @@ export function namesList(names) {
  */
 export async function addMembersTo(c, convId, actor, ids, { via = 'added', sendPush } = {}) {
   if (!ids.length) return [];
+  // CHAT GAPS (bans): an admin adding someone by hand lifts that person's ban (Telegram rule);
+  // anyone else (members when "all members may add" is on) can't bring a banned person back.
+  const actorRole = await one(c.env, 'SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [convId, actor.id]);
+  if (actorRole && RANK[actorRole.role] >= RANK.admin) {
+    await q(c.env, 'DELETE FROM conversation_bans WHERE conversation_id = $1 AND user_id = ANY($2::uuid[])', [convId, ids]);
+  }
   const rows = await q(c.env, `INSERT INTO conversation_members (conversation_id, user_id, role, added_by)
       SELECT $1, u.id, 'member', $3 FROM users u WHERE u.id = ANY($2::uuid[]) AND NOT u.banned
+        AND NOT EXISTS (SELECT 1 FROM conversation_bans cb WHERE cb.conversation_id = $1 AND cb.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = u.id AND b.blocked_id = $3) OR (b.blocker_id = $3 AND b.blocked_id = u.id))
       ON CONFLICT DO NOTHING RETURNING user_id`, [convId, ids, actor.id]);
   if (!rows.length) return [];

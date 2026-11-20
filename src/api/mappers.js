@@ -267,6 +267,7 @@ export function mapConversation(c, prev) {
     otherUser: c.otherUser,
     role: c.role || 'member',
     muted: !!c.muted,
+    mutedUntil: c.mutedUntil || null, // CHAT GAPS: timed mute (null = always)
     unreadCount: c.unreadCount || 0,
     isRequest: !!c.isRequest,
     otherFollowsMe: c.otherFollowsMe !== undefined ? !!c.otherFollowsMe : (prev?.otherFollowsMe ?? false),

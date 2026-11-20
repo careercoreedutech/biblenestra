@@ -139,7 +139,7 @@ export function mapServerMessage(m, prev) {
     event: !m.deleted && m.kind === 'event' ? (meta.event || true) : undefined,
     // chat media + coin gifts
     image: !m.deleted && m.kind === 'image' && m.mediaKey ? { key: m.mediaKey, width: meta.width || 0, height: meta.height || 0 } : undefined,
-    voice: !m.deleted && m.kind === 'voice' && m.mediaKey ? { key: m.mediaKey, durationMs: meta.durationMs || 0, name: meta.name || null, isFile: !!meta.file } : undefined,
+    voice: !m.deleted && m.kind === 'voice' && m.mediaKey ? { key: m.mediaKey, durationMs: meta.durationMs || 0, name: meta.name || null, isFile: !!meta.file, waveform: Array.isArray(meta.waveform) ? meta.waveform : null } : undefined, // VOICE NOTES: + waveform
     // CHAT 7.4: documents / any file, videos, system lines ("Grace added Daniel"), forwarded, @mentions
     file: !m.deleted && m.kind === 'file' && m.mediaKey ? { key: m.mediaKey, name: meta.name || 'Document', mime: meta.mime || '', size: meta.size || 0 } : undefined,
     video: !m.deleted && m.kind === 'video' && m.mediaKey ? { key: m.mediaKey, name: meta.name || 'Video', size: meta.size || 0, width: meta.width || 0, height: meta.height || 0, durationMs: meta.durationMs || 0 } : undefined,
@@ -156,6 +156,7 @@ export function mapServerMessage(m, prev) {
     pinned: !!m.pinned,
     pinnedAt: m.pinnedAt ? Date.parse(m.pinnedAt) : prev ? prev.pinnedAt : undefined,
     reactions: m.reactions || [],
+    linkPreview: !m.deleted && m.linkPreview ? m.linkPreview : undefined, // CHAT GAPS: { url, title, description, image, siteName }
     reply: m.reply ? { id: m.reply.id, from: m.reply.senderName || 'Message', text: m.reply.text, deleted: !!m.reply.deleted } : null,
   };
 }

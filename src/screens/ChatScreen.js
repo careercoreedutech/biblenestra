@@ -28,9 +28,11 @@ import {
   FileBubble, VideoBubble, UploadBubble, ChatMediaViewer, ForwardSheet, isPdf,
 } from '../chat/ChatExtras';
 import { useThreadLoader } from '../chat/useThread';
+import { dismissChatNotifications } from '../notifications/push'; // CHAT PUSH
 import { useTypingNames, useReceipts, usePresence, usePerms } from '../chat/live';
 import { dmScope, isServerId, mapServerMessage, fmtClock, presenceLabel, typingLabel } from '../chat/messages';
 import { PEOPLE } from '../data/seed';
+import { MuteSheet, isMutedNow, muteLabel } from '../components/chat/ChatGaps'; // CHAT GAPS: timed mute (8 hours / 1 week / always)
 
 const newLocalId = () => `m_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -90,6 +92,7 @@ export function ChatScreen({ params = {} }) {
   const threadRef = useRef(null);
   const [forwarding, setForwarding] = useState(null);
   const [menu, setMenu] = useState(false);
+  const [muteOpen, setMuteOpen] = useState(false); // CHAT GAPS
   const [searching, setSearching] = useState(false);
   const [term, setTerm] = useState('');
   const [hit, setHit] = useState(0);
@@ -173,11 +176,11 @@ export function ChatScreen({ params = {} }) {
     if (a.size && a.size > MAX_CHAT_AUDIO) { toast.show('Audio files can be up to 20 MB', { tone: 'error' }); return; }
     await sendMedia({ label: a.name || 'Audio', upload: async (prog) => { prog(0.3); const up = await uploadChatAudio(api.request, convId, { ...a, isFile: true }); prog(1); return up; }, body: (up) => ({ kind: 'voice', mediaKey: up.key, meta: { file: true, name: String(a.name || 'Audio').slice(0, 120) } }) });
   };
-  const startVoice = async () => { if (!mediaOk) return needOnline(); await recorder.start(); };
+  const startVoice = async (opts) => { if (!mediaOk) { needOnline(); return false; } return recorder.start(opts); }; // VOICE NOTES: → started?
   const finishVoice = async () => {
     const clip = await recorder.stop(true);
     if (!clip) return;
-    await sendMedia({ label: 'Voice note', upload: async (prog) => { prog(0.3); const up = await uploadChatAudio(api.request, convId, clip); prog(1); return up; }, body: (up) => ({ kind: 'voice', mediaKey: up.key, meta: { durationMs: Math.round(clip.durationMs) } }) });
+    await sendMedia({ label: 'Voice note', upload: async (prog) => { prog(0.3); const up = await uploadChatAudio(api.request, convId, clip); prog(1); return up; }, body: (up) => ({ kind: 'voice', mediaKey: up.key, meta: { durationMs: Math.round(clip.durationMs), ...(clip.waveform ? { waveform: clip.waveform } : {}) } }) }); // VOICE NOTES: + waveform
   };
   const sendCoins = async (coins, note) => {
     try {
@@ -195,7 +198,7 @@ export function ChatScreen({ params = {} }) {
   const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
   useEffect(() => {
     if (!focused || !convId || !lastId || !sync.markChatRead) return undefined;
-    const t = setTimeout(() => sync.markChatRead(convId), 600); // new messages while the chat is open are read
+    const t = setTimeout(() => { sync.markChatRead(convId); dismissChatNotifications(convId); }, 600); // new messages while the chat is open are read (CHAT PUSH: + clear its notifications)
     if (chat && (chat.unread || chat.unreadCount)) dispatch({ type: 'set', patch: { chats: (state.chats || []).map((c) => (c.id === chat.id ? { ...c, unread: 0, unreadCount: 0 } : c)) }, local: true });
     return () => clearTimeout(t);
   }, [focused, convId, lastId]);
@@ -270,29 +273,32 @@ export function ChatScreen({ params = {} }) {
   if (!chat) return <Screen back title="Chat"><Empty title="Conversation not found" body="It may have been deleted or the link is out of date." action="All chats" onAction={() => nav.replace('ChatList')} /></Screen>;
 
   // ---------- header ----------
-  const muted = online ? !!chat.muted : (state.mutedChats || []).includes(chat.id);
+  const muted = online ? isMutedNow(chat) : (state.mutedChats || []).includes(chat.id);
   const typingText = typingLabel(typingNames, isGroup);
   const subtitle = typingText
     || (isGroup ? `${chat.membersCount ? `${chat.membersCount} ${isChannel ? 'followers' : 'members'}` : isChannel ? 'Channel' : 'Group'}${muted ? ' · Muted' : ''}` : (presenceLabel(presence) || (muted ? 'Muted' : 'Tap for contact info')));
   const openInfo = () => (convId ? nav.push('ChatInfo', { id: convId, to: chat.with }) : toast.show('Sign in to see chat info', { icon: 'lock' }));
-  const toggleMute = async () => {
+  // CHAT GAPS: muting asks for how long (8 hours / 1 week / always); unmuting is one tap
+  const toggleMute = async (duration) => {
     setMenu(false);
+    if (online && !muted && typeof duration !== 'string') { setMuteOpen(true); return; }
+    let r = null;
     if (online) {
       try {
-        await api.request('PUT', `/conversations/${convId}/mute`, { muted: !muted });
-        dispatch({ type: 'set', patch: { chats: (state.chats || []).map((c) => (c.id === chat.id ? { ...c, muted: !muted } : c)) }, local: true });
+        r = await api.request('PUT', `/conversations/${convId}/mute`, muted ? { muted: false } : { muted: true, duration });
+        dispatch({ type: 'set', patch: { chats: (state.chats || []).map((c) => (c.id === chat.id ? { ...c, muted: !!r.muted, mutedUntil: r.mutedUntil || null } : c)) }, local: true });
       } catch (e) { toast.show(errorMessage(e, 'Couldn’t change notifications'), { tone: 'error' }); return; }
     } else {
       const list = state.mutedChats || [];
       dispatch({ type: 'set', patch: { mutedChats: muted ? list.filter((x) => x !== chat.id) : [...list, chat.id] } });
     }
-    toast.show(muted ? 'Notifications on' : `${chat.with} muted · @mentions still notify you`, { icon: muted ? 'bell' : 'volume' });
+    toast.show(muted ? 'Notifications on' : `${r && r.mutedUntil ? muteLabel(r) : `${chat.with} muted`} · @mentions still notify you`, { icon: muted ? 'bell' : 'volume' });
   };
   const person = PEOPLE.find((p) => p.name === chat.with);
   const menuItems = [
     { label: isGroup ? (isChannel ? 'Channel info' : 'Group info') : 'Contact info', onPress: () => { setMenu(false); openInfo(); } },
     { label: 'Search in chat', onPress: () => { setMenu(false); setSearching(true); } },
-    { label: muted ? 'Unmute notifications' : 'Mute notifications', onPress: toggleMute },
+    { label: muted ? 'Unmute notifications' : 'Mute notifications', onPress: () => toggleMute() },
     { label: 'Start a video call', onPress: () => { setMenu(false); setMeetOpen(true); } },
     ...(!isGroup ? [{
       label: 'Block', danger: true,
@@ -383,9 +389,8 @@ export function ChatScreen({ params = {} }) {
       {canMessage ? (
         <View style={styles.composerWrap}>
           {actions.banner}
-          {recorder.recording ? (
-            <RecorderBar ms={recorder.ms} onCancel={() => recorder.stop(false)} onSend={finishVoice} />
-          ) : (
+          {/* VOICE NOTES: the Composer draws the recording UI itself (hold / slide to cancel / lock) */}
+          {(
             <Composer
               placeholder={actions.editing ? 'Edit your message' : 'Message'}
               onSend={actions.composer.onSend}
@@ -395,6 +400,7 @@ export function ChatScreen({ params = {} }) {
               sendLabel={actions.composer.sendLabel}
               onAttach={actions.editing ? undefined : () => setTray(true)}
               onMic={actions.editing ? undefined : startVoice}
+              voice={actions.editing || !mediaOk ? undefined : { ...recorder, start: startVoice, send: finishVoice, cancel: () => recorder.stop(false) }}
               micEnabled={mediaOk}
               onTyping={onTyping}
               members={members}
@@ -421,6 +427,7 @@ export function ChatScreen({ params = {} }) {
           ...(!isGroup ? [{ label: 'Gift coins', icon: 'gift', tint: colors.gold, disabled: !mediaOk, onPress: () => (mediaOk ? setGiftOpen(true) : needOnline()) }] : []),
         ]}
       />
+      <MuteSheet visible={muteOpen} title={chat.with} onClose={() => setMuteOpen(false)} onPick={(d) => toggleMute(d)} />
       <MeetPrompt visible={meetOpen} onClose={() => setMeetOpen(false)} onShare={shareMeet} />
       <CoinGiftSheet visible={giftOpen} name={chat.with} balance={state.coins || 0} onClose={() => setGiftOpen(false)} onSend={sendCoins} onEarn={() => nav.push('Learn', { tab: 'Games' })} />
       <ChatMediaViewer item={viewer} request={api.request} onClose={() => setViewer(null)} />

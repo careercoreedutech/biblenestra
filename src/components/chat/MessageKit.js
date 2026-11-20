@@ -17,6 +17,7 @@ import { useStore } from '../../store';
 import { REACTIONS, canEditMessage, getScopeMsgs, pinnedOf, previewOf } from '../../chat/messages';
 import { openLink } from '../EmbedViewer'; // YOUTUBE LIVE: video links open in-app
 import { useNav } from '../../navigation';
+import { LinkPreviewCard } from './ChatGaps'; // CHAT GAPS: link preview cards
 
 // ---------- small icons ----------
 function PinGlyph({ size = 16, color = colors.fg, filled }) {
@@ -132,6 +133,7 @@ export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, 
           ) : m.text && !m.gift ? (
             <LinkedText text={m.text} onLongPress={onLongPress} style={[styles.msgText, mine && { color: '#FFFFFF' }]} linkStyle={[styles.link, mine && { color: '#FFFFFF' }]} />
           ) : null}
+          {!m.deleted && m.linkPreview ? <LinkPreviewCard preview={m.linkPreview} mine={mine} onLongPress={onLongPress} /> : null}
           {!m.deleted ? children : null}
           <View style={[styles.metaRow, mine && { justifyContent: 'flex-end' }]} accessibilityLabel={mine && status ? STATUS_LABEL[status] || 'Not sent' : undefined}>
             {m.pinned ? <PinGlyph size={10} color={mine ? 'rgba(255,255,255,0.7)' : colors.gold} filled /> : null}

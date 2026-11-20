@@ -48,7 +48,10 @@ import { broadcastsApp, adminBroadcasts } from './routes/broadcasts.js'; // BROA
 import { referrals, referralsPublic, adminReferrals } from './routes/referrals.js'; // CHAT LIMITS: invite links, free-chat counter, paywall frequency guard
 import { learnApp, adminLearn } from './routes/learn.js'; // LEARN CMS: courses + devotionals (excerpt in app, full post on the blog)
 import companion from './routes/companion.js'; // SCRIPTURE COMPANION: /companion/safety, /companion/verses, /companion/compose (signed in)
+import { adminCompanion } from './routes/companion.js'; // COMPANION MEANING SEARCH: /admin/api/companion/vectors (admin only)
+import { companionVectorsCron } from './lib/companionSemantic.js'; // COMPANION MEANING SEARCH: cron builds missing verse vectors
 import { commentariesPublic } from './routes/commentaries.js'; // COMMENTARIES: GET /study/commentaries, /study/commentary/:id/:book/:chapter (public, cached)
+import { chatGaps, chatGapsPublic } from './routes/chatGaps.js'; // CHAT GAPS: /g/:code group-invite landing page, group bans
 import { runContestCron } from './lib/contestCron.js';
 
 export function createApp() {
@@ -112,6 +115,7 @@ export function createApp() {
   app.route('/', dailyPublic); // TODAY'S JOURNEY: GET /daily/today, /daily/videos, /youtube/latest (public, cached)
   app.route('/', commentariesPublic); // COMMENTARIES: library + cached chapters (public)
   app.route('/', referralsPublic); // CHAT LIMITS: GET /i/:code invite landing page, GET /invite/:code preview
+  app.route('/', chatGapsPublic); // CHAT GAPS: GET /g/:code (and /join/:code) group-invite landing page
 
   // everything below needs a signed-in user
   app.use('*', requireUser());
@@ -169,6 +173,7 @@ export function createApp() {
   app.route('/', adminDaily); // TODAY'S JOURNEY: /admin/api/daily/*, /admin/api/youtube/today/* (admin only)
   app.route('/', exegesis); // EXEGESIS: POST /study/exegesis (signed in)
   app.route('/', companion); // SCRIPTURE COMPANION: /companion/* (signed in)
+  app.route('/', adminCompanion); // COMPANION MEANING SEARCH: /admin/api/companion/vectors[/build] (admin only)
 
   app.route('/', care); // CARE NETWORK: /care/* (signed in)
   app.route('/', adminCare); // CARE NETWORK: /admin/api/care/* priests verification + apostle settings (admin only)
@@ -176,6 +181,7 @@ export function createApp() {
   app.route('/', adminLearn); // LEARN CMS: /admin/api/learn/* (admin only)
   app.route('/', referrals); // CHAT LIMITS: /me/invite, /me/referral, /chat/allowance, /paywall/*
   app.route('/', adminReferrals); // CHAT LIMITS: PUT /admin/api/users/:id/premium (admin only)
+  app.route('/', chatGaps); // CHAT GAPS: GET/DELETE /conversations/:id/bans (group admins)
 
   return app;
 }
@@ -191,5 +197,6 @@ export default {
   scheduled: (event, env, ctx) => ctx.waitUntil(Promise.all([
     runContestCron(env, ctx),
     sweepAbandonedUploads(env).catch((e) => console.error('upload sweep failed', e)),
+    companionVectorsCron(env).catch((e) => console.error('companion vectors failed', e)), // COMPANION MEANING SEARCH: embeds ≤15 missing verses per run
   ])),
 };

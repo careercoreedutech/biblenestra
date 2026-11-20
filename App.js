@@ -67,6 +67,9 @@ import { LibraryMiniBar } from './src/components/MiniPlayer'; // MEDIA LIBRARY
 import NotificationSettingsScreen from './src/screens/NotificationSettingsScreen'; // NOTIFICATIONS: Settings › Notifications › Daily moments
 import { useDailyMoments } from './src/notifications/daily'; // NOTIFICATIONS: daily moments (local, user's time zone)
 import { useDeepLinks } from './src/notifications/deepLinks'; // NOTIFICATIONS + WIDGETS: biblenestra:// deep links
+import { useGroupInviteLinks } from './src/notifications/deepLinks'; // CHAT GAPS: biblenestra://join/<code> → Join with a link
+import { useChatPush } from './src/notifications/push'; // CHAT PUSH: tap opens the chat, Reply / Mark as read actions, per-chat tray tidy
+import { useApi } from './src/api/auth'; // CHAT PUSH: authed request for notification actions
 import { useHomeWidgets } from './src/widgets'; // WIDGETS: Android home-screen widgets (registers the widget task on import; no-op on web/iOS)
 
 class ErrorBoundary extends Component {
@@ -208,8 +211,11 @@ function Root() {
   useBroadcastPushOpen(nav); // BROADCASTS: tapping an official-message push opens it in Activity
   useDailyMoments(nav); // NOTIFICATIONS: schedule the chosen daily moments + open their screen when tapped
   useDeepLinks(nav); // NOTIFICATIONS + WIDGETS: biblenestra://daily, //prayer, //bible … open their screens
+  useGroupInviteLinks(nav); // CHAT GAPS: group invite links (/g/<code> landing page → app) open the join screen prefilled
   useHomeWidgets(state, ready); // WIDGETS: redraw Android widgets when reading progress / the day changes
   useInviteLinks(); // CHAT LIMITS: biblenestra://invite/<code> → POST /me/referral once signed in
+  const chatPushApi = useApi(); // CHAT PUSH
+  useChatPush(nav, chatPushApi.online ? chatPushApi.request : null); // CHAT PUSH: open chat on tap, Reply / Mark as read from the notification
   // Android hardware back pops the in-app stack before leaving the app
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {

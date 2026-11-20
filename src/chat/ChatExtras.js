@@ -56,6 +56,17 @@ export function ImageViewer({ source, onClose }) {
 }
 
 // ---------- audio ----------
+// VOICE NOTES: deterministic, low stand-in waveform for voice notes without recorded levels
+function placeholderWave(key, n = 32) {
+  let h = 2166136261;
+  for (const ch of String(key || 'voice')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    h = Math.imul(h ^ (h >>> 13), 0x5bd1e995) >>> 0;
+    out.push(0.18 + ((h % 1000) / 1000) * 0.32);
+  }
+  return out;
+}
 let playing = null; // { sound, stop } — one voice note at a time
 
 export function AudioBubble({ voice, request, mine }) {
@@ -100,6 +111,11 @@ export function AudioBubble({ voice, request, mine }) {
   const fg = mine ? '#FFFFFF' : colors.fg;
   const sub = mine ? 'rgba(255,255,255,0.75)' : colors.muted;
   const pct = st.dur ? Math.min(1, st.pos / st.dur) : 0;
+  // VOICE NOTES: voice notes sent before waveforms existed (or recorded on web) get a calm stand-in drawn from the key
+  const wave = voice.isFile ? null : (Array.isArray(voice.waveform) && voice.waveform.length > 1 ? voice.waveform : placeholderWave(voice.key));
+  const seek = (f) => {
+    if (sound.current && st.dur) sound.current.setPositionAsync(Math.round(f * st.dur)).catch(() => {});
+  };
   return (
     <View style={styles.audio}>
       <PressScale onPress={toggle} scaleTo={0.9} style={[styles.playBtn, mine && { backgroundColor: 'rgba(255,255,255,0.2)' }]} accessibilityLabel={st.playing ? 'Pause' : 'Play'}>
@@ -107,9 +123,14 @@ export function AudioBubble({ voice, request, mine }) {
       </PressScale>
       <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
         <Text style={[styles.audioTitle, { color: fg }]} numberOfLines={1}>{voice.isFile ? `🎵 ${voice.name || 'Audio'}` : '🎤 Voice message'}</Text>
-        <View style={[styles.track, mine && { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
-          <View style={[styles.trackFill, { width: `${pct * 100}%` }, mine && { backgroundColor: '#FFFFFF' }]} />
-        </View>
+        {wave ? (
+          // VOICE NOTES: recorded loudness bars; the played part is coloured. Tap to jump once it has loaded.
+          <Waveform levels={wave} progress={pct} height={24} color={mine ? 'rgba(255,255,255,0.42)' : alpha(colors.primary, 0.28)} playedColor={mine ? '#FFFFFF' : colors.primary} onSeek={seek} />
+        ) : (
+          <View style={[styles.track, mine && { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
+            <View style={[styles.trackFill, { width: `${pct * 100}%` }, mine && { backgroundColor: '#FFFFFF' }]} />
+          </View>
+        )}
         <Text style={[styles.audioTime, { color: sub }]}>{st.error || (st.playing || st.pos ? `${fmtDur(st.pos)} / ${fmtDur(st.dur)}` : st.dur ? fmtDur(st.dur) : 'Tap to play')}</Text>
       </View>
       <Pressable onPress={cycleRate} hitSlop={6} style={[styles.rateBtn, mine && { backgroundColor: 'rgba(255,255,255,0.2)' }]} accessibilityLabel={`Playback speed ${rate} times`}>
@@ -209,46 +230,124 @@ export function AttachTray({ visible, items, onClose }) {
 }
 
 // ---------- voice recording ----------
+// VOICE NOTES: the recorder also samples loudness (expo-av metering, dBFS → 0…1) every 100 ms. `levels` holds the
+// most recent LIVE_BARS samples for the live waveform; stop() returns `waveform` (≤ WAVEFORM_BARS levels for the
+// whole clip, sent as meta.waveform). Web has no metering in expo-av, so web clips carry no waveform.
 const MAX_RECORD_MS = 10 * 60 * 1000;
+const LIVE_BARS = 40;
+export const WAVEFORM_BARS = 48;
+const dbToLevel = (db) => (typeof db === 'number' && Number.isFinite(db) ? Math.max(0, Math.min(1, (db + 55) / 50)) : null);
+
+/** Squeeze a long list of levels into `bars` (loudest of each bucket), 2 decimals; null when there's nothing to show. */
+export function shrinkLevels(src, bars = WAVEFORM_BARS) {
+  if (!src || src.length < 2) return null;
+  if (src.length <= bars) return src.map((x) => Math.round(x * 100) / 100);
+  const out = [];
+  for (let i = 0; i < bars; i++) {
+    const a = Math.floor((i * src.length) / bars);
+    const b = Math.max(a + 1, Math.floor(((i + 1) * src.length) / bars));
+    let peak = 0;
+    for (let j = a; j < b; j++) if (src[j] > peak) peak = src[j];
+    out.push(Math.round(peak * 100) / 100);
+  }
+  return out;
+}
 
 export function useVoiceRecorder({ onError } = {}) {
   const rec = useRef(null);
-  const [state, setState] = useState({ recording: false, ms: 0 });
+  const all = useRef([]); // every level of the current clip
+  const [state, setState] = useState({ recording: false, paused: false, ms: 0, levels: [] });
   useEffect(() => () => { if (rec.current) rec.current.stopAndUnloadAsync().catch(() => {}); }, []);
-  const start = async () => {
+  // opts.hold: started by pressing and holding the mic — if the microphone permission had to be asked first,
+  // don't start (the finger has left the button by then); the next hold records.
+  const start = async (opts = {}) => {
+    if (rec.current) return true;
     try {
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm.granted) { onError && onError('Allow microphone access to record voice messages'); return false; }
+      let perm = await Audio.getPermissionsAsync();
+      if (!perm.granted) {
+        perm = await Audio.requestPermissionsAsync();
+        if (!perm.granted) { onError && onError('Allow microphone access to record voice messages'); return false; }
+        if (opts.hold) { onError && onError('Microphone ready — hold the mic button to record'); return false; }
+      }
       if (playing) playing.stop();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY, (s) => {
-        setState((x) => ({ ...x, ms: s.durationMillis || 0 }));
+      all.current = [];
+      const { recording } = await Audio.Recording.createAsync({ ...Audio.RecordingOptionsPresets.HIGH_QUALITY, isMeteringEnabled: true }, (s) => {
+        if (!s || !s.isRecording) { setState((x) => ({ ...x, ms: (s && s.durationMillis) || x.ms })); return; }
+        const lv = dbToLevel(s.metering);
+        if (lv != null) all.current.push(lv);
+        setState((x) => ({ ...x, ms: s.durationMillis || 0, levels: lv == null ? x.levels : [...x.levels.slice(-(LIVE_BARS - 1)), lv] }));
         if ((s.durationMillis || 0) >= MAX_RECORD_MS && rec.current) rec.current.pauseAsync().catch(() => {});
-      }, 250);
+      }, 100);
       rec.current = recording;
-      setState({ recording: true, ms: 0 });
+      setState({ recording: true, paused: false, ms: 0, levels: [] });
       return true;
     } catch (e) {
       onError && onError('Couldn’t start the microphone');
       return false;
     }
   };
-  // → { uri, durationMs, mimeType } | null
+  // VOICE NOTES: hands-free (locked) recordings can be paused and resumed
+  const pause = async () => {
+    if (!rec.current) return;
+    try { await rec.current.pauseAsync(); setState((x) => ({ ...x, paused: true })); } catch (e) { /* not supported */ }
+  };
+  const resume = async () => {
+    if (!rec.current) return;
+    try { await rec.current.startAsync(); setState((x) => ({ ...x, paused: false })); } catch (e) { /* ignore */ }
+  };
+  // → { uri, durationMs, mimeType, waveform } | null
   const stop = async (keep = true) => {
     const r = rec.current;
     rec.current = null;
-    setState({ recording: false, ms: 0 });
+    setState({ recording: false, paused: false, ms: 0, levels: [] });
     if (!r) return null;
     let durationMs = 0;
     try { const s = await r.getStatusAsync(); durationMs = s.durationMillis || 0; } catch (e) { /* ignore */ }
     try { await r.stopAndUnloadAsync(); } catch (e) { /* already stopped */ }
     await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(() => {});
     const uri = r.getURI();
+    const waveform = shrinkLevels(all.current);
+    all.current = [];
     if (!keep || !uri) return null;
     if (durationMs < 700) { onError && onError('Hold on — that voice message was too short'); return null; }
-    return { uri, durationMs, mimeType: IS_WEB ? '' : 'audio/m4a' };
+    return { uri, durationMs, mimeType: IS_WEB ? '' : 'audio/m4a', waveform };
   };
-  return { ...state, start, stop };
+  return { ...state, start, stop, pause, resume };
+}
+
+/** VOICE NOTES: bars for a waveform (0…1 levels). progress 0…1 colours the played part. */
+export function Waveform({ levels, progress = 0, height = 26, color, playedColor, barWidth = 2.5, gap = 2, style, onSeek }) {
+  const [w, setW] = useState(0);
+  const bars = levels && levels.length ? levels : null;
+  const content = (
+    <View
+      onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      style={[{ height, flexDirection: 'row', alignItems: 'center', overflow: 'hidden' }, style]}
+    >
+      {bars ? (() => {
+        const fit = w ? Math.max(1, Math.floor((w + gap) / (barWidth + gap))) : bars.length;
+        const shown = bars.length > fit ? shrinkLevels(bars, fit) : bars;
+        const playedUpTo = Math.round(progress * shown.length);
+        return shown.map((lv, i) => (
+          <View
+            key={i}
+            style={{
+              width: barWidth, marginRight: i === shown.length - 1 ? 0 : gap, borderRadius: barWidth,
+              height: Math.max(3, Math.round(lv * height)),
+              backgroundColor: i < playedUpTo ? playedColor : color,
+            }}
+          />
+        ));
+      })() : null}
+    </View>
+  );
+  if (!onSeek || !bars) return content;
+  return (
+    <Pressable onPress={(e) => { if (w) onSeek(Math.max(0, Math.min(1, e.nativeEvent.locationX / w))); }} accessibilityLabel="Waveform. Tap to jump">
+      {content}
+    </Pressable>
+  );
 }
 
 export function RecorderBar({ ms, onCancel, onSend }) {

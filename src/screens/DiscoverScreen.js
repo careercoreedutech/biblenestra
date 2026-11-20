@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, Image, TextInput, ImageBackground, Share, Platform } from 'react-native';
 import { PressScale, FadeInUp, ScaleIn, Pop, Burst, Pulse, LiveRing, AnimatedNumber, AnimatedBar, AnimatedModal } from '../components/Motion';
 import AskBar from '../components/AskBar';
@@ -21,7 +21,7 @@ import { useSync } from '../api/sync';
 import { API_CONFIG } from '../api/config'; // DISCOVER TOOLS (round 3)
 import { YouTubeSection } from './WatchScreens'; // DISCOVER TOOLS (round 3)
 import { PersonSocial } from './UserProfileScreen'; // SOCIAL (round 3)
-import { ChatMessage, PinnedBar, useMessageActions } from '../components/chat/MessageKit'; // ROUND 4: message actions
+import { PinnedBar, useMessageActions } from '../components/chat/MessageKit'; // ROUND 4: message actions
 import { dmScope, groupScope, scopeConversationId, isServerId as isChatServerId, mapServerMessage } from '../chat/messages';
 import { useApi } from '../api/auth'; // CHAT EXTRAS: photos, voice, Meet calls, coin gifts
 import { errorMessage } from '../api/client';
@@ -29,6 +29,8 @@ import { pickPhotos, pickAudio } from '../api/media';
 import { uploadChatImage, uploadChatAudio, sendChatCoins, MAX_CHAT_AUDIO } from '../api/chatMedia';
 import { AttachTray, AudioBubble, ChatImage, CoinGiftSheet, GiftCard, ImageViewer, MeetJoin, MeetPrompt, RecorderBar, useVoiceRecorder } from '../chat/ChatExtras';
 import { useThreadLoader } from '../chat/useThread';
+import { ChatThread } from '../components/chat/ChatThread'; // CHAT GAPS: community #channels use the same virtualised thread as Chats
+import { Composer } from '../components/chat/Composer'; // CHAT GAPS: …and the same composer (text only here: no attachments / voice)
 import { OpportunitiesEntryCard } from './OpportunitiesScreen'; // OPPORTUNITIES
 
 // ---------- Discover Hub (Sanctuary Paper) ----------
@@ -1412,8 +1414,11 @@ export function GroupScreen({ params = {} }) {
   const g = (state.communities || []).find((c) => c.id === params.id);
   const [channel, setChannel] = useState('General');
   const [tab, setTab] = useState('Chat');
-  const stick = useStickToBottom();
   const sync = useSync();
+  const threadRef = useRef(null); // CHAT GAPS: ChatThread (inverted list) → jump to a message / back to the newest
+  const contentRef = useRef(null);
+  const latestPray = useRef(null); // chips inside memoised rows always pray with the newest channel state
+  const renderContent = useCallback((m) => (contentRef.current ? contentRef.current(m) : null), []);
   // ROUND 4: group channels are server conversations online; message actions work the same as in direct chats
   const gScope = groupScope(g ? g.id : 'none', channel);
   const gConvId = scopeConversationId(state, gScope);
@@ -1424,7 +1429,11 @@ export function GroupScreen({ params = {} }) {
     isGroup: true,
     canPin: !sync.online || isGroupAdmin,
     canModerate: isGroupAdmin,
-    onSend: (t, reply) => dispatch({ type: 'groupMessage', gid: g.id, channel, localId: 'm' + Date.now(), m: { text: t, reply } }),
+    onSend: (t, reply) => {
+      dispatch({ type: 'groupMessage', gid: g.id, channel, localId: 'm' + Date.now(), m: { text: t, reply } });
+      if (threadRef.current) threadRef.current.scrollToBottom();
+    },
+    scrollToId: (id) => !!threadRef.current && threadRef.current.scrollToMessage(id),
   });
   if (!g) {
     return (
@@ -1455,6 +1464,14 @@ export function GroupScreen({ params = {} }) {
     dispatch({ type: 'set', patch: { groupMessages: { ...state.groupMessages, [g.id]: { ...groupMsgs, [channel]: next } } } });
     toast.show(m.prayedByMe ? 'Removed from your prayers' : `You're praying with ${m.from}`, { icon: 'prayer', haptic: m.prayedByMe ? 'light' : 'success' });
   };
+  latestPray.current = prayAlong;
+  contentRef.current = (m) => (m.passage || m.prayer || m.event ? (
+    <>
+      {m.passage ? <PassageChip mine={m.mine} icon="book" label={`${refLabel(m.passage.bookId, m.passage.chapter)} · Open`} onPress={() => nav.push('Bible', m.passage)} /> : null}
+      {m.prayer ? <PassageChip mine={m.mine} active={!!m.prayedByMe} pop={!!m.prayedByMe} icon="prayer" label={`${m.prayedByMe ? 'Praying' : 'I\'m praying'} · ${m.praying || 0}`} onPress={() => latestPray.current(m)} /> : null}
+      {m.event ? <PassageChip mine={m.mine} icon="calendar" label="RSVP in calendar" onPress={() => nav.push('Calendar')} /> : null}
+    </>
+  ) : null);
   const composerAction = (a) => {
     if (!canPost) { toast.show('Join this group to share here', { tone: 'error' }); return; }
     if (a === 'Passage') {
@@ -1515,32 +1532,27 @@ export function GroupScreen({ params = {} }) {
             <Pills small items={CHANNELS} value={channel} onChange={setChannel} style={{ paddingHorizontal: 18, flexGrow: 0 }} />
           </View>
           <PinnedBar pins={gActions.pins} onOpen={(p) => gActions.jumpTo(p.id)} />
-          <ScrollView ref={(r) => { stick.ref.current = r; gActions.scrollRef.current = r; }} onContentSizeChange={stick.onContentSizeChange} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, gap: 12 }} showsVerticalScrollIndicator={false}>
-            {msgs.length && canPost && gActions.tipVisible ? <Text style={styles.chatTip}>Tip: press and hold a message to reply, react, copy, edit, pin or delete.</Text> : null}
-            {!msgs.length ? <ScaleIn key={channel} from={0.92}><Empty title={`No messages in #${channel} yet`} body={canPost ? 'Start the conversation below.' : null} /></ScaleIn> : null}
-            {msgs.map((m) => (
-              <ChatMessage
-                key={m.id}
-                m={m}
-                showSender
-                highlighted={gActions.highlight === m.id}
-                onLayout={gActions.layoutFor(m.id)}
-                onLongPress={canPost ? () => gActions.open(m) : undefined}
-                onReact={canPost ? (e) => gActions.react(m, e) : undefined}
-                onOpenReply={gActions.jumpTo}
-              >
-                {m.passage ? (
-                  <PassageChip mine={m.mine} icon="book" label={`${refLabel(m.passage.bookId, m.passage.chapter)} · Open`} onPress={() => nav.push('Bible', m.passage)} />
-                ) : null}
-                {m.prayer ? (
-                  <PassageChip mine={m.mine} active={!!m.prayedByMe} pop={!!m.prayedByMe} icon="prayer" label={`${m.prayedByMe ? 'Praying' : 'I\'m praying'} · ${m.praying || 0}`} onPress={() => prayAlong(m)} />
-                ) : null}
-                {m.event ? (
-                  <PassageChip mine={m.mine} icon="calendar" label="RSVP in calendar" onPress={() => nav.push('Calendar')} />
-                ) : null}
-              </ChatMessage>
-            ))}
-          </ScrollView>
+          {/* CHAT GAPS: the shared ChatThread (virtualised, day separators, grouped bubbles, swipe to reply, link cards);
+              passage / prayer / event chips stay as each bubble's content, so channel semantics are unchanged */}
+          <ChatThread
+            key={channel}
+            ref={threadRef}
+            messages={msgs}
+            isGroup
+            online={sync.online}
+            highlight={gActions.highlight}
+            header={(
+              <View style={{ paddingVertical: 10, gap: 8 }}>
+                {!msgs.length ? <ScaleIn key={channel} from={0.92}><Empty title={`No messages in #${channel} yet`} body={canPost ? 'Start the conversation below.' : null} /></ScaleIn> : null}
+                {msgs.length && canPost && gActions.tipVisible ? <Text style={styles.chatTip}>Tip: swipe right on a message to reply · press and hold to react, copy, edit, pin or delete.</Text> : null}
+              </View>
+            )}
+            onLongPress={canPost ? gActions.open : undefined}
+            onReact={canPost ? gActions.react : undefined}
+            onOpenReply={gActions.jumpTo}
+            onSwipeReply={canPost ? gActions.reply : undefined}
+            renderContent={renderContent}
+          />
           <View style={styles.composerWrap}>
             {canPost ? (
               <View style={{ flexDirection: 'row', gap: 6, paddingBottom: 8 }}>
@@ -1560,7 +1572,7 @@ export function GroupScreen({ params = {} }) {
             ) : null}
             {canPost ? gActions.banner : null}
             {canPost ? (
-              <AskBar placeholder={gActions.editing ? 'Edit your message' : `Message #${channel}`} {...gActions.composer} />
+              <Composer placeholder={gActions.editing ? 'Edit your message' : `Message #${channel}`} {...gActions.composer} />
             ) : (
               <View style={{ gap: 10 }}>
                 <Notice text={g.joined === 'requested' ? 'Your request is waiting for approval.' : 'Join this group to post.'} />

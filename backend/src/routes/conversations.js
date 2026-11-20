@@ -5,12 +5,16 @@ import { q, one } from '../lib/db.js';
 import { userJson } from '../lib/shape.js';
 import { notifyUser } from '../hub.js';
 import { sendNotification } from '../lib/push.js';
+import { cleanVoiceMeta } from '../lib/voiceMeta.js'; // VOICE NOTES: waveform + duration validation
 import { MSG_SELECT, messageShape, loadMessage, pinsFor } from '../lib/messages.js';
 import { mediaUrl } from '../lib/shape.js';
 import {
   groupContext, permissionsFor, systemMessage, settingsOf, touchPresence, presenceShape, receiptsFor, markDelivered, typingIn, RANK, addMembersTo,
 } from '../lib/chatGroups.js';
 import { assertCanStartDm, useSlotForFirstMessage } from '../lib/chatLimits.js'; // CHAT LIMITS (client #27): free users start ≤ 5 platform chats
+import { firstLinkUrl, cachedPreview, scheduleLinkPreview } from '../lib/linkPreviews.js'; // CHAT GAPS: link preview cards
+import { mutedSql } from '../lib/chatMute.js'; // CHAT GAPS: timed mute (expiry honoured everywhere)
+import { broadcastChange } from '../lib/messages.js';
 
 const conversations = new Hono();
 
@@ -55,7 +59,7 @@ conversations.get('/conversations', async (c) => {
             (SELECT MIN(COALESCE(rm.last_delivered_at, rm.last_read_at)) FROM conversation_members rm WHERE rm.conversation_id = c.id AND rm.user_id <> $1) AS others_delivered_at,
             (SELECT COUNT(*)::int FROM conversation_members cnt WHERE cnt.conversation_id = c.id) AS members_count,
             (SELECT co.name FROM community_channels cc JOIN communities co ON co.id = cc.community_id WHERE cc.conversation_id = c.id LIMIT 1) AS community_name,
-            m.role, m.last_read_at, m.muted,
+            m.role, m.last_read_at, ${mutedSql('m')} AS muted, m.muted_until,
             (SELECT json_build_object(
                'id', msg.id, 'kind', msg.kind, 'body', CASE WHEN msg.deleted THEN 'This message was deleted' ELSE msg.body END,
                'senderId', msg.sender_id, 'createdAt', msg.created_at, 'deleted', msg.deleted,
@@ -118,6 +122,7 @@ conversations.get('/conversations', async (c) => {
       settings,
       role: r.role,
       muted: !!r.muted,
+      mutedUntil: r.muted && r.muted_until ? new Date(r.muted_until).toISOString() : null, // CHAT GAPS: timed mute
       unreadCount: r.unread_count || 0,
       isRequest: r.request_status === 'pending',
       requestStatus: r.request_status || null,
@@ -254,6 +259,15 @@ conversations.get('/conversations/:id/messages', async (c) => {
 
   const hasMore = rows.length > limit;
   const items = (hasMore ? rows.slice(0, limit) : rows).map((r) => messageShape(r, me.id));
+  // CHAT GAPS: links whose card isn't cached yet (sent while the fetch failed, or before this feature) are fetched
+  // in the background on read — at most 3 per page; the devices hear message.changed when a card is ready.
+  if (!cursor) {
+    const missing = new Map();
+    for (const r of rows) if (r.link_url && !r.link_preview && !r.deleted && missing.size < 3) missing.set(r.link_url, [...(missing.get(r.link_url) || []), r.id]);
+    for (const [url, msgIds] of missing) {
+      scheduleLinkPreview(c, url, () => Promise.all(msgIds.map((mid) => broadcastChange(c.env, convId, mid, 'linkPreview').catch(() => {}))));
+    }
+  }
   const nextCursor = hasMore && items.length > 0 ? encodeCursor(rows[limit - 1]) : null;
   // ROUND 4: pinned messages ride along with the first page
   const pins = cursor ? undefined : await pinsFor(c.env, convId, me.id);
@@ -285,7 +299,8 @@ conversations.post('/conversations/:id/messages', async (c) => {
   if (!['text', 'image', 'voice', 'verse', 'prayer', 'event', 'video', 'file'].includes(kind)) throw bad('Invalid message kind');
   const text = str(b.text || '', { max: 5000, optional: true }) || '';
   const mediaKey = b.mediaKey ? str(b.mediaKey, { max: 500 }) : null;
-  const meta = b.meta && typeof b.meta === 'object' ? b.meta : null;
+  const rawMeta = b.meta && typeof b.meta === 'object' ? b.meta : null;
+  const meta = kind === 'voice' ? cleanVoiceMeta(rawMeta) : rawMeta; // VOICE NOTES: duration + waveform levels (lib/voiceMeta.js)
   const replyTo = b.replyTo ? String(b.replyTo) : null;
   const clientId = b.clientId ? str(b.clientId, { max: 100 }) : null;
 
@@ -302,7 +317,7 @@ conversations.post('/conversations/:id/messages', async (c) => {
       SELECT c.id, c.kind, c.title,
         EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2) AS is_member,
         COALESCE(
-          (SELECT json_agg(json_build_object('user_id', cm.user_id, 'muted', cm.muted))
+          (SELECT json_agg(json_build_object('user_id', cm.user_id, 'muted', ${mutedSql('cm')}))
            FROM conversation_members cm WHERE cm.conversation_id = $1 AND cm.user_id <> $2),
           '[]'::json
         ) AS other_members
@@ -372,11 +387,14 @@ conversations.post('/conversations/:id/messages', async (c) => {
   // CHAT LIMITS: the free user's first message of a new 1:1 chat uses a slot (idempotent; 403 CHAT_LIMIT_REACHED when none left)
   if (convData.kind === 'dm' && otherMembers.length > 0) await useSlotForFirstMessage(c.env, me, convId, otherMembers[0].user_id);
 
+  // CHAT GAPS: remember the first https link; its preview card is fetched after the response (never slows sending)
+  const linkUrl = firstLinkUrl(text);
+
   // Insert message and touch conversation timestamps in a single atomic CTE query
   const row = await one(c.env,
     `WITH inserted AS (
-       INSERT INTO messages (conversation_id, sender_id, kind, body, media_key, meta, reply_to, client_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       INSERT INTO messages (conversation_id, sender_id, kind, body, media_key, meta, reply_to, client_id, link_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *
      ),
      up_conv AS (
@@ -388,10 +406,16 @@ conversations.post('/conversations/:id/messages', async (c) => {
      SELECT i.*, ${userJson('u')} AS sender
      FROM inserted i
      JOIN users u ON u.id = i.sender_id`,
-    [convId, me.id, kind, text, mediaKey, meta ? JSON.stringify(meta) : null, replyTo, clientId]
+    [convId, me.id, kind, text, mediaKey, meta ? JSON.stringify(meta) : null, replyTo, clientId, linkUrl]
   );
 
   const formatted = replyTo ? await loadMessage(c.env, row.id, me.id) : messageShape(row, me.id);
+  if (linkUrl) {
+    // a link someone already shared shows its card at once; a new one gets it a moment later (message.changed)
+    const known = await cachedPreview(c.env, linkUrl);
+    if (known) formatted.linkPreview = known;
+    else scheduleLinkPreview(c, linkUrl, () => broadcastChange(c.env, convId, row.id, 'linkPreview').catch(() => {}));
+  }
 
   // CHAT 7.4: @mentions (meta.mentions = [userId]) reach people even when they muted the chat, like WhatsApp/Telegram
   const mentioned = new Set(meta && Array.isArray(meta.mentions) ? meta.mentions.map(String) : []);
@@ -536,7 +560,8 @@ conversations.post('/conversations/:id/mute', async (c) => {
   const me = c.get('user');
   const convId = uuidParam(c, 'id');
   const updated = await one(c.env,
-    `UPDATE conversation_members SET muted = NOT muted WHERE conversation_id = $1 AND user_id = $2 RETURNING muted`,
+    `UPDATE conversation_members SET muted = NOT (muted AND (muted_until IS NULL OR muted_until > now())), muted_until = NULL
+      WHERE conversation_id = $1 AND user_id = $2 RETURNING muted`, // CHAT GAPS: an expired timed mute counts as unmuted
     [convId, me.id]
   );
   if (!updated) throw notFound('Not a member');

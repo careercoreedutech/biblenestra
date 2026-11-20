@@ -4,8 +4,10 @@
 //   1. safety      detectCrisis() — instant keyword check for self-harm/suicide, abuse and danger, plus the
 //                  helplines for the user's country (HELPLINES). Needs no AI, answers in milliseconds.
 //   2. verses      analyse() — the model extracts themes (several allowed) + specifics + suggested references;
-//                  rankCandidates() merges the curated theme index (companionIndex.js) with the suggestions,
-//                  skips the user's last ~50 delivered verses and varies the choice among the top candidates;
+//                  rankCandidates() merges the curated theme index (companionIndex.js) with the suggestions and,
+//                  when the vectors are built, meaning search (companionSemantic.js: Workers AI embeddings of the
+//                  message vs ~435 pooled verses), skips the user's last ~50 delivered verses and varies the choice
+//                  among the top candidates;
 //                  every reference is validated against the KJV verse table (verseCounts.js) and its EXACT text
 //                  is pulled from the Bible data (Free Use Bible API, the same source the app reads) in the
 //                  user's translation. Model-written verse text is never used; invalid references are dropped.
@@ -13,6 +15,7 @@
 //                  parallel parts (x1: verses 1-4, x2: verses 5-8, p: encouragement + prayer) so the first
 //                  explanations land quickly — React Native's fetch can't read a streamed body.
 import { THEMES, THEME_KEYS, SITUATION_THEMES } from './companionIndex.js';
+import { refThemes } from './companionPool.js';
 import { refExists, verseCount } from './verseCounts.js';
 import { normaliseRef } from './scripture.js';
 import { BOOK_META, parseJsonLoose, isQuotaError } from './exegesis.js';
@@ -25,6 +28,13 @@ export const TARGET_VERSES = 8;
 export const MIN_VERSES = 7;
 export const RECENT_LIMIT = 50;
 export const COMPOSE_PARTS = ['x1', 'x2', 'p'];
+// Meaning search blend: the best-matching SEMANTIC_POOL verses get up to SEMANTIC_WEIGHT added to their score
+// (the theme index gives ≤ 1 per theme, a model suggestion 0.75, index+model agreement 0.35, jitter ≤ 0.3).
+export const SEMANTIC_WEIGHT = 0.6;
+export const SEMANTIC_POOL = 40;
+export const SEMANTIC_SLOTS = 2; // of the TARGET_VERSES, reserved for the best meaning matches (any theme)
+// With abuse or danger these themes are removed, and none of their verses may be added by meaning search.
+const UNSAFE_IN_ABUSE = ['marriage', 'guilt', 'betrayal', 'temptation', 'children'];
 export { isQuotaError };
 
 const BIBLE_API = 'https://bible.helloao.org/api';
@@ -288,11 +298,11 @@ for (const k of THEME_KEYS) for (const ref of THEMES[k].refs) COMMONNESS.set(ref
  * randomness so similar situations still get varied sets. Returns candidates best first, theme-balanced.
  * @param analysis { themes: [{theme, weight}], references: string[] }
  * @param recent   Set of verse keys ("PSA 34:18") delivered to this user lately
- * @param opts     { random: () => number, crisis: flags }
+ * @param opts     { random: () => number, crisis: flags, semantic: Map(ref → cosine) | null }
  */
-export function rankCandidates(analysis, recent = new Set(), { random = Math.random, crisis = null } = {}) {
+export function rankCandidates(analysis, recent = new Set(), { random = Math.random, crisis = null, semantic = null } = {}) {
   const themes = effectiveThemes(analysis.themes, crisis);
-  return rankWith(themes, analysis, recent, random, crisis);
+  return rankWith(themes, analysis, recent, random, crisis, semantic);
 }
 
 /** The themes a reply is built on: crisis themes lead; with abuse/danger, unsafe themes are removed. */
@@ -304,14 +314,14 @@ export function effectiveThemes(list, crisis) {
     const lead = [];
     if (crisis.abuse || crisis.danger) lead.push({ theme: 'safety', weight: 1 });
     if (crisis.selfHarm) lead.push({ theme: 'despair', weight: 1 });
-    const unsafe = crisis.abuse || crisis.danger ? ['marriage', 'guilt', 'betrayal', 'temptation', 'children'] : [];
+    const unsafe = crisis.abuse || crisis.danger ? UNSAFE_IN_ABUSE : [];
     themes = [...lead, ...themes.filter((t) => !['safety', 'despair', ...unsafe].includes(t.theme)).map((t) => ({ ...t, weight: Math.min(t.weight, 0.4) }))];
   }
   if (!themes.length) themes.push({ theme: 'hope', weight: 1 });
   return themes;
 }
 
-function rankWith(themes, analysis, recent, random, crisis) {
+function rankWith(themes, analysis, recent, random, crisis, semantic) {
   const byRef = new Map();
   const add = (ref, score, theme, source) => {
     const cur = byRef.get(ref) || { ref, score: 0, themes: [], sources: new Set() };
@@ -331,21 +341,44 @@ function rankWith(themes, analysis, recent, random, crisis) {
     const ref = canonicalRef(raw);
     if (ref && !blocked.has(ref)) add(ref, 0.75, byRef.has(ref) ? null : top, 'model');
   }
+  // meaning search: boost the closest verses (relative to the best SEMANTIC_POOL matches), damped like the index for
+  // generic verses; verses new to the list arrive with their own theme tags. Unsafe verses are never added in abuse.
+  if (semantic && semantic.size) {
+    const abuse = !!(crisis && (crisis.abuse || crisis.danger));
+    const near = [...semantic.entries()].filter(([ref]) => !blocked.has(ref) && !(abuse && refThemes(ref).some((k) => UNSAFE_IN_ABUSE.includes(k))))
+      .sort((a, b) => b[1] - a[1]).slice(0, SEMANTIC_POOL);
+    if (near.length) {
+      const hi = near[0][1];
+      const lo = near[near.length - 1][1];
+      const span = Math.max(hi - lo, 0.02);
+      const named = new Set(themes.map((t) => t.theme));
+      for (const [ref, sim] of near) {
+        const s = (SEMANTIC_WEIGHT * ((sim - lo) / span)) / (1 + 0.15 * ((COMMONNESS.get(ref) || 1) - 1));
+        if (!(s > 0)) continue;
+        if (byRef.has(ref)) { add(ref, s, null, 'semantic'); continue; }
+        const own = refThemes(ref);
+        add(ref, s, null, 'semantic');
+        byRef.get(ref).themes.push(...own.filter((k) => named.has(k)), ...own.filter((k) => !named.has(k)));
+      }
+    }
+  }
   // general hope verses as a last resort so a reply never runs short
-  THEMES.hope.refs.forEach((ref, i) => { if (!byRef.has(ref)) add(ref, 0.05 - i * 0.001, 'hope', 'fallback'); });
+  THEMES.hope.refs.forEach((ref, i) => { if (!byRef.has(ref) && !blocked.has(ref)) add(ref, 0.05 - i * 0.001, 'hope', 'fallback'); });
 
   const isRecent = (ref) => verseKeys(ref).some((k) => recent.has(k));
   const all = [...byRef.values()].map((c) => ({
     ref: c.ref,
     themes: c.themes,
     model: c.sources.has('model'),
+    semantic: c.sources.has('semantic'),
     recent: isRecent(c.ref),
     // agreement between the index and the model is the strongest signal; jitter varies near-ties
     score: c.score + (c.sources.has('model') && c.sources.has('index') ? 0.35 : 0) + random() * 0.3 - (isRecent(c.ref) ? 5 : 0),
   }));
   all.sort((a, b) => b.score - a.score);
 
-  // theme balance: give each named theme a share of the first TARGET slots, then fill by score
+  // theme balance: give each named theme a share of the first TARGET slots (with meaning search, SEMANTIC_SLOTS of
+  // them go to the best meaning matches, right after the lead theme's share), then fill by score
   const order = [];
   const used = new Set();
   const usedVerses = new Set();
@@ -358,11 +391,16 @@ function rankWith(themes, analysis, recent, random, crisis) {
     return true;
   };
   const total = themes.reduce((s, t) => s + t.weight, 0) || 1;
-  for (const { theme, weight } of themes) {
-    const share = Math.max(1, Math.round((weight / total) * TARGET_VERSES));
+  const meaning = all.some((c) => c.semantic) ? SEMANTIC_SLOTS : 0;
+  themes.forEach(({ theme, weight }, i) => {
+    const share = Math.max(1, Math.round((weight / total) * (TARGET_VERSES - meaning)));
     let n = 0;
     for (const c of all) { if (n >= share) break; if (!c.recent && c.themes.includes(theme) && take(c)) n++; }
-  }
+    if (i === 0 && meaning) {
+      let m = 0;
+      for (const c of all) { if (m >= meaning) break; if (!c.recent && c.semantic && take(c)) m++; }
+    }
+  });
   for (const c of all) take(c);
   return order;
 }

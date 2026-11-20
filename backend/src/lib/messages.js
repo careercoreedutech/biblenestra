@@ -19,7 +19,10 @@ export const MSG_SELECT = `
                FROM message_reactions WHERE message_id = m.id GROUP BY emoji) r) AS reactions,
     (SELECT json_build_object('id', rm.id, 'senderId', rm.sender_id, 'senderName', ru.display_name,
               'kind', rm.kind, 'text', CASE WHEN rm.deleted THEN '' ELSE rm.body END, 'deleted', rm.deleted)
-       FROM messages rm JOIN users ru ON ru.id = rm.sender_id WHERE rm.id = m.reply_to) AS reply
+       FROM messages rm JOIN users ru ON ru.id = rm.sender_id WHERE rm.id = m.reply_to) AS reply,
+    -- CHAT GAPS: cached link-preview card for the first https link (lib/linkPreviews.js)
+    (SELECT json_build_object('url', lp.url, 'title', lp.title, 'description', lp.description, 'image', lp.image, 'siteName', lp.site_name)
+       FROM link_previews lp WHERE lp.url = m.link_url AND lp.status = 'ok') AS link_preview
   FROM messages m
   JOIN users u ON u.id = m.sender_id
   WHERE NOT EXISTS (SELECT 1 FROM message_hides h WHERE h.message_id = m.id AND h.user_id = $1)`;
@@ -45,6 +48,7 @@ export function messageShape(row, meId) {
     deletedByModerator: deleted && !!row.deleted_by && row.deleted_by !== row.sender_id,
     pinned: !deleted && !!row.pinned,
     reactions: deleted ? [] : (parse(row.reactions) || []),
+    linkPreview: deleted ? null : (parse(row.link_preview) || null), // CHAT GAPS: { url, title, description, image, siteName }
   };
 }
 

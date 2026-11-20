@@ -33,6 +33,7 @@ const env = {
   CORS_ORIGINS: '*',
   // Fund Me: simulated payments locally (PAYMENTS_MODE=off → "Donations open soon")
   PAYMENTS_MODE: process.env.PAYMENTS_MODE === 'off' ? '' : (process.env.PAYMENTS_MODE || 'test'),
+  LINK_PREVIEWS: process.env.LINK_PREVIEWS || '', // CHAT GAPS: 'on' → chat link-preview cards fetch real websites locally
 };
 const app = createApp();
 const port = Number(process.env.PORT || 8787);

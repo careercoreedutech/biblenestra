@@ -9,11 +9,18 @@
 //            themes, specifics, summary, crisis, medicalNote }
 //   POST /companion/compose  { requestId, message, part: 'x1' | 'x2' | 'p' }   (the app sends the three parts at once)
 //        → x1/x2: { explanations: { [ref]: text } }   p: { encouragement, prayer }
+// Meaning search (embeddings) runs alongside the analysis and blends into the ranking once the verse vectors are
+// built; until then, or if it fails, ranking is theme-based exactly as before. Admin (role = 'admin'):
+//   GET  /admin/api/companion/vectors          → { model, total, built, remaining, ready }
+//   POST /admin/api/companion/vectors/build    { limit? (1-150, default 15), reset? } → { built, remaining, failed, … }
+//        call repeatedly until remaining = 0 (the 15-minute cron also builds 15 at a time while anything is missing).
 // No AI binding → 503 NOT_CONFIGURED for verses/compose (a local AUTH_DEV_MODE server accepts devStub: true and
 // then uses keyword themes + placeholder explanations, with real verses).
 import { Hono } from 'hono';
 import { body, str, bad, isUuid, notFound, ApiError } from '../lib/http.js';
 import { one, q } from '../lib/db.js';
+import { requireAdmin } from './admin.js';
+import { semanticScores, vectorStatus, buildVectors } from '../lib/companionSemantic.js';
 import {
   NOT_CONFIGURED_MSG, BUSY_MSG, RECENT_LIMIT, MIN_VERSES, TARGET_VERSES, COMPOSE_PARTS, MEDICAL_NOTE,
   detectCrisis, crisisBlock, keywordThemes, acknowledgement, analyse, rankCandidates, effectiveThemes, resolveVerses, compose, verseKeys, isQuotaError,
@@ -61,6 +68,8 @@ companion.post('/companion/verses', async (c) => {
   if (used && used.n >= DAILY_LIMIT) throw new ApiError(429, 'LIMIT', 'You’ve reached today’s Scripture Companion limit. Your earlier replies are still saved on this phone.');
 
   const flags = detectCrisis(message);
+  // meaning search in parallel with the analysis (adds no wall-clock time); null → theme ranking only
+  const semanticP = stub ? Promise.resolve(null) : semanticScores(c.env, message);
   let analysis;
   try {
     analysis = await analyse(c.env, message, { stub });
@@ -73,13 +82,15 @@ companion.post('/companion/verses', async (c) => {
   const recentRows = await q(c.env, 'SELECT verse_key FROM companion_delivered WHERE user_id = $1 ORDER BY id DESC LIMIT $2', [me.id, RECENT_LIMIT]);
   const recent = new Set(recentRows.map((r) => r.verse_key));
   const random = typeof c.env.__random === 'function' ? c.env.__random : Math.random;
-  const candidates = rankCandidates(analysis, recent, { random, crisis: flags });
+  const semantic = await semanticP;
+  const candidates = rankCandidates(analysis, recent, { random, crisis: flags, semantic });
   analysis.themes = effectiveThemes(analysis.themes, flags);
   const verses = await resolveVerses(c.env, candidates, { api, translation, want: TARGET_VERSES });
   if (verses.length < MIN_VERSES) throw new ApiError(502, 'BIBLE_UNAVAILABLE', 'Scripture couldn’t be loaded just now. Please check your connection and try again.');
 
   const crisisKinds = ['selfHarm', 'abuse', 'danger'].filter((k) => flags[k]);
-  const saved = { themes: analysis.themes, specifics: analysis.specifics, summary: analysis.summary, crisis: flags.any, crisisKinds, model: analysis.model };
+  const ranking = semantic ? 'semantic' : 'themes';
+  const saved = { themes: analysis.themes, specifics: analysis.specifics, summary: analysis.summary, crisis: flags.any, crisisKinds, model: analysis.model, ranking };
   const row = await one(c.env, `INSERT INTO companion_requests (user_id, translation, analysis, verses) VALUES ($1, $2, $3::jsonb, $4::jsonb) RETURNING id`,
     [me.id, translation, JSON.stringify(saved), JSON.stringify(verses)]);
   const keys = verses.flatMap((v) => verseKeys(v.ref));
@@ -97,6 +108,7 @@ companion.post('/companion/verses', async (c) => {
     crisis: crisisBlock(flags, country),
     medicalNote: analysis.themes.some((t) => t.theme === 'sickness') ? MEDICAL_NOTE : null,
     model: analysis.model,
+    ranking,
   });
 });
 
@@ -122,6 +134,22 @@ companion.post('/companion/compose', async (c) => {
   }
   await one(c.env, `UPDATE companion_requests SET composed = composed || $2::jsonb WHERE id = $1 RETURNING id`, [row.id, JSON.stringify({ [part]: made.data })]);
   return c.json({ part, ...made.data, cached: false });
+});
+
+// ---------- admin: meaning-search vectors ----------
+export const adminCompanion = new Hono();
+adminCompanion.use('/admin/api/companion/*', requireAdmin);
+adminCompanion.get('/admin/api/companion/vectors', async (c) => c.json(await vectorStatus(c.env)));
+adminCompanion.post('/admin/api/companion/vectors/build', async (c) => {
+  if (!hasAI(c)) throw new ApiError(503, 'NOT_CONFIGURED', NOT_CONFIGURED_MSG);
+  const b = await body(c).catch(() => ({}));
+  try {
+    return c.json(await buildVectors(c.env, { limit: b.limit, reset: b.reset === true }));
+  } catch (e) {
+    if (isQuotaError(e)) throw new ApiError(503, 'BUSY', BUSY_MSG);
+    console.error('companion vector build failed', e && e.message);
+    throw new ApiError(502, 'AI_FAILED', `Building the verse vectors failed: ${(e && e.message) || 'unknown error'}`);
+  }
 });
 
 export default companion;

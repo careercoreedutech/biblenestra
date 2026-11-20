@@ -39,12 +39,17 @@ export async function sendNotification(c, {
   const rows = await q(env, 'SELECT token FROM push_tokens WHERE user_id = $1', [userId]);
   if (!rows || rows.length === 0) return;
 
+  // CHAT PUSH: chat pushes (data.threadId = "chat:<conversationId>") go to the app's "chat" Android channel and carry
+  // the "chat_message" category, whose Reply (text input) / Mark as read actions the app registers
+  // (src/notifications/push.js). A device without that channel/category yet falls back to the default ones.
+  const isChat = typeof data.threadId === 'string' && data.threadId.startsWith('chat:') && !!data.conversationId;
   const messages = rows.map((r) => ({
     to: r.token,
     sound: 'default',
     title,
     body,
-    data: { ...data, kind },
+    ...(isChat ? { channelId: 'chat', categoryId: 'chat_message', priority: 'high' } : {}),
+    data: { ...data, kind, ...(isChat ? { chatTitle: title } : {}) },
     // NOTIFICATIONS: rich push image (Expo push `richContent.image`). Android shows it out of the box (with
     // expo-notifications 0.29 as the large thumbnail on the right); iOS needs a Notification Service Extension.
     ...(typeof data.image === 'string' && /^https:\/\//.test(data.image) ? { richContent: { image: data.image }, mutableContent: true } : {}),
@@ -55,7 +60,7 @@ export async function sendNotification(c, {
     for (let i = 0; i < messages.length; i += 100) {
       const chunk = messages.slice(i, i + 100);
       try {
-        const res = await fetch('https://exp.host/--/api/v2/push/send', {
+        const res = await ((env && env.__fetch) || fetch)('https://exp.host/--/api/v2/push/send', { // env.__fetch: tests
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

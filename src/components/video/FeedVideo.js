@@ -30,6 +30,9 @@ export function feedVideoHeight(width, item) {
   return Math.round(Math.min(width * 1.12, 520));
 }
 
+// Last measured card width: a card re-mounted by the virtualised feed starts at its real height (no jump)
+let lastW = 0;
+
 function Heart({ x, y, onDone }) {
   const a = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -62,7 +65,7 @@ export default function FeedVideo({
   onExpand,
   onDoubleTap,
 }) {
-  const [w, setW] = useState(0);
+  const [w, setW] = useState(lastW);
   const [progress, setProgress] = useState(0);
   const [started, setStarted] = useState(false); // first frame is showing → hide the poster
   const [status, setStatus] = useState('idle');
@@ -141,7 +144,7 @@ export default function FeedVideo({
   const loading = live && !paused && !started && status !== 'error';
 
   return (
-    <View onLayout={(e) => setW(e.nativeEvent.layout.width)} testID={`feed-video-${item.id}`}>
+    <View onLayout={(e) => { const lw = e.nativeEvent.layout.width; if (lw) lastW = lw; setW(lw); }} testID={`feed-video-${item.id}`}>
       <Pressable
         onPress={onPress}
         style={[styles.box, { height: h, backgroundColor: item.raw && item.raw.bg ? item.raw.bg : colors.night }]}

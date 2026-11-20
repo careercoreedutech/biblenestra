@@ -9,6 +9,7 @@ import { SocialAvatar } from '../social/FeedCard';
 import { colors } from '../../theme';
 import { useTypingNames, useReceipts, usePresence } from '../../chat/live';
 import { relTime, typingLabel, messageStatus } from '../../chat/messages';
+import { isMutedNow } from './ChatGaps'; // CHAT GAPS: a timed mute that ran out shows as unmuted
 
 const AV = 46;
 
@@ -63,7 +64,7 @@ function ChatListRowInner({ c, onPress, myId }) {
       <View style={styles.mid}>
         <View style={styles.line}>
           <Text style={styles.name} numberOfLines={1}>{c.with}</Text>
-          <Text style={[styles.time, unread && !c.muted ? { color: colors.primary, fontWeight: '600' } : null]}>{time}</Text>
+          <Text style={[styles.time, unread && !isMutedNow(c) ? { color: colors.primary, fontWeight: '600' } : null]}>{time}</Text>
         </View>
         <View style={styles.line}>
           {typingText ? (
@@ -74,8 +75,8 @@ function ChatListRowInner({ c, onPress, myId }) {
               <Text style={[styles.preview, lm && lm.deleted && { fontStyle: 'italic' }]} numberOfLines={1}>{preview}</Text>
             </View>
           )}
-          {c.muted ? <Icon name="volume" size={13} color={colors.faint} /> : null}
-          {unread ? <View style={[styles.badge, c.muted && { backgroundColor: colors.faint }]}><Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text></View> : null}
+          {isMutedNow(c) ? <Icon name="volume" size={13} color={colors.faint} /> : null}
+          {unread ? <View style={[styles.badge, isMutedNow(c) && { backgroundColor: colors.faint }]}><Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text></View> : null}
         </View>
       </View>
     </Pressable>

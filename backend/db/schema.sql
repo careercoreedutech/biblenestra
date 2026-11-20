@@ -1584,6 +1584,18 @@ CREATE TABLE IF NOT EXISTS companion_delivered (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS companion_delivered_user ON companion_delivered (user_id, id DESC);
+-- COMPANION MEANING SEARCH: one Workers AI embedding per pooled verse (companionPool.js), built once by the
+-- admin endpoint / cron and loaded into isolate memory at request time. vec = base64 of the unit vector
+-- quantised to int8 (dims bytes); doc_hash = hash of the embedded document text (label + themes + WEB + KJV).
+CREATE TABLE IF NOT EXISTS companion_verse_vectors (
+  ref         text NOT NULL,                         -- "PSA 34:18"
+  model       text NOT NULL,                         -- "@cf/baai/bge-base-en-v1.5"
+  dims        integer NOT NULL,
+  doc_hash    text NOT NULL,
+  vec         text NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (ref, model)
+);
 
 -- ---------- COMMENTARIES: server cache of public-domain commentary chapters (Free Use Bible API) ----------
 CREATE TABLE IF NOT EXISTS commentary_cache (
@@ -1591,4 +1603,28 @@ CREATE TABLE IF NOT EXISTS commentary_cache (
   entries     jsonb NOT NULL DEFAULT '[]'::jsonb,    -- [{ verse: number|null, text }]
   hits        integer NOT NULL DEFAULT 0,
   created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- ---------- CHAT GAPS: link preview cards, timed mute, group bans (routes/chatGaps.js, lib/linkPreviews.js) ----------
+-- Link previews: one cached card per https URL (title / description / image / site), refreshed after a TTL.
+CREATE TABLE IF NOT EXISTS link_previews (
+  url          text PRIMARY KEY,                       -- normalised https URL (lib/websites.js normalizeWebsiteUrl)
+  status       text NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','failed')),
+  title        text,
+  description  text,
+  image        text,                                   -- https only
+  site_name    text,                                   -- host without www.
+  final_url    text,
+  fetched_at   timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS link_url text;          -- first https URL in the text (preview key)
+-- Timed mute: muted = true with muted_until NULL means "always"; a past muted_until means not muted any more.
+ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS muted_until timestamptz;
+-- Bans: removed-and-banned people can't come back through the invite link or a join request.
+CREATE TABLE IF NOT EXISTS conversation_bans (
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  banned_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (conversation_id, user_id)
 );

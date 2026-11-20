@@ -6,6 +6,7 @@ import {
   EDIT_WINDOW_HOURS, MAX_PINS, REACTIONS,
   loadMessage, membership, isModerator, broadcastChange,
 } from '../lib/messages.js';
+import { firstLinkUrl, scheduleLinkPreview } from '../lib/linkPreviews.js'; // CHAT GAPS: link preview cards
 
 const messages = new Hono();
 
@@ -43,8 +44,10 @@ messages.patch('/messages/:id', async (c) => {
   const text = str(b.text, { min: 1, max: 5000, field: 'text' }).trim();
   if (!text) throw bad('Message cannot be empty', 'EMPTY_MESSAGE');
   if (text !== msg.body) {
-    await q(c.env, `UPDATE messages SET body = $2, edited_at = now() WHERE id = $1`, [id, text]);
+    const linkUrl = firstLinkUrl(text); // CHAT GAPS: the preview card follows the edited text
+    await q(c.env, `UPDATE messages SET body = $2, edited_at = now(), link_url = $3 WHERE id = $1`, [id, text, linkUrl]);
     await broadcastChange(c.env, msg.conversation_id, id, 'edited');
+    if (linkUrl) scheduleLinkPreview(c, linkUrl, () => broadcastChange(c.env, msg.conversation_id, id, 'linkPreview'));
   }
   return c.json(await loadMessage(c.env, id, me.id));
 });

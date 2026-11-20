@@ -6,7 +6,7 @@
 //   Direct chat: the person, online / last seen, shared media, my last-seen privacy, mute, block, report.
 // Every rule is enforced by the server (backend/src/routes/chatGroups.js); the UI only hides what you can't do.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Screen, Button, Empty, Notice } from '../components/ui';
 import { Icon } from '../components/Icons';
@@ -25,6 +25,7 @@ import { ChatMediaViewer, isPdf } from '../chat/ChatExtras';
 import { usePresence } from '../chat/live';
 import { presenceLabel, relTime, fmtBytes } from '../chat/messages';
 import { openLink } from '../components/EmbedViewer';
+import { LinkPreviewCard, MuteSheet, isMutedNow, muteLabel } from '../components/chat/ChatGaps'; // CHAT GAPS: link cards, timed mute
 
 const TABS = [
   { key: 'photos', label: 'Photos' }, { key: 'videos', label: 'Videos' }, { key: 'docs', label: 'Docs' },
@@ -105,9 +106,14 @@ function SharedMedia({ convId }) {
       {items && tab === 'photos' ? (
         <View style={styles.grid}>{items.map((x) => <Thumb key={x.messageId} item={x} request={api.request} onOpen={() => open(x)} />)}</View>
       ) : null}
-      {items && tab === 'links' ? items.map((x, i) => (
+      {items && tab === 'links' ? items.map((x, i) => (x.preview && (x.preview.title || x.preview.description) ? (
+        <View key={`${x.messageId}_${i}`} style={{ paddingVertical: 4 }}>
+          <LinkPreviewCard preview={{ ...x.preview, url: x.url }} style={{ maxWidth: undefined }} />
+          <Text style={[styles.rowSub, { marginLeft: 4 }]} numberOfLines={1}>{`${x.senderName} · ${relTime(Date.parse(x.createdAt))}`}</Text>
+        </View>
+      ) : (
         <Row key={`${x.messageId}_${i}`} icon="link" label={x.host || x.url} sub={`${x.url}\n${x.senderName} · ${relTime(Date.parse(x.createdAt))}`} onPress={() => openLink(x.url, nav)} />
-      )) : null}
+      ))) : null}
       {items && !['photos', 'links'].includes(tab) ? items.map((x) => {
         const name = (x.meta && x.meta.name) || (tab === 'audio' ? (x.meta && x.meta.file ? 'Audio' : 'Voice note') : tab === 'videos' ? 'Video' : 'File');
         const canDl = tab !== 'audio';
@@ -200,6 +206,13 @@ function MemberSheet({ member, me, convId, onClose, onChanged }) {
     onClose();
     try { await fn(); toast.show(ok, { icon: 'check' }); onChanged(); if (sync.refresh) sync.refresh({ quiet: true }); } catch (e) { toast.show(errorMessage(e, 'Couldn’t do that'), { tone: 'error' }); }
   };
+  // Removing someone is easy to tap by mistake: ask first
+  const confirmThen = (title, message, yes, onYes) => {
+    if (Platform.OS === 'web') { if (typeof window !== 'undefined' && window.confirm(`${title}
+
+${message}`)) onYes(); return; }
+    Alert.alert(title, message, [{ text: 'Cancel', style: 'cancel' }, { text: yes, style: 'destructive', onPress: onYes }]);
+  };
   const setRole = (role, ok) => run(() => api.request('POST', `/conversations/${convId}/members/${member.id}/role`, { role }), ok);
   const message = async () => {
     onClose();
@@ -224,7 +237,8 @@ function MemberSheet({ member, me, convId, onClose, onChanged }) {
           {canManage && member.role !== 'moderator' ? <Row icon="star" label="Make moderator" sub="Can pin, delete messages and approve join requests" onPress={() => setRole('moderator', `${member.displayName} is now a moderator`)} /> : null}
           {canManage && member.role !== 'member' ? <Row icon="x" label={`Dismiss as ${ROLE_LABEL[member.role].toLowerCase()}`} onPress={() => setRole('member', 'Role removed')} /> : null}
           {me.role === 'owner' && !member.isMe ? <Row icon="church" label="Transfer ownership" sub="They become the owner; you stay an admin" onPress={() => run(() => api.request('POST', `/conversations/${convId}/transfer`, { userId: member.id }), `${member.displayName} now owns the group`)} /> : null}
-          {canManage && me.permissions.canRemoveMembers ? <Row icon="trash" tint={colors.negative || colors.rose} label={`Remove ${member.displayName}`} onPress={() => run(() => api.request('DELETE', `/conversations/${convId}/members/${member.id}`), 'Removed from the group')} /> : null}
+          {canManage && me.permissions.canRemoveMembers ? <Row icon="trash" tint={colors.negative || colors.rose} label={`Remove ${member.displayName}`} sub="They can come back with the invite link" onPress={() => confirmThen(`Remove ${member.displayName}?`, 'They can come back with the invite link.', 'Remove', () => run(() => api.request('DELETE', `/conversations/${convId}/members/${member.id}`), 'Removed from the group'))} /> : null}
+          {canManage && me.permissions.canRemoveMembers ? <Row icon="shield" tint={colors.negative || colors.rose} label="Remove and ban" sub="They can’t rejoin with the link or ask to join until an admin unbans them" onPress={() => confirmThen(`Remove and ban ${member.displayName}?`, 'They won’t be able to rejoin with the link or ask to join until an admin unbans them.', 'Remove and ban', () => run(() => api.request('DELETE', `/conversations/${convId}/members/${member.id}?ban=1`), `${member.displayName} was removed and banned`))} /> : null}
         </View>
       </View>
     </AnimatedModal>
@@ -266,6 +280,8 @@ export function ChatInfoScreen({ params = {} }) {
   const [adding, setAdding] = useState(false);
   const [sel, setSel] = useState(null);
   const [privacy, setPrivacy] = useState(null);
+  const [banned, setBanned] = useState([]); // CHAT GAPS: banned people (admins)
+  const [muteOpen, setMuteOpen] = useState(false); // CHAT GAPS: 8 hours / 1 week / always
   const presence = usePresence(convId);
 
   const load = useCallback(async () => {
@@ -276,6 +292,7 @@ export function ChatInfoScreen({ params = {} }) {
         const m = await api.request('GET', `/conversations/${convId}/members`);
         setMembers(m.items || []);
         if (i.permissions && i.permissions.canApproveJoins) setRequests((await api.request('GET', `/conversations/${convId}/requests`)).items || []);
+        setBanned(i.bannedCount ? ((await api.request('GET', `/conversations/${convId}/bans`).catch(() => ({ items: [] }))).items || []) : []);
       } else {
         setPrivacy((await api.request('GET', '/me/chat-privacy')).lastSeen);
       }
@@ -328,13 +345,24 @@ export function ChatInfoScreen({ params = {} }) {
     setInfo((x) => ({ ...x, inviteCode: r.code }));
     toast.show('Invite link copied', { icon: 'check' });
   };
-  const toggleMute = async () => {
+  // CHAT GAPS: muting asks for how long (8 hours / 1 week / always); unmuting is one tap
+  const mutedNow = isMutedNow(info);
+  const toggleMute = async (duration) => {
+    if (!mutedNow && typeof duration !== 'string') { setMuteOpen(true); return; }
     try {
-      const r = await api.request('PUT', `/conversations/${convId}/mute`, { muted: !info.muted });
-      setInfo({ ...info, muted: r.muted });
-      dispatch({ type: 'set', patch: { chats: (state.chats || []).map((c) => (c.id === convId ? { ...c, muted: r.muted } : c)) }, local: true });
-      toast.show(r.muted ? 'Muted · @mentions still notify you' : 'Notifications on', { icon: r.muted ? 'volume' : 'bell' });
+      const r = await api.request('PUT', `/conversations/${convId}/mute`, mutedNow ? { muted: false } : { muted: true, duration });
+      setInfo({ ...info, muted: r.muted, mutedUntil: r.mutedUntil || null });
+      dispatch({ type: 'set', patch: { chats: (state.chats || []).map((c) => (c.id === convId ? { ...c, muted: r.muted, mutedUntil: r.mutedUntil || null } : c)) }, local: true });
+      toast.show(r.muted ? `${muteLabel(r)} · @mentions still notify you` : 'Notifications on', { icon: r.muted ? 'volume' : 'bell' });
     } catch (e) { toast.show(errorMessage(e, 'Couldn’t change notifications'), { tone: 'error' }); }
+  };
+  const unban = async (u) => {
+    try {
+      await api.request('DELETE', `/conversations/${convId}/bans/${u.id}`);
+      setBanned((b) => b.filter((x) => x.id !== u.id));
+      setInfo((x) => ({ ...x, bannedCount: Math.max(0, (x.bannedCount || 1) - 1) }));
+      toast.show(`${u.displayName} can join again with the link`, { icon: 'check' });
+    } catch (e) { toast.show(errorMessage(e, 'Couldn’t unban'), { tone: 'error' }); }
   };
   const leave = async () => {
     try {
@@ -386,7 +414,7 @@ export function ChatInfoScreen({ params = {} }) {
         )}
         <View style={styles.quick}>
           {isDm && ou ? <PressScale onPress={() => nav.push('UserProfile', { id: ou.id, name: ou.displayName })} style={styles.quickBtn}><Icon name="user" size={18} color={colors.primary} /><Text style={styles.quickText}>Profile</Text></PressScale> : null}
-          <PressScale onPress={toggleMute} style={styles.quickBtn}><Icon name={info.muted ? 'bell' : 'volume'} size={18} color={colors.primary} /><Text style={styles.quickText}>{info.muted ? 'Unmute' : 'Mute'}</Text></PressScale>
+          <PressScale onPress={() => toggleMute()} style={styles.quickBtn}><Icon name={mutedNow ? 'bell' : 'volume'} size={18} color={colors.primary} /><Text style={styles.quickText}>{mutedNow ? 'Unmute' : 'Mute'}</Text></PressScale>
           {p.canAddMembers ? <PressScale onPress={() => setAdding(true)} style={styles.quickBtn}><Icon name="plus" size={18} color={colors.primary} /><Text style={styles.quickText}>Add</Text></PressScale> : null}
           {p.canInvite ? <PressScale onPress={() => shareInvite(false)} style={styles.quickBtn}><Icon name="link" size={18} color={colors.primary} /><Text style={styles.quickText}>Invite</Text></PressScale> : null}
         </View>
@@ -444,6 +472,22 @@ export function ChatInfoScreen({ params = {} }) {
         </Card>
       ) : null}
 
+      {isGroup && p.canRemoveMembers && banned.length ? (
+        <Card title={`Banned · ${banned.length}`}>
+          <Text style={styles.adminsLine}>They can’t rejoin with the invite link or ask to join. Adding them yourself also lifts the ban.</Text>
+          {banned.map((u) => (
+            <View key={u.id} style={styles.member}>
+              <SocialAvatar name={u.displayName} uri={u.avatarUrl} size={40} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.memberName} numberOfLines={1}>{u.displayName}</Text>
+                <Text style={styles.memberSub} numberOfLines={1}>{[u.bannedBy ? `Banned by ${u.bannedBy.displayName}` : 'Banned', relTime(Date.parse(u.bannedAt))].filter(Boolean).join(' · ')}</Text>
+              </View>
+              <Button small kind="ghost" label="Unban" onPress={() => unban(u)} />
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
       {isGroup && p.canChangeSettings ? (
         <Card title="Group settings">
           <ChoiceRow label="Send messages" value={info.settings.sendMessages} onChange={(v) => setSetting({ sendMessages: v })} options={[{ value: 'all', label: 'All members' }, { value: 'admins', label: 'Only admins' }]} />
@@ -479,7 +523,7 @@ export function ChatInfoScreen({ params = {} }) {
       ) : null}
 
       <Card>
-        <Row icon={info.muted ? 'bell' : 'volume'} label={info.muted ? 'Unmute notifications' : 'Mute notifications'} sub={info.muted ? 'You only hear about @mentions' : null} onPress={toggleMute} />
+        <Row icon={mutedNow ? 'bell' : 'volume'} label={mutedNow ? 'Unmute notifications' : 'Mute notifications'} sub={mutedNow ? `${muteLabel(info)} · you only hear about @mentions` : '8 hours, 1 week or always'} onPress={() => toggleMute()} />
         <Row icon="shield" tint={colors.negative || colors.rose} label={isDm ? `Report ${info.title}` : 'Report group'} onPress={report} />
         {isDm && ou ? <Row icon="x" tint={colors.negative || colors.rose} label={`Block ${info.title}`} onPress={async () => { try { await api.request('POST', `/users/${ou.id}/block`); toast.show(`${info.title} is blocked`, { icon: 'shield' }); nav.pop(); } catch (e) { toast.show(errorMessage(e, 'Couldn’t block'), { tone: 'error' }); } }} /> : null}
         {!isDm ? <Row icon="x" tint={colors.negative || colors.rose} label={info.kind === 'channel' ? 'Unfollow channel' : 'Leave group'} onPress={leave} /> : null}
@@ -487,13 +531,15 @@ export function ChatInfoScreen({ params = {} }) {
 
       {!isDm ? <AddMembersSheet visible={adding} convId={convId} existing={new Set((members || []).map((m) => m.id))} onClose={() => setAdding(false)} onAdded={refreshAll} invite={p.canInvite ? () => shareInvite(false) : null} /> : null}
       <MemberSheet member={sel} me={me} convId={convId} onClose={() => setSel(null)} onChanged={refreshAll} />
+      <MuteSheet visible={muteOpen} title={info.title} onClose={() => setMuteOpen(false)} onPick={(d) => toggleMute(d)} />
     </Screen>
   );
 }
 
 // ---------- join by invite link / code ----------
 export const inviteCodeFrom = (text) => {
-  const m = String(text || '').trim().match(/(?:join\/)?([A-Za-z0-9]{8,32})\s*$/);
+  // a bare code, https://…/g/<code> (CHAT GAPS landing page), https://…/join/<code> or biblenestra://join/<code>
+  const m = String(text || '').trim().replace(/[/?#]+$/, '').match(/(?:join\/|g\/)?([A-Za-z0-9]{8,32})\s*$/);
   return m ? m[1] : null;
 };
 
@@ -526,7 +572,7 @@ export function JoinGroupScreen({ params = {} }) {
   return (
     <Screen back title="Join a group">
       <Text style={styles.rowSub}>Paste an invite link or code someone shared with you.</Text>
-      <View style={styles.search}><Icon name="link" size={15} color={colors.muted} /><TextInput value={text} onChangeText={setText} autoCapitalize="none" autoCorrect={false} placeholder="https://…/join/AbC123… or the code" placeholderTextColor={colors.faint} style={styles.searchInput} accessibilityLabel="Invite link or code" /></View>
+      <View style={styles.search}><Icon name="link" size={15} color={colors.muted} /><TextInput value={text} onChangeText={setText} autoCapitalize="none" autoCorrect={false} placeholder="https://…/g/AbC123… or the code" placeholderTextColor={colors.faint} style={styles.searchInput} accessibilityLabel="Invite link or code" /></View>
       {error ? <Notice tint={colors.negative} text={error} /> : null}
       {preview ? (
         <View style={[styles.card, { alignItems: 'center', gap: 8 }]}>
@@ -535,6 +581,7 @@ export function JoinGroupScreen({ params = {} }) {
           <Text style={styles.heroSub}>Group · {preview.membersCount} members{preview.approveJoins ? ' · admin approval' : ''}</Text>
           {preview.description ? <Text style={styles.heroDesc}>{preview.description}</Text> : null}
           {preview.isMember ? <Button label="Open chat" onPress={() => nav.replace('Chat', { id: preview.conversationId, to: preview.title, kind: 'group' })} />
+            : preview.banned ? <Notice tint={colors.negative} text="An admin removed you from this group, so you can’t join it again." />
             : preview.requestStatus === 'pending' ? <Notice text="Your request is waiting for an admin." />
               : <Button label={busy ? 'Joining…' : preview.approveJoins ? 'Ask to join' : 'Join group'} disabled={busy} onPress={join} />}
         </View>

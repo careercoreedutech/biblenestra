@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, createContext, useContext } from 'react';
 import {
   Animated,
   BackHandler,
@@ -595,6 +595,27 @@ function SegmentSwitch({ value, onChange, light }) {
   );
 }
 
+// FEED (virtualised): the general feed is a FlatList. Every cell reports its offset inside the list content
+// here, so the 70%-visible video check stays exact (cell offset + the video's y inside its card) while only a
+// window of rows is mounted.
+const FeedCellCtx = createContext(null);
+function FeedCell({ item, onLayout, children, style, cellKey, index, ...rest }) {
+  const report = useContext(FeedCellCtx);
+  const handle = (e) => {
+    if (onLayout) onLayout(e);
+    if (report && item) report(item.key, e.nativeEvent.layout);
+  };
+  return <View {...rest} style={style} onLayout={handle}>{children}</View>;
+}
+// FlatList window tuned for low-end Android: few rows per batch, ~3 screens above / below kept mounted.
+const FEED_WINDOW = Platform.OS === 'android' ? 7 : 9;
+const feedKey = (row) => row.key;
+// Rows that don't depend on the playing video never re-render while scrolling
+const FeedAdRow = React.memo(function FeedAdRow() { return <FeedNativeAd />; });
+const FeedHubRow = React.memo(function FeedHubRow({ guildUnread, onGuild, onCorner }) {
+  return <HubCards guildUnread={guildUnread} onGuild={onGuild} onCorner={onCorner} />;
+}, (a, b) => a.guildUnread === b.guildUnread);
+
 export default function SocialsScreen({ params }) {
   const routeMode = params != null; // pushed as a route (vs. the Socials tab, which gets no params)
   const p = params || {};
@@ -658,7 +679,10 @@ export default function SocialsScreen({ params }) {
 
   const reelsRef = useRef(null);
   const feedRef = useRef(null);
-  const layouts = useRef({}); // feed card key → { y, h } inside the feed ScrollView
+  const layouts = useRef({}); // feed row key → { y, h } inside the feed list content (measured rows)
+  const viewableKeys = useRef([]); // FEED: post-row keys the FlatList reports as on screen (viewability)
+  const mostlyVisible = useRef(new Set()); // FEED: rows >= 70% visible (list's own check, used until measured)
+  const appeared = useRef(new Set()); // FEED: cards that already played their entry animation once
   const scrollY = useRef(0);
   const pendingScroll = useRef(null);
 
@@ -722,8 +746,23 @@ export default function SocialsScreen({ params }) {
   const communityNames = (state.communities || []).map((c) => c.name);
 
   const myAvatar = (state.user && state.user.avatarUrl) || null;
+  // FEED: one view-model object per store object (cached), so liking one post re-renders one card, not all
+  const itemCache = useRef({ comm: undefined, avatar: undefined, map: new WeakMap() });
   const allItems = useMemo(() => {
     const now = Date.now();
+    const cache = itemCache.current;
+    if (cache.comm !== state.communities || cache.avatar !== myAvatar) {
+      cache.map = new WeakMap();
+      cache.comm = state.communities;
+      cache.avatar = myAvatar;
+    }
+    const cached = (raw, idx, make) => {
+      const hit = cache.map.get(raw);
+      if (hit && hit.idx === idx) return hit.item;
+      const item = make(raw, idx);
+      cache.map.set(raw, { idx, item });
+      return item;
+    };
     const fromPost = (f) => {
       const ts = timestampOf(f, now);
       const person = PEOPLE.find((x) => x.name === f.author);
@@ -801,7 +840,7 @@ export default function SocialsScreen({ params }) {
         raw: v,
       };
     };
-    return [...feed.map(fromPost), ...videos.map(fromVideo)].sort((a, b) => b.ts - a.ts);
+    return [...feed.map((f) => cached(f, 0, fromPost)), ...videos.map((v, i) => cached(v, i, fromVideo))].sort((a, b) => b.ts - a.ts);
   }, [feed, videos, state.communities, myAvatar]);
 
   const followedPeople = PEOPLE.filter((x) => follows.includes(x.id)).map((x) => x.name);
@@ -821,21 +860,45 @@ export default function SocialsScreen({ params }) {
   const isCommunity = (it) => it.src === 'post' && (communityNames.includes(it.name) || allChannelNames.includes(it.name));
   const passesChip = (it, c = chip) =>
     c === 'Following' ? isFollowed(it) : c === 'Communities' ? isCommunity(it) : c === 'Events' ? EVENT_KINDS.includes(it.kind) : true;
-  const listItems = allItems.filter((it) => !hidden.includes(it.key) && passesChip(it));
+  // memoised so the FlatList data (and its rows) only change when the posts / filters do
+  const listItems = useMemo(
+    () => allItems.filter((it) => !hidden.includes(it.key) && passesChip(it)),
+    [allItems, hidden, chip, follows, state.communities, state.channels, state.joinedChannels],
+  );
+  const listItemsRef = useRef(listItems);
+  listItemsRef.current = listItems;
+  const itemByKey = useMemo(() => new Map(listItems.map((it) => [it.key, it])), [listItems]);
+  const feedItemByKey = useRef(itemByKey);
+  feedItemByKey.current = itemByKey;
+  const feedRowsRef = useRef([]);
 
   const activeVideo = videos.find((v) => v.id === selectedId) || reelVideos[activeIndex] || videos[0];
 
   // ─── Navigation inside the screen ──────────────────────────────
   const scrollFeedTo = (key) => {
     const l = layouts.current[key];
-    if (l && feedRef.current) {
-      try { feedRef.current.scrollTo({ y: Math.max(0, l.y - headerH - 10), animated: true }); } catch (e) {}
+    const list = feedRef.current;
+    if (l && list) {
+      try { list.scrollToOffset({ offset: Math.max(0, l.y - headerH - 10), animated: true }); } catch (e) {}
       pendingScroll.current = null;
+      scrollRetries.current = 0;
     } else {
-      pendingScroll.current = key; // resolved when the card reports its layout
+      // not mounted yet (virtualised): jump near its row; the exact scroll happens when the cell reports its layout
+      pendingScroll.current = key;
+      const index = feedRowsRef.current.findIndex((r) => r.key === key);
+      if (list && index >= 0) {
+        try { list.scrollToIndex({ index, viewOffset: headerH + 10, animated: false }); } catch (e) {}
+      }
     }
     setHighlightKey(key);
   };
+  // scrollToIndex on a row that was never measured: go to the estimate, the cell layout finishes the job
+  const scrollRetries = useRef(0);
+  const onScrollToIndexFailed = useCallback((info) => {
+    try { feedRef.current && feedRef.current.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index), animated: false }); } catch (e) {}
+    // still not mounted after the estimate → try again a few times while rows render in
+    if (scrollRetries.current++ < 4) setTimeout(() => { const k = pendingScroll.current; if (k && !layouts.current[k]) H.current.scrollFeedTo(k); }, 160);
+  }, []);
 
   const goFeedPost = (key) => {
     setMainTab('home');
@@ -913,7 +976,7 @@ export default function SocialsScreen({ params }) {
         setActiveIndex(0);
         try { reelsRef.current && reelsRef.current.scrollToOffset({ offset: 0, animated: true }); } catch (e) {}
       } else {
-        try { feedRef.current && feedRef.current.scrollTo({ y: 0, animated: true }); } catch (e) {}
+        try { feedRef.current && feedRef.current.scrollToOffset({ offset: 0, animated: true }); } catch (e) {}
       }
       return;
     }
@@ -929,42 +992,49 @@ export default function SocialsScreen({ params }) {
     haptic('select');
     setVisibleVideoKey(null);
     setChip(c);
-    try { feedRef.current && feedRef.current.scrollTo({ y: 0, animated: false }); } catch (e) {}
+    try { feedRef.current && feedRef.current.scrollToOffset({ offset: 0, animated: false }); } catch (e) {}
   };
 
   // FEED VIDEO: which video is >= ~70% visible (only that one autoplays, muted) and which one comes next.
-  // Measured on the video itself (not the whole card, whose caption / actions would skew it).
+  // Candidates are the rows the FlatList reports as on screen (viewability config below); for those the video
+  // itself is measured (cell offset + the video's y inside the card — not the whole card, whose caption /
+  // actions would skew it). Until a row is measured the list's own "70% of the row" check stands in.
+  const playable = (it) => !!(it && it.videoUrl && !it.processing && !it.uploadFailed);
   const pickVisibleVideo = () => {
     const top = scrollY.current;
     const bottom = top + bodyHeight;
+    const byKey = feedItemByKey.current;
     let best = null;
     let bestVis = 0;
-    let upcoming = null;
-    let upcomingY = Infinity;
-    listItems.forEach((it) => {
-      if (!it.videoUrl || it.processing || it.uploadFailed) return;
-      const l = layouts.current[it.key];
-      if (!l) return;
-      const m = mediaLayouts.current[it.key];
-      const vy = m ? l.y + m.y : l.y;
-      const vh = m ? m.h : l.h;
-      const vis = Math.max(0, Math.min(vy + vh, bottom) - Math.max(vy, top)) / Math.max(1, Math.min(vh, bodyHeight));
-      if (vis > bestVis) { bestVis = vis; best = it.key; }
-      if (vy + vh * 0.3 > top && vy < upcomingY && vis < 0.7) { upcomingY = vy; upcoming = it.key; }
+    viewableKeys.current.forEach((key) => {
+      const it = byKey.get(key);
+      if (!playable(it)) return;
+      const l = layouts.current[key];
+      let vis;
+      if (l) {
+        const m = mediaLayouts.current[key];
+        const vy = m ? l.y + m.y : l.y;
+        const vh = m ? m.h : l.h;
+        vis = Math.max(0, Math.min(vy + vh, bottom) - Math.max(vy, top)) / Math.max(1, Math.min(vh, bodyHeight));
+      } else vis = mostlyVisible.current.has(key) ? 0.7 : 0;
+      if (vis > bestVis) { bestVis = vis; best = key; }
     });
     const next = bestVis >= 0.7 ? best : null;
     setVisibleVideoKey((cur) => (cur === next ? cur : next));
-    // preload the first video below the playing one (or the next one coming into view when none plays)
+    // preload the first video below the playing one (or, when none plays, the next one coming into view)
+    const items = listItemsRef.current;
+    let from = -1;
+    if (next) from = items.findIndex((it) => it.key === next) + 1;
+    else if (viewableKeys.current.length) {
+      const firstKey = viewableKeys.current[0];
+      from = Math.max(0, items.findIndex((it) => it.key === firstKey));
+    }
     let after = null;
-    if (next) {
-      const ny = (layouts.current[next] || {}).y || 0;
-      let y = Infinity;
-      listItems.forEach((it) => {
-        const l = layouts.current[it.key];
-        if (!it.videoUrl || it.processing || it.uploadFailed || !l || it.key === next) return;
-        if (l.y > ny && l.y < y) { y = l.y; after = it.key; }
-      });
-    } else after = upcoming;
+    if (from >= 0) {
+      for (let i = from; i < items.length && i < from + 12; i++) {
+        if (playable(items[i]) && items[i].key !== next) { after = items[i].key; break; }
+      }
+    }
     setNextVideoKey((cur) => (cur === after ? cur : after));
   };
   const onMediaLayout = (key, y, h) => {
@@ -972,9 +1042,9 @@ export default function SocialsScreen({ params }) {
     pickVisibleVideo();
   };
 
-  const onCardLayout = (key, e) => {
-    const { y, height } = e.nativeEvent.layout;
-    layouts.current[key] = { y, h: height };
+  // Cell offsets inside the list content, reported by FeedCell (the FlatList CellRendererComponent)
+  const onCellLayout = (key, layout) => {
+    layouts.current[key] = { y: layout.y, h: layout.height };
     if (pendingScroll.current === key) {
       const k = key;
       setTimeout(() => scrollFeedTo(k), 30);
@@ -1500,13 +1570,17 @@ export default function SocialsScreen({ params }) {
   const H = useRef({});
   H.current = {
     likeItem, reactItem, openComments, handleShareVideo, handleSharePost, saveItem, handleFollow, openScripture, openReelAt,
-    openItemAuthor, openPostLikers, onMediaLayout, toggleFeedMute,
+    openItemAuthor, openPostLikers, onMediaLayout, toggleFeedMute, pickVisibleVideo, onCellLayout, scrollFeedTo,
+    openComposer, switchSegment, openProfile,
     togglePause: pool.togglePause,
     menu: (key) => { haptic('light'); setMenuKey(key); },
     photo: (images, start) => setViewer({ images, start }),
     retry: (id) => dispatch({ type: 'retryVideo', id }),
     discard: (id) => dispatch({ type: 'removeItem', slice: 'videos', id }),
   };
+  // stable callback for the FlatList cells (context value must not change every render)
+  const onCellLayoutStable = useRef((key, layout) => H.current.onCellLayout(key, layout)).current;
+  H.current.onCellLayoutStable = onCellLayoutStable;
   const menuItem = menuKey ? allItems.find((it) => it.key === menuKey) || null : null;
   const closeMenu = () => setMenuKey(null);
   // Run a ⋯ menu action once the sheet has started closing
@@ -1529,11 +1603,31 @@ export default function SocialsScreen({ params }) {
   };
 
   // ─── Feed (light, Facebook-style) ──────────────────────────────
-  const renderCard = (it, i) => (
-    <View key={it.key} onLayout={(e) => onCardLayout(it.key, e)}>
+  // FEED (virtualised): the stream is one FlatList. Rows: post cards, the creator hub module and native ads;
+  // composer / strips / chip intro are the list header, "load more" / "all caught up" the footer.
+  const feedRows = useMemo(() => {
+    const rows = [];
+    const hubAt = chip === 'For You' ? Math.min(2, listItems.length) : -1;
+    listItems.forEach((it, i) => {
+      if (i === hubAt) rows.push({ type: 'hub', key: 'hub' });
+      rows.push({ type: 'post', key: it.key, it, i });
+      // a native ad after every few posts (never after the last one)
+      if ((i + 1) % AD_RULES.feedAdEvery === 0 && i < listItems.length - 1) rows.push({ type: 'ad', key: 'ad-' + i });
+    });
+    if (listItems.length && hubAt === listItems.length) rows.push({ type: 'hub', key: 'hub' });
+    return rows;
+  }, [listItems, chip]);
+  feedRowsRef.current = feedRows;
+
+  const renderCard = (it, i) => {
+    // entry animation only the first time a card appears — not every time the list re-mounts it
+    const entering = !appeared.current.has(it.key);
+    if (entering) appeared.current.add(it.key);
+    return (
       <LightPostCard
         item={it}
         index={Math.min(i + 2, 6)}
+        entering={entering}
         playing={visibleVideoKey === it.key}
         videoPlayer={pool.activeKey === it.key ? pool.player : null}
         videoPaused={pool.activeKey === it.key ? pool.paused || !feedPlaying : false}
@@ -1558,8 +1652,44 @@ export default function SocialsScreen({ params }) {
         onRetryUpload={it.uploadFailed ? () => H.current.retry(it.id) : undefined}
         onDiscardUpload={it.uploadFailed ? () => H.current.discard(it.id) : undefined}
       />
-    </View>
-  );
+    );
+  };
+  // Re-created only when something a row shows changes; memoised cards skip the rest of the work
+  const renderFeedRow = useCallback(({ item: row }) => {
+    if (row.type === 'hub') return <FeedHubRow guildUnread={guildUnread} onGuild={() => setMainTab('guild')} onCorner={() => setMainTab('creators')} />;
+    if (row.type === 'ad') return <FeedAdRow />;
+    return renderCard(row.it, row.i);
+  }, [visibleVideoKey, pool.activeKey, pool.player, pool.paused, feedPlaying, feedMuted, highlightKey, follows, guildUnread]);
+  const feedExtra = useMemo(() => ({}), [visibleVideoKey, pool.activeKey, pool.player, pool.paused, feedPlaying, feedMuted, highlightKey, follows, guildUnread]);
+
+  // Viewability: rows on screen (candidates for autoplay) + rows >= 70% visible (fallback before measuring)
+  const onViewRef = useRef(null);
+  onViewRef.current = (info) => {
+    viewableKeys.current = info.viewableItems
+      .filter((v) => v.item && v.item.type === 'post')
+      .map((v) => v.item.key);
+    pickVisibleVideo();
+  };
+  const onMostlyRef = useRef(null);
+  onMostlyRef.current = (info) => {
+    mostlyVisible.current = new Set(info.viewableItems.map((v) => v.key));
+    pickVisibleVideo();
+  };
+  const viewabilityPairs = useRef([
+    { viewabilityConfig: { itemVisiblePercentThreshold: 1 }, onViewableItemsChanged: (info) => onViewRef.current(info) },
+    { viewabilityConfig: { itemVisiblePercentThreshold: 70 }, onViewableItemsChanged: (info) => onMostlyRef.current(info) },
+  ]).current;
+  const feedOnScroll = useMemo(() => Animated.event([{ nativeEvent: { contentOffset: { y: feedScroll } } }], {
+    useNativeDriver: ND,
+    listener: (e) => {
+      scrollY.current = e.nativeEvent.contentOffset.y;
+      H.current.pickVisibleVideo();
+    },
+  }), [feedScroll]);
+  const onFeedEnd = useCallback(() => {
+    // Online: infinite scroll — fetch the next page when nearing the end
+    if (sync.online && sync.hasMore && !sync.loadingMore) sync.loadMore();
+  }, [sync.online, sync.hasMore, sync.loadingMore, sync.loadMore]);
 
   // Feed filter chips — part of the collapsing header so they come back on scroll up
   const renderChips = () => (
@@ -1575,93 +1705,94 @@ export default function SocialsScreen({ params }) {
     </ScrollView>
   );
 
+  // List header (composer, member websites, reels strip / chip intro): memoised so the ~40-tile reels strip is
+  // not re-rendered on every scroll-driven state change (active / next video, viewability). Callbacks go
+  // through H so they are never stale.
+  const feedHeader = useMemo(() => (chip === 'For You' ? (
+    <>
+      <ComposerCard userName={userName} avatarUri={myAvatar} onOpen={(mode) => H.current.openComposer(mode)} />
+      <MemberWebsitesStrip />
+      {reelVideos.length ? (
+        <ReelsStrip
+          videos={reelVideos}
+          userName={userName}
+          userAvatar={myAvatar}
+          onOpen={(id) => H.current.openReelAt(id)}
+          onCreate={() => H.current.openComposer('video')}
+          onSeeAll={() => H.current.switchSegment('videos')}
+          onOpenCreator={(v) => H.current.openProfile({ userId: v.creator && v.creator.userId, name: v.creator && v.creator.name, handle: v.creator && v.creator.handle, mine: v.mine })}
+        />
+      ) : null}
+    </>
+  ) : (
+    <FadeInUp key={chip} distance={8} style={styles.chipIntro}>
+      <Text style={styles.chipIntroText}>{CHIP_INTRO[chip]}</Text>
+      <Text style={styles.chipIntroCount}>{listItems.length} {listItems.length === 1 ? 'post' : 'posts'}</Text>
+    </FadeInUp>
+  )), [chip, userName, myAvatar, reelVideos, listItems.length]);
+
   const renderFeed = () => {
     const empty = CHIP_EMPTY[chip];
     const moreToLoad = sync.online && sync.hasMore;
-    // Creator hub cards sit in the stream after the second post (For You only), like a Facebook module
-    const hubAt = chip === 'For You' ? Math.min(2, listItems.length) : -1;
-    const hub = <HubCards key="hub" guildUnread={guildUnread} onGuild={() => setMainTab('guild')} onCorner={() => setMainTab('creators')} />;
+    const header = feedHeader;
+    const emptyView = (
+      <View style={styles.listEmpty}>
+        <ScaleIn key={chip} style={styles.feedEmptyIconLight}>
+          <Icon name={chip === 'Events' ? 'calendar' : chip === 'Communities' ? 'church' : 'users'} size={24} color={colors.primary} />
+        </ScaleIn>
+        <FadeInUp delay={90} style={{ alignItems: 'center' }}>
+          <Text style={styles.feedEmptyTitleLight}>{empty[0]}</Text>
+          <Text style={styles.feedEmptyBodyLight}>{empty[1]}</Text>
+          <Button small label={empty[2]} onPress={empty[3]} style={{ marginTop: 16 }} />
+        </FadeInUp>
+      </View>
+    );
+    const footer = !listItems.length ? null : moreToLoad ? (
+      <PressScale onPress={() => sync.loadMore()} scaleTo={0.97} style={styles.feedEnd} accessibilityLabel="Load more posts">
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={styles.feedEndText}>{sync.loadingMore ? 'Loading more posts…' : 'Load more posts'}</Text>
+      </PressScale>
+    ) : (
+      <View style={styles.feedEnd}>
+        <View style={styles.feedEndLine} />
+        <View style={styles.feedEndBadge}>
+          <Icon name="check" size={11} color={colors.primary} strokeWidth={3} />
+        </View>
+        <Text style={styles.feedEndText}>You’re all caught up</Text>
+        <View style={styles.feedEndLine} />
+      </View>
+    );
     return (
-      <Animated.ScrollView
-        ref={feedRef}
-        style={{ flex: 1, backgroundColor: colors.screen }}
-        contentContainerStyle={[styles.feedContent, { paddingTop: headerH }]}
-        showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: feedScroll } } }], {
-          useNativeDriver: ND,
-          listener: (e) => {
-            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-            scrollY.current = contentOffset.y;
-            pickVisibleVideo();
-            // Online: infinite scroll — fetch the next page when nearing the end
-            if (moreToLoad && !sync.loadingMore && contentOffset.y + layoutMeasurement.height > contentSize.height - 900) sync.loadMore();
-          },
-        })}
-        refreshControl={sync.online ? (
-          <RefreshControl refreshing={pulling} onRefresh={pullRefresh} tintColor={colors.primary} colors={[colors.primary]} progressViewOffset={headerH} />
-        ) : undefined}
-      >
-
-        {chip === 'For You' ? (
-          <>
-            <ComposerCard userName={userName} avatarUri={myAvatar} onOpen={(mode) => openComposer(mode)} />
-            <MemberWebsitesStrip />
-            {reelVideos.length ? (
-              <ReelsStrip
-                videos={reelVideos}
-                userName={userName}
-                userAvatar={myAvatar}
-                onOpen={openReelAt}
-                onCreate={() => openComposer('video')}
-                onSeeAll={() => switchSegment('videos')}
-                onOpenCreator={(v) => openProfile({ userId: v.creator && v.creator.userId, name: v.creator && v.creator.name, handle: v.creator && v.creator.handle, mine: v.mine })}
-              />
-            ) : null}
-          </>
-        ) : (
-          <FadeInUp key={chip} distance={8} style={styles.chipIntro}>
-            <Text style={styles.chipIntroText}>{CHIP_INTRO[chip]}</Text>
-            <Text style={styles.chipIntroCount}>{listItems.length} {listItems.length === 1 ? 'post' : 'posts'}</Text>
-          </FadeInUp>
-        )}
-
-        {listItems.length ? (
-          listItems.map((it, i) => {
-            const card = i === hubAt ? [hub, renderCard(it, i)] : [renderCard(it, i)];
-            // a native ad after every few posts (never after the last one)
-            if ((i + 1) % AD_RULES.feedAdEvery === 0 && i < listItems.length - 1) card.push(<FeedNativeAd key={'ad-' + i} />);
-            return card;
-          })
-        ) : (
-          <View style={styles.listEmpty}>
-            <ScaleIn key={chip} style={styles.feedEmptyIconLight}>
-              <Icon name={chip === 'Events' ? 'calendar' : chip === 'Communities' ? 'church' : 'users'} size={24} color={colors.primary} />
-            </ScaleIn>
-            <FadeInUp delay={90} style={{ alignItems: 'center' }}>
-              <Text style={styles.feedEmptyTitleLight}>{empty[0]}</Text>
-              <Text style={styles.feedEmptyBodyLight}>{empty[1]}</Text>
-              <Button small label={empty[2]} onPress={empty[3]} style={{ marginTop: 16 }} />
-            </FadeInUp>
-          </View>
-        )}
-        {listItems.length && hubAt === listItems.length ? hub : null}
-        {listItems.length && moreToLoad ? (
-          <PressScale onPress={() => sync.loadMore()} scaleTo={0.97} style={styles.feedEnd} accessibilityLabel="Load more posts">
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={styles.feedEndText}>{sync.loadingMore ? 'Loading more posts…' : 'Load more posts'}</Text>
-          </PressScale>
-        ) : listItems.length ? (
-          <View style={styles.feedEnd}>
-            <View style={styles.feedEndLine} />
-            <View style={styles.feedEndBadge}>
-              <Icon name="check" size={11} color={colors.primary} strokeWidth={3} />
-            </View>
-            <Text style={styles.feedEndText}>You’re all caught up</Text>
-            <View style={styles.feedEndLine} />
-          </View>
-        ) : null}
-      </Animated.ScrollView>
+      <FeedCellCtx.Provider value={H.current.onCellLayoutStable}>
+        <Animated.FlatList
+          ref={feedRef}
+          data={feedRows}
+          keyExtractor={feedKey}
+          renderItem={renderFeedRow}
+          extraData={feedExtra}
+          CellRendererComponent={FeedCell}
+          ListHeaderComponent={header}
+          ListEmptyComponent={emptyView}
+          ListFooterComponent={footer}
+          style={{ flex: 1, backgroundColor: colors.screen }}
+          contentContainerStyle={[styles.feedContent, { paddingTop: headerH }]}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={feedOnScroll}
+          viewabilityConfigCallbackPairs={viewabilityPairs}
+          onEndReached={onFeedEnd}
+          onEndReachedThreshold={1.5}
+          onScrollToIndexFailed={onScrollToIndexFailed}
+          initialNumToRender={4}
+          maxToRenderPerBatch={3}
+          updateCellsBatchingPeriod={60}
+          windowSize={FEED_WINDOW}
+          removeClippedSubviews={Platform.OS === 'android'}
+          refreshControl={sync.online ? (
+            <RefreshControl refreshing={pulling} onRefresh={pullRefresh} tintColor={colors.primary} colors={[colors.primary]} progressViewOffset={headerH} />
+          ) : undefined}
+        />
+      </FeedCellCtx.Provider>
     );
   };
 

@@ -14,6 +14,9 @@ import {
 } from '../lib/chatGroups.js';
 import { streamObject } from '../lib/library.js';
 import { LIBRARY_VIEWER_HTML } from '../lib/libraryViewer.js';
+import { MUTE_DURATIONS, mutedSql, muteShape } from '../lib/chatMute.js'; // CHAT GAPS: timed mute
+import { previewsFor, firstLinkUrl } from '../lib/linkPreviews.js'; // CHAT GAPS: link cards in the Links tab
+import { groupInviteUrl } from './chatGaps.js'; // CHAT GAPS: /g/<code> landing page that opens the app
 
 const chatGroups = new Hono();
 const parse = (v) => (v == null ? null : typeof v === 'string' ? JSON.parse(v) : v);
@@ -27,13 +30,14 @@ function groupOnly(ctx) {
 async function infoShape(c, ctx, meId) {
   const { conv } = ctx;
   const perms = permissionsFor(ctx);
-  const [counts, admins, invite, pending] = await Promise.all([
+  const [counts, admins, invite, pending, bans] = await Promise.all([
     one(c.env, 'SELECT COUNT(*)::int AS n FROM conversation_members WHERE conversation_id = $1', [conv.id]),
     q(c.env, `SELECT m.role, ${userJson('u')} AS u FROM conversation_members m JOIN users u ON u.id = m.user_id
        WHERE m.conversation_id = $1 AND m.role IN ('owner','admin','moderator')
        ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.display_name`, [conv.id]),
     perms.canInvite ? one(c.env, 'SELECT code FROM conversation_invites WHERE conversation_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1', [conv.id]) : null,
     perms.canApproveJoins ? one(c.env, `SELECT COUNT(*)::int AS n FROM conversation_join_requests WHERE conversation_id = $1 AND status = 'pending'`, [conv.id]) : null,
+    perms.canRemoveMembers ? one(c.env, 'SELECT COUNT(*)::int AS n FROM conversation_bans WHERE conversation_id = $1', [conv.id]) : null, // CHAT GAPS
   ]);
   let other = null;
   if (conv.kind === 'dm') {
@@ -53,7 +57,8 @@ async function infoShape(c, ctx, meId) {
     createdBy: conv.created_by || null,
     membersCount: counts ? counts.n : 0,
     myRole: ctx.role,
-    muted: !!conv.my_muted,
+    ...muteShape(conv.my_muted, conv.my_muted_until), // CHAT GAPS: { muted, mutedUntil } (null = always)
+    bannedCount: bans ? bans.n : 0, // CHAT GAPS: admins see "Banned (n)"
     settings: ctx.settings,
     permissions: perms,
     admins: admins.map((a) => ({ ...parse(a.u), role: a.role })),
@@ -171,7 +176,8 @@ chatGroups.get('/conversations/:id/members', async (c) => {
   });
 });
 
-// DELETE /conversations/:id/members/:userId — admins remove someone below them ("Grace removed Paul")
+// DELETE /conversations/:id/members/:userId[?ban=1] — admins remove someone below them ("Grace removed Paul");
+// CHAT GAPS: ?ban=1 also bans them, so they can't come back through the invite link or a join request.
 chatGroups.delete('/conversations/:id/members/:userId', async (c) => {
   const me = c.get('user');
   const convId = uuidParam(c, 'id');
@@ -183,10 +189,16 @@ chatGroups.delete('/conversations/:id/members/:userId', async (c) => {
   const target = await one(c.env, `SELECT m.role, u.display_name FROM conversation_members m JOIN users u ON u.id = m.user_id WHERE m.conversation_id = $1 AND m.user_id = $2`, [convId, targetId]);
   if (!target) throw notFound('Not a member');
   if (!outranks(ctx.role, target.role)) throw forbidden('You can’t remove someone with the same or a higher role', 'RANK');
+  const ban = ['1', 'true'].includes(String(c.req.query('ban') || '').toLowerCase());
   await q(c.env, 'DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [convId, targetId]);
-  await systemMessage(c.env, convId, me.id, `${me.display_name} removed ${target.display_name}`, { action: 'removed', targetIds: [targetId] });
+  if (ban) {
+    await q(c.env, `INSERT INTO conversation_bans (conversation_id, user_id, banned_by) VALUES ($1, $2, $3)
+      ON CONFLICT (conversation_id, user_id) DO UPDATE SET banned_by = EXCLUDED.banned_by, created_at = now()`, [convId, targetId, me.id]);
+    await q(c.env, 'DELETE FROM conversation_join_requests WHERE conversation_id = $1 AND user_id = $2', [convId, targetId]);
+  }
+  await systemMessage(c.env, convId, me.id, `${me.display_name} removed ${target.display_name}`, { action: 'removed', targetIds: [targetId], ...(ban ? { banned: true } : {}) });
   await notifyUser(c.env, targetId, { type: 'conversation.removed', conversationId: convId }).catch(() => {});
-  return c.json({ ok: true });
+  return c.json({ ok: true, banned: ban });
 });
 
 // POST /conversations/:id/members/:userId/role — { role: 'admin'|'moderator'|'member' }
@@ -251,7 +263,7 @@ chatGroups.post('/conversations/:id/invite', async (c) => {
   }
   let inv = await one(c.env, 'SELECT code FROM conversation_invites WHERE conversation_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1', [convId]);
   if (!inv) inv = await one(c.env, 'INSERT INTO conversation_invites (code, conversation_id, created_by) VALUES ($1, $2, $3) RETURNING code', [newCode(), convId, me.id]);
-  return c.json({ code: inv.code, url: `${origin(c)}/join/${inv.code}`, approveJoins: ctx.settings.approveJoins });
+  return c.json({ code: inv.code, url: groupInviteUrl(c, inv.code), approveJoins: ctx.settings.approveJoins });
 });
 
 async function inviteFor(env, code) {
@@ -269,7 +281,9 @@ chatGroups.get('/invites/:code', async (c) => {
   if (!inv) throw notFound('This invite link was reset or doesn’t exist');
   const mem = await one(c.env, 'SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [inv.id, me.id]);
   const req = await one(c.env, `SELECT status FROM conversation_join_requests WHERE conversation_id = $1 AND user_id = $2`, [inv.id, me.id]);
+  const banned = !mem && !!(await one(c.env, 'SELECT 1 FROM conversation_bans WHERE conversation_id = $1 AND user_id = $2', [inv.id, me.id])); // CHAT GAPS
   return c.json({
+    banned,
     conversationId: inv.id, title: inv.title, description: inv.description || '', membersCount: inv.members,
     avatarUrl: inv.avatar_key ? mediaUrl(c.env, origin(c), inv.avatar_key) : null,
     approveJoins: settingsOf(inv).approveJoins, isMember: !!mem, requestStatus: req ? req.status : null,
@@ -288,6 +302,10 @@ chatGroups.post('/invites/:code/join', async (c) => {
   const owner = await one(c.env, `SELECT 1 FROM conversation_members m JOIN blocks b ON (b.blocker_id = m.user_id AND b.blocked_id = $2)
     WHERE m.conversation_id = $1 AND m.role IN ('owner','admin') LIMIT 1`, [inv.id, me.id]);
   if (owner) throw forbidden('You can’t join this group', 'BLOCKED');
+  // CHAT GAPS: banned by an admin → no way back in through the link or a join request
+  if (await one(c.env, 'SELECT 1 FROM conversation_bans WHERE conversation_id = $1 AND user_id = $2', [inv.id, me.id])) {
+    throw forbidden('An admin removed you from this group, so you can’t join it again', 'BANNED');
+  }
   if (settingsOf(inv).approveJoins) {
     await q(c.env, `INSERT INTO conversation_join_requests (conversation_id, user_id) VALUES ($1, $2)
       ON CONFLICT (conversation_id, user_id) DO UPDATE SET status = 'pending', created_at = now(), decided_by = NULL`, [inv.id, me.id]);
@@ -325,6 +343,9 @@ chatGroups.post('/conversations/:id/requests/:userId', async (c) => {
   const ctx = await groupContext(c.env, convId, me.id);
   if (!permissionsFor(ctx).canApproveJoins) throw forbidden('Only admins can approve join requests', 'ADMIN_ONLY');
   const approve = (await body(c)).approve !== false;
+  if (approve && await one(c.env, 'SELECT 1 FROM conversation_bans WHERE conversation_id = $1 AND user_id = $2', [convId, userId])) {
+    throw forbidden('This person is banned from the group — unban them first', 'BANNED'); // CHAT GAPS
+  }
   const req = await one(c.env, `UPDATE conversation_join_requests SET status = $3, decided_by = $4
     WHERE conversation_id = $1 AND user_id = $2 AND status = 'pending' RETURNING user_id`, [convId, userId, approve ? 'approved' : 'declined', me.id]);
   if (!req) throw notFound('No pending request');
@@ -345,14 +366,21 @@ chatGroups.post('/conversations/:id/report', async (c) => {
   return c.json({ ok: true }, 201);
 });
 
-// PUT /conversations/:id/mute — { muted: bool } explicit (the older toggle in conversations.js stays for old apps)
+// PUT /conversations/:id/mute — { muted: bool, duration?: '8h' | '1w' | 'always' } explicit (the older toggle in
+// conversations.js stays for old apps). CHAT GAPS: timed mute — no duration = always (what older apps send).
+// → { ok, muted, mutedUntil } (mutedUntil null = until unmuted)
 chatGroups.put('/conversations/:id/mute', async (c) => {
   const me = c.get('user');
   const convId = uuidParam(c, 'id');
-  const muted = !!(await body(c)).muted;
-  const r = await one(c.env, 'UPDATE conversation_members SET muted = $3 WHERE conversation_id = $1 AND user_id = $2 RETURNING muted', [convId, me.id, muted]);
+  const b = await body(c);
+  const muted = !!b.muted;
+  const duration = b.duration == null ? 'always' : String(b.duration);
+  if (muted && !Object.prototype.hasOwnProperty.call(MUTE_DURATIONS, duration)) throw bad('duration is 8h, 1w or always', 'BAD_DURATION');
+  const ms = muted ? MUTE_DURATIONS[duration] : null;
+  const until = ms ? new Date(Date.now() + ms).toISOString() : null;
+  const r = await one(c.env, 'UPDATE conversation_members SET muted = $3, muted_until = $4 WHERE conversation_id = $1 AND user_id = $2 RETURNING muted, muted_until', [convId, me.id, muted, until]);
   if (!r) throw notFound('Not a member');
-  return c.json({ ok: true, muted: r.muted });
+  return c.json({ ok: true, ...muteShape(r.muted, r.muted_until) });
 });
 
 // ---------- shared media, links and files ----------
@@ -393,6 +421,9 @@ chatGroups.get('/conversations/:id/media', async (c) => {
       let host = ''; try { host = new URL(url).host; } catch (e) { /* keep empty */ }
       return { ...x, url, host };
     }));
+    // CHAT GAPS: the same preview cards the bubbles show (cached ones only — the list never fetches websites)
+    const cards = await previewsFor(c.env, items.map((x) => firstLinkUrl(x.url)));
+    items = items.map((x) => ({ ...x, preview: cards.get(firstLinkUrl(x.url)) || null }));
   }
   const last = rows[rows.length - 1];
   return c.json({ type, items: items.slice(0, 100), before: rows.length === 200 && last ? new Date(last.created_at).toISOString() : null });
@@ -481,12 +512,12 @@ chatGroups.post('/messages/:id/forward', async (c) => {
     const meta = { ...meta0, forwarded: true };
     delete meta.mentions;
     const row = await one(c.env, `WITH ins AS (
-        INSERT INTO messages (conversation_id, sender_id, kind, body, media_key, meta) VALUES ($1, $2, $3, $4, $5, $6::jsonb) RETURNING id
+        INSERT INTO messages (conversation_id, sender_id, kind, body, media_key, meta, link_url) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7) RETURNING id
       ), up AS (UPDATE conversations SET last_message_at = now() WHERE id = $1),
       um AS (UPDATE conversation_members SET last_read_at = now(), last_sent_at = now() WHERE conversation_id = $1 AND user_id = $2)
-      SELECT id FROM ins`, [convId, me.id, src.kind, src.body, mediaKey, JSON.stringify(meta)]);
+      SELECT id FROM ins`, [convId, me.id, src.kind, src.body, mediaKey, JSON.stringify(meta), src.link_url || null]);
     const msg = await loadMessage(c.env, row.id, me.id);
-    const others = await q(c.env, 'SELECT user_id, muted FROM conversation_members WHERE conversation_id = $1 AND user_id <> $2', [convId, me.id]);
+    const others = await q(c.env, `SELECT user_id, ${mutedSql('m')} AS muted FROM conversation_members m WHERE conversation_id = $1 AND user_id <> $2`, [convId, me.id]); // CHAT GAPS: timed mute
     for (const o of others) {
       await notifyUser(c.env, o.user_id, { type: 'message.new', conversationId: convId, message: { ...msg, isMe: false } }).catch(() => {});
       if (!o.muted) await sendNotification(c, { userId: o.user_id, kind: ctx.conv.kind === 'group' ? 'group' : 'message', title: ctx.conv.kind === 'dm' ? me.display_name : (ctx.conv.title || 'Group'), body: `↪ Forwarded: ${(src.body || 'Attachment').slice(0, 90)}`, data: { conversationId: convId, messageId: row.id, threadId: `chat:${convId}` } });

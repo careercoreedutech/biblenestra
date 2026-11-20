@@ -154,8 +154,10 @@ function gridCells(n, w) {
   };
 }
 
+// Last measured grid width: a grid re-mounted by the virtualised feed starts at its real height (no jump)
+let lastGridW = 0;
 export function PhotoGrid({ images = [], onOpen, onDoubleTap, style }) {
-  const [w, setW] = useState(0);
+  const [w, setW] = useState(lastGridW);
   const [hearts, setHearts] = useState([]);
   const lastTap = useRef(0);
   const timer = useRef(null);
@@ -180,7 +182,7 @@ export function PhotoGrid({ images = [], onOpen, onDoubleTap, style }) {
   };
 
   return (
-    <View style={[styles.grid, { height: w ? H : 300 }, style]} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+    <View style={[styles.grid, { height: w ? H : 300 }, style]} onLayout={(e) => { const lw = e.nativeEvent.layout.width; if (lw) lastGridW = lw; setW(lw); }}>
       {cells.map((c, i) => (
         <Pressable
           key={`${i}_${String(images[i]).slice(-24)}`}
@@ -188,7 +190,8 @@ export function PhotoGrid({ images = [], onOpen, onDoubleTap, style }) {
           style={[styles.gridCell, { left: c.x, top: c.y, width: c.w, height: c.h }]}
           accessibilityLabel={n > 1 ? `Photo ${i + 1} of ${n}` : 'Photo'}
         >
-          <Image source={{ uri: images[i] }} style={styles.gridImg} resizeMode="cover" />
+          {/* resize (Android): decode at the cell's size, not the photo's — far smaller bitmaps in memory */}
+          <Image source={{ uri: images[i] }} style={styles.gridImg} resizeMode="cover" resizeMethod="resize" />
           {i === 3 && extra > 0 ? (
             <View style={styles.gridMore} pointerEvents="none">
               <Text style={styles.gridMoreText}>+{extra}</Text>
@@ -288,10 +291,16 @@ function ReactionPicker({ current, onPick }) {
 }
 
 // ─── The light post card ─────────────────────────────────────────
+// Re-mounted cards (scrolled back into the virtualised window) render without the entry animation
+function CardShell({ animate, index, children }) {
+  if (animate) return <FadeInUp index={index} distance={16} style={styles.card}>{children}</FadeInUp>;
+  return <View style={styles.card}>{children}</View>;
+}
 export const LightPostCard = React.memo(LightPostCardImpl, sameCard);
 // FEED VIDEO: cards only re-render when what they show changes (not on every scroll / active-video change of
 // the screen). Callbacks are ignored here — SocialsScreen's callbacks read the latest state through a ref.
 function sameCard(a, b) {
+  // (`entering` is read once at mount, so it is not compared either)
   return a.item === b.item && a.index === b.index && a.playing === b.playing && a.highlight === b.highlight && a.isFollowing === b.isFollowing
     && a.videoPlayer === b.videoPlayer && a.videoPaused === b.videoPaused && a.feedMuted === b.feedMuted;
 }
@@ -299,6 +308,7 @@ function sameCard(a, b) {
 function LightPostCardImpl({
   item,
   index = 0,
+  entering = true, // FEED: play the entry animation (only the first time the virtualised list mounts it)
   playing,
   videoPlayer, // FEED VIDEO: pool player lent to the active card
   videoPaused,
@@ -325,6 +335,7 @@ function LightPostCardImpl({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [picker, setPicker] = useState(false);
+  const [animateIn] = useState(entering); // fixed at mount: the card's root never switches type
   const processing = !!item.processing || !!item.videoError || !!item.uploadFailed;
   const isVideo = !!item.videoUrl && !processing;
   const hasImages = item.images && item.images.length > 0;
@@ -348,7 +359,7 @@ function LightPostCardImpl({
   }, [picker]);
 
   return (
-    <FadeInUp index={index} distance={16} style={styles.card}>
+    <CardShell animate={animateIn} index={index}>
       <HighlightRing active={highlight} />
 
       {/* Author row */}
@@ -494,7 +505,7 @@ function LightPostCardImpl({
         </PressScale>
         {picker ? <ReactionPicker current={item.liked ? item.reaction : null} onPick={pick} /> : null}
       </View>
-    </FadeInUp>
+    </CardShell>
   );
 }
 
