@@ -33,7 +33,7 @@ export const KIND_META = {
 };
 const kindMeta = (k) => KIND_META[k] || KIND_META.other;
 
-// JOBS FEEDS: the 7 categories of the Job & Academic Directory (ids match backend/src/lib/jobsDirectory.js)
+// JOBS FEEDS: the 8 categories of the Job & Academic Directory (ids match backend/src/lib/jobsDirectory.js)
 export const DIR_CATEGORIES = [
   { id: 'intl', label: 'Remote & global', icon: 'globe', tint: colors.sky },
   { id: 'africa', label: 'Nigeria & Africa', icon: 'map-pin', tint: colors.sage },
@@ -42,6 +42,7 @@ export const DIR_CATEGORIES = [
   { id: 'academic', label: 'Academic', icon: 'book', tint: colors.lavender },
   { id: 'research', label: 'Research', icon: 'search', tint: colors.teal },
   { id: 'funding', label: 'Scholarships', icon: 'coin', tint: colors.gold },
+  { id: 'earn', label: 'Earn online', icon: 'star', tint: colors.terracotta },
 ];
 const catMeta = (id) => DIR_CATEGORIES.find((g) => g.id === id) || { label: 'Other', icon: 'compass', tint: colors.slate };
 const OPEN_TO_LABEL = { nigeria: 'Open to Nigeria', africa: 'Open to Africa', worldwide: 'Worldwide' };

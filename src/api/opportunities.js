@@ -80,7 +80,7 @@ export function useOpportunitiesApi() {
         updatedAt: res.updatedAt || null,
       };
     },
-    // JOBS FEEDS: the Job & Academic Directory (51 platforms in 7 categories)
+    // JOBS FEEDS: the Job & Academic Directory (63 platforms in 8 categories)
     async directory() {
       const res = (await api.request('GET', '/opportunities/directory')) || {};
       const categories = (Array.isArray(res.categories) ? res.categories : []).filter((g) => g && g.id).map((g) => ({

@@ -274,7 +274,7 @@ test('list API: category, open-to-Africa and source filters; attribution on ever
   assert.equal((await call('ann', 'GET', '/opportunities?open=mars')).status, 400);
 
   const s = await call('ann', 'GET', '/opportunities/summary');
-  assert.equal(s.json.categories.length, 7);
+  assert.equal(s.json.categories.length, 8);
   assert.ok(s.json.categories.find((c) => c.id === 'africa').count >= 6);
   assert.ok(s.json.openToAfrica > 0);
   assert.ok(s.json.sources.some((x) => x.key === 'himalayas' && x.category === 'intl'));
@@ -294,9 +294,9 @@ test('expiry: per-source age limits, stale listings and passed deadlines are rem
   assert.equal(await count(`source = 'academicjobsonline' AND source_id = '33495'`), 1);
 });
 
-test('directory: 51 platforms in 7 categories with live flags', async () => {
-  assert.equal(DIRECTORY.length, 51);
-  assert.equal(new Set(DIRECTORY.map((d) => d.slug)).size, 51, 'unique slugs');
+test('directory: 63 platforms in 8 categories with live flags', async () => {
+  assert.equal(DIRECTORY.length, 63);
+  assert.equal(new Set(DIRECTORY.map((d) => d.slug)).size, 63, 'unique slugs');
   for (const d of DIRECTORY) {
     assert.match(d.url, /^https:\/\//, d.slug);
     assert.ok(d.description.length > 10 && d.description.length <= 160, `${d.slug} one-line description`);
@@ -305,9 +305,9 @@ test('directory: 51 platforms in 7 categories with live flags', async () => {
   assert.equal((await call(null, 'GET', '/opportunities/directory')).status, 401);
   const r = await call('ann', 'GET', '/opportunities/directory');
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json.categories.map((c) => c.id), ['intl', 'africa', 'freelance', 'ai', 'academic', 'research', 'funding']);
-  assert.deepEqual(r.json.categories.map((c) => c.items.length), [9, 8, 6, 7, 10, 6, 5]);
-  assert.equal(r.json.total, 51);
+  assert.deepEqual(r.json.categories.map((c) => c.id), ['intl', 'africa', 'freelance', 'ai', 'academic', 'research', 'funding', 'earn']);
+  assert.deepEqual(r.json.categories.map((c) => c.items.length), [9, 8, 6, 7, 10, 6, 5, 12]);
+  assert.equal(r.json.total, 63);
   const find = (slug) => r.json.categories.flatMap((c) => c.items).find((x) => x.slug === slug);
   assert.equal(find('himalayas').live, true); assert.equal(find('himalayas').sourceKey, 'himalayas'); assert.ok(find('himalayas').listings > 0);
   assert.equal(find('jooble').live, false, 'no key → not live');
@@ -321,7 +321,7 @@ test('directory admin: edit, hide, add, reset', async () => {
   const adm = await admin();
   assert.equal((await call('ann', 'GET', '/admin/api/opportunity-directory')).status, 403);
   const list = await call(adm, 'GET', '/admin/api/opportunity-directory');
-  assert.equal(list.status, 200); assert.equal(list.json.items.length, 51);
+  assert.equal(list.status, 200); assert.equal(list.json.items.length, 63);
   const ed = await call(adm, 'PUT', '/admin/api/opportunity-directory/linkedin', { description: 'Edited line', hidden: false });
   assert.equal(ed.status, 200);
   assert.equal((await call(adm, 'PUT', '/admin/api/opportunity-directory/linkedin', { url: 'javascript:alert(1)' })).status, 400);

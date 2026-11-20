@@ -1,4 +1,4 @@
-// JOB & ACADEMIC DIRECTORY: the 51 platforms the client asked for, in 7 categories. The app shows them in
+// JOB & ACADEMIC DIRECTORY: the 63 platforms the client asked for, in 8 categories. The app shows them in
 // Opportunities → Directory (open in the in-app browser). Admins can edit, hide or add entries from the
 // dashboard; edits are stored in the opportunity_directory table and override these defaults by slug.
 //
@@ -18,6 +18,7 @@ export const CATEGORIES = [
   { id: 'academic', label: 'Academic & university', short: 'Academic', blurb: 'Lecturer, researcher and university staff jobs.' },
   { id: 'research', label: 'Research & scientific', short: 'Research', blurb: 'Research, lab and postdoc positions in science.' },
   { id: 'funding', label: 'Scholarships & funding', short: 'Scholarships', blurb: 'Scholarships, PhDs, fellowships and research funding.' },
+  { id: 'earn', label: 'Research studies & online earning', short: 'Earn online', blurb: 'Paid research studies, product testing, tutoring and expert answers. Check Nigerian eligibility and payout methods before you sign up.' },
 ];
 export const CATEGORY_IDS = CATEGORIES.map((c) => c.id);
 export const ACCESS = ['live', 'permission', 'key', 'partner', 'link'];
@@ -89,6 +90,22 @@ export const DIRECTORY = [
   e('funding', 'cscuk', 'Commonwealth Scholarships', 'https://cscuk.fcdo.gov.uk/', 'UK-funded Master’s, PhD and fellowship awards for Commonwealth citizens, including Nigerians.', 'live', ['cscuk']),
   e('funding', 'chevening', 'Chevening', 'https://www.chevening.org/', 'The UK government’s fully funded Master’s scholarships. Applications usually open August to November.'),
   e('funding', 'cos', 'COS Funding Opportunities', 'https://www.cos.com/', 'Research funding database (now Pivot-RP by Clarivate); needs a university subscription.', 'partner'),
+
+  // 8 Research studies & online earning (client list #2). All directory links: Prolific, Respondent and
+  // UserTesting have APIs, but they are for researchers/customers running studies, not public feeds of
+  // studies for participants, and they don't permit redistributing opportunities in another app.
+  e('earn', 'livingstonresearch', 'Livingston Research', 'https://livingston-research.com/', 'Paid academic research, writing and subject assignments for graduates and specialists.'),
+  e('earn', 'coursehero', 'Course Hero', 'https://www.coursehero.com/become-a-tutor/', 'Answer students’ questions in your subject. Recruitment is limited by country; check if Nigeria is accepted.'),
+  e('earn', 'justanswer', 'JustAnswer', 'https://era.justanswer.com/', 'Answer paid questions as a verified expert in law, engineering, tech, finance and more.'),
+  e('earn', 'tutorcom', 'Tutor.com', 'https://www.tutor.com/apply', 'Online tutoring for students. Only hires tutors in certain countries; check eligibility first.'),
+  e('earn', 'ilimexa', 'Ilimexa', 'https://ilimexa.com/become-a-tutor', 'Create courses, teach professional skills and earn from course sales.'),
+  e('earn', 'prolific', 'Prolific', 'https://www.prolific.com/participants', 'Take part in paid academic research studies. Participant sign-up is limited to some countries.'),
+  e('earn', 'respondent', 'Respondent', 'https://www.respondent.io/', 'Paid professional interviews, research studies and focus groups.'),
+  e('earn', 'usertesting', 'UserTesting', 'https://www.usertesting.com/get-paid-to-test', 'Get paid to test websites and apps and share your feedback. Country limits apply.'),
+  e('earn', 'userinterviews', 'User Interviews', 'https://www.userinterviews.com/', 'Paid research interviews and focus groups. Country limits apply.'),
+  e('earn', 'testingtime', 'TestingTime', 'https://www.testingtime.com/', 'Paid usability tests and product research sessions.'),
+  e('earn', 'userlytics', 'Userlytics', 'https://www.userlytics.com/', 'Test websites and mobile apps and give recorded feedback.'),
+  e('earn', 'testbirds', 'Testbirds', 'https://www.testbirds.com/', 'Crowd software and app testing, plus usability research.'),
 ];
 
 export const directoryBySlug = (slug) => DIRECTORY.find((d) => d.slug === slug);

@@ -3,7 +3,7 @@
 // admins can switch a source off, run an import now, or hide a listing.
 //   GET  /opportunities?kind=&q=&remote=1&cursor=&limit=   (signed in)
 //   GET  /opportunities/summary                            (signed in)
-//   GET  /opportunities/directory                          (signed in) JOBS FEEDS: the 51-platform Job & Academic Directory
+//   GET  /opportunities/directory                          (signed in) JOBS FEEDS: the 63-platform Job & Academic Directory
 //        list filters (JOBS FEEDS): &category=intl|africa|freelance|ai|academic|research|funding &open=africa|nigeria &source=<key>
 //   GET  /admin/api/opportunity-sources                    (admin)
 //   PATCH /admin/api/opportunity-sources/:key {enabled}    (admin)
