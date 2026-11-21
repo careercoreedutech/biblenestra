@@ -2583,7 +2583,7 @@ export function ProfileScreen({ params = {} }) {
           </Group>
           <Group style={{ marginTop: 14 }}>
             <Item title="This device" subtitle={`${Platform.OS === 'web' ? 'Web browser' : Platform.OS === 'ios' ? 'iPhone' : 'Android'} · signed in locally`} right={<Badge label="Active" tint={colors.teal} />} />
-            <Item icon="star" tint={colors.gold} title={state.premium ? 'BibleNestra Plus' : 'Plan · Free'} subtitle={state.premium ? 'Ad-free games · supporter badge · manage in Google Play' : 'Go ad-free with Plus · $4 a week or $35 a year'} onPress={() => nav.push('Plans')} />
+            <Item icon="star" tint={colors.gold} title={state.premium ? 'BibleNestra Plus' : 'Plan · Free'} subtitle={state.premium ? 'Ad-free games · supporter badge · manage your plan' : 'Go ad-free with BibleNestra Plus'} onPress={() => nav.push('Plans')} />
             <Item title="Redo onboarding" subtitle="Walk through setup again" onPress={() => nav.push('Onboarding', { step: 0 })} />
           </Group>
           <AccountLegal />{/* LEGAL: Terms, Privacy, Delete my account */}

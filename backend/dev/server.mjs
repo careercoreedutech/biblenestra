@@ -63,6 +63,13 @@ if (process.argv.includes('--seed-dating')) {
   }
 }
 const app = createApp();
+// PAYSTACK FOR EVERY PURCHASE: PAYSTACK_FAKE=1 → a pretend Paystack page (dev/fake-paystack.mjs), no keys, no money.
+if (process.env.PAYSTACK_FAKE === '1' && !env.PAYSTACK_SECRET_KEY) {
+  const { makeFakePaystack } = await import('./fake-paystack.mjs');
+  const { fake, fetchFn } = makeFakePaystack();
+  env.__paystackFake = fake; env.__paystackFetch = fetchFn;
+  console.log('Paystack: FAKE local checkout (PAYSTACK_FAKE=1)');
+}
 const port = Number(process.env.PORT || 8787);
 serve({ fetch: (req) => app.fetch(req, env), port });
 console.log(`BibleNestra API (local) on http://localhost:${port}`);

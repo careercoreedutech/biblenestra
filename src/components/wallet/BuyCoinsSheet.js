@@ -1,11 +1,9 @@
 // <BuyCoinsSheet visible wallet="dating_coins" onClose onPurchased /> — package picker + checkout for a purchasable
 // wallet (fundme_credits | dating_coins | gift_coins). <BuyCoinsSheet visible plans … /> lists Dating Plus / VIP instead.
 //
-// Payments (brief 3.4): in-app digital goods go through Google Play Billing (Apple IAP on iOS). Until the Play developer
-// account exists the server answers PAYMENTS_NOT_CONFIGURED, so members see "coming soon" and nothing is charged.
-// Admins / testers (WALLET_TEST_PURCHASES + WALLET_TESTERS) get a "Test purchase" button that credits at once (no money).
-// PLAY HOOK: when Play is configured, launch the billing flow for product.playProductId with a Play Billing library,
-// then POST /wallet/purchase { productId, provider: 'play', purchaseToken, idempotencyKey } — the server verifies first.
+// Payments: Paystack for every purchase (client decision 2026-11-21) — <PaystackButton> opens Paystack's page (card,
+// bank transfer, USSD); the server verifies with Paystack and credits once. Without Paystack keys the button says
+// "coming soon". Admins / testers (WALLET_TEST_PURCHASES + WALLET_TESTERS) also get "Test purchase" (no money).
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PressScale } from '../Motion';
@@ -16,6 +14,7 @@ import { colors, fonts } from '../../theme';
 import { useApi } from '../../api/auth';
 import { useWalletProducts, buyProduct, newIdempotencyKey, walletChanged, walletError, WALLET_META, fmtUnits } from '../../api/wallet';
 import { WalletSheet, ws } from './WalletSheet';
+import { PaystackButton } from '../PaystackButton';
 
 export function BuyCoinsSheet({ visible, wallet = 'gift_coins', plans = false, onClose, onPurchased, initialProductId = null }) {
   const api = useApi();
@@ -30,11 +29,10 @@ export function BuyCoinsSheet({ visible, wallet = 'gift_coins', plans = false, o
   useEffect(() => { keyRef.current = null; }, [chosen && chosen.id]); // a new package = a new purchase
   const m = WALLET_META[wallet] || {};
   const test = methods.find((x) => x.provider === 'test');
-  const store = methods.find((x) => x.provider === 'play' || x.provider === 'apple');
+  const paystack = methods.find((x) => x.provider === 'paystack');
 
   async function buy(provider) {
     if (!chosen || busy) return;
-    if (provider !== 'test') { setMsg('Google Play billing is coming soon — nothing was charged.'); return; }
     if (!keyRef.current) keyRef.current = newIdempotencyKey();
     setBusy(true); setMsg(null);
     try {
@@ -82,12 +80,26 @@ export function BuyCoinsSheet({ visible, wallet = 'gift_coins', plans = false, o
           {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={ws.primaryText}>{`Test purchase${chosen ? ` · ${chosen.displayPrice}` : ''}`}</Text>}
         </PressScale>
       ) : null}
-      {store ? (
-        <PressScale onPress={() => buy(store.provider)} scaleTo={0.98} style={[test ? ws.ghost : ws.primary, !store.available && ws.disabled]} accessibilityRole="button" accessibilityLabel={`${store.label}: ${store.note}`}>
-          <Text style={test ? ws.ghostText : ws.primaryText}>{store.available ? `Buy with ${store.label}` : `${store.label} — coming soon`}</Text>
-        </PressScale>
+      {paystack ? (
+        <PaystackButton
+          method={paystack}
+          ghost={!!test}
+          disabled={!chosen}
+          label={chosen ? `Pay ${chosen.displayPrice}` : 'Pay with Paystack'}
+          start={(email) => {
+            if (!keyRef.current) keyRef.current = newIdempotencyKey();
+            return buyProduct(api, { productId: chosen.id, provider: 'paystack', idempotencyKey: keyRef.current, email });
+          }}
+          onSuccess={(r) => {
+            keyRef.current = null;
+            walletChanged();
+            toast.show(plans ? `${chosen.title} is active` : `+${fmtUnits(chosen.totalUnits)} ${m.short || 'added'}`, { icon: 'check', haptic: 'success' });
+            if (onPurchased) onPurchased(r);
+            onClose && onClose();
+          }}
+        />
       ) : null}
-      <Text style={ws.note}>{msg || (test ? 'Test purchases are for admins and testers only. No money moves.' : store && !store.available ? 'Purchases through Google Play are coming soon. Nothing can be charged yet.' : 'Billed by Google Play. Prices include any taxes.')}</Text>
+      <Text style={ws.note}>{msg || (test ? 'Test purchases are for admins and testers only. No money moves.' : plans ? 'Paid by card: renews monthly until you cancel. Paid by bank transfer or USSD: we remind you before it ends.' : 'Prices in Naira, paid securely through Paystack.')}</Text>
     </WalletSheet>
   );
 }

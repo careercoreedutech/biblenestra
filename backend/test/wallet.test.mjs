@@ -190,10 +190,10 @@ test('test purchases: only when enabled AND admin / tester; credits once per ide
   assert.equal((await call('tess', 'POST', '/wallet/purchase', { productId: 'dating_coins_100', provider: 'test', idempotencyKey: 'k_tess_test_1' })).json.code, 'IDEMPOTENCY_CONFLICT');
   const admin = await call('boss', 'POST', '/wallet/purchase', { productId: 'fundme_credits_7', provider: 'test', idempotencyKey: 'k_boss_test_1' });
   assert.equal(admin.status, 201); assert.equal(admin.json.balances.fundme_credits, 7);
-  // Paystack is never used for digital goods
-  assert.equal((await call('tess', 'POST', '/wallet/purchase', { ...body, provider: 'paystack', idempotencyKey: 'k_tess_ps_1' })).json.code, 'PROVIDER_NOT_ALLOWED');
+  // Paystack pays for every purchase now (2026-11-21); without keys it answers "coming soon"
+  assert.equal((await call('tess', 'POST', '/wallet/purchase', { ...body, provider: 'paystack', idempotencyKey: 'k_tess_ps_1', email: 'tess@example.com' })).json.code, 'PAYMENTS_NOT_CONFIGURED');
   const m = await call('amy', 'GET', '/wallet/products?wallet=gift_coins&platform=android');
-  assert.deepEqual(m.json.methods.map((x) => [x.provider, x.available]), [['play', false]]);
+  assert.deepEqual(m.json.methods.map((x) => [x.provider, x.available]), [['paystack', false]]);
   assert.equal(m.json.canPay, false);
   const mt = await call('tess', 'GET', '/wallet/products?wallet=gift_coins');
   assert.equal(mt.json.methods[0].provider, 'test');
@@ -325,7 +325,7 @@ test('admin: search by user / ref / kind / dates, member view, adjustment with r
   const ov = await call('boss', 'GET', '/admin/api/wallet/overview');
   assert.equal(ov.status, 200);
   assert.ok(ov.json.commission.some((c) => c.wallet === 'commission_gift_coins' && c.total >= 400));
-  assert.equal(ov.json.providers.paystack.forDigitalGoods, false);
+  assert.equal(ov.json.providers.paystack.forDigitalGoods, true);
   assert.ok((await call('boss', 'GET', '/admin/api/wallet/subscriptions?status=expired')).json.items.length >= 1);
 });
 
@@ -414,8 +414,8 @@ test('input guards, registerKind, ledger integrity, schema guards', async () => 
   const ig = await W.ledgerIntegrity(env);
   assert.equal(ig.ok, true, JSON.stringify(ig.mismatches)); assert.ok(ig.checked > 10);
   assert.equal((await call('boss', 'GET', '/admin/api/wallet/overview')).json.integrity.ok, true);
-  // Paystack can never be the provider of a digital-goods purchase, even by a direct insert
-  await assert.rejects(q(env, `INSERT INTO wallet_purchases (user_id, product_id, provider, idempotency_key, amount_minor, currency) VALUES ($1, 'gift_coins_500', 'paystack', 'k_ps_direct_1', 1, 'NGN')`, [ids.amy]));
+  // only known providers can be stored, even by a direct insert
+  await assert.rejects(q(env, `INSERT INTO wallet_purchases (user_id, product_id, provider, idempotency_key, amount_minor, currency) VALUES ($1, 'gift_coins_500', 'stripe', 'k_ps_direct_1', 1, 'NGN')`, [ids.amy]));
 });
 
 test('one shared Play module: wallet store and Memberships use the same verification', async () => {

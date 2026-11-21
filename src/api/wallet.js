@@ -3,7 +3,7 @@
 //   useWallet()                       GET /wallet → { data: { wallets, balances, kingdomCoins, subscription, dating, rules, payments }, … }
 //   useWalletProducts({ wallet } | { plans: true })  GET /wallet/products → { products, methods, canPay, message }
 //   getHistory(api, wallet, cursor)   GET /wallet/:wallet/history
-//   buyProduct(api, { productId, provider, idempotencyKey, purchaseToken? })
+//   buyProduct(api, { productId, provider: 'paystack'|'test', idempotencyKey, email? })  paystack → { checkout } (see src/billing/paystack.js)
 //   cancelSubscription(api, id)
 //   walletChanged()                   → every hook reloads (call after any spend / purchase in later features)
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -71,7 +71,8 @@ export const getSubscriptions = (api) => api.request('GET', '/wallet/subscriptio
 export const newIdempotencyKey = () => `wk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
 
 export const walletError = (e, fallback) => {
-  if (e && e.code === 'PAYMENTS_NOT_CONFIGURED') return 'Google Play billing is coming soon — nothing was charged.';
+  if (e && e.code === 'PAYMENTS_NOT_CONFIGURED') return 'Payments are coming soon — nothing was charged.';
+  if (e && e.code === 'PAYMENTS_PAUSED') return 'Payments are paused for a moment. Please try again later.';
   if (e && e.code === 'INSUFFICIENT_BALANCE') return e.message || 'Not enough balance';
   if (e && e.code === 'RATE_LIMITED') return 'Please wait a moment and try again.';
   return errorMessage(e, fallback);

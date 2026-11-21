@@ -1,6 +1,6 @@
-// PAYSTACK slot (paystack.com) — for Fund Me donations and beneficiary payouts (and possibly a future WEB checkout).
-// NEVER for in-app digital goods (coins, credits, gifts, subscriptions) on Android/iOS: those must use Google Play
-// Billing / Apple IAP (brief 3.4). POST /wallet/purchase refuses provider 'paystack' with PROVIDER_NOT_ALLOWED.
+// PAYSTACK (paystack.com) — the payment gateway for the whole app (client decision, 2026-11-21): Fund Me donations and
+// payouts, AND every in-app purchase (coin / credit / gifting packs, Dating Plus / VIP, Memberships, BibleNestra Plus)
+// through lib/paystackCheckout.js. Google Play Billing (lib/play.js) stays in the code, dormant.
 //
 // Off until the secrets exist:  npx wrangler secret put PAYSTACK_SECRET_KEY   (sk_test_… / sk_live_…)
 //                               PAYSTACK_PUBLIC_KEY (pk_…, safe to expose to the web checkout page)
@@ -9,10 +9,12 @@
 import { ApiError } from './http.js';
 
 const API = 'https://api.paystack.co';
-export const paystackConfigured = (env) => !!(env && String(env.PAYSTACK_SECRET_KEY || '').trim());
+export const paystackConfigured = (env) => !!(env && (typeof env.__paystackFetch === 'function' || String(env.PAYSTACK_SECRET_KEY || '').trim()));
+/** Paystack test keys (sk_test_…): donations made with them are marked is_test, so they never count as real money. */
+export const paystackTestMode = (env) => /^sk_test_/.test(String((env && env.PAYSTACK_SECRET_KEY) || '').trim());
 export const paystackPublicKey = (env) => (env && String(env.PAYSTACK_PUBLIC_KEY || '').trim()) || null;
 /** What Paystack may be used for (documentation + checks in later stages). */
-export const PAYSTACK_USES = ['fundme_donation', 'fundme_payout', 'web_checkout'];
+export const PAYSTACK_USES = ['fundme_donation', 'fundme_payout', 'purchase', 'subscription_renewal'];
 
 const notConfigured = () => new ApiError(503, 'PAYMENTS_NOT_CONFIGURED', 'Paystack is not set up yet.');
 const hex = (buf) => Array.from(new Uint8Array(buf), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -31,6 +33,7 @@ export async function verifyPaystackSignature(rawBody, header, secret) {
 }
 
 async function call(env, method, path, payload) {
+  if (typeof env.__paystackFetch === 'function') return env.__paystackFetch(method, path, payload); // tests / local dev only
   if (!paystackConfigured(env)) throw notConfigured();
   const res = await fetch(API + path, {
     method,
@@ -78,4 +81,11 @@ export async function initiateTransfer(env, { amountMinor, recipientCode, refere
 export async function refundTransaction(env, { reference }) {
   const d = await call(env, 'POST', '/refund', { transaction: reference });
   return { status: d.status || 'pending' };
+}
+
+// ─── PURCHASES: card renewals (lib/paystackCheckout.js) ───────────────────────────────────────────────────────────────
+/** Charge a saved card (reusable authorisation). reference must be unique. → { status: 'success'|'failed'|…, raw } */
+export async function chargeAuthorization(env, { authorizationCode, email, amountMinor, currency = 'NGN', reference, metadata = {} }) {
+  const d = await call(env, 'POST', '/transaction/charge_authorization', { authorization_code: authorizationCode, email, amount: Number(amountMinor), currency, reference, metadata });
+  return { status: d.status, amountMinor: Number(d.amount), currency: d.currency, reference: d.reference, raw: d };
 }

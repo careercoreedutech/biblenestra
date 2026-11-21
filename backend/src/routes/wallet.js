@@ -5,7 +5,9 @@
 //                                             Kingdom Coins (old engagement coins), current dating subscription
 //   GET  /wallet/:wallet/history?cursor=      one wallet's ledger (gift_earnings = pending + available + withdrawn)
 //   GET  /wallet/products?wallet=&area=&type=&platform=   active packages / plans + payment methods for the Buy sheet
-//   POST /wallet/purchase { productId, provider: 'play'|'test', idempotencyKey, purchaseToken? }
+//   POST /wallet/purchase { productId, provider: 'paystack'|'test', idempotencyKey, email? }
+//                                             paystack → 202 { checkout: { reference, url } }: open the url, then poll
+//                                             GET /payments/paystack/:reference (routes/paystack.js)
 //   GET  /wallet/purchases                    my purchases
 //   GET  /wallet/subscriptions                current + past dating subscriptions, plans
 //   POST /wallet/subscriptions/:id/cancel     renewal off; access until the period ends
@@ -26,6 +28,8 @@ import {
   subscriptionShape, cancelSubscription, createProduct, updateProduct, refundPurchase, runSubscriptionCron, providerStatus, datingEntitlement,
 } from '../lib/walletStore.js';
 import { WALLET_ADMIN_SCRIPT } from '../lib/walletAdminPage.js';
+import { startWalletCheckout, paystackMethod, inAppEnabled } from '../lib/paystackCheckout.js';
+import { paystackConfigured } from '../lib/paystack.js';
 
 registerAdminScript(WALLET_ADMIN_SCRIPT);
 
@@ -58,7 +62,7 @@ walletApp.get('/wallet', async (c) => {
     subscription: sub,
     dating: { plan: dating.plan, tier: dating.tier, flags: dating.flags, badge: dating.badge },
     rules: { giftCommissionPct: cfg.gift_commission_bps / 100, earningsHoldDays: cfg.earnings_hold_days, withdrawalsEnabled: !!cfg.earnings_withdrawals_enabled },
-    payments: { playConfigured: playConfigured(c.env), testPurchases: testPurchaseAllowed(c.env, me), message: playConfigured(c.env) ? null : PAYMENTS_SOON },
+    payments: { provider: 'paystack', paystackConfigured: paystackConfigured(c.env), playConfigured: playConfigured(c.env), testPurchases: testPurchaseAllowed(c.env, me), message: paystackConfigured(c.env) ? null : PAYMENTS_SOON },
   });
 });
 
@@ -72,7 +76,7 @@ walletApp.get('/wallet/products', async (c) => {
   if (type && !['pack', 'subscription'].includes(type)) throw bad('type must be pack or subscription');
   const platform = ['android', 'ios', 'web'].includes(c.req.query('platform')) ? c.req.query('platform') : 'android';
   const products = await listProducts(c.env, { wallet, area, type });
-  const methods = purchaseMethods(c.env, me, platform);
+  const methods = purchaseMethods(c.env, me, platform, { paystack: paystackMethod(c.env, { inApp: await inAppEnabled(c.env), currency: (products[0] && products[0].currency) || 'NGN' }) });
   const canPay = methods.some((m) => m.available);
   return c.json({ products, methods, canPay, message: canPay ? null : PAYMENTS_SOON });
 });
@@ -81,6 +85,10 @@ walletApp.post('/wallet/purchase', async (c) => {
   const me = c.get('user');
   await rateLimit(c.env, `wallet_purchase:${me.id}`, 10, 60);
   const b = await body(c);
+  if (String(b.provider || '') === 'paystack') {
+    const r = await startWalletCheckout(c.env, me, { productId: str(b.productId, { min: 1, max: 61, field: 'productId' }), idempotencyKey: b.idempotencyKey, email: b.email, origin: new URL(c.req.url).origin });
+    return c.json(r, r.alreadyProcessed ? 200 : 202);
+  }
   const r = await createPurchase(c.env, me, {
     productId: str(b.productId, { min: 1, max: 61, field: 'productId' }),
     provider: String(b.provider || ''),
@@ -111,7 +119,7 @@ walletApp.post('/wallet/subscriptions/:id/cancel', async (c) => {
   await rateLimit(c.env, `wallet_cancel:${me.id}`, 10, 60);
   if (!isUuid(c.req.param('id'))) throw notFound('Subscription not found');
   const sub = await cancelSubscription(c.env, me.id, c.req.param('id'));
-  return c.json({ subscription: sub, note: sub.provider === 'play' ? 'Also cancel in Google Play › Subscriptions so you are not billed again.' : null });
+  return c.json({ subscription: sub, note: sub.provider === 'play' ? 'Also cancel in Google Play › Subscriptions so you are not billed again.' : sub.provider === 'paystack' ? 'Your card won’t be charged again. You keep the plan until it ends.' : null });
 });
 
 walletApp.get('/wallet/:wallet/history', async (c) => {

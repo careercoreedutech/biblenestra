@@ -59,7 +59,9 @@ import { runBlogCron } from './lib/blog.js'; // BLOG: cron publishes scheduled p
 import { legalPublic, accountDeletion, adminAccountDeletions } from './routes/legal.js'; // LEGAL: /terms, /privacy, /delete-account + account deletion
 import { membershipsApp, membershipChatGuard, membershipLazyExpiry } from './routes/memberships.js'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
 import { runMembershipCron } from './lib/memberships.js'; // MEMBERSHIPS: expiry sweep (lapsed members leave Channel + Community)
-import { walletApp, adminWallet } from './routes/wallet.js'; // WALLET CORE: separate wallets, ledger, packages, purchases, Dating Plus / VIP
+import { walletApp, adminWallet } from './routes/wallet.js';
+import { paystackPublic, paystackApp, adminPaystack } from './routes/paystack.js'; // PAYSTACK FOR EVERY PURCHASE
+import { runPaystackCron } from './lib/paystackCheckout.js'; // WALLET CORE: separate wallets, ledger, packages, purchases, Dating Plus / VIP
 import { runWalletCron } from './lib/walletStore.js'; // WALLET CORE: expire ended dating subscriptions, prune rate-limit windows
 import { datingApp, adminDating } from './routes/dating.js'; // FIND LOVE (Christian dating): profiles, discovery, matches, Dating Coin uses, ad unlocks, boosts, admin "Dating"
 import { giftsApp, adminGifts } from './routes/virtualGifts.js'; // VIRTUAL GIFTS & STARS: catalogue, send (20/80 split), histories, earnings, withdrawals, live sessions, admin "Gift catalogue"
@@ -113,6 +115,7 @@ export function createApp() {
 
   app.route('/', media);
   app.route('/', ssv);
+  app.route('/', paystackPublic); // PAYSTACK: /pay/paystack/return (Paystack callback page)
   app.route('/', fundmePublic); // FUND ME (round 3): public page, donations (guests too), test checkout, webhooks
   app.route('/', youtube); // DISCOVER TOOLS (round 3): public channel list + RSS videos
   app.route('/', youtubePublic); // YOUTUBE LIVE: GET /youtube/live, GET /youtube/videos/:videoId
@@ -207,6 +210,8 @@ export function createApp() {
   app.route('/', adminAccountDeletions); // LEGAL: /admin/api/account-deletions (admin only)
   app.route('/', membershipsApp); // MEMBERSHIPS & PAID CHANNELS: /memberships/* (catalogue, product, checkout, library) + /memberships/manage/*
   app.route('/', walletApp); // WALLET CORE: /wallet, /wallet/:wallet/history, /wallet/products, /wallet/purchase, /wallet/subscriptions
+  app.route('/', paystackApp); // PAYSTACK: /payments/paystack/:reference, /plus, /plus/checkout, /plus/cancel
+  app.route('/', adminPaystack); // PAYSTACK: /admin/api/paystack/* (admin only)
   app.route('/', adminWallet); // WALLET CORE: /admin/api/wallet/* (admin only) — "Wallets & payments" tab
   app.route('/', giftsApp); // VIRTUAL GIFTS & STARS: /gifts/catalogue|send|history|wall|earnings|programme|withdrawals, /live-sessions
   app.route('/', adminGifts); // VIRTUAL GIFTS & STARS: /admin/api/gifts/* (admin only)
@@ -231,5 +236,6 @@ export default {
     runBlogCron(env).catch((e) => console.error('blog cron failed', e)), // BLOG: publish due posts, run due AI schedules (≤ BLOG_CRON_POSTS posts per tick)
     runMembershipCron(env).catch((e) => console.error('membership expiry failed', e)), // MEMBERSHIPS: expire lapsed subscriptions, remove them from Channel + Community
     runWalletCron(env).catch((e) => console.error('wallet cron failed', e)), // WALLET CORE: expire ended dating subscriptions
+    runPaystackCron(env).catch((e) => console.error('paystack cron failed', e)), // PAYSTACK: card renewals, renewal reminders, Plus expiry
   ])),
 };

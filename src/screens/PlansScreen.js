@@ -1,9 +1,9 @@
-// BibleNestra Plus plans: $35 a year (preselected, best value) or $4 a week.
+// BibleNestra Plus plans (yearly preselected, best value; weekly). Prices come from the server (admin-set, Naira).
 // Shown once after onboarding as a gate (`gate` prop, with "Continue free"), and any time from
-// Profile → Account → Plan (the "Plans" route). Billing lives in src/billing — until Play Billing
-// is connected, Subscribe explains that subscriptions open soon and nothing is charged.
+// Profile → Account → Plan (the "Plans" route). Payment: Paystack (card, bank transfer, USSD) via src/billing —
+// without Paystack keys, Subscribe explains that subscriptions open soon and nothing is charged.
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, fonts, radius, shadow } from '../theme';
 import { NightGlow, Screen, alpha } from '../components/ui';
@@ -11,7 +11,10 @@ import { Icon } from '../components/Icons';
 import { FadeInUp, PressScale, Pulse, ScaleIn } from '../components/Motion';
 import { useStore } from '../store';
 import { useToast } from '../components/Toast';
-import { PLANS, buy, restore } from '../billing';
+import { usePlus, buy, restore, cancelPlus } from '../billing';
+import { paystackMessage, paystackError } from '../billing/paystack';
+import { useApi } from '../api/auth';
+import { useSync } from '../api/sync';
 
 const BENEFITS = [
   { icon: 'quiz', title: 'No ads in your games', body: 'Play every round without video ads between questions.' },
@@ -50,22 +53,40 @@ function PlanCard({ plan, selected, onPress }) {
 function PlansContent({ gate, onDone }) {
   const { state } = useStore();
   const toast = useToast();
+  const api = useApi();
+  const sync = useSync();
+  const plus = usePlus(api);
+  const PLANS = plus.plans;
   const [choice, setChoice] = useState('yearly');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [needEmail, setNeedEmail] = useState(false);
+  const [email, setEmail] = useState('');
   const plan = PLANS.find((p) => p.id === choice) || PLANS[0];
+  const methods = (plus.data && plus.data.methods) || [];
+  const paystack = methods.find((m) => m.provider === 'paystack' && m.available);
+  const tester = methods.find((m) => m.provider === 'test');
+  const sub = plus.data && plus.data.subscription;
 
   const subscribe = async () => {
-    setBusy(true);
+    const provider = paystack ? 'paystack' : tester ? 'test' : null;
+    if (!provider) {
+      const row = methods.find((m) => m.provider === 'paystack');
+      setNotice(row && /Paused/.test(row.note || '') ? 'Payments are paused for a moment. Please try again later.' : "Subscriptions open soon. You haven't been charged — enjoy BibleNestra free for now.");
+      return;
+    }
+    if (needEmail && !/^\S+@\S+\.\S+$/.test(email.trim())) { setNotice('Enter a valid email for your receipt.'); return; }
+    setBusy(true); setNotice(null);
     try {
-      await buy(plan);
+      const r = await buy(api, plan, { provider, email: needEmail ? email.trim() : null });
+      if (r.status !== 'success') { setNotice(paystackMessage(r.status)); return; }
+      if (sync.refresh) await sync.refresh().catch(() => {});
+      plus.reload();
       toast.show('Welcome to BibleNestra Plus!', { icon: 'sparkles', haptic: 'success' });
       if (onDone) onDone('subscribed');
     } catch (e) {
-      // Billing isn't connected yet (or the purchase was cancelled): say so plainly — no charge happened.
-      setNotice(e && e.code === 'BILLING_NOT_READY'
-        ? "Subscriptions open soon. You haven't been charged — enjoy BibleNestra free for now."
-        : `The purchase didn't go through${e && e.message ? `: ${e.message}` : ''}. You haven't been charged.`);
+      if (e && (e.code === 'EMAIL_REQUIRED' || e.code === 'BAD_EMAIL')) { setNeedEmail(true); setNotice('Paystack emails your receipt. Enter your email once below.'); return; }
+      setNotice(e && e.code === 'BILLING_NOT_READY' ? e.message : `${paystackError(e, 'The purchase didn’t go through')} You haven't been charged.`);
     } finally {
       setBusy(false);
     }
@@ -73,12 +94,20 @@ function PlansContent({ gate, onDone }) {
 
   const onRestore = async () => {
     try {
-      await restore();
-      toast.show('Plus restored', { icon: 'check', haptic: 'success' });
+      if (await restore(api)) {
+        if (sync.refresh) await sync.refresh().catch(() => {});
+        toast.show('Plus restored', { icon: 'check', haptic: 'success' });
+      } else setNotice('No active Plus plan found on this account.');
     } catch (e) {
-      setNotice(e && e.code === 'BILLING_NOT_READY' ? 'Subscriptions open soon — there are no purchases to restore yet.' : 'No active subscription found.');
+      setNotice(e && e.code === 'BILLING_NOT_READY' ? e.message : 'Couldn’t check right now — try again.');
     }
   };
+
+  const onCancel = async () => {
+    try { await cancelPlus(api); plus.reload(); toast.show('Renewal turned off — you keep Plus until the end of this period', { icon: 'check' }); }
+    catch (e) { toast.show(paystackError(e, 'Couldn’t cancel'), { tone: 'error' }); }
+  };
+  const dateText = (iso) => { try { return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return ''; } };
 
   if (state.premium) {
     return (
@@ -89,9 +118,15 @@ function PlansContent({ gate, onDone }) {
             <View style={styles.orb}><Icon name="star" size={30} color={colors.goldLight} strokeWidth={1.8} /></View>
             <Text style={styles.heroEyebrow}>BibleNestra Plus</Text>
             <Text style={styles.heroTitle}>Thank you for supporting BibleNestra</Text>
-            <Text style={styles.heroSub}>Your games are ad-free and your profile shows a Plus badge. Manage or cancel any time in Google Play.</Text>
+            <Text style={styles.heroSub}>Your games are ad-free and your profile shows a Plus badge.</Text>
+            {sub && sub.hasAccess ? <Text style={styles.heroSub}>{sub.renewsOn ? `Renews on ${dateText(sub.renewsOn)} by card.` : `Plus runs until ${dateText(sub.accessUntil)}. Renew from here before then.`}</Text> : null}
           </View>
         </View>
+        {sub && sub.renewsOn ? (
+          <PressScale onPress={onCancel} style={styles.restoreBtn} accessibilityRole="button" accessibilityLabel="Cancel renewal">
+            <Text style={styles.restoreText}>Cancel renewal</Text>
+          </PressScale>
+        ) : null}
         {gate ? <PrimaryCta label="Continue" onPress={() => onDone && onDone('premium')} /> : null}
       </View>
     );
@@ -143,6 +178,11 @@ function PlansContent({ gate, onDone }) {
         </FadeInUp>
       ) : null}
 
+      {needEmail ? (
+        <TextInput value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoComplete="email"
+          placeholderTextColor={colors.muted} accessibilityLabel="Email for your receipt"
+          style={{ marginTop: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: colors.fg, backgroundColor: colors.surface }} />
+      ) : null}
       <PrimaryCta label={`Continue with ${plan.label} · ${plan.priceText} ${plan.perText}`} onPress={subscribe} busy={busy} />
       {gate ? (
         <PressScale onPress={() => onDone && onDone('free')} style={styles.freeBtn} accessibilityRole="button" accessibilityLabel="Continue free">
@@ -151,7 +191,7 @@ function PlansContent({ gate, onDone }) {
       ) : null}
 
       <Text style={styles.fine}>
-        Billed through Google Play. Renews automatically until you cancel in Google Play › Payments & subscriptions. Cancel any time.
+        {tester && !paystack ? 'Test purchase (admins and testers only) — no money moves. ' : ''}Paid securely through Paystack: card, bank transfer or USSD. Paid by card, Plus renews automatically until you cancel here; bank transfer and USSD don’t renew — we remind you before it ends.
       </Text>
       <PressScale onPress={onRestore} style={styles.restoreBtn} accessibilityRole="button" accessibilityLabel="Restore purchases">
         <Text style={styles.restoreText}>Restore purchases</Text>
@@ -163,7 +203,7 @@ function PlansContent({ gate, onDone }) {
 function PrimaryCta({ label, onPress, busy }) {
   return (
     <PressScale onPress={onPress} disabled={busy} scaleTo={0.97} style={[styles.cta, busy && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel={label}>
-      <Text style={styles.ctaText} numberOfLines={1}>{busy ? 'Opening Google Play…' : label}</Text>
+      <Text style={styles.ctaText} numberOfLines={1}>{busy ? 'Opening Paystack…' : label}</Text>
     </PressScale>
   );
 }
@@ -171,7 +211,7 @@ function PrimaryCta({ label, onPress, busy }) {
 // Route: Profile → Account → Plan
 export function PlansScreen() {
   return (
-    <Screen back title="BibleNestra Plus" subtitle="$4 a week or $35 a year">
+    <Screen back title="BibleNestra Plus" subtitle="Ad-free games · supporter badge">
       <PlansContent />
     </Screen>
   );

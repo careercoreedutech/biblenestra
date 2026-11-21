@@ -9,7 +9,8 @@
 //   PATCH  /memberships/:id/reviews/mine        · DELETE /memberships/:id/reviews/mine
 //   GET    /memberships/:id/checkout            ?platform=android|ios|web → payment rows (config driven), questions, plans
 //   POST   /memberships/:id/promo               { code, planId } → price quote
-//   POST   /memberships/:id/checkout            { planId, provider: 'play'|'test', answers[], promoCode, contact, idempotencyKey, purchaseToken }
+//   POST   /memberships/:id/checkout            { planId, provider: 'paystack'|'test', answers[], promoCode, contact, email, idempotencyKey }
+//                                               paystack → 202 { checkout: { reference, url } } (then poll GET /payments/paystack/:reference)
 //   POST   /memberships/:id/cancel              → turn renewal off (access continues to the end date)
 //   GET    /memberships/:id/home                → channel + community ids, library summary (403 MEMBERSHIP_REQUIRED otherwise)
 //   GET    /memberships/:id/library             → ordered lessons + my progress (403 MEMBERSHIP_REQUIRED otherwise)
@@ -35,6 +36,7 @@ import {
   subscriptionOf, testCheckoutAllowed, verifyPlayPurchase, PAYMENTS_SOON,
 } from '../lib/memberships.js';
 import { MEMBERSHIPS_ADMIN_SCRIPT } from '../lib/membershipsAdminPage.js';
+import { startMembershipCheckout, paystackMethod, inAppEnabled } from '../lib/paystackCheckout.js';
 import { audit, registerAdminScript } from './admin.js';
 
 registerAdminScript(MEMBERSHIPS_ADMIN_SCRIPT);
@@ -693,7 +695,8 @@ membershipsApp.get('/memberships/:id/checkout', async (c) => {
   const m = await purchasable(c);
   const platform = ['android', 'ios', 'web'].includes(c.req.query('platform')) ? c.req.query('platform') : 'android';
   const owner = m.owner_id ? await one(c.env, 'SELECT * FROM users WHERE id = $1', [m.owner_id]) : null;
-  const methods = checkoutMethods(c.env, me, platform);
+  const plansNow = await plansOf(c.env, [m.id]);
+  const methods = checkoutMethods(c.env, me, platform, { paystack: paystackMethod(c.env, { inApp: await inAppEnabled(c.env), currency: (plansNow[0] && plansNow[0].currency) || 'NGN' }) });
   return c.json({
     seller: creatorShape(m, owner).name,
     plans: (await plansOf(c.env, [m.id])).map(planShape),
@@ -728,7 +731,7 @@ membershipsApp.post('/memberships/:id/checkout', async (c) => {
   const promo = await promoFor(c.env, m, b.promoCode);
   const price = quote(plan, promo);
   const contact = contactOf(b.contact);
-  const provider = String(b.provider || 'play');
+  const provider = String(b.provider || 'paystack');
   const key = b.idempotencyKey ? String(b.idempotencyKey).slice(0, 80) : null;
 
   let sub;
@@ -746,6 +749,10 @@ membershipsApp.post('/memberships/:id/checkout', async (c) => {
         amountMinor: price.totalMinor, currency: plan.currency, checkoutKey: key,
       });
     }
+  } else if (provider === 'paystack') {
+    const r = await startMembershipCheckout(c.env, me, { membership: m, plan, price, promo, answers, contact, email: b.email, origin: origin(c) });
+    if (!r.free) return c.json({ ok: true, pending: true, checkout: r.checkout, charged: price }, 202);
+    sub = r.subscription;
   } else if (provider === 'play') {
     const verified = await verifyPlayPurchase(c.env, { productId: plan.store_product_id, purchaseToken: b.purchaseToken }); // throws PAYMENTS_NOT_CONFIGURED today
     sub = await activateVerifiedPlayPurchase(c.env, { membership: m, plan, userId: me.id, verified, answers, contact, promoCode: price.promoCode });
@@ -769,7 +776,7 @@ membershipsApp.post('/memberships/:id/cancel', async (c) => {
   const sub = await subscriptionOf(c.env, m.id, me.id);
   if (!hasAccess(sub)) throw bad('You don’t have an active membership here', 'NOT_ACTIVE');
   if (sub.source === 'play') throw bad('Cancel this membership in Google Play › Subscriptions', 'MANAGE_IN_STORE');
-  const row = await one(c.env, `UPDATE membership_subscriptions SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING *`, [sub.id]);
+  const row = await one(c.env, `UPDATE membership_subscriptions SET status = 'cancelled', auto_renew = false, updated_at = now() WHERE id = $1 RETURNING *`, [sub.id]);
   return c.json({ access: accessShape(row) });
 });
 

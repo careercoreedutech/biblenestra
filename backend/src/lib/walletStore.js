@@ -9,7 +9,9 @@
 //   'apple'    Apple IAP — slot only (PAYMENTS_NOT_CONFIGURED).
 //   'test'     WALLET_TEST_PURCHASES=true AND (admin OR listed in WALLET_TESTERS by id / handle / dev name).
 //              Credits at once, row marked test = true. No money moves.
-//   'paystack' NOT for digital goods — refused here (PROVIDER_NOT_ALLOWED). Used by Fund Me donations / payouts.
+//   'paystack' THE payment method for every purchase (client decision 2026-11-21). Started by
+//              lib/paystackCheckout.js startWalletCheckout() (POST /wallet/purchase { provider: 'paystack' }), granted by
+//              settlePayment() → activatePurchase() after Paystack confirms. Play stays dormant.
 // activatePurchase() is the ONE place a purchase turns into wallet units or a subscription, only after verification.
 // It is idempotent: the ledger ref is 'purchase:<purchase id>'.
 import { q, one } from './db.js';
@@ -133,9 +135,9 @@ export async function updateProduct(env, id, b) {
 export function testPurchaseAllowed(env, user) {
   return testerAllowed(env, user, { flag: 'WALLET_TEST_PURCHASES', list: 'WALLET_TESTERS' });
 }
-/** Payment rows for the Buy sheet. Paystack never appears for digital goods. */
-export function purchaseMethods(env, user, platform = 'android') {
-  const out = [storeMethod(env, platform)];
+/** Payment rows for the Buy sheet: Paystack (+ test for admins / testers). `paystack` = paystackMethod() row. */
+export function purchaseMethods(env, user, platform = 'android', { paystack = null } = {}) {
+  const out = paystack ? [paystack] : [storeMethod(env, platform)];
   if (testPurchaseAllowed(env, user)) out.unshift({ id: 'test', label: 'Test purchase', provider: 'test', available: true, note: 'Admins & testers only · no money moves' });
   return out;
 }
@@ -144,7 +146,7 @@ export function providerStatus(env) {
     play: { configured: playConfigured(env), forDigitalGoods: true },
     apple: { configured: false, forDigitalGoods: true },
     test: { configured: isOn(env.WALLET_TEST_PURCHASES), forDigitalGoods: true, testers: listEnv(env.WALLET_TESTERS).length },
-    paystack: { configured: paystackConfigured(env), forDigitalGoods: false, usedFor: 'Fund Me donations and payouts (web checkout later)' },
+    paystack: { configured: paystackConfigured(env), forDigitalGoods: true, usedFor: 'Every purchase in the app, Fund Me donations and payouts' },
   };
 }
 
@@ -181,7 +183,7 @@ export async function createPurchase(env, user, { productId, provider, idempoten
   if (!/^[A-Za-z0-9_\-:.]{8,100}$/.test(key)) throw bad('idempotencyKey: 8-100 letters, digits, - _ : .', 'BAD_IDEMPOTENCY_KEY');
   const product = await getProduct(env, String(productId || ''));
   if (!product || !product.active) throw new ApiError(404, 'PRODUCT_NOT_FOUND', 'This package is not available');
-  if (provider === 'paystack') throw new ApiError(400, 'PROVIDER_NOT_ALLOWED', 'Coins, credits and subscriptions are bought through Google Play in the app. Paystack is only for Fund Me donations.');
+  if (provider === 'paystack') throw bad('Paystack purchases start with startWalletCheckout()', 'USE_CHECKOUT');
   if (provider === 'apple') throw paymentsNotConfigured();
   if (provider === 'test' && !testPurchaseAllowed(env, user)) throw new ApiError(403, 'TEST_PURCHASES_DISABLED', 'Test purchases are only for admins and testers');
   if (!['test', 'play'].includes(provider)) throw bad('provider must be play (or test for testers)', 'BAD_PROVIDER');

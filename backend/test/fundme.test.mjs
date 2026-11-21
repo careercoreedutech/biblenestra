@@ -580,7 +580,8 @@ test('fees math', () => {
 });
 
 // ---- Paystack (fetch mocked) ----
-const PSK = 'sk_test_fundme_secret';
+const PSK = 'sk_live_fundme_secret';
+const PSK_TEST = 'sk_test_fundme_secret'; // Paystack test keys: donations are marked is_test (never real money)
 const penv = (extra = {}) => ({ ...env, PAYMENTS_MODE: '', PAYSTACK_SECRET_KEY: PSK, ...extra });
 const sign = (raw, key = PSK) => createHmac('sha512', key).update(raw).digest('hex');
 const paystack = { verify: {}, transfers: [] };
@@ -589,7 +590,7 @@ function mockPaystack() {
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
     if (!u.startsWith('https://api.paystack.co')) return real(url, opts);
-    assert.equal(opts.headers.Authorization, `Bearer ${PSK}`);
+    assert.ok([`Bearer ${PSK}`, `Bearer ${PSK_TEST}`].includes(opts.headers.Authorization));
     const json = (data) => new Response(JSON.stringify({ status: true, message: 'ok', data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (u.endsWith('/transaction/initialize')) {
       const b = JSON.parse(opts.body);
@@ -871,5 +872,19 @@ test('automatic payouts via Paystack Transfer (FUNDME_AUTO_PAYOUTS) settle on th
     assert.equal((await call('zara', 'POST', '/fundme/payout-account/resolve', { bankCode: '058', accountNumber: '0123456789' }, {}, E)).json.accountName, 'NKEM OBI');
     assert.equal((await call('zara', 'POST', '/fundme/payout-account/resolve', { bankCode: '058', accountNumber: '0123456789' })).json.resolved, false, 'without keys: typed name, checked by staff');
     assert.equal((await adm('GET', '/admin/api/fundme/reconciliation')).json.ok, true);
+  } finally { restore(); }
+});
+
+test('Paystack test keys (sk_test_…) mark donations as test money, never real', async () => {
+  const restore = mockPaystack();
+  try {
+    const fr = await liveFundraiser('nkem', { currency: 'NGN', goalMinor: 20000000 });
+    const E = penv({ PAYSTACK_SECRET_KEY: PSK_TEST });
+    const d = await call('uche', 'POST', `/f/${fr.slug}/donations`, { amount_minor: 300000, email: 'uche@example.com' }, {}, E);
+    assert.equal(d.status, 201, JSON.stringify(d.json));
+    assert.equal(d.json.test, true);
+    assert.equal((await donationRow(d.json.donationId)).is_test, true);
+    const live = await call('uche', 'POST', `/f/${fr.slug}/donations`, { amount_minor: 300000, email: 'uche@example.com' }, {}, penv());
+    assert.equal((await donationRow(live.json.donationId)).is_test, false, 'live keys stay real');
   } finally { restore(); }
 });

@@ -935,7 +935,7 @@ export function DatingPlansScreen({ params = {} }) {
           <Text style={s.statusTitle}>{sub.title}{sub.test ? ' · test' : ''}</Text>
           <Text style={s.rowSub}>{sub.renewsOn ? `Renews on ${dateLabel(sub.renewsOn)}` : `Ends on ${dateLabel(sub.accessUntil)} — renewal is off`}{sub.displayPrice ? ` · ${sub.displayPrice}` : ''}</Text>
           {sub.status === 'active' ? <Button kind="ghost" small label={busy ? 'Cancelling…' : 'Cancel renewal'} onPress={cancel} style={{ marginTop: 10, alignSelf: 'flex-start' }} /> : null}
-          {sub.manageUrl ? <Text style={s.fieldHint}>Google Play subscriptions are also managed in the Play Store.</Text> : null}
+          {sub.manageUrl ? <Text style={s.fieldHint}>Google Play subscriptions are also managed in the Play Store.</Text> : sub.provider === 'paystack' && !sub.autoRenew && sub.status === 'active' ? <Text style={s.fieldHint}>Paid by bank transfer or USSD, so it doesn’t renew by itself — pay again before it ends to keep your plan.</Text> : null}
         </View>
       ) : null}
       <View style={[s.planCard, { borderColor: colors.border }]}>
@@ -945,7 +945,7 @@ export function DatingPlansScreen({ params = {} }) {
       </View>
       <Plan p={plus} tint={colors.primary} current={sub && sub.tier === 1} />
       <Plan p={vip} tint={colors.gold} current={sub && sub.tier >= 2} />
-      <Text style={s.fieldHint}>Plans renew monthly until you cancel; you keep access until the end of the paid month. Payment is through Google Play (coming soon). Matches always depend on mutual interest — no plan guarantees a match.</Text>
+      <Text style={s.fieldHint}>Plans renew monthly until you cancel; you keep access until the end of the paid month. Payment is through Paystack: card renews automatically; bank transfer and USSD don’t renew (we remind you). Matches always depend on mutual interest — no plan guarantees a match.</Text>
       {buy ? <BuyCoinsSheet visible plans initialProductId={buy} onClose={() => setBuy(null)} onPurchased={() => { setBuy(null); datingChanged(); }} /> : null}
     </Screen>
   );

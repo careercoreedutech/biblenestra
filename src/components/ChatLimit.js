@@ -22,15 +22,12 @@ import { useNav, useIsFocused } from '../navigation';
 import { useToast } from './Toast';
 import { useStore } from '../store';
 import { onChatLimit, notifyChatLimit, onChatPassChange, notifyChatPassChange } from '../api/chatLimitEvents';
-import { PLANS } from '../billing';
+import { usePlus } from '../billing';
 import { AD_RULES } from '../ads/config'; // CHAT WEEK PASS: "ways to earn coins" numbers
 
-// Trial wording placeholder (brief 10.3). Replace the price/date with the store offer once Play Billing is live.
-const TRIAL_DAYS = 3;
+// Plus price line (Paystack: charged when you subscribe — there is no free trial).
 export function trialCopy(plan) {
-  const end = new Date(Date.now() + TRIAL_DAYS * 86400e3);
-  const date = end.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
-  return `Start your ${TRIAL_DAYS}-day free trial. Then ${plan.priceText} ${plan.perText}. Cancel anytime before ${date} and you won't be charged.`;
+  return `${plan.priceText} ${plan.perText}, paid securely through Paystack. Paid by card it renews until you cancel — cancel anytime.`;
 }
 
 const BENEFITS = [
@@ -110,7 +107,7 @@ export function ChatPassBadge({ style }) {
 
 // ---------- CHAT WEEK PASS card (inside the limit sheet) ----------
 // Ways to earn coins that already exist in the app (server-side rewards): daily Bible games, rewarded ads in
-// Jobs, contest prizes. Real-money coin packs wait on Google Play Billing (Phase 3) — see
+// Jobs, contest prizes. Kingdom Coins are earned, not sold — see
 // backend/src/lib/coinPurchases.js creditPurchasedCoins().
 const EARN_WAYS = [
   { icon: 'quiz', title: 'Play today’s Bible games', body: '5 coins for every correct answer in your first round', route: 'Learn', params: { tab: 'Games' } },
@@ -160,7 +157,7 @@ function WeekPassCard({ offer, pass, coins, busy, onBuy, onEarn, onBuyCoins }) {
             <Icon name="coin" size={15} color={colors.goldMuted} />
             <Text style={s.buyCoinsText}>Buy coins</Text>
           </PressScale>
-          <Text style={s.fine}>Coin packs with Google Play are coming soon — nothing can be charged yet. Buy coins opens your Kingdom Wallet.</Text>
+          <Text style={s.fine}>Kingdom Coins are earned free from games, ads and contests. Buy coins opens your wallet.</Text>
         </View>
       )}
     </View>
@@ -189,6 +186,7 @@ function MiniPlan({ plan, selected, onPress }) {
 
 export function ChatLimitPrompt({ visible, used = 5, limit = 5, onClose, onUpgrade, onInvite, pass, passOffer, coins, buying, onBuyPass, onEarn, onBuyCoins }) {
   const [choice, setChoice] = useState('yearly');
+  const PLANS = usePlus(useApi()).plans;
   const plan = PLANS.find((p) => p.id === choice) || PLANS[0];
   const { height } = useWindowDimensions();
   return (
@@ -241,7 +239,7 @@ export function ChatLimitPrompt({ visible, used = 5, limit = 5, onClose, onUpgra
                 <Text style={s.inviteSub}>Invited friends are unlimited</Text>
               </View>
             </PressScale>
-            <Text style={s.fine}>{used} of {limit} free chats used · replies and groups stay free. Billed through Google Play when subscriptions open — nothing is charged today.</Text>
+            <Text style={s.fine}>{used} of {limit} free chats used · replies and groups stay free. Plus is paid securely through Paystack.</Text>
           </ScrollView>
         </View>
       </View>
@@ -324,7 +322,7 @@ export function ChatLimitHost() {
       onBuyCoins={() => {
         close();
         nav.push('Profile', { tab: 'Wallet & Gifts' });
-        toast.show('Coin packs are coming soon with Google Play. Earn coins from games, ads and contests meanwhile', { icon: 'coin', duration: 4200 });
+        toast.show('Earn Kingdom Coins from games, ads and contests', { icon: 'coin', duration: 4200 });
       }}
       onClose={close}
       onUpgrade={() => { close(); nav.push('Plans'); }}

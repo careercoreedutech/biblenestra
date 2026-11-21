@@ -137,13 +137,13 @@ test('checkout: test provider gated, Play not configured, required questions enf
   const nope = await checkout('ann');
   assert.equal(nope.json.code, 'PAYMENTS_NOT_CONFIGURED');
   const cfg = await call('ann', 'GET', `/memberships/${mem.id}/checkout?platform=android`);
-  assert.deepEqual(cfg.json.methods.map((m) => m.id), ['google_play']);
+  assert.deepEqual(cfg.json.methods.map((m) => m.id), ['paystack']); // Paystack for every purchase (not set up in this test)
   assert.equal(cfg.json.methods[0].available, false); assert.equal(cfg.json.canPay, false);
   // external methods only on web, only when listed, always disabled
   env.MEMBERSHIP_EXTERNAL_METHODS = 'card,opay';
-  assert.deepEqual((await call('ann', 'GET', `/memberships/${mem.id}/checkout?platform=android`)).json.methods.map((m) => m.id), ['google_play']);
+  assert.deepEqual((await call('ann', 'GET', `/memberships/${mem.id}/checkout?platform=android`)).json.methods.map((m) => m.id), ['paystack']);
   const web = await call('ann', 'GET', `/memberships/${mem.id}/checkout?platform=web`);
-  assert.deepEqual(web.json.methods.map((m) => [m.id, m.available]), [['google_play', false], ['card', false], ['opay', false]]);
+  assert.deepEqual(web.json.methods.map((m) => [m.id, m.available]), [['paystack', false], ['card', false], ['opay', false]]);
   delete env.MEMBERSHIP_EXTERNAL_METHODS;
   // admin: test checkout offered; required question enforced; terms required
   const adminCfg = await call('boss', 'GET', `/memberships/${mem.id}/checkout`);

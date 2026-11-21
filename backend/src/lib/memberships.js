@@ -121,7 +121,7 @@ export function accessShape(sub) {
     startedAt: iso(sub.started_at),
     planId: sub.plan_id || null,
     source: sub.source,
-    renews: active && ['active', 'trialing'].includes(sub.status) && !!sub.expires_at && sub.source === 'play',
+    renews: active && ['active', 'trialing'].includes(sub.status) && !!sub.expires_at && (sub.source === 'play' || (sub.source === 'paystack' && !!sub.auto_renew)),
   };
 }
 
@@ -402,8 +402,8 @@ export function testCheckoutAllowed(env, user) {
  *   never on Android or iOS in-app, and always disabled ("Coming soon") — none of them is wired.
  *   'test' appears for admins / testers when MEMBERSHIP_TEST_CHECKOUT=true.
  */
-export function checkoutMethods(env, user, platform = 'android') {
-  const methods = [storeMethod(env, platform, 'google_play')];
+export function checkoutMethods(env, user, platform = 'android', { paystack = null } = {}) {
+  const methods = paystack ? [paystack] : [storeMethod(env, platform, 'google_play')];
   if (platform === 'web') {
     for (const k of listEnv(env.MEMBERSHIP_EXTERNAL_METHODS)) {
       if (EXTERNAL_METHODS[k]) methods.push({ id: k, label: EXTERNAL_METHODS[k], provider: 'external', available: false, note: 'Coming soon' });

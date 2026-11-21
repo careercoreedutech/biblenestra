@@ -16,7 +16,8 @@ import {
   pickProvider, DONATIONS_OFF, paystackCurrencies, testDonationsAllowed, confirmDonation, failDonation, recheckDonation, gatewayInfo,
   assertCanSubmit, requestRiskFlags, publishFundraiser, donationFee, DONATION_LABEL, refundDonation, markPayoutPaid, failPayout,
 } from '../lib/fundmeMoney.js';
-import { paystackConfigured, verifyPaystackSignature, verifyTransaction } from '../lib/paystack.js';
+import { paystackConfigured, paystackTestMode, verifyPaystackSignature, verifyTransaction } from '../lib/paystack.js';
+import { settlePayment, refundedByGateway } from '../lib/paystackCheckout.js';
 import { getConfig, getBalance, rateLimit } from '../lib/wallet.js';
 import { isOn } from '../lib/play.js';
 import { formatMoney, percentOf } from '../lib/money.js';
@@ -421,11 +422,13 @@ fundmePublic.post('/f/:slug/donations', async (c) => {
   const cfg = await getConfig(c.env);
   const fee = donationFee(cfg, amount, f.currency);
   if (fee >= amount) throw bad('This amount is too small to cover the fee', 'AMOUNT_TOO_SMALL');
+  // Our simulated checkout, or Paystack running on test keys (sk_test_…): never real money
+  const isTestDonation = provider.name === 'test' || (provider.name === 'paystack' && paystackTestMode(c.env));
   const d = await one(c.env,
     `INSERT INTO donations (fundraiser_id, donor_id, donor_name, amount_minor, fee_minor, net_minor, currency, message, anonymous, provider, rl_key,
                             beneficiary_id, donor_email, is_test)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-    [f.id, user ? user.id : null, donorName, amount, fee, amount - fee, f.currency, message, anonymous, provider.name, key, f.owner_id, email, provider.name === 'test']);
+    [f.id, user ? user.id : null, donorName, amount, fee, amount - fee, f.currency, message, anonymous, provider.name, key, f.owner_id, email, isTestDonation]);
   await q(c.env, `INSERT INTO fundme_donation_events (donation_id, from_status, to_status, actor, actor_id, reason, meta) VALUES ($1, NULL, 'pending', 'donor', $2, 'Checkout started', $3::jsonb)`,
     [d.id, user ? user.id : null, JSON.stringify({ provider: provider.name, amountMinor: amount, feeMinor: fee })]);
   const base = `${publicBase(c)}/f/${f.slug}`;
@@ -440,7 +443,7 @@ fundmePublic.post('/f/:slug/donations', async (c) => {
   }
   await q(c.env, 'UPDATE donations SET provider_ref = $2 WHERE id = $1', [d.id, checkout.providerRef]);
   if (isForm) return c.redirect(checkout.url, 303);
-  return c.json({ donationId: d.id, checkoutUrl: checkout.url, provider: provider.name, status: 'pending', settlementStatus: 'pending', feeMinor: fee, netMinor: amount - fee, test: provider.name === 'test' }, 201);
+  return c.json({ donationId: d.id, checkoutUrl: checkout.url, provider: provider.name, status: 'pending', settlementStatus: 'pending', feeMinor: fee, netMinor: amount - fee, test: isTestDonation }, 201);
 });
 
 // ---------- TEST provider (PAYMENTS_MODE=test only) ----------
@@ -475,7 +478,9 @@ fundmePublic.post('/webhooks/fundme/test', async (c) => {
 // Webhook: X-Paystack-Signature = hex(HMAC-SHA512(PAYSTACK_SECRET_KEY, raw body)). A valid charge.success is still
 // re-verified through GET /transaction/verify before anything is recorded; amounts come from that answer.
 // transfer.* events settle automatic payouts (FUNDME_AUTO_PAYOUTS). Always 200 for well-signed events (Paystack retries).
-fundmePublic.post('/webhooks/fundme/paystack', async (c) => {
+// PAYSTACK FOR EVERY PURCHASE: the same handler also settles in-app purchases (lib/paystackCheckout.js) and is mounted
+// at /webhooks/paystack (the URL to paste in Paystack) as well as the older /webhooks/fundme/paystack.
+const paystackWebhook = async (c) => {
   if (!paystackConfigured(c.env)) return c.json({ error: 'Paystack is not configured', code: 'NOT_CONFIGURED' }, 503);
   const raw = await c.req.text();
   const ok = await verifyPaystackSignature(raw, c.req.header('X-Paystack-Signature'), String(c.env.PAYSTACK_SECRET_KEY).trim());
@@ -487,7 +492,10 @@ fundmePublic.post('/webhooks/fundme/paystack', async (c) => {
   if (event === 'charge.success') {
     const ref = String(data.reference || '');
     const d = ref ? await one(c.env, `SELECT * FROM donations WHERE provider = 'paystack' AND provider_ref = $1`, [ref]) : null;
-    if (!d) return c.json({ ok: true, ignored: true });
+    if (!d) {
+      const r = ref ? await settlePayment(c.env, ref) : { found: false };
+      return c.json(r.found ? { ok: true, purchase: true, status: r.status } : { ok: true, ignored: true });
+    }
     const v = await verifyTransaction(c.env, ref);
     if (v.status !== 'success') return c.json({ ok: true, ignored: true, gatewayStatus: v.status });
     const r = await confirmDonation(c, d, { amountMinor: v.amountMinor, currency: v.currency, actor: 'paystack', gateway: gatewayInfo(v.raw) });
@@ -495,6 +503,8 @@ fundmePublic.post('/webhooks/fundme/paystack', async (c) => {
   }
   if (event === 'refund.processed') {
     const ref = String(data.transaction_reference || (data.transaction && data.transaction.reference) || '');
+    const purchase = ref ? await one(c.env, 'SELECT id FROM paystack_payments WHERE reference = $1', [ref]) : null;
+    if (purchase) return c.json({ ok: true, purchase: true, ...(await refundedByGateway(c.env, ref)) });
     const res = ref ? await applyPaymentResult(c, 'paystack', ref, 'refunded') : { changed: false };
     return c.json({ ok: true, ...res });
   }
@@ -509,7 +519,9 @@ fundmePublic.post('/webhooks/fundme/paystack', async (c) => {
     return c.json({ ok: true });
   }
   return c.json({ ok: true, ignored: true });
-});
+};
+fundmePublic.post('/webhooks/fundme/paystack', paystackWebhook);
+fundmePublic.post('/webhooks/paystack', paystackWebhook);
 
 // Paystack sends the donor back here (callback_url) → verify server-side → back to the public page with the result.
 fundmePublic.get('/fundme/paystack/return', async (c) => {

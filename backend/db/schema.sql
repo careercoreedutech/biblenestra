@@ -2484,3 +2484,112 @@ CREATE INDEX IF NOT EXISTS live_sessions_status ON live_sessions (status, starte
 ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_kind_check;
 ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system','gift'));
 -- ===== END VIRTUAL GIFTS & STARS =====
+
+-- ===== PAYSTACK FOR EVERY PURCHASE (2026-11-21) =====
+-- Coins / credits / gifting packs, Dating Plus / VIP, Memberships and BibleNestra Plus are paid through Paystack's
+-- hosted checkout (card, bank transfer, USSD). Google Play stays dormant. lib/paystackCheckout.js is the ONE place a
+-- Paystack payment becomes a purchase, a membership or Plus.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS billing_email text CHECK (billing_email IS NULL OR char_length(billing_email) <= 200);
+
+-- One row per Paystack charge we start (first payment or a card renewal). reference = Paystack reference (unique).
+CREATE TABLE IF NOT EXISTS paystack_payments (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reference       text NOT NULL UNIQUE,
+  user_id         uuid REFERENCES users(id) ON DELETE SET NULL,
+  kind            text NOT NULL CHECK (kind IN ('wallet','membership','plus')),
+  purpose         text NOT NULL DEFAULT 'purchase' CHECK (purpose IN ('purchase','renewal')),
+  target_id       text NOT NULL,                       -- wallet_purchases.id / memberships.id / plus_plans.id
+  subscription_id uuid,                                -- renewal: the subscription row being renewed
+  amount_minor    bigint NOT NULL CHECK (amount_minor > 0),
+  currency        text NOT NULL,
+  email           text,
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','success','failed','abandoned','refunded','review')),
+  test            boolean NOT NULL DEFAULT false,      -- Paystack test keys: never real money
+  channel         text,                                -- card / bank / ussd / bank_transfer
+  gateway         jsonb NOT NULL DEFAULT '{}'::jsonb,  -- { gatewayId, paidAt, gatewayFeesMinor }
+  payload         jsonb NOT NULL DEFAULT '{}'::jsonb,  -- membership checkout answers / contact / promo, plan ids
+  error           text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  paid_at         timestamptz,
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS paystack_payments_user ON paystack_payments (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS paystack_payments_status ON paystack_payments (status, created_at DESC);
+
+-- Reusable card authorisations Paystack returns after a card payment (a token, never card numbers). Used for renewals.
+CREATE TABLE IF NOT EXISTS paystack_authorizations (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  authorization_code text NOT NULL,
+  signature          text NOT NULL,
+  email              text NOT NULL,
+  card_type          text,
+  last4              text,
+  bank               text,
+  exp_month          text,
+  exp_year           text,
+  active             boolean NOT NULL DEFAULT true,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, signature)
+);
+
+ALTER TABLE wallet_purchases DROP CONSTRAINT IF EXISTS wallet_purchases_provider_check;
+ALTER TABLE wallet_purchases ADD CONSTRAINT wallet_purchases_provider_check CHECK (provider IN ('play','apple','test','paystack'));
+ALTER TABLE dating_subscriptions DROP CONSTRAINT IF EXISTS dating_subscriptions_provider_check;
+ALTER TABLE dating_subscriptions ADD CONSTRAINT dating_subscriptions_provider_check CHECK (provider IN ('play','apple','test','admin','paystack'));
+ALTER TABLE membership_subscriptions DROP CONSTRAINT IF EXISTS membership_subscriptions_source_check;
+ALTER TABLE membership_subscriptions ADD CONSTRAINT membership_subscriptions_source_check CHECK (source IN ('play','admin_grant','test','paystack'));
+
+-- Renewal state (card: auto-renew with the saved authorisation; bank transfer / USSD: a reminder before the end).
+ALTER TABLE dating_subscriptions ADD COLUMN IF NOT EXISTS paystack_auth_id uuid REFERENCES paystack_authorizations(id) ON DELETE SET NULL;
+ALTER TABLE dating_subscriptions ADD COLUMN IF NOT EXISTS renewal_attempts integer NOT NULL DEFAULT 0;
+ALTER TABLE dating_subscriptions ADD COLUMN IF NOT EXISTS last_renewal_at timestamptz;
+ALTER TABLE dating_subscriptions ADD COLUMN IF NOT EXISTS reminded_for timestamptz;
+ALTER TABLE membership_subscriptions ADD COLUMN IF NOT EXISTS auto_renew boolean NOT NULL DEFAULT false;
+ALTER TABLE membership_subscriptions ADD COLUMN IF NOT EXISTS paystack_auth_id uuid REFERENCES paystack_authorizations(id) ON DELETE SET NULL;
+ALTER TABLE membership_subscriptions ADD COLUMN IF NOT EXISTS renewal_attempts integer NOT NULL DEFAULT 0;
+ALTER TABLE membership_subscriptions ADD COLUMN IF NOT EXISTS last_renewal_at timestamptz;
+ALTER TABLE membership_subscriptions ADD COLUMN IF NOT EXISTS reminded_for timestamptz;
+
+-- BibleNestra Plus: admin-editable plans + subscriptions. Live Plus sets users.premium / premium_until.
+CREATE TABLE IF NOT EXISTS plus_plans (
+  id          text PRIMARY KEY CHECK (id ~ '^[a-z0-9_]{2,40}$'),
+  label       text NOT NULL,
+  price_minor bigint NOT NULL CHECK (price_minor > 0),
+  currency    text NOT NULL DEFAULT 'NGN' CHECK (currency ~ '^[A-Z]{3}$'),
+  interval    text NOT NULL CHECK (interval IN ('week','month','year')),
+  note        text,
+  active      boolean NOT NULL DEFAULT true,
+  sort_order  integer NOT NULL DEFAULT 0,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+-- PROPOSED Naira prices (client to confirm; editable in Admin > Wallets & payments > Paystack).
+INSERT INTO plus_plans (id, label, price_minor, currency, interval, note, sort_order) VALUES
+  ('yearly', 'Yearly', 2500000, 'NGN', 'year', NULL, 0),
+  ('weekly', 'Weekly', 150000, 'NGN', 'week', 'Billed every week', 1)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS plus_subscriptions (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id              uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan_id              text NOT NULL REFERENCES plus_plans(id),
+  status               text NOT NULL DEFAULT 'active' CHECK (status IN ('active','cancelled','past_due','expired','refunded')),
+  provider             text NOT NULL CHECK (provider IN ('paystack','test','admin')),
+  auto_renew           boolean NOT NULL DEFAULT false,
+  test                 boolean NOT NULL DEFAULT false,
+  paystack_auth_id     uuid REFERENCES paystack_authorizations(id) ON DELETE SET NULL,
+  amount_minor         bigint,
+  currency             text,
+  current_period_start timestamptz NOT NULL,
+  current_period_end   timestamptz NOT NULL,
+  renewal_attempts     integer NOT NULL DEFAULT 0,
+  last_renewal_at      timestamptz,
+  reminded_for         timestamptz,
+  cancelled_at         timestamptz,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS plus_subs_live ON plus_subscriptions (user_id) WHERE status IN ('active','cancelled','past_due');
+CREATE INDEX IF NOT EXISTS plus_subs_due ON plus_subscriptions (current_period_end) WHERE status IN ('active','cancelled','past_due');
+-- ===== END PAYSTACK FOR EVERY PURCHASE =====

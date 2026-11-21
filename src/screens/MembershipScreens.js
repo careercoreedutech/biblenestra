@@ -4,8 +4,8 @@
 // Screens: MembershipsScreen (full catalogue) · MembershipScreen (product page, sticky Join → Choose a plan → Checkout)
 //          MembershipReviewsScreen · MembershipHomeScreen (Channel | Community | Library, locked "Renew" state when lapsed)
 //          MyChannelsScreen. Layout and flow follow the client's reference video; look and feel follow "Sanctuary Paper".
-// Payments: Google Play Billing only inside the app (not configured yet → "coming soon"); a test checkout appears for admins /
-// testers when the server allows it. Card / bank / crypto rows are never wired and never collect card numbers.
+// Payments: Paystack (card, bank transfer, USSD) on Paystack's own page — src/billing/paystack.js; the server verifies
+// and grants access once. A test checkout appears for admins / testers. No card numbers are ever typed in the app.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen, Button, Empty, Notice, alpha } from '../components/ui';
@@ -18,6 +18,7 @@ import { useToast } from '../components/Toast';
 import { useApi } from '../api/auth';
 import { useSync } from '../api/sync';
 import { openBlog } from '../api/learn';
+import { payWithPaystack, paystackMessage, paystackError } from '../billing/paystack';
 import { ChatScreen } from './ChatScreen';
 import {
   useMembershipCatalog, useMyMemberships, useMembership, membershipsChanged, getCheckout, quotePromo, submitCheckout, getHome,
@@ -579,18 +580,26 @@ function CheckoutSheet({ visible, m, planId, onClose, onBack, onJoined }) {
     if (missing >= 0) { setBadQ(missing); toast.show('Please answer the required questions', { tone: 'error' }); return; }
     if (!agree) { toast.show('Please agree to the terms and conditions', { tone: 'error' }); return; }
     if (!chosen || !chosen.available) { toast.show((cfg && cfg.message) || 'Payments are coming soon — ask an admin for access.', { icon: 'clock' }); return; }
+    if (chosen.provider === 'paystack' && !looksLikeEmail(email.trim())) { toast.show('Enter your email — Paystack sends the receipt there', { tone: 'error' }); return; }
     setBusy(true);
     try {
-      await submitCheckout(api, m.id, {
+      const send = (mail) => submitCheckout(api, m.id, {
         planId: plan.id, provider: chosen.provider, answers: questions.map((_, i) => answers[i] || ''), promoCode: quote ? quote.promoCode : null,
         contact: { email: email.trim(), phone: phone.trim(), name: name.trim(), country: country.trim(), company }, agree: true, idempotencyKey: key.current,
+        email: mail || email.trim(),
       });
+      if (chosen.provider === 'paystack') {
+        const r = await payWithPaystack(api, send, { email: email.trim() });
+        if (r.status !== 'success') { toast.show(paystackMessage(r.status), { icon: 'clock', duration: 5000 }); setBusy(false); return; }
+      } else {
+        await send();
+      }
       toast.show(`Welcome to ${m.title}!`, { icon: 'check' });
       if (sync.refresh) sync.refresh().catch(() => {});
       onJoined();
     } catch (e) {
       if (e.code === 'ANSWER_REQUIRED' && e.data) setBadQ(e.data.questionIndex);
-      toast.show(friendly(e, 'Couldn’t complete checkout'), { tone: 'error' });
+      toast.show(['PAYMENTS_PAUSED', 'PAYMENTS_NOT_CONFIGURED'].includes(e.code) ? paystackError(e) : friendly(e, 'Couldn’t complete checkout'), { tone: 'error' });
     }
     setBusy(false);
   };
@@ -658,7 +667,7 @@ function CheckoutSheet({ visible, m, planId, onClose, onBack, onJoined }) {
             return (
               <Pressable key={x.id} disabled={!x.available} onPress={() => setMethod(x.id)} style={[styles.methodRow, i > 0 && styles.methodDivider, !x.available && { opacity: 0.55 }]} accessibilityRole="radio" accessibilityState={{ checked: on, disabled: !x.available }} accessibilityLabel={`${x.label}${x.available ? '' : ', coming soon'}`}>
                 <View style={[styles.radio, on && styles.radioOn]}>{on ? <View style={styles.radioDot} /> : null}</View>
-                <View style={styles.methodIcon}><Icon name={x.id === 'test' ? 'sparkles' : x.id === 'google_play' ? 'play' : x.id === 'apple' ? 'lock' : x.id === 'crypto' ? 'coin' : 'briefcase'} size={14} color={colors.primary} /></View>
+                <View style={styles.methodIcon}><Icon name={x.id === 'test' ? 'sparkles' : x.id === 'paystack' ? 'lock' : x.id === 'google_play' ? 'play' : x.id === 'apple' ? 'lock' : x.id === 'crypto' ? 'coin' : 'briefcase'} size={14} color={colors.primary} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.methodLabel}>{x.label}</Text>
                   {x.note ? <Text style={styles.methodNote}>{x.note}</Text> : null}
@@ -672,7 +681,7 @@ function CheckoutSheet({ visible, m, planId, onClose, onBack, onJoined }) {
         <Text style={[styles.label, { marginTop: 18 }]}>Billing details</Text>
         <TextInput value={name} onChangeText={setName} placeholder="Full name" placeholderTextColor={colors.faint} style={styles.input} accessibilityLabel="Full name" maxLength={120} />
         <TextInput value={country} onChangeText={setCountry} placeholder="Country" placeholderTextColor={colors.faint} style={[styles.input, { marginTop: 8 }]} accessibilityLabel="Country" maxLength={60} />
-        <Text style={styles.small}>Card and address details are never typed here — Google Play handles payment securely.</Text>
+        <Text style={styles.small}>Card details are never typed here — you pay on Paystack’s secure page (card, bank transfer or USSD).</Text>
 
         <View style={{ marginTop: 14, gap: 10 }}>
           <Check on={company} onPress={() => setCompany(!company)} label="I’m buying on behalf of a church or ministry" />
@@ -682,7 +691,7 @@ function CheckoutSheet({ visible, m, planId, onClose, onBack, onJoined }) {
         <PressScale onPress={pay} disabled={busy} scaleTo={0.98} style={[styles.shopBtn, (busy || !(chosen && chosen.available)) && { opacity: 0.55 }]} accessibilityRole="button" accessibilityLabel="Join now">
           {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.shopText}>{chosen && chosen.provider === 'test' ? `Join now · ${price} (test)` : chosen && chosen.available ? `Join now · ${price}` : 'Payments coming soon'}</Text>}
         </PressScale>
-        <Text style={styles.legal}>By joining, you agree to {cfg ? cfg.seller : 'the seller'}’s policies and BibleNestra’s Terms of Service. Memberships bought in the app are billed by Google Play; you can cancel any time in Google Play › Subscriptions.</Text>
+        <Text style={styles.legal}>By joining, you agree to {cfg ? cfg.seller : 'the seller'}’s policies and BibleNestra’s Terms of Service. Payments are processed by Paystack. Monthly and yearly plans paid by card renew automatically until you cancel in the membership; bank transfer and USSD plans don’t renew — we remind you before they end.</Text>
       </ScrollView>
     </Sheet>
   );
