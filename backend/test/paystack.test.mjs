@@ -8,7 +8,7 @@ import { createApp } from '../src/index.js';
 import { makeDb, makeBucket } from '../dev/local-env.mjs';
 import { makeFakePaystack } from '../dev/fake-paystack.mjs';
 import { q, one } from '../src/lib/db.js';
-import { runPaystackRenewals, runPaystackReminders } from '../src/lib/paystackCheckout.js';
+import { runPaystackRenewals, runPaystackReminders, settlePayment } from '../src/lib/paystackCheckout.js';
 import { PAYSTACK_ADMIN_SCRIPT } from '../src/lib/paystackAdminPage.js';
 
 let env; let fake; const app = createApp();
@@ -251,4 +251,25 @@ test('without keys: "coming soon", nothing starts', async () => {
     assert.deepEqual(p.json.methods.map((m) => [m.id, m.available, m.note]), [['paystack', false, 'Coming soon']]);
     assert.equal((await call('ada', 'POST', '/plus/checkout', { planId: 'yearly' })).json.code, 'PAYMENTS_NOT_CONFIGURED');
   } finally { env.PAYSTACK_SECRET_KEY = saved.k; env.__paystackFetch = saved.f; }
+});
+
+test('a retried grant (applied but not marked done) never extends a plan or credits twice', async () => {
+  const snap = async () => ({
+    plus: (await q(env, 'SELECT id, current_period_end FROM plus_subscriptions ORDER BY id')).map((r) => `${r.id}:${new Date(r.current_period_end).toISOString()}`),
+    members: (await q(env, 'SELECT id, expires_at FROM membership_subscriptions ORDER BY id')).map((r) => `${r.id}:${r.expires_at && new Date(r.expires_at).toISOString()}`),
+    promos: (await q(env, 'SELECT id, uses FROM membership_promos ORDER BY id')).map((r) => `${r.id}:${r.uses}`),
+    dating: (await q(env, 'SELECT id, current_period_end FROM dating_subscriptions ORDER BY id')).map((r) => `${r.id}:${new Date(r.current_period_end).toISOString()}`),
+    ledger: (await one(env, 'SELECT count(*)::int AS n FROM wallet_entries')).n,
+  });
+  const done = await q(env, `SELECT DISTINCT ON (kind) reference, kind FROM paystack_payments
+      WHERE status = 'success' AND purpose IS DISTINCT FROM 'renewal' ORDER BY kind, created_at DESC`);
+  assert.deepEqual(done.map((d) => d.kind).sort(), ['membership', 'plus', 'wallet']);
+  for (const d of done) {
+    const before = await snap();
+    // the grant went through but the "done" mark never landed → row stuck in 'processing', re-claimable after 2 minutes
+    await q(env, `UPDATE paystack_payments SET status = 'processing', updated_at = now() - interval '3 minutes' WHERE reference = $1`, [d.reference]);
+    const r = await settlePayment(env, d.reference);
+    assert.equal(r.status, 'success', `${d.kind}: ${JSON.stringify(r)}`);
+    assert.deepEqual(await snap(), before, `${d.kind}: a retried grant must not change anything`);
+  }
 });

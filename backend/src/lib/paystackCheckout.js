@@ -183,7 +183,10 @@ async function saveAuthorization(env, userId, email, raw = {}) {
 export async function settlePayment(env, reference, { verified = null } = {}) {
   let p = await one(env, 'SELECT * FROM paystack_payments WHERE reference = $1', [String(reference || '')]);
   if (!p) return { found: false };
-  if (['success', 'refunded', 'review', 'processing'].includes(p.status)) return { found: true, status: p.status, payment: paymentShape(p), granted: false };
+  // 'processing' is another settle in flight — unless it's been stuck over 2 minutes (grant applied but the "done" mark
+  // never landed): then retry; the grants are guarded so an applied payment is never applied twice.
+  const stuck = p.status === 'processing' && Date.now() - new Date(p.updated_at).getTime() > 2 * 60e3;
+  if (['success', 'refunded', 'review', 'processing'].includes(p.status) && !stuck) return { found: true, status: p.status, payment: paymentShape(p), granted: false };
   const v = verified || await verifyTransaction(env, p.reference);
   if (v.status !== 'success') {
     const to = v.status === 'failed' ? 'failed' : v.status === 'abandoned' && Date.now() - new Date(p.created_at).getTime() > 30 * 60e3 ? 'abandoned' : null;
@@ -230,6 +233,8 @@ async function grant(env, p, { authId, raw }) {
     const purchase = await one(env, 'SELECT * FROM wallet_purchases WHERE id = $1', [p.target_id]);
     if (!purchase) throw new ApiError(404, 'PURCHASE_NOT_FOUND', 'Purchase not found');
     const product = await getProduct(env, purchase.product_id);
+    // Retry after a grant that succeeded but wasn't marked done: this payment was already applied → don't extend again
+    if (!renewal && purchase.status === 'verified') return { alreadyApplied: true }; // one purchase row per payment
     if (renewal) {
       const r = await renewSubscription(env, p.subscription_id, { purchaseId: purchase.id, expectStart: payload.expectStart || null });
       await q(env, `UPDATE wallet_purchases SET status = 'verified', verified_at = COALESCE(verified_at, now()), order_id = $2, updated_at = now() WHERE id = $1`, [purchase.id, p.reference]);
@@ -261,6 +266,7 @@ async function grant(env, p, { authId, raw }) {
     const plan = membership && payload.planId ? await one(env, 'SELECT * FROM membership_plans WHERE id = $1 AND membership_id = $2', [payload.planId, membership.id]) : null;
     if (!membership || !plan) throw new ApiError(404, 'PLAN_NOT_FOUND', 'This membership plan no longer exists');
     const cur = await subscriptionOf(env, membership.id, p.user_id);
+    if (cur && (cur.applied_payment_refs || []).includes(p.reference)) return cur; // this payment was already applied (retry) → don't extend again
     if (!renewal && payload.promoId) {
       await q(env, `UPDATE membership_promos SET uses = uses + 1 WHERE id = $1`, [payload.promoId]); // paid already: count it even if just used up
     }
@@ -269,7 +275,7 @@ async function grant(env, p, { authId, raw }) {
       answers: renewal && cur ? parse(cur.answers, []) : payload.answers || [],
       contact: renewal && cur ? parse(cur.contact, {}) : payload.contact || {},
       promoCode: renewal ? null : payload.promoCode || null,
-      amountMinor: Number(p.amount_minor), currency: p.currency, checkoutKey: p.reference,
+      amountMinor: Number(p.amount_minor), currency: p.currency, checkoutKey: p.reference, appliedRef: p.reference,
     });
     const renews = !!authId && plan.interval !== 'one_time';
     await q(env, `UPDATE membership_subscriptions SET auto_renew = CASE WHEN $2 THEN true WHEN $4 THEN auto_renew ELSE false END,
@@ -279,7 +285,7 @@ async function grant(env, p, { authId, raw }) {
   if (p.kind === 'plus') {
     const plan = await one(env, 'SELECT * FROM plus_plans WHERE id = $1', [p.target_id]);
     if (!plan) throw new ApiError(404, 'PLAN_NOT_FOUND', 'This Plus plan no longer exists');
-    return activatePlus(env, { userId: p.user_id, plan, provider: 'paystack', test: !!p.test, authId, amountMinor: Number(p.amount_minor), currency: p.currency, renewalOf: renewal ? p.subscription_id : null });
+    return activatePlus(env, { userId: p.user_id, plan, provider: 'paystack', test: !!p.test, authId, amountMinor: Number(p.amount_minor), currency: p.currency, renewalOf: renewal ? p.subscription_id : null, paymentRef: p.reference });
   }
   throw new ApiError(400, 'BAD_KIND', 'Unknown payment kind');
 }
@@ -341,23 +347,24 @@ export function plusSubShape(s) {
 }
 
 /** Start or extend Plus and mirror it onto users.premium / premium_until (what GET /me and chat limits read). */
-export async function activatePlus(env, { userId, plan, provider, test = false, authId = null, amountMinor = null, currency = null, renewalOf = null }) {
+export async function activatePlus(env, { userId, plan, provider, test = false, authId = null, amountMinor = null, currency = null, renewalOf = null, paymentRef = null }) {
   const live = await livePlus(env, userId);
+  if (paymentRef && live && (live.applied_payment_refs || []).includes(paymentRef)) return live; // this payment was already applied (retry) → don't extend again
   let s;
   if (live && (renewalOf || new Date(live.current_period_end) > new Date())) { // renewal, or buying again while active → one more period from the end
     const start = new Date(Math.max(Date.now(), new Date(live.current_period_end).getTime()));
     const end = addPlusInterval(start, plan.interval);
     s = await one(env, `UPDATE plus_subscriptions SET plan_id = $2, status = 'active', provider = $3, auto_renew = CASE WHEN $4::uuid IS NOT NULL THEN true WHEN $9 THEN auto_renew ELSE false END,
         paystack_auth_id = COALESCE($4, paystack_auth_id), amount_minor = $5, currency = $6, current_period_start = $7, current_period_end = $8,
-        renewal_attempts = 0, last_renewal_at = NULL, cancelled_at = NULL, updated_at = now() WHERE id = $1 RETURNING *`,
-    [live.id, plan.id, provider, authId, amountMinor, currency, start.toISOString(), end.toISOString(), !!renewalOf]);
+        renewal_attempts = 0, last_renewal_at = NULL, cancelled_at = NULL, applied_payment_refs = CASE WHEN $10::text IS NULL THEN applied_payment_refs ELSE array_append(applied_payment_refs, $10::text) END, updated_at = now() WHERE id = $1 RETURNING *`,
+    [live.id, plan.id, provider, authId, amountMinor, currency, start.toISOString(), end.toISOString(), !!renewalOf, paymentRef]);
   } else {
     if (live) await q(env, `UPDATE plus_subscriptions SET status = 'expired', auto_renew = false, updated_at = now() WHERE id = $1`, [live.id]);
     const start = new Date();
     const end = addPlusInterval(start, plan.interval);
-    s = await one(env, `INSERT INTO plus_subscriptions (user_id, plan_id, status, provider, auto_renew, test, paystack_auth_id, amount_minor, currency, current_period_start, current_period_end)
-        VALUES ($1,$2,'active',$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-    [userId, plan.id, provider, !!authId, !!test, authId, amountMinor, currency, start.toISOString(), end.toISOString()]);
+    s = await one(env, `INSERT INTO plus_subscriptions (user_id, plan_id, status, provider, auto_renew, test, paystack_auth_id, amount_minor, currency, current_period_start, current_period_end, applied_payment_refs)
+        VALUES ($1,$2,'active',$3,$4,$5,$6,$7,$8,$9,$10,$11::text[]) RETURNING *`,
+    [userId, plan.id, provider, !!authId, !!test, authId, amountMinor, currency, start.toISOString(), end.toISOString(), paymentRef ? [paymentRef] : []]);
   }
   await q(env, `UPDATE users SET premium = true,
       premium_until = CASE WHEN premium AND premium_until IS NULL THEN NULL ELSE GREATEST(COALESCE(premium_until, $2::timestamptz), $2::timestamptz) END WHERE id = $1`,

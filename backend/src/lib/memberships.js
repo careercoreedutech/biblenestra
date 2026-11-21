@@ -351,22 +351,23 @@ export async function runMembershipCron(env) {
  * Starts or renews access. Renewing while still active extends from the current end date; after a lapse it starts now.
  * `until` (Date | null) overrides the plan length (admin grants). Returns the subscription row.
  */
-export async function activateSubscription(env, { membership, plan = null, userId, source, until, answers = [], contact = {}, promoCode = null, amountMinor = null, currency = null, purchaseToken = null, grantedBy = null, note = null, checkoutKey = null }) {
+export async function activateSubscription(env, { membership, plan = null, userId, source, until, answers = [], contact = {}, promoCode = null, amountMinor = null, currency = null, purchaseToken = null, grantedBy = null, note = null, checkoutKey = null, appliedRef = null }) {
   const cur = await subscriptionOf(env, membership.id, userId);
   const base = cur && hasAccess(cur) && cur.expires_at ? new Date(cur.expires_at) : new Date();
   const expires = until !== undefined ? until : (plan ? accessUntil(plan, base) : null);
   const startedAt = cur && hasAccess(cur) ? cur.started_at : new Date();
   const row = await one(env, `INSERT INTO membership_subscriptions
-      (membership_id, user_id, plan_id, status, source, started_at, expires_at, answers, contact, promo_code, amount_minor, currency, purchase_token, granted_by, note, checkout_key)
-      VALUES ($1,$2,$3,'active',$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$13,$14,$15)
+      (membership_id, user_id, plan_id, status, source, started_at, expires_at, answers, contact, promo_code, amount_minor, currency, purchase_token, granted_by, note, checkout_key, applied_payment_refs)
+      VALUES ($1,$2,$3,'active',$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16::text[])
     ON CONFLICT (membership_id, user_id) DO UPDATE SET plan_id = EXCLUDED.plan_id, status = 'active', source = EXCLUDED.source,
       started_at = EXCLUDED.started_at, expires_at = EXCLUDED.expires_at, answers = EXCLUDED.answers, contact = EXCLUDED.contact,
       promo_code = EXCLUDED.promo_code, amount_minor = EXCLUDED.amount_minor, currency = EXCLUDED.currency,
       purchase_token = COALESCE(EXCLUDED.purchase_token, membership_subscriptions.purchase_token),
-      granted_by = EXCLUDED.granted_by, note = EXCLUDED.note, checkout_key = EXCLUDED.checkout_key, updated_at = now()
+      granted_by = EXCLUDED.granted_by, note = EXCLUDED.note, checkout_key = EXCLUDED.checkout_key,
+      applied_payment_refs = membership_subscriptions.applied_payment_refs || EXCLUDED.applied_payment_refs, updated_at = now()
     RETURNING *`,
   [membership.id, userId, plan ? plan.id : null, source, startedAt, expires, JSON.stringify(answers || []), JSON.stringify(contact || {}),
-    promoCode, amountMinor, currency, purchaseToken, grantedBy, note, checkoutKey]);
+    promoCode, amountMinor, currency, purchaseToken, grantedBy, note, checkoutKey, appliedRef ? [appliedRef] : []]);
   await addToConversations(env, membership, userId);
   await recomputeStats(env, membership.id);
   return row;

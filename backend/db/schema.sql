@@ -2593,3 +2593,10 @@ CREATE TABLE IF NOT EXISTS plus_subscriptions (
 CREATE UNIQUE INDEX IF NOT EXISTS plus_subs_live ON plus_subscriptions (user_id) WHERE status IN ('active','cancelled','past_due');
 CREATE INDEX IF NOT EXISTS plus_subs_due ON plus_subscriptions (current_period_end) WHERE status IN ('active','cancelled','past_due');
 -- ===== END PAYSTACK FOR EVERY PURCHASE =====
+
+-- ---------- PAYSTACK RETRY GUARD ----------
+-- Every Paystack reference that has extended a subscription, written in the same statement as the extension. A retried
+-- grant (applied, but the payment's "done" mark never landed) sees its reference here and adds nothing.
+-- Wallet purchases need nothing extra: each payment has its own wallet_purchases row (status 'verified' = applied).
+ALTER TABLE plus_subscriptions ADD COLUMN IF NOT EXISTS applied_payment_refs text[] NOT NULL DEFAULT '{}';
+ALTER TABLE membership_subscriptions ADD COLUMN IF NOT EXISTS applied_payment_refs text[] NOT NULL DEFAULT '{}';
