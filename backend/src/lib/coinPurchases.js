@@ -1,12 +1,12 @@
-// PLAY BILLING HOOK (Phase 3). Real-money coin purchases are NOT live: there is no route that calls this yet.
+// LEGACY KINGDOM COINS purchase hook. Kingdom Coins (users.coins / coin_ledger) are FREE reward coins — earned from
+// games, ads and contests, spent on chat passes and job bids — and are NOT sold today: there is no route that calls
+// this. Paid digital currencies live in the wallet core (lib/wallet.js + lib/walletStore.js: Fund Me credits, Dating
+// Coins, Gifting Coins), whose packs are bought through POST /wallet/purchase.
 //
-// When Google Play Billing is set up, the purchase-verification route must:
-//   1. verify the purchase token server-side with the Google Play Developer API (purchases.products.get),
-//   2. check the product id → coin amount from its own server-side table (never trust an amount from the app),
-//   3. call creditPurchasedCoins(env, userId, coins, { purchaseToken, productId }),
-//   4. acknowledge / consume the purchase with Google.
-// This is the ONLY place that should credit purchased coins. It is idempotent per purchase token (unique index
-// coin_ledger_purchase_ref), so Play's redelivery of the same purchase never credits twice.
+// If the client ever decides to sell Kingdom Coins, do NOT write a new Play flow: verify with the shared Play module
+// (lib/play.js verifyPlayPurchase — the same one the wallet store and Memberships use), then call
+// creditPurchasedCoins(env, userId, coins, { purchaseToken, productId }) with the coin amount from a server-side table.
+// It is idempotent per purchase token (unique index coin_ledger_purchase_ref), so Play's redelivery never credits twice.
 import { one } from './db.js';
 import { ApiError } from './http.js';
 

@@ -2235,6 +2235,12 @@ export function ProfileScreen({ params = {} }) {
                 </View>
               </View>
             </PressScale>
+            {/* WALLET CORE: the purchased wallets live on their own screen; Kingdom Coins above stay the free reward coins */}
+            <Group>
+              <Item icon="gift" tint={colors.primary} title="Wallets & subscriptions" subtitle="Fund Me credits · Dating Coins · Gifting Coins · gift earnings · Dating Plus / VIP" chevron onPress={() => nav.push('Wallet')} />
+              <Item icon="sparkles" tint={colors.rose} title="Gift store" subtitle="Virtual gifts & stars · sent and received" chevron onPress={() => nav.push('GiftStore')} />{/* VIRTUAL GIFTS */}
+              <Item icon="coin" tint={colors.gold} title="Gift earnings" subtitle="80% of gifts you receive · creator payout programme" chevron onPress={() => nav.push('GiftEarnings')} />{/* VIRTUAL GIFTS */}
+            </Group>
           </Section>
           </FadeInUp>
 
@@ -2335,6 +2341,23 @@ export function ProfileScreen({ params = {} }) {
               <NightBtn kind="gold" label="+ Add 100 Coins" onPress={() => { dispatch({ type: 'buyCoins', amount: 100 }); toast.show(`Added 100 coins · balance ${(state.coins || 0) + 100}`, { icon: 'coin', haptic: 'success' }); }} />
               <NightBtn label="+ Add 500 Coins" onPress={() => { dispatch({ type: 'buyCoins', amount: 500 }); toast.show(`Added 500 coins · balance ${(state.coins || 0) + 500}`, { icon: 'coin', haptic: 'success' }); }} />
             </View>
+          </View>
+
+          {/* WALLET CORE: the separate purchased wallets (Fund Me credits, Dating Coins, Gifting Coins, gift earnings) */}
+          <PressScale scaleTo={0.98} onPress={() => nav.push('Wallet')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }} accessibilityRole="button" accessibilityLabel="Open wallets: Fund Me credits, Dating Coins, Gifting Coins and gift earnings">
+            <View style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: alpha(colors.primary, 0.1) }}><Icon name="gift" size={20} color={colors.primary} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14.5, fontWeight: '700', color: colors.fg }}>Wallets & subscriptions</Text>
+              <Text style={{ fontSize: 12.5, lineHeight: 17, color: colors.muted, marginTop: 2 }}>Fund Me credits, Dating Coins, Gifting Coins, gift earnings and Dating Plus / VIP — separate from Kingdom Coins.</Text>
+            </View>
+            <Icon name="more" size={16} color={colors.faint} />
+          </PressScale>
+
+          {/* VIRTUAL GIFTS: Gifting Coin gifts — store, history and gift earnings */}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <Button small label="Gift store" icon={<Icon name="sparkles" size={13} color="#FFFFFF" />} onPress={() => nav.push('GiftStore')} />
+            <Button small kind="ghost" label="Gift history" onPress={() => nav.push('GiftHistory')} />
+            <Button small kind="ghost" label="Gift earnings" onPress={() => nav.push('GiftEarnings')} />
           </View>
 
           <Section title="Gifts sent">

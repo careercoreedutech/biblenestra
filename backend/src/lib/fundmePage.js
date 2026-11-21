@@ -163,13 +163,15 @@ export function renderFundraiserPage(f, { nonce, result, pageUrl }) {
       <div class="presets">${f.presets.map((p, i) => `<span><input type="radio" name="amount_minor" id="p${i}" value="${p}"${i === 1 ? ' checked' : ''}><label for="p${i}">${esc(money(p))}</label></span>`).join('')}</div>
       <label class="field"><span>Or enter an amount</span><span class="money"><em>${esc(sym)}</em><input type="number" name="amount_custom" id="custom" inputmode="decimal" min="${f.minMinor / 100}" max="${f.maxMinor / 100}" step="0.01" placeholder="Other amount"></span></label>
       <label class="field"><span>Your name</span><input type="text" name="donor_name" id="name" maxlength="80" autocomplete="name" placeholder="Name shown with your gift"></label>
+      ${f.needsEmail ? '<label class="field"><span>Email (for your payment receipt)</span><input type="email" name="email" id="email" maxlength="200" autocomplete="email" required placeholder="you@example.com"></label>' : ''}
       <label class="field"><span>Message (optional)</span><textarea name="message" id="msg" maxlength="500" placeholder="Words of encouragement…"></textarea></label>
       <label class="toggle"><input type="checkbox" name="anonymous" id="anon"><span>Give anonymously<small>Your name is hidden on this page (the organiser can still see it). Your gift still counts.</small></span></label>
       <div class="err" id="err" role="alert"></div>
       <button class="btn btn-primary" id="give" type="submit" style="width:100%">Donate</button>
+      <p style="color:#6B6255;font-size:12.5px;margin:10px 0 0">${esc(f.heldByBibleNestra || '')}</p>
     </form>`;
   } else if (f.status === 'live' && !f.paymentsReady) {
-    donate = '<div id="donate" class="closed card"><div class="eyebrow">Give</div><div class="serif">Donations open soon</div><p style="color:#6B6255;margin:6px 0 0">Online giving is being set up. Please check back shortly — and share this page in the meantime.</p></div>';
+    donate = '<div id="donate" class="closed card"><div class="eyebrow">Give</div><div class="serif">' + esc(f.closedMessage || 'Donations aren’t switched on yet') + '</div><p style="color:#6B6255;margin:6px 0 0">Online giving is being set up. Please check back shortly — and share this page in the meantime.</p></div>';
   } else {
     donate = `<div id="donate" class="closed card"><div class="serif">${f.status === 'closed' ? 'This fundraiser has ended' : 'Donations are paused'}</div></div>`;
   }
@@ -235,7 +237,7 @@ form.addEventListener('submit',function(e){e.preventDefault();err.textContent=''
 if(!a||a<cfg.min){err.textContent='The smallest gift is '+fmt(cfg.min);return}
 if(a>cfg.max){err.textContent='The largest single gift is '+fmt(cfg.max);return}
 give.disabled=true;give.textContent='Starting secure checkout…';
-fetch('/f/'+encodeURIComponent(cfg.slug)+'/donations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount_minor:a,message:$('msg').value,donor_name:$('name').value,anonymous:$('anon').checked})})
+fetch('/f/'+encodeURIComponent(cfg.slug)+'/donations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount_minor:a,message:$('msg').value,donor_name:$('name').value,anonymous:$('anon').checked,email:$('email')?$('email').value:undefined})})
 .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})})
 .then(function(x){if(x.ok&&x.j.checkoutUrl){location.href=x.j.checkoutUrl}else{throw new Error((x.j&&x.j.error)||'Something went wrong')}})
 .catch(function(e2){err.textContent=e2.message||'Something went wrong';give.disabled=false;label()});});

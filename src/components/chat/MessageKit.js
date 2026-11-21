@@ -18,6 +18,7 @@ import { REACTIONS, canEditMessage, getScopeMsgs, pinnedOf, previewOf } from '..
 import { openLink } from '../EmbedViewer'; // YOUTUBE LIVE: video links open in-app
 import { useNav } from '../../navigation';
 import { LinkPreviewCard } from './ChatGaps'; // CHAT GAPS: link preview cards
+import { GiftBubble } from '../gifts/GiftBubble'; // VIRTUAL GIFTS: kind 'gift' bubble
 
 // ---------- small icons ----------
 function PinGlyph({ size = 16, color = colors.fg, filled }) {
@@ -130,6 +131,8 @@ export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, 
               <BanGlyph color={mine ? 'rgba(255,255,255,0.7)' : colors.faint} />
               <Text style={[styles.deletedText, mine && { color: 'rgba(255,255,255,0.78)' }]}>{deletedText}</Text>
             </View>
+          ) : m.vgift ? (
+            <GiftBubble vgift={m.vgift} mine={mine} from={m.from} isGroup={!!showSender} /> // VIRTUAL GIFTS: gift bubble with animation
           ) : m.text && !m.gift ? (
             <LinkedText text={m.text} onLongPress={onLongPress} style={[styles.msgText, mine && { color: '#FFFFFF' }]} linkStyle={[styles.link, mine && { color: '#FFFFFF' }]} />
           ) : null}

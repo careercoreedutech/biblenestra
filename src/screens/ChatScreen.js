@@ -33,6 +33,7 @@ import { useTypingNames, useReceipts, usePresence, usePerms } from '../chat/live
 import { dmScope, isServerId, mapServerMessage, fmtClock, presenceLabel, typingLabel } from '../chat/messages';
 import { PEOPLE } from '../data/seed';
 import { MuteSheet, isMutedNow, muteLabel } from '../components/chat/ChatGaps'; // CHAT GAPS: timed mute (8 hours / 1 week / always)
+import { GiftSheet, useIncomingGiftPlayer } from '../components/gifts'; // VIRTUAL GIFTS: Gifting Coin gifts in chats and groups
 
 const newLocalId = () => `m_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -71,7 +72,7 @@ export function ChatScreen({ params = {} }) {
   const focused = useIsFocused();
   let chat = (state.chats || []).find((c) => c.id === params.id) || (!params.id ? (state.chats || []).find((c) => c.with === params.to) : null);
   if (!chat && params.id && isServerId(params.id)) {
-    chat = { id: params.id, with: params.to || 'Direct message', type: 'Direct message', kind: params.kind === 'group' ? 'group' : undefined, messages: [] };
+    chat = { id: params.id, with: params.to || 'Direct message', type: 'Direct message', kind: ['group', 'channel'].includes(params.kind) ? params.kind : undefined, messages: [] }; // MEMBERSHIPS: channels open before the chat list syncs
   }
   const convId = chat && isServerId(chat.id) ? chat.id : null;
   const scope = dmScope(chat ? chat.id : 'none');
@@ -81,8 +82,9 @@ export function ChatScreen({ params = {} }) {
   const presence = usePresence(convId);
   const perms = usePerms(convId);
   const role = (perms && perms.myRole) || loadedRole || (chat && chat.role) || 'member';
-  const isChannel = !!chat && chat.kind === 'channel';
-  const isGroup = !!chat && (chat.kind === 'group' || isChannel);
+  // MEMBERSHIPS hook: params.kind wins while the chat list hasn't synced the membership's Channel / Community yet
+  const isChannel = !!chat && (chat.kind === 'channel' || params.kind === 'channel');
+  const isGroup = !!chat && (chat.kind === 'group' || params.kind === 'group' || isChannel);
   const permissions = perms && perms.permissions;
   const canMessage = permissions ? permissions.canSend : !chat || chat.canMessage !== false;
   const isMod = permissions ? permissions.isModerator : ['owner', 'admin', 'moderator'].includes(role);
@@ -99,6 +101,7 @@ export function ChatScreen({ params = {} }) {
   const [tray, setTray] = useState(false);
   const [meetOpen, setMeetOpen] = useState(false);
   const [giftOpen, setGiftOpen] = useState(false);
+  const [vgiftOpen, setVgiftOpen] = useState(false); // VIRTUAL GIFTS
   const [viewer, setViewer] = useState(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [members, setMembers] = useState(null);
@@ -196,6 +199,7 @@ export function ChatScreen({ params = {} }) {
   // ---------- reading, typing, members ----------
   const msgs = (chat && chat.messages) || [];
   const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
+  const incomingGift = useIncomingGiftPlayer(msgs); // VIRTUAL GIFTS: a gift that arrives while the chat is open plays full-screen
   useEffect(() => {
     if (!focused || !convId || !lastId || !sync.markChatRead) return undefined;
     const t = setTimeout(() => { sync.markChatRead(convId); dismissChatNotifications(convId); }, 600); // new messages while the chat is open are read (CHAT PUSH: + clear its notifications)
@@ -325,7 +329,8 @@ export function ChatScreen({ params = {} }) {
 
   return (
     <View style={styles.screen}>
-      <TopBar
+      {/* MEMBERSHIPS hook: params.embedded → the membership home draws its own header + Channel | Community | Library tabs */}
+      {params.embedded ? null : <TopBar
         title={chat.with}
         subtitle={subtitle}
         subtitleTint={typingText || (presence && presence.online && !isGroup) ? colors.positive || colors.primary : null}
@@ -338,7 +343,7 @@ export function ChatScreen({ params = {} }) {
             <IconBtn name="more" label="Chat options" active={menu} onPress={() => setMenu(!menu)} />
           </>
         )}
-      />
+      />}
       {searching ? (
         <View style={styles.searchBar}>
           <Icon name="search" size={15} color={colors.muted} />
@@ -424,12 +429,25 @@ export function ChatScreen({ params = {} }) {
           { label: 'Voice message', icon: 'mic', tint: colors.rose, disabled: !mediaOk, onPress: startVoice },
           { label: 'Audio file', icon: 'music', tint: colors.lavender, disabled: !mediaOk, onPress: sendAudioFile },
           { label: 'Video call', icon: 'live', tint: colors.teal, onPress: () => setMeetOpen(true) },
-          ...(!isGroup ? [{ label: 'Gift coins', icon: 'gift', tint: colors.gold, disabled: !mediaOk, onPress: () => (mediaOk ? setGiftOpen(true) : needOnline()) }] : []),
+          ...(!isChannel ? [{ label: 'Send a gift', icon: 'gift', tint: colors.rose, disabled: !mediaOk, onPress: () => (mediaOk ? setVgiftOpen(true) : needOnline()) }] : []), // VIRTUAL GIFTS
+          ...(!isGroup ? [{ label: 'Gift Kingdom Coins', icon: 'coin', tint: colors.gold, disabled: !mediaOk, onPress: () => (mediaOk ? setGiftOpen(true) : needOnline()) }] : []),
         ]}
       />
       <MuteSheet visible={muteOpen} title={chat.with} onClose={() => setMuteOpen(false)} onPick={(d) => toggleMute(d)} />
       <MeetPrompt visible={meetOpen} onClose={() => setMeetOpen(false)} onShare={shareMeet} />
       <CoinGiftSheet visible={giftOpen} name={chat.with} balance={state.coins || 0} onClose={() => setGiftOpen(false)} onSend={sendCoins} onEarn={() => nav.push('Learn', { tab: 'Games' })} />
+      {/* VIRTUAL GIFTS: pick a gift → confirm → animation; the gift bubble lands in this chat */}
+      {convId ? (
+        <GiftSheet
+          visible={vgiftOpen}
+          onClose={() => setVgiftOpen(false)}
+          context={{ type: 'chat', id: convId }}
+          recipient={!isGroup ? { id: chat.otherUser && chat.otherUser.id, name: chat.with } : null}
+          recipients={isGroup ? (members || []).map((m) => ({ id: m.id, name: m.displayName || 'Member' })) : null}
+          onSent={(r) => { if (r && r.message) upsert(mapServerMessage(r.message)); if (threadRef.current) threadRef.current.scrollToBottom(); }}
+        />
+      ) : null}
+      {incomingGift}
       <ChatMediaViewer item={viewer} request={api.request} onClose={() => setViewer(null)} />
       <ForwardSheet
         message={forwarding}

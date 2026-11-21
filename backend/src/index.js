@@ -28,6 +28,7 @@ import notifications from './routes/notifications.js';
 import rhythm from './routes/rhythm.js';
 import social from './routes/social.js'; // SOCIAL (round 3)
 import { fundme, fundmePublic } from './routes/fundme.js'; // FUND ME (round 3)
+import { fundmeMoney } from './routes/fundmeMoney.js'; // FUND ME MONEY: credits, gifting credits, donations held by BibleNestra, payouts, admin "Donations & payouts"
 import recordings from './routes/recordings.js'; // DISCOVER TOOLS (round 3)
 import reminders from './routes/reminders.js'; // DISCOVER TOOLS (round 3)
 import youtube from './routes/youtube.js'; // DISCOVER TOOLS (round 3)
@@ -56,6 +57,12 @@ import { runContestCron } from './lib/contestCron.js';
 import { blogPublic, adminBlog } from './routes/blog.js'; // BLOG: public /blog pages + JSON, admin Blog tab with AI auto-posting
 import { runBlogCron } from './lib/blog.js'; // BLOG: cron publishes scheduled posts and runs AI schedules
 import { legalPublic, accountDeletion, adminAccountDeletions } from './routes/legal.js'; // LEGAL: /terms, /privacy, /delete-account + account deletion
+import { membershipsApp, membershipChatGuard, membershipLazyExpiry } from './routes/memberships.js'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
+import { runMembershipCron } from './lib/memberships.js'; // MEMBERSHIPS: expiry sweep (lapsed members leave Channel + Community)
+import { walletApp, adminWallet } from './routes/wallet.js'; // WALLET CORE: separate wallets, ledger, packages, purchases, Dating Plus / VIP
+import { runWalletCron } from './lib/walletStore.js'; // WALLET CORE: expire ended dating subscriptions, prune rate-limit windows
+import { datingApp, adminDating } from './routes/dating.js'; // FIND LOVE (Christian dating): profiles, discovery, matches, Dating Coin uses, ad unlocks, boosts, admin "Dating"
+import { giftsApp, adminGifts } from './routes/virtualGifts.js'; // VIRTUAL GIFTS & STARS: catalogue, send (20/80 split), histories, earnings, withdrawals, live sessions, admin "Gift catalogue"
 
 export function createApp() {
   const app = new Hono();
@@ -142,6 +149,13 @@ export function createApp() {
   app.route('/', rewards);
 
   // Phase 2 routes
+  // MEMBERSHIPS (brief 8.1 / 8.6): a membership's Channel + Community need an active subscription on EVERY chat request.
+  // Registered before the chat routes; conversations without membership_id pass straight through.
+  app.use('/conversations', membershipLazyExpiry);
+  app.use('/conversations/:id', membershipChatGuard);
+  app.use('/conversations/:id/*', membershipChatGuard);
+  app.use('/messages/:id', membershipChatGuard);
+  app.use('/messages/:id/*', membershipChatGuard);
   app.route('/', chatMedia);
   app.route('/', conversations);
   app.route('/', messages); // ROUND 4
@@ -155,6 +169,7 @@ export function createApp() {
   app.route('/', rhythm);
   app.route('/', social); // SOCIAL (round 3)
   app.route('/', fundme); // FUND ME (round 3)
+  app.route('/', fundmeMoney); // FUND ME MONEY: /fundme/* (credits, gifts, receipts, payout account) + /admin/api/fundme/* donations & payouts
   app.route('/', recordings); // DISCOVER TOOLS (round 3)
   app.route('/', reminders); // DISCOVER TOOLS (round 3)
   app.route('/', adminApi); // DISCOVER TOOLS (round 3): /admin/api/* (role = 'admin' checked inside)
@@ -190,6 +205,13 @@ export function createApp() {
   app.route('/', adminBlog); // BLOG: /admin/api/blog/* posts, AI generation, schedules, runs, settings (admin only)
   app.route('/', accountDeletion); // LEGAL: POST /me/delete-account (signed in)
   app.route('/', adminAccountDeletions); // LEGAL: /admin/api/account-deletions (admin only)
+  app.route('/', membershipsApp); // MEMBERSHIPS & PAID CHANNELS: /memberships/* (catalogue, product, checkout, library) + /memberships/manage/*
+  app.route('/', walletApp); // WALLET CORE: /wallet, /wallet/:wallet/history, /wallet/products, /wallet/purchase, /wallet/subscriptions
+  app.route('/', adminWallet); // WALLET CORE: /admin/api/wallet/* (admin only) — "Wallets & payments" tab
+  app.route('/', giftsApp); // VIRTUAL GIFTS & STARS: /gifts/catalogue|send|history|wall|earnings|programme|withdrawals, /live-sessions
+  app.route('/', adminGifts); // VIRTUAL GIFTS & STARS: /admin/api/gifts/* (admin only)
+  app.route('/', datingApp); // FIND LOVE: /dating/* (profile, discover, swipes, likes, matches, requests, ad unlocks, bundles, boosts, safety)
+  app.route('/', adminDating); // FIND LOVE: /admin/api/dating/* (admin only) — "Dating" section of Wallets & payments
 
   return app;
 }
@@ -207,5 +229,7 @@ export default {
     sweepAbandonedUploads(env).catch((e) => console.error('upload sweep failed', e)),
     companionVectorsCron(env).catch((e) => console.error('companion vectors failed', e)), // COMPANION MEANING SEARCH: embeds ≤15 missing verses per run
     runBlogCron(env).catch((e) => console.error('blog cron failed', e)), // BLOG: publish due posts, run due AI schedules (≤ BLOG_CRON_POSTS posts per tick)
+    runMembershipCron(env).catch((e) => console.error('membership expiry failed', e)), // MEMBERSHIPS: expire lapsed subscriptions, remove them from Channel + Community
+    runWalletCron(env).catch((e) => console.error('wallet cron failed', e)), // WALLET CORE: expire ended dating subscriptions
   ])),
 };

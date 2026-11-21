@@ -41,6 +41,8 @@ window.registerAdminTab('Fund Me approvals', function(box, ctx){
         h('div', { class: 'serif', style: 'font-size:18px;line-height:1.25', text: f.title }),
         h('div', { class: 'meta', text: (f.owner ? f.owner.displayName + ' \u00b7 ' : '') + money(f.raisedMinor, f.currency) + ' of ' + money(f.goalMinor, f.currency) + ' \u00b7 ' + f.donorsCount + ' donors' + (f.submittedAt ? ' \u00b7 submitted ' + new Date(f.submittedAt).toLocaleString() : '') }),
         f.rejectReason ? h('div', { class: 'meta', style: 'color:var(--neg)', text: 'Rejected: ' + f.rejectReason }) : null,
+        (f.riskFlags && f.riskFlags.length) ? h('div', { class: 'row', style: 'gap:4px;margin-top:6px;flex-wrap:wrap' }, f.riskFlags.map(function(x){ return h('span', { class: 'chip neg', title: x.detail || '', text: x.label + (x.detail ? ' · ' + x.detail : '') }); })) : null,
+        (f.status === 'pending_review' && !f.published) ? h('div', { class: 'meta', text: 'Fund Me credits: ' + (f.ownerCredits || 0) + ' · approving publishes it and uses 1 credit (none if rejected)' }) : null,
         h('div', { class: 'row', style: 'margin-top:8px;gap:8px' }, [
           h('span', { class: 'chip ' + (CHIP[f.status] || ''), text: f.status.replace('_', ' ') + (f.pausedBy ? ' (' + f.pausedBy + ')' : '') }),
           h('button', { class: 'btn small ghost', 'data-review': '1', text: 'Review', onclick: function(){ if (detail.childNodes.length) { detail.innerHTML = ''; return; } openDetail(f.id, detail); } }),

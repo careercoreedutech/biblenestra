@@ -18,8 +18,14 @@ import { pickPhotos } from '../api/media';
 import GiftSheet from '../components/social/GiftSheet';
 import {
   useFundMe, onFundMeChange, pickPdf, formatMoney, toMinor, minorToText, CURRENCIES, SYMBOL, CURRENCY_NAME, LIMITS, STATUS_LABEL,
+  isReceived, DONATION_STATUS, HELD_EXPLAINER,
 } from '../api/fundme';
+// FUND ME MONEY (monetisation stage 2): credits before publishing, donations held by BibleNestra, payouts, receipts
+import { FundMeCreditsCard } from './FundMeMoneyScreens';
+import { BuyCoinsSheet } from '../components/wallet';
+import { useApi } from '../api/auth';
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const STATUS_TINT = {
   draft: colors.muted, pending_review: colors.gold, live: colors.positive, paused: colors.slate, closed: colors.slate, rejected: colors.negative,
 };
@@ -165,6 +171,19 @@ export function FundMeHomeScreen() {
         </View>
       </FadeInUp>
       {fm.demo ? <View style={{ marginTop: 14 }}><Notice text="Demo mode — sample fundraisers on this device. Sign in online to raise real support." /></View> : null}
+      {!fm.demo ? (
+        <FadeInUp index={1}>
+          <View style={styles.quickRow}>
+            {[['heart', 'Credits', 'FundMeCredits'], ['gift', 'Send credits', 'FundMeGiftCredits'], ['check', 'My donations', 'FundMeMyDonations']].map(([icon, label, route]) => (
+              <PressScale key={route} onPress={() => nav.push(route)} scaleTo={0.95} style={styles.quick} accessibilityLabel={label}>
+                <Icon name={icon} size={17} color={colors.primary} />
+                <Text style={styles.quickText}>{label}</Text>
+              </PressScale>
+            ))}
+          </View>
+          <Text style={[styles.muted, { marginTop: 10, fontSize: 12.5 }]}>{HELD_EXPLAINER}</Text>
+        </FadeInUp>
+      ) : null}
       {error ? <View style={{ marginTop: 14 }}><Notice text={error} tint={colors.negative} /></View> : null}
 
       <Section title="My fundraisers" style={{ marginTop: 26 }}>
@@ -314,6 +333,8 @@ export function FundraiserScreen({ params = {} }) {
   const [confirm, setConfirm] = useState(null); // 'close'
   const [busy, setBusy] = useState(null);
   const [celebrate, setCelebrate] = useState(0);
+  const [buyCredits, setBuyCredits] = useState(false);
+  const [lastDonation, setLastDonation] = useState(null); // donation id → "View receipt"
   const poll = useRef(null);
 
   const load = useCallback(async () => {
@@ -346,11 +367,12 @@ export function FundraiserScreen({ params = {} }) {
       tries += 1;
       try {
         const s = await fm.donationStatus(slug, donationId);
-        if (s.status === 'succeeded') {
+        if (isReceived(s)) {
           clearInterval(poll.current);
           await load();
           setCelebrate((n) => n + 1);
-          toast.show('Thank you! Your donation was received', { icon: 'heart', haptic: 'success', duration: 3600 });
+          if (!fm.demo) setLastDonation(donationId);
+          toast.show('Thank you! Your donation was received — BibleNestra holds it for the organiser', { icon: 'heart', haptic: 'success', duration: 4200 });
           fm.notifyChanged();
         } else if (s.status === 'failed') {
           clearInterval(poll.current);
@@ -388,7 +410,10 @@ export function FundraiserScreen({ params = {} }) {
       setF((cur) => ({ ...cur, ...next, donations: cur.donations }));
       const msg = { submit: 'Submitted for review', pause: 'Donations paused', resume: 'Fundraiser is live again', close: 'Fundraiser closed' }[kind];
       toast.show(msg, { icon: kind === 'submit' ? 'check' : 'shield' });
-    } catch (e) { toast.show(errorMessage(e), { tone: 'error' }); }
+    } catch (e) {
+      toast.show(errorMessage(e), { tone: 'error', duration: 4200 });
+      if (e && e.code === 'INSUFFICIENT_BALANCE') setBuyCredits(true);
+    }
     setBusy(null); setConfirm(null);
   };
 
@@ -454,7 +479,7 @@ export function FundraiserScreen({ params = {} }) {
           <View style={styles.actions}>
             {canDonate ? (
               soon ? (
-                <View style={[styles.soon, { flex: 1 }]}><Text style={styles.soonText}>Donations open soon</Text></View>
+                <View style={[styles.soon, { flex: 1 }]}><Text style={styles.soonText}>{f.closedMessage || 'Donations aren’t switched on yet'}</Text></View>
               ) : (
                 <Button label="Donate" onPress={() => setDonateOpen(true)} style={{ flex: 1 }} icon={<Icon name="heart" size={16} color="#FFFFFF" />} />
               )
@@ -479,6 +504,13 @@ export function FundraiserScreen({ params = {} }) {
             </PressScale>
           ) : null}
           {!canDonate && !owner ? <Text style={[styles.muted, { marginTop: 10 }]}>{f.status === 'closed' ? 'This fundraiser has ended.' : 'Donations are paused for now.'}</Text> : null}
+          {canDonate && !fm.demo ? (
+            <View style={styles.heldNote}>
+              <Icon name="shield" size={14} color={colors.positive} />
+              <Text style={styles.heldNoteText}>{f.heldByBibleNestra || HELD_EXPLAINER}</Text>
+            </View>
+          ) : null}
+          {lastDonation ? <Button kind="ghost" small label="View your receipt" onPress={() => nav.push('FundMeReceipt', { donationId: lastDonation })} style={{ marginTop: 10 }} icon={<Icon name="check" size={14} color={colors.fg} />} /> : null}
         </View>
       </FadeInUp>
 
@@ -489,12 +521,14 @@ export function FundraiserScreen({ params = {} }) {
             <View style={styles.toolsGrid}>
               {f.status !== 'closed' ? <Tool icon="edit" label="Edit" onPress={() => nav.push('FundraiserEdit', { id: f.id })} /> : null}
               <Tool icon="users" label="Donations" onPress={() => nav.push('FundraiserDonations', { id: f.id, title: f.title, currency: f.currency })} />
+              {!fm.demo && f.approvedAt ? <Tool icon="coin" label="Payouts" onPress={() => nav.push('FundMeMoney', { id: f.id, title: f.title })} /> : null}
               {['draft', 'rejected'].includes(f.status) ? <Tool icon="check" label={busy === 'submit' ? 'Submitting…' : 'Submit'} onPress={() => act('submit')} /> : null}
               {f.status === 'live' ? <Tool icon="pause" label={busy === 'pause' ? 'Pausing…' : 'Pause'} onPress={() => act('pause')} /> : null}
               {f.status === 'paused' && f.pausedBy !== 'admin' ? <Tool icon="play" label={busy === 'resume' ? 'Resuming…' : 'Resume'} onPress={() => act('resume')} /> : null}
               {f.status !== 'closed' ? <Tool icon="x" label="Close" danger onPress={() => setConfirm('close')} /> : null}
             </View>
           </View>
+          {['draft', 'rejected', 'pending_review'].includes(f.status) && !fm.demo ? <FundMeCreditsCard style={{ marginTop: 12 }} refreshKey={f.status} /> : null}
         </FadeInUp>
       ) : null}
 
@@ -509,6 +543,7 @@ export function FundraiserScreen({ params = {} }) {
         onClose={() => setGiftOpen(false)}
       />
       <DonateSheet visible={donateOpen} f={f} demo={fm.demo} defaultName={(state.user && state.user.displayName) || ''} onClose={() => setDonateOpen(false)} onDonate={donate} />
+      <BuyCoinsSheet visible={buyCredits} wallet="fundme_credits" onClose={() => setBuyCredits(false)} onPurchased={() => { setBuyCredits(false); fm.notifyChanged(); }} />
       <AnimatedModal visible={confirm === 'close'} onRequestClose={() => setConfirm(null)}>
         <Pressable style={{ flex: 1 }} onPress={() => setConfirm(null)} />
         <View style={styles.sheet}>
@@ -536,7 +571,10 @@ function Tool({ icon, label, onPress, danger }) {
 
 // ---------- donate sheet ----------
 function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
+  const api = useApi();
   const presets = f.presets || LIMITS[f.currency].presets;
+  const [email, setEmail] = useState('');
+  const [test, setTest] = useState(false);
   const [preset, setPreset] = useState(presets[1]);
   const [custom, setCustom] = useState('');
   const [name, setName] = useState('');
@@ -549,7 +587,9 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
     setErr(null); setBusy(false);
     // prefill with the account name (blank → the server uses the signed-in account's name)
     setName((n) => n || (defaultName && defaultName !== 'Friend' ? defaultName : ''));
+    setEmail((m) => m || (EMAIL_RE.test(String(api.email || '')) ? api.email : ''));
   }, [visible]);
+  const needsEmail = !!f.needsEmail && !test;
   const amount = custom ? toMinor(custom) : preset;
   const min = f.minMinor || LIMITS[f.currency].min;
   const max = f.maxMinor || LIMITS[f.currency].max;
@@ -557,8 +597,9 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
     if (!amount || Number.isNaN(amount)) return setErr('Choose or enter an amount');
     if (amount < min) return setErr(`The smallest gift is ${formatMoney(min, f.currency)}`);
     if (amount > max) return setErr(`The largest single gift is ${formatMoney(max, f.currency)}`);
+    if (needsEmail && !EMAIL_RE.test(email.trim())) return setErr('Add your email — your payment receipt is sent there');
     setErr(null); setBusy(true);
-    await onDonate({ amount_minor: amount, message: message.trim(), anonymous: anon, donor_name: name.trim() });
+    await onDonate({ amount_minor: amount, message: message.trim(), anonymous: anon, donor_name: name.trim(), email: needsEmail ? email.trim() : undefined, provider: test ? 'test' : undefined });
     setBusy(false);
   };
   return (
@@ -593,6 +634,12 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
           </View>
           <Text style={styles.label}>Your name</Text>
           <Input value={name} onChangeText={setName} placeholder="Name shown with your gift" maxLength={80} />
+          {needsEmail ? (
+            <>
+              <Text style={styles.label}>Email for your receipt</Text>
+              <Input value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" maxLength={200} />
+            </>
+          ) : null}
           <Text style={styles.label}>Message (optional)</Text>
           <Input value={message} onChangeText={setMessage} placeholder="Words of encouragement…" multiline maxLength={500} />
           <View style={styles.anonRow}>
@@ -602,6 +649,15 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
             </View>
             <Switch value={anon} onValueChange={setAnon} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" activeThumbColor="#FFFFFF" accessibilityLabel="Give anonymously" />
           </View>
+          {f.canTestDonate ? (
+            <View style={styles.anonRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.anonTitle}>Test donation (testers)</Text>
+                <Text style={styles.anonSub}>Uses a simulated checkout. No real money moves.</Text>
+              </View>
+              <Switch value={test} onValueChange={setTest} trackColor={{ true: colors.gold, false: colors.borderStrong }} thumbColor="#FFFFFF" activeThumbColor="#FFFFFF" accessibilityLabel="Test donation" />
+            </View>
+          ) : null}
           {err ? <Text style={styles.err}>{err}</Text> : null}
           <Button
             label={busy ? 'Starting checkout…' : amount && !Number.isNaN(amount) ? `Donate ${formatMoney(amount, f.currency)}` : 'Donate'}
@@ -611,7 +667,7 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
           />
           <Text style={styles.sheetNote}>
             {demo ? 'Demo mode — the gift is recorded on this device only. No money moves.'
-              : f.testMode ? 'Test mode — you’ll see a simulated checkout. No real money moves.' : 'You’ll finish your gift on a secure checkout page.'}
+              : f.testMode || test ? 'Test mode — you’ll see a simulated checkout. No real money moves.' : `You’ll pay on Paystack’s secure checkout. ${HELD_EXPLAINER}`}
           </Text>
         </ScrollView>
       </View>
@@ -637,13 +693,15 @@ export function FundraiserEditScreen({ params = {} }) {
   const [existing, setExisting] = useState(null);
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState('');
-  const [currency, setCurrency] = useState('GBP');
+  const [currency, setCurrency] = useState('NGN'); // FUND ME MONEY: donations go through Paystack in naira
   const [goalText, setGoalText] = useState('');
   const [main, setMain] = useState(null); // { key, url }
   const [blocks, setBlocks] = useState([{ id: bid(), type: 'p', text: '' }]);
   const [media, setMedia] = useState([]);
   const [busy, setBusy] = useState(null);
   const [errors, setErrors] = useState({});
+  const [buyCredits, setBuyCredits] = useState(false);
+  const [creditsKey, setCreditsKey] = useState(0);
   const scroll = useRef(null);
 
   useEffect(() => {
@@ -718,7 +776,10 @@ export function FundraiserEditScreen({ params = {} }) {
         await fm.submit(saved.id);
         toast.show('Submitted for review — we’ll notify you when it’s live', { icon: 'check', duration: 3200 });
         nav.replace('Fundraiser', { id: saved.id });
-      } catch (e) { toast.show(errorMessage(e, 'Couldn’t submit'), { tone: 'error' }); }
+      } catch (e) {
+        toast.show(errorMessage(e, 'Couldn’t submit'), { tone: 'error', duration: 4200 });
+        if (e && e.code === 'INSUFFICIENT_BALANCE') { setBuyCredits(true); setCreditsKey((k) => k + 1); }
+      }
       setBusy(null);
     } else {
       toast.show('Changes saved', { icon: 'check' });
@@ -967,6 +1028,7 @@ export function FundraiserEditScreen({ params = {} }) {
                 <FundraiserBody f={previewF} showPrivate={false} />
               </View>
               {['draft', 'rejected'].includes(status) ? <Text style={[styles.hint, { marginTop: 16 }]}>After you submit, our team reviews your fundraiser (usually within a day). We’ll notify you when your public page is live.</Text> : null}
+              {['draft', 'rejected'].includes(status) && !fm.demo ? <FundMeCreditsCard style={{ marginTop: 14 }} refreshKey={creditsKey} /> : null}
             </FadeInUp>
           ) : null}
         </ScrollView>
@@ -977,6 +1039,7 @@ export function FundraiserEditScreen({ params = {} }) {
           ? <Button label="Continue" onPress={() => go(step + 1)} style={{ flex: 1 }} />
           : <Button label={submitLabel} onPress={submit} disabled={!!busy || (['draft', 'rejected'].includes(status) && !ready)} style={{ flex: 1 }} />}
       </View>
+      <BuyCoinsSheet visible={buyCredits} wallet="fundme_credits" onClose={() => setBuyCredits(false)} onPurchased={() => { setBuyCredits(false); setCreditsKey((k) => k + 1); }} />
     </View>
   );
 }
@@ -998,6 +1061,7 @@ export function FundraiserDonationsScreen({ params = {} }) {
   useReload(load);
   const cur = (f && f.currency) || params.currency || 'GBP';
   const ok = (items || []).filter((d) => d.status === 'succeeded');
+  const nav = useNav();
   const avg = ok.length ? Math.round(ok.reduce((n, d) => n + d.amountMinor, 0) / ok.length) : 0;
   return (
     <Screen title="Donations" subtitle={params.title} back>
@@ -1014,6 +1078,7 @@ export function FundraiserDonationsScreen({ params = {} }) {
           </View>
         </FadeInUp>
       ) : null}
+      {!fm.demo ? <Button kind="ghost" label="Money & payouts" onPress={() => nav.push('FundMeMoney', { id: params.id, title: params.title })} style={{ marginTop: 14 }} icon={<Icon name="coin" size={15} color={colors.fg} />} /> : null}
       <Section title="All gifts" style={{ marginTop: 22 }}>
         {items === null ? <Skeleton rows={3} /> : items.length ? (
           <View style={styles.card}>
@@ -1024,7 +1089,7 @@ export function FundraiserDonationsScreen({ params = {} }) {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <Text style={styles.donorName}>{d.name}</Text>
                     {d.anonymous ? <Badge label="Anonymous publicly" tint={colors.slate} /> : null}
-                    {d.status === 'refunded' ? <Badge label="Refunded" tint={colors.negative} /> : null}
+                    {d.settlementStatus && DONATION_STATUS[d.settlementStatus] ? <Badge label={DONATION_STATUS[d.settlementStatus].label} tint={DONATION_STATUS[d.settlementStatus].tint} /> : d.status === 'refunded' ? <Badge label="Refunded" tint={colors.negative} /> : null}
                   </View>
                   <Text style={styles.donorMeta}>{timeAgo(d.completedAt || d.createdAt)}</Text>
                   {d.message ? <Text style={styles.donorMsg}>“{d.message}”</Text> : null}
@@ -1050,6 +1115,12 @@ function Kpi({ label, value }) {
 
 // =============================================================================================
 const styles = StyleSheet.create({
+  // FUND ME MONEY
+  quickRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  quick: { flex: 1, alignItems: 'center', gap: 6, paddingVertical: 12, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  quickText: { color: colors.fg, fontWeight: '700', fontSize: 12.5 },
+  heldNote: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 12 },
+  heldNoteText: { flex: 1, color: colors.muted, fontSize: 12.5, lineHeight: 17 },
   muted: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
   headerBtn: { paddingHorizontal: 8, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18 },

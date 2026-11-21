@@ -5,6 +5,7 @@ import { ApiError, bad, body, int, isUuid, str, today } from '../lib/http.js';
 import { RULES, jobAdsNeeded } from '../lib/rules.js';
 import { verifySsv } from '../lib/admob.js';
 import { meResponse } from './me.js';
+import { recordDatingAdSsv } from '../lib/dating.js'; // FIND LOVE: SSV for dating message unlocks
 
 // Applies one watched ad. Returns { unlocked } (job purpose) or { counted } (support purpose).
 export async function applyAdReward(env, userId, purpose, { transactionId = null, verified = false } = {}) {
@@ -77,6 +78,10 @@ ssv.get('/ads/ssv', async (c) => {
   if (!p) throw new ApiError(400, 'BAD_SIGNATURE', 'Invalid signature');
   const userId = p.user_id;
   const purpose = p.custom_data;
+  // FIND LOVE: rewarded ads that unlock dating messages carry custom_data 'dating:<nonce>' (lib/dating.js)
+  if (isUuid(userId) && typeof purpose === 'string' && purpose.startsWith('dating:') && p.transaction_id) {
+    return c.json({ ok: true, ...(await recordDatingAdSsv(c.env, { userId, customData: purpose, transactionId: p.transaction_id })) });
+  }
   if (!isUuid(userId) || !['support', 'job'].includes(purpose) || !p.transaction_id) return c.json({ ok: true, ignored: true }); // still 200 so AdMob stops retrying
   const exists = await one(c.env, 'SELECT id FROM users WHERE id = $1', [userId]);
   if (!exists) return c.json({ ok: true, ignored: true });

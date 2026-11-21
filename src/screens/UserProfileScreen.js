@@ -17,6 +17,7 @@ import { useApi } from '../api/auth';
 import { useNav } from '../navigation';
 import { SocialAvatar } from '../components/social/FeedCard';
 import GiftSheet from '../components/social/GiftSheet';
+import { GiftButton, GiftWall } from '../components/gifts'; // VIRTUAL GIFTS
 import { getPerson, getPersonPosts, openDm, isServerId, getFollowList } from '../api/social';
 import PeopleSheet from '../components/social/PeopleSheet';
 import { useOpenProfile, norm } from '../components/social/profileNav';
@@ -404,10 +405,12 @@ export default function UserProfileScreen({ params = {} }) {
                 onPress={toggleFollow} />
             </Pop>
             <Button small kind="ghost" label={busy ? 'Opening…' : 'Message'} disabled={busy || person.blocked} icon={<Icon name="chat" size={13} color={colors.primary} />} onPress={message} />
-            <Button small kind="ghost" label="Gift" icon={<Icon name="gift" size={13} color={colors.rose} />} onPress={() => setGift(true)} />
+            {/* VIRTUAL GIFTS: Gifting Coin gifts (20% BibleNestra / 80% to the creator) replace the Kingdom Coin gift here */}
+            <GiftButton recipientId={person.id} name={person.name} context={{ type: 'profile', id: person.id }} label="Send a gift" disabled={person.blocked} />
           </View>
         )}
       </ProfileHero>
+      <GiftWall userId={person.id} name={person.name} />{/* VIRTUAL GIFTS: gifts received wall */}
       <PostsSection items={posts.items} loading={posts.loading} hasMore={posts.more} onMore={() => loadPosts(posts.cursor)} onOpen={openPost} name={person.name} />
       <GiftSheet visible={gift} target={{ userId: person.id, name: person.name }} onClose={() => setGift(false)} subtitle={`Bless ${person.name} with coins`} />
       <FollowListSheet userId={person.id} which={list} name={person.name} onClose={() => setList(null)} />

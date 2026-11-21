@@ -1656,7 +1656,7 @@ export default function SocialsScreen({ params }) {
   };
   // Re-created only when something a row shows changes; memoised cards skip the rest of the work
   const renderFeedRow = useCallback(({ item: row }) => {
-    if (row.type === 'hub') return <FeedHubRow guildUnread={guildUnread} onGuild={() => setMainTab('guild')} onCorner={() => setMainTab('creators')} />;
+    if (row.type === 'hub') return <FeedHubRow guildUnread={0} onGuild={() => nav.push('MyChannels')} onCorner={() => setMainTab('creators')} />; // MEMBERSHIPS (brief 8.3): Clip Farm → My Channels (paid channel communities)
     if (row.type === 'ad') return <FeedAdRow />;
     return renderCard(row.it, row.i);
   }, [visibleVideoKey, pool.activeKey, pool.player, pool.paused, feedPlaying, feedMuted, highlightKey, follows, guildUnread]);

@@ -104,8 +104,41 @@ function onlineClient(request) {
     uploadImage: (photo) => uploadPhoto(request, photo),
     uploadPdf: (doc) => uploadPdf(request, doc),
     notifyChanged: changed,
+    // FUND ME MONEY (monetisation stage 2): credits, gifting credits, receipts, payouts (backend/src/routes/fundmeMoney.js)
+    credits: () => r('GET', '/fundme/credits'),
+    creditHistory: (cursor) => r('GET', `/fundme/credits/history?limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
+    members: (q) => r('GET', `/fundme/members?q=${encodeURIComponent(q)}`),
+    giftCredits: (body) => r('POST', '/fundme/credits/gift', body),
+    rules: () => r('GET', '/fundme/rules'),
+    myDonations: () => r('GET', '/fundme/donations/mine'),
+    receipt: (donationId) => r('GET', `/fundme/donations/${donationId}/receipt`),
+    money: (id) => r('GET', `/fundme/fundraisers/${id}/money`),
+    banks: () => r('GET', '/fundme/banks'),
+    payoutAccount: () => r('GET', '/fundme/payout-account'),
+    resolveAccount: (body) => r('POST', '/fundme/payout-account/resolve', body),
+    savePayoutAccount: (body) => mut('PUT', '/fundme/payout-account', body),
   };
 }
+
+// FUND ME MONEY: donation statuses (spec §3) in plain words for donors and organisers.
+export const DONATION_STATUS = {
+  pending: { label: 'Waiting for payment', tint: '#8A8172' },
+  processing: { label: 'Received — being checked', tint: '#A87A27' },
+  under_review: { label: 'Under review', tint: '#B5523B' },
+  verified: { label: 'Verified', tint: '#2E7D5B' },
+  approved_for_payout: { label: 'Approved for payout', tint: '#2E7D5B' },
+  paid: { label: 'Paid out', tint: '#2E7D5B' },
+  failed: { label: 'Failed', tint: '#B5523B' },
+  refunded: { label: 'Refunded', tint: '#8A8172' },
+};
+export const PAYOUT_STATUS = {
+  requested: { label: 'Requested', tint: '#8A8172' }, under_review: { label: 'Under review', tint: '#B5523B' },
+  approved: { label: 'Approved — being sent', tint: '#A87A27' }, processing: { label: 'Sending', tint: '#A87A27' },
+  paid: { label: 'Paid', tint: '#2E7D5B' }, failed: { label: 'Didn’t go through', tint: '#B5523B' }, cancelled: { label: 'Cancelled', tint: '#8A8172' },
+};
+/** Received by BibleNestra (the gateway confirmed it): anything past "pending". */
+export const isReceived = (s) => !!s && (s.status === 'succeeded' || ['processing', 'verified', 'under_review', 'approved_for_payout', 'paid'].includes(s.settlementStatus));
+export const HELD_EXPLAINER = 'Donations are paid to BibleNestra through our payment partner, held safely, checked, and then paid out to the organiser’s verified bank account. They never go straight to a personal account.';
 
 // ---------- local demo ----------
 const U = (id) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=1000&q=75`;
@@ -185,6 +218,8 @@ const listOf = (f) => { const s = demoShape(f); delete s.story; delete s.donatio
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 const notFound = () => new ApiError('Fundraiser not found', { code: 'NOT_FOUND', status: 404 });
 
+const offline = async () => { throw new ApiError('Sign in to the online app to use this', { code: 'OFFLINE' }); };
+
 function demoClient() {
   const find = (id) => { const f = demoDb().find((x) => x.id === id); if (!f) throw notFound(); return f; };
   const toBlocks = (story) => (story || []).map((b) => (b.type === 'img' ? { type: 'img', key: b.key, url: b.url || b.key, caption: b.caption } : { type: 'p', text: b.text }));
@@ -240,6 +275,12 @@ function demoClient() {
     uploadImage: async (photo) => { await wait(200); return { key: photo.uri, url: photo.uri }; },
     uploadPdf: async (doc) => { await wait(200); return { key: doc.uri, name: doc.name }; },
     notifyChanged: changed,
+    // FUND ME MONEY — the demo has no wallet: credits show as free, money features need the online app
+    credits: async () => ({ wallet: 'fundme_credits', balance: 0, cost: 0, reserved: 0, available: 0, limits: {}, usage: {}, giftMax: 0, demo: true, explain: 'Demo mode — publishing is free here. Online, publishing a request uses 1 Fund Me credit when it is approved.' }),
+    creditHistory: async () => ({ items: [], nextCursor: null }),
+    members: async () => ({ items: [] }),
+    giftCredits: offline, rules: offline, receipt: offline, money: offline, banks: offline, payoutAccount: offline, resolveAccount: offline, savePayoutAccount: offline,
+    myDonations: async () => ({ items: [] }),
   };
 }
 

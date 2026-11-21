@@ -147,6 +147,7 @@ export function mapServerMessage(m, prev) {
     forwarded: !m.deleted && meta.forwarded ? true : undefined,
     mentions: !m.deleted && Array.isArray(meta.mentions) ? meta.mentions : undefined,
     gift: !m.deleted && meta.gift ? { coins: meta.gift.coins || 0, toUserId: meta.gift.toUserId, toName: meta.gift.toName || '', note: meta.gift.note || null } : undefined,
+    vgift: !m.deleted && m.kind === 'gift' && meta.vgift ? meta.vgift : undefined, // VIRTUAL GIFTS: Gifting Coin gift bubble (components/gifts/GiftBubble)
     praying: prev ? prev.praying : undefined,
     prayedByMe: prev ? prev.prayedByMe : undefined,
     status: prev && prev.status === 'read' ? 'read' : 'sent',

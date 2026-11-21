@@ -31,7 +31,10 @@ import { AttachTray, AudioBubble, ChatImage, CoinGiftSheet, GiftCard, ImageViewe
 import { useThreadLoader } from '../chat/useThread';
 import { ChatThread } from '../components/chat/ChatThread'; // CHAT GAPS: community #channels use the same virtualised thread as Chats
 import { Composer } from '../components/chat/Composer'; // CHAT GAPS: …and the same composer (text only here: no attachments / voice)
+import { useLiveRooms, LiveGiftLayer, GoLiveRow } from '../components/gifts'; // VIRTUAL GIFTS: live gifting
 import { OpportunitiesEntryCard } from './OpportunitiesScreen'; // OPPORTUNITIES
+import { SegmentToggle, useSwipeTabs, MembershipsCatalog, MyMembershipsRow, PaidChannelsRail } from './MembershipScreens'; // MEMBERSHIPS (brief 8.2, 8.4, 8.5)
+import { FindLoveTab } from './FindLoveScreens'; // FIND LOVE: replaces the "Coming soon" card (FindLoveSoon stays exported, unused)
 
 // ---------- Discover Hub (Sanctuary Paper) ----------
 const WISH_CATEGORIES = ['Healing', 'Guidance', 'Family', 'Financial Miracle', 'Salvation', 'Revival'];
@@ -48,6 +51,9 @@ export default function DiscoverScreen() {
   const activePrayers = (state.prayers || []).filter((p) => p.status !== 'answered' && p.status !== 'archived');
   const prayingCount = activePrayers.reduce((n, p) => n + (p.praying || 0), 0);
   const liveCount = (LIVE || []).filter((l) => l.status === 'live').length;
+  // MEMBERSHIPS (brief 8.5): the top of Discover is a Memberships | Find Love toggle (search moved to an icon)
+  const [discoverTab, setDiscoverTab] = useState('memberships');
+  const swipe = useSwipeTabs(useCallback(() => setDiscoverTab('love'), []), useCallback(() => setDiscoverTab('memberships'), []));
 
   // Interactive Games State — a fresh, date-seeded set every day (see data/games.js)
   const ads = useAds();
@@ -306,6 +312,11 @@ export default function DiscoverScreen() {
             <Text style={styles.discoverEyebrow} numberOfLines={1}>{dateEyebrow}</Text>
             <Text style={styles.discoverTitle}>Discover</Text>
           </View>
+          <ScaleIn delay={90}>
+            <PressScale onPress={() => nav.push('Search')} scaleTo={0.9} accessibilityRole="button" accessibilityLabel="Search" style={styles.discoverSearchIcon}>
+              <Icon name="search" size={17} color={colors.fg} />
+            </PressScale>
+          </ScaleIn>
           <ScaleIn delay={120}>
             <PressScale
               onPress={() => nav.push('Profile', { tab: 'Wallet & Gifts' })}
@@ -326,16 +337,25 @@ export default function DiscoverScreen() {
           </ScaleIn>
         </View>
 
-        <PressScale onPress={() => nav.push('Search')} scaleTo={0.985} accessibilityRole="button" accessibilityLabel="Search" style={styles.discoverSearchBox}>
-          <Icon name="search" size={16} color={colors.muted} />
-          <Text style={styles.discoverSearchPlaceholder} numberOfLines={1}>Search 31,102 verses, devotionals, prayers…</Text>
-        </PressScale>
+        {/* MEMBERSHIPS (brief 8.5): segmented toggle instead of the search bar; tap or swipe sideways to switch */}
+        <SegmentToggle
+          value={discoverTab}
+          onChange={setDiscoverTab}
+          options={[{ id: 'memberships', label: 'Memberships', icon: 'star' }, { id: 'love', label: 'Find Love', icon: 'heart' }]}
+        />
       </View>
+
+      {discoverTab === 'love' ? (
+        // FIND LOVE: the real experience (screens/FindLoveScreens.js). Its card stack owns horizontal swipes, so the
+        // tab-switch swipe isn't attached here — tap the toggle to go back to Memberships.
+        <View style={{ flex: 1 }}><FindLoveTab nav={nav} /></View>
+      ) : (
 
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 96 }}
         showsVerticalScrollIndicator={false}
+        {...swipe.panHandlers}
       >
         {/* Quick access to the app's main spaces */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -18, marginBottom: 0 }} contentContainerStyle={{ paddingHorizontal: 18, gap: 6 }}>
@@ -366,6 +386,12 @@ export default function DiscoverScreen() {
             </FadeInUp>
           ))}
         </ScrollView>
+
+        {/* MEMBERSHIPS (brief 8.4): "My Memberships" row, then the catalogue (category tabs, N total + sort, big cards) */}
+        <MyMembershipsRow nav={nav} style={{ marginTop: 18 }} />
+        <View style={{ marginTop: 14 }}>
+          <MembershipsCatalog nav={nav} limit={4} />
+        </View>
 
         {/* 2. Prayer Wall, then Fund Me (Make a Wish lives in Churches & Bible Studies) */}
         <FadeInUp index={2}>
@@ -625,8 +651,12 @@ export default function DiscoverScreen() {
         {/* 5b. Opportunities worldwide (external listings) */}
         <OpportunitiesEntryCard onPress={() => nav.push('Opportunities')} style={{ marginTop: 12 }} />
 
-        {/* 6. Churches & Bible Studies */}
-        <SectionHead eyebrow="Fellowship" title="Churches & Bible Studies" />
+        {/* 6. MEMBERSHIPS (brief 8.2): "Paid Channels" replaces the Fellowships section */}
+        <SectionHead eyebrow="Paid channels" title="Grow with a mentor" sub="Bible courses, prayer schools & ministry training" action="See all" onAction={() => nav.push('Memberships')} />
+        <PaidChannelsRail nav={nav} />
+
+        {/* Churches, wishes, believers and Live Fellowship are separate tools (not paid channels) — kept, under a plain heading */}
+        <SectionHead eyebrow="Gather" title="Churches & Live Fellowship" />
         <View style={styles.photoGrid}>
           {[
             { key: 'communities', title: 'Communities', sub: 'Churches & study circles', badge: `${(state.communities || []).filter((c) => c.joined === true).length} joined`, tint: colors.primary, img: 'https://images.unsplash.com/photo-1519491050282-cf00c82424b4?auto=format&fit=crop&w=600&q=80', onPress: () => nav.push('Communities') },
@@ -726,6 +756,7 @@ export default function DiscoverScreen() {
           style={{ marginTop: 10 }}
         />
       </ScrollView>
+      )}
 
       {/* Interactive Bible Game Modal (20+ Questions with 4 Choices) */}
       <AnimatedModal visible={showGameModal} onRequestClose={() => setShowGameModal(false)}>
@@ -2101,7 +2132,8 @@ export function LiveScreen({ params = {} }) {
   const [handRaised, setHandRaised] = useState(false);
   const [askMode, setAskMode] = useState(false);
   const [chat, setChat] = useState([]);
-  const l = LIVE.find((x) => x.id === joined);
+  const { rooms: LIVE_ROOMS, reload: reloadLive } = useLiveRooms(LIVE); // VIRTUAL GIFTS: member live rooms (server) + the seed rooms
+  const l = LIVE_ROOMS.find((x) => x.id === joined);
   const join = (x) => {
     setJoined(x.id);
     setHandRaised(false);
@@ -2159,6 +2191,7 @@ export function LiveScreen({ params = {} }) {
               <Text style={styles.videoTitle} numberOfLines={2}>{l.title}</Text>
               <Text style={styles.videoNote}>Tap play to listen along to {refLabel(passage.bookId, passage.chapter)} in audio-only mode</Text>
             </View>
+            <LiveGiftLayer room={l} />{/* VIRTUAL GIFTS: gift button + on-stream gift animations */}
           </FadeInUp>
           <FadeInUp index={1} style={[styles.tagWrap, { marginTop: 14 }]}>
             <Tag label={l.language} /><Tag label={l.audience} />{l.captions ? <Tag label="Captions" /> : null}<Tag label="Moderated" tint={colors.teal} />
@@ -2208,7 +2241,7 @@ export function LiveScreen({ params = {} }) {
     <Screen back title="Live Fellowship"
       right={<HeaderIconBtn label="Start a stream" onPress={() => nav.push('Create', { kind: 'Live stream' })}><Glyph name="plus" size={17} color={colors.fg} /></HeaderIconBtn>}>
       {(() => {
-        const f = LIVE.find((x) => x.status === 'live');
+        const f = LIVE_ROOMS.find((x) => x.status === 'live');
         if (!f) return null;
         return (
           <FadeInUp>
@@ -2238,7 +2271,7 @@ export function LiveScreen({ params = {} }) {
         );
       })()}
       {['live', 'scheduled', 'replay'].map((st, si) => {
-        const items = LIVE.filter((x) => x.status === st);
+        const items = LIVE_ROOMS.filter((x) => x.status === st);
         if (!items.length) return null;
         return (
           <Section key={st} title={st === 'live' ? 'Live now' : st === 'scheduled' ? 'Scheduled' : 'Replays'} style={st === 'live' ? { marginTop: 24 } : null}>
@@ -2261,6 +2294,7 @@ export function LiveScreen({ params = {} }) {
           </Section>
         );
       })}
+      <GoLiveRow onChange={reloadLive} />{/* VIRTUAL GIFTS: host a member live room that can receive gifts */}
     </Screen>
   );
 }
@@ -2467,6 +2501,7 @@ const styles = StyleSheet.create({
   coinChipIcon: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center' },
   coinChipText: { fontSize: 13.5, fontWeight: '700', color: colors.fg, letterSpacing: -0.1 },
   coinChipLabel: { fontSize: 12, color: colors.muted },
+  discoverSearchIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, marginBottom: 2 }, // MEMBERSHIPS: search moved to an icon
   discoverSearchBox: {
     flexDirection: 'row',
     alignItems: 'center',

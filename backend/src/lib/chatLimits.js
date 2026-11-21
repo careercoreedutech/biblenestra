@@ -67,7 +67,8 @@ export async function isInvitedContact(env, aId, bId) {
 /** Conversations that never use a slot even though they are 1:1 (Care network; Find Love would go here too). */
 export async function isExemptConversation(env, convId) {
   if (!convId) return false;
-  const row = await one(env, 'SELECT 1 FROM care_conversations WHERE conversation_id = $1 LIMIT 1', [convId]);
+  const row = await one(env, `SELECT 1 FROM care_conversations WHERE conversation_id = $1
+    UNION ALL SELECT 1 FROM dating_conversations WHERE conversation_id = $1 LIMIT 1`, [convId]); // FIND LOVE: dating chats have their own allowance (lib/dating.js)
   return !!row;
 }
 

@@ -15,6 +15,7 @@ import { assertCanStartDm, useSlotForFirstMessage } from '../lib/chatLimits.js';
 import { firstLinkUrl, cachedPreview, scheduleLinkPreview } from '../lib/linkPreviews.js'; // CHAT GAPS: link preview cards
 import { mutedSql } from '../lib/chatMute.js'; // CHAT GAPS: timed mute (expiry honoured everywhere)
 import { broadcastChange } from '../lib/messages.js';
+import { datingSendGuard } from '../lib/dating.js'; // FIND LOVE HOOK: dating-chat message allowance (see the marked call in the send route)
 
 const conversations = new Hono();
 
@@ -383,6 +384,12 @@ conversations.post('/conversations/:id/messages', async (c) => {
       : null;
     if (!target) throw bad('The message you replied to is not in this conversation', 'BAD_REPLY');
   }
+
+  // ── FIND LOVE HOOK (lib/dating.js datingSendGuard) ── only for DMs labelled in dating_conversations (else a no-op):
+  // request / closed dating chats refuse (403); free members use one message of their ad / coin allowance or get
+  // 402 DATING_MESSAGES_LOCKED. Gift messages and Dating Plus / VIP are not counted. Runs after the clientId replay check,
+  // so a retried send never uses a second message.
+  if (convData.kind === 'dm') await datingSendGuard(c.env, me, convId, { kind, meta });
 
   // CHAT LIMITS: the free user's first message of a new 1:1 chat uses a slot (idempotent; 403 CHAT_LIMIT_REACHED when none left)
   if (convData.kind === 'dm' && otherMembers.length > 0) await useSlotForFirstMessage(c.env, me, convId, otherMembers[0].user_id);

@@ -34,7 +34,34 @@ const env = {
   // Fund Me: simulated payments locally (PAYMENTS_MODE=off → "Donations open soon")
   PAYMENTS_MODE: process.env.PAYMENTS_MODE === 'off' ? '' : (process.env.PAYMENTS_MODE || 'test'),
   LINK_PREVIEWS: process.env.LINK_PREVIEWS || '', // CHAT GAPS: 'on' → chat link-preview cards fetch real websites locally
+  // MEMBERSHIPS: test checkout for admins / testers, external payment rows (shown disabled), creator flag
+  MEMBERSHIP_TEST_CHECKOUT: process.env.MEMBERSHIP_TEST_CHECKOUT || '',
+  MEMBERSHIP_TESTERS: process.env.MEMBERSHIP_TESTERS || '',
+  MEMBERSHIP_EXTERNAL_METHODS: process.env.MEMBERSHIP_EXTERNAL_METHODS || '',
+  // WALLET CORE: test purchases for admins / testers; Paystack stays off unless keys are given (Fund Me only)
+  WALLET_TEST_PURCHASES: process.env.WALLET_TEST_PURCHASES || '',
+  WALLET_TESTERS: process.env.WALLET_TESTERS || '',
+  PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY || '',
+  PAYSTACK_PUBLIC_KEY: process.env.PAYSTACK_PUBLIC_KEY || '',
+  MEMBERSHIPS_PUBLIC_CREATION: process.env.MEMBERSHIPS_PUBLIC_CREATION || '',
 };
+// MEMBERSHIPS: `--seed-memberships` loads demo memberships (dev/seed-memberships.mjs) once, when none exist yet
+if (process.argv.includes('--seed-memberships')) {
+  const has = await db.query('SELECT 1 FROM memberships LIMIT 1');
+  if (!has.length) {
+    const { seedMemberships } = await import('./seed-memberships.mjs');
+    console.log(`Seeded ${await seedMemberships(env)} demo memberships`);
+  }
+}
+// FIND LOVE: `--seed-dating` loads ~20 demo dating profiles (dev/seed-dating.mjs) once, when none exist yet.
+// DATING_DEMO_USER=<dev user> also gives that dev user a profile, coins, likes waiting and one match.
+if (process.argv.includes('--seed-dating')) {
+  const has = await db.query('SELECT 1 FROM dating_profiles LIMIT 1');
+  if (!has.length) {
+    const { seedDating } = await import('./seed-dating.mjs');
+    console.log(`Seeded ${await seedDating(env, { demoUser: process.env.DATING_DEMO_USER || null })} demo dating profiles`);
+  }
+}
 const app = createApp();
 const port = Number(process.env.PORT || 8787);
 serve({ fetch: (req) => app.fetch(req, env), port });

@@ -139,6 +139,8 @@ export default function ActivityScreen({ params = {} }) {
   const open = (n) => {
     const d = n.data || {};
     if (n.kind === 'broadcast') { setBroadcast(n); return; } // BROADCASTS: detail sheet (records "opened")
+    if (typeof d.screen === 'string' && /^FundMe/.test(d.screen)) { nav.push(d.screen, { id: d.fundraiserId, fundraiserId: d.fundraiserId, donationId: d.donationId }); return; } // FUND ME MONEY: receipts, payouts, credits
+    if (/^fundme_/.test(String(n.kind)) && isServerId(d.fundraiserId)) { nav.push('Fundraiser', { id: d.fundraiserId }); return; } // FUND ME
     if ((n.kind === 'comment_like' || n.kind === 'gift') && isServerId(d.postId)) {
       nav.push('Socials', { postId: d.postId, commentId: d.commentId || undefined });
       return;

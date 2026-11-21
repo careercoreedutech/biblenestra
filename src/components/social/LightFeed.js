@@ -624,9 +624,10 @@ export function ReelsStrip({ videos = [], userName, userAvatar, onOpen, onCreate
 export function HubCards({ guildUnread, onGuild, onCorner }) {
   return (
     <FadeInUp distance={12} style={styles.hubRow}>
-      <PressScale onPress={onGuild} scaleTo={0.97} style={styles.hubCard} accessibilityLabel="Open Clip Farm guild">
-        <View style={[styles.hubIcon, { backgroundColor: colors.night }]}>
-          <Text style={styles.hubIconText}>CF</Text>
+      {/* MEMBERSHIPS (brief 8.3): Clip Farm became My Channels — the paid channel communities you joined */}
+      <PressScale onPress={onGuild} scaleTo={0.97} style={styles.hubCard} accessibilityLabel="Open My Channels">
+        <View style={[styles.hubIcon, { backgroundColor: colors.primarySoft }]}>
+          <Icon name="volume" size={17} color={colors.primary} />
           {guildUnread ? (
             <ScaleIn style={styles.hubBadge}>
               <Text style={styles.hubBadgeText}>{guildUnread}</Text>
@@ -634,11 +635,8 @@ export function HubCards({ guildUnread, onGuild, onCorner }) {
           ) : null}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.hubTitle} numberOfLines={1}>Clip Farm guild</Text>
-          <View style={styles.hubLiveRow}>
-            <LiveRing color={colors.positive} size={6} />
-            <Text style={styles.hubSub} numberOfLines={1}>210 online</Text>
-          </View>
+          <Text style={styles.hubTitle} numberOfLines={1}>My Channels</Text>
+          <Text style={styles.hubSub} numberOfLines={1}>Paid channel communities</Text>
         </View>
       </PressScale>
       <PressScale onPress={onCorner} scaleTo={0.97} style={styles.hubCard} accessibilityLabel="Creators Corner bounties">

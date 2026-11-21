@@ -487,6 +487,7 @@ chatGroups.post('/messages/:id/forward', async (c) => {
   if (src.kind === 'system') throw bad('System messages can’t be forwarded', 'NOT_ALLOWED');
   const meta0 = parse(src.meta) || {};
   if (meta0.gift) throw bad('Coin gifts can’t be forwarded', 'NOT_ALLOWED');
+  if (src.kind === 'gift' || meta0.vgift) throw bad('Gifts can’t be forwarded', 'NOT_ALLOWED'); // VIRTUAL GIFTS: a forwarded copy would look like a new paid gift
   const b = await body(c);
   const targets = [...new Set((Array.isArray(b.conversationIds) ? b.conversationIds : []).map(String).filter(isUuid))].slice(0, 5);
   if (!targets.length) throw bad('Choose a chat', 'NO_TARGET');

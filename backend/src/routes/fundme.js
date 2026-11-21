@@ -10,7 +10,15 @@ import { q, one } from '../lib/db.js';
 import { ApiError, bad, body, forbidden, notFound, str, int, isUuid, uuidParam, encodeCursor, decodeCursor } from '../lib/http.js';
 import { requireUser } from '../lib/auth.js';
 import { FUNDME } from '../lib/rules.js';
-import { activeProvider, providerByName, TestProvider, hmacSha256Hex, platformFee } from '../lib/payments.js';
+import { activeProvider, TestProvider, hmacSha256Hex } from '../lib/payments.js';
+// FUND ME MONEY (monetisation stage 2): credits on publish, anti-fraud flags, Paystack donations held by BibleNestra.
+import {
+  pickProvider, DONATIONS_OFF, paystackCurrencies, testDonationsAllowed, confirmDonation, failDonation, recheckDonation, gatewayInfo,
+  assertCanSubmit, requestRiskFlags, publishFundraiser, donationFee, DONATION_LABEL, refundDonation, markPayoutPaid, failPayout,
+} from '../lib/fundmeMoney.js';
+import { paystackConfigured, verifyPaystackSignature, verifyTransaction } from '../lib/paystack.js';
+import { getConfig, getBalance, rateLimit } from '../lib/wallet.js';
+import { isOn } from '../lib/play.js';
 import { formatMoney, percentOf } from '../lib/money.js';
 import { renderFundraiserPage, renderTestCheckout, renderMessagePage } from '../lib/fundmePage.js';
 import { FUNDME_ADMIN_SCRIPT } from '../lib/fundmeAdmin.js';
@@ -24,6 +32,8 @@ const MAX_PDF = 10 * 1024 * 1024;
 const MAX_IMAGES = 12;
 const MAX_DOCS = 6;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,80}$/;
+// Admin routes take a uuid only, so /admin/api/fundme/donations, /payouts … (routes/fundmeMoney.js) don't collide with :id.
+const UUID_P = '{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}';
 
 const isAdmin = (u) => !!u && u.role === 'admin';
 const origin = (c) => new URL(c.req.url).origin;
@@ -139,13 +149,21 @@ function moneyShape(f) {
 }
 
 function donateInfo(c, f) {
-  const p = activeProvider(c.env);
+  let p = activeProvider(c.env);
+  // Paystack is set up for NGN (env PAYSTACK_CURRENCIES); other currencies can't take donations through it yet.
+  const currencyOk = !p || p.name !== 'paystack' || paystackCurrencies(c.env).includes(f.currency);
+  if (!currencyOk) p = null;
   const r = FUNDME.currencies[f.currency];
+  const user = c.get('user');
   return {
     donationsOpen: !!p && f.status === 'live',
     paymentsReady: !!p,
     provider: p ? p.name : null,
     testMode: !!p && p.name === 'test',
+    needsEmail: !!p && !!p.needsEmail,
+    canTestDonate: !!user && testDonationsAllowed(c.env, user) && f.status === 'live',
+    closedMessage: p ? null : currencyOk ? DONATIONS_OFF : `Donations in ${f.currency} aren’t available yet`,
+    heldByBibleNestra: 'Donations are paid to BibleNestra, held safely and paid out to the organiser after verification.',
     presets: r.presets,
     minMinor: r.min,
     maxMinor: r.max,
@@ -241,40 +259,19 @@ async function logAdmin(env, adminId, action, id, details) {
   } catch (e) { /* audit table is optional */ }
 }
 
-// ---------- payment results (idempotent on provider_ref; the totals change in ONE statement) ----------
-export async function applyPaymentResult(env, providerName, providerRef, status) {
+// ---------- payment results (idempotent on provider_ref; ledger + status + totals change in ONE transaction) ----------
+// status 'succeeded' = the gateway confirmed the payment (test provider, or Paystack AFTER the verify API said success).
+export async function applyPaymentResult(c, providerName, providerRef, status, { amountMinor, currency, gateway } = {}) {
+  const d = await one(c.env, 'SELECT * FROM donations WHERE provider = $1 AND provider_ref = $2', [providerName, providerRef]);
+  if (!d) return { changed: false };
   if (status === 'succeeded') {
-    const row = await one(env, `
-      WITH d AS (
-        UPDATE donations SET status = 'succeeded', completed_at = now()
-         WHERE provider = $1 AND provider_ref = $2 AND status = 'pending'
-         RETURNING id, fundraiser_id, amount_minor, currency, anonymous, donor_name, message
-      ), f AS (
-        UPDATE fundraisers fr SET raised_minor = fr.raised_minor + d.amount_minor, donors_count = fr.donors_count + 1, updated_at = now()
-          FROM d WHERE fr.id = d.fundraiser_id
-         RETURNING fr.id, fr.owner_id, fr.title, fr.slug
-      )
-      SELECT d.*, f.owner_id, f.title, f.slug FROM d JOIN f ON f.id = d.fundraiser_id`, [providerName, providerRef]);
-    if (!row) return { changed: false };
-    const who = row.anonymous ? 'An anonymous supporter' : row.donor_name || 'Someone';
-    await notify(env, row.owner_id, 'fundme_donation', 'New donation 🎉',
-      `${who} gave ${formatMoney(row.amount_minor, row.currency)} to “${row.title}”${row.message ? `: “${String(row.message).slice(0, 80)}”` : ''}`,
-      { fundraiserId: row.fundraiser_id, slug: row.slug, donationId: row.id });
-    return { changed: true, donationId: row.id };
+    const r = await confirmDonation(c, d, { amountMinor: amountMinor ?? Number(d.amount_minor), currency: currency || d.currency, actor: providerName === 'paystack' ? 'paystack' : 'test', gateway: gateway || {} });
+    return { changed: r.changed, donationId: d.id, status: r.status || undefined };
   }
-  if (status === 'failed') {
-    const row = await one(env, `UPDATE donations SET status = 'failed', completed_at = now() WHERE provider = $1 AND provider_ref = $2 AND status = 'pending' RETURNING id`, [providerName, providerRef]);
-    return { changed: !!row };
-  }
+  if (status === 'failed') return failDonation(c.env, d, { actor: providerName === 'paystack' ? 'paystack' : 'test', reason: 'Payment did not complete' });
   if (status === 'refunded') {
-    const row = await one(env, `
-      WITH d AS (
-        UPDATE donations SET status = 'refunded' WHERE provider = $1 AND provider_ref = $2 AND status = 'succeeded'
-        RETURNING fundraiser_id, amount_minor
-      )
-      UPDATE fundraisers fr SET raised_minor = GREATEST(0, fr.raised_minor - d.amount_minor), donors_count = GREATEST(0, fr.donors_count - 1), updated_at = now()
-        FROM d WHERE fr.id = d.fundraiser_id RETURNING fr.id`, [providerName, providerRef]);
-    return { changed: !!row };
+    if (!d.received_at || d.settlement_status === 'refunded') return { changed: false };
+    try { return await refundDonation(c.env, d, { actor: providerName === 'paystack' ? 'system' : 'system', reason: 'Refund reported by the payment gateway' }); } catch (e) { return { changed: false, error: e.code }; }
   }
   return { changed: false };
 }
@@ -321,7 +318,7 @@ fundmePublic.get('/f/:slug', async (c) => {
   const result = ['succeeded', 'failed', 'cancelled'].includes(c.req.query('donation')) ? c.req.query('donation') : null;
   c.header('Content-Security-Policy', [
     "default-src 'none'", "img-src 'self' https: data:", "style-src 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com", `script-src 'nonce-${nonce}'`, "connect-src 'self'", "form-action 'self'",
+    "font-src https://fonts.gstatic.com", `script-src 'nonce-${nonce}'`, "connect-src 'self'", "form-action 'self' https://checkout.paystack.com",
     "frame-ancestors 'none'", "base-uri 'none'",
   ].join('; '));
   c.header('X-Content-Type-Options', 'nosniff');
@@ -375,9 +372,17 @@ async function servePdf(c, m, cache) {
 fundmePublic.get('/f/:slug/donations/:donationId', async (c) => {
   const id = c.req.param('donationId');
   if (!isUuid(id)) throw notFound();
-  const d = await one(c.env, `SELECT d.id, d.status FROM donations d JOIN fundraisers f ON f.id = d.fundraiser_id WHERE d.id = $1 AND f.slug = $2`, [id, c.req.param('slug')]);
+  let d = await one(c.env, `SELECT d.* FROM donations d JOIN fundraisers f ON f.id = d.fundraiser_id WHERE d.id = $1 AND f.slug = $2`, [id, c.req.param('slug')]);
   if (!d) throw notFound();
-  return c.json({ id: d.id, status: d.status });
+  // Paystack: while still pending, ask Paystack directly (the webhook may be late). Rate-limited per donation.
+  if (d.provider === 'paystack' && d.status === 'pending' && paystackConfigured(c.env) && Date.now() - new Date(d.created_at).getTime() > 3000) {
+    try {
+      await rateLimit(c.env, `fundme_poll:${d.id}`, 6, 60);
+      const r = await recheckDonation(c, d);
+      if (r.changed) d = await one(c.env, 'SELECT * FROM donations WHERE id = $1', [d.id]);
+    } catch (e) { /* rate limited or Paystack unreachable: report what we know */ }
+  }
+  return c.json({ id: d.id, status: d.status, settlementStatus: d.settlement_status, statusLabel: DONATION_LABEL[d.settlement_status], receiptNo: d.receipt_no || null });
 });
 
 // POST /f/:slug/donations — JSON (app / page script) or a plain HTML form post (no-JS fallback → 303 to checkout)
@@ -394,8 +399,10 @@ fundmePublic.post('/f/:slug/donations', async (c) => {
   const f = await one(c.env, `SELECT * FROM fundraisers WHERE slug = $1`, [c.req.param('slug')]);
   if (!f || !(await bySlug(c.env, f.slug))) throw notFound('Fundraiser not found');
   if (f.status !== 'live') throw new ApiError(409, 'NOT_ACCEPTING', 'This fundraiser isn’t accepting donations right now');
-  const provider = activeProvider(c.env);
-  if (!provider) throw new ApiError(503, 'DONATIONS_NOT_OPEN', 'Donations open soon');
+  // Paid to BibleNestra's gateway account — never to the beneficiary (spec §3). Testers may ask for provider 'test'.
+  const provider = pickProvider(c.env, user, b.provider === 'test' ? 'test' : null);
+  if (!provider) throw new ApiError(503, 'DONATIONS_NOT_OPEN', DONATIONS_OFF);
+  if (provider.name === 'paystack' && !paystackCurrencies(c.env).includes(f.currency)) throw new ApiError(409, 'CURRENCY_NOT_SUPPORTED', `Donations in ${f.currency} aren’t available yet`);
 
   const rules = FUNDME.currencies[f.currency];
   const amount = int(b.amount_minor ?? b.amountMinor, { min: rules.min, max: rules.max, field: 'Amount' });
@@ -403,39 +410,43 @@ fundmePublic.post('/f/:slug/donations', async (c) => {
   const anonymous = b.anonymous === true || b.anonymous === 'true';
   let donorName = str(b.donor_name ?? b.donorName, { max: 80, field: 'Name', optional: true });
   if (!donorName && user) donorName = user.display_name;
+  let email = str(b.email, { max: 200, field: 'Email', optional: true });
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw bad('Enter a valid email address for your receipt', 'BAD_EMAIL');
+  if (provider.needsEmail && !email) throw bad('Add your email — the payment receipt is sent there', 'EMAIL_REQUIRED');
 
   const key = await rateKey(c, user);
   const recent = await one(c.env, `SELECT COUNT(*)::int AS n FROM donations WHERE rl_key = $1 AND created_at > now() - interval '10 minutes'`, [key]);
   if (recent && recent.n >= FUNDME.donationsPer10Min) throw new ApiError(429, 'RATE_LIMITED', 'Too many attempts — please wait a few minutes and try again');
 
-  let payout = null;
-  if (provider.needsPayoutAccount) {
-    const acct = await one(c.env, `SELECT account_id FROM fundme_payout_accounts WHERE user_id = $1 AND provider = $2 AND charges_enabled`, [f.owner_id, provider.name]);
-    if (!acct) throw new ApiError(409, 'OWNER_NOT_ONBOARDED', 'This fundraiser can’t accept card payments yet');
-    payout = acct.account_id;
-  }
-
+  const cfg = await getConfig(c.env);
+  const fee = donationFee(cfg, amount, f.currency);
+  if (fee >= amount) throw bad('This amount is too small to cover the fee', 'AMOUNT_TOO_SMALL');
   const d = await one(c.env,
-    `INSERT INTO donations (fundraiser_id, donor_id, donor_name, amount_minor, fee_minor, currency, message, anonymous, provider, rl_key)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-    [f.id, user ? user.id : null, donorName, amount, platformFee(amount), f.currency, message, anonymous, provider.name, key]);
+    `INSERT INTO donations (fundraiser_id, donor_id, donor_name, amount_minor, fee_minor, net_minor, currency, message, anonymous, provider, rl_key,
+                            beneficiary_id, donor_email, is_test)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+    [f.id, user ? user.id : null, donorName, amount, fee, amount - fee, f.currency, message, anonymous, provider.name, key, f.owner_id, email, provider.name === 'test']);
+  await q(c.env, `INSERT INTO fundme_donation_events (donation_id, from_status, to_status, actor, actor_id, reason, meta) VALUES ($1, NULL, 'pending', 'donor', $2, 'Checkout started', $3::jsonb)`,
+    [d.id, user ? user.id : null, JSON.stringify({ provider: provider.name, amountMinor: amount, feeMinor: fee })]);
   const base = `${publicBase(c)}/f/${f.slug}`;
   let checkout;
   try {
     checkout = await provider.createCheckout(d, f, c.env, {
-      origin: origin(c), payoutAccount: payout, successUrl: `${base}?donation=succeeded`, cancelUrl: `${base}?donation=cancelled`,
+      origin: origin(c), email, successUrl: `${base}?donation=succeeded`, cancelUrl: `${base}?donation=cancelled`, returnUrl: `${origin(c)}/fundme/paystack/return`,
     });
   } catch (e) {
-    await q(c.env, `UPDATE donations SET status = 'failed', completed_at = now() WHERE id = $1`, [d.id]);
-    throw new ApiError(e.code === 'OWNER_NOT_ONBOARDED' ? 409 : 502, e.code || 'PROVIDER_ERROR', e.message || 'Couldn’t start the payment');
+    await failDonation(c.env, d, { actor: 'system', reason: `Checkout could not start: ${String(e.message || '').slice(0, 200)}` });
+    throw new ApiError(502, e.code || 'PROVIDER_ERROR', e.message || 'Couldn’t start the payment');
   }
   await q(c.env, 'UPDATE donations SET provider_ref = $2 WHERE id = $1', [d.id, checkout.providerRef]);
   if (isForm) return c.redirect(checkout.url, 303);
-  return c.json({ donationId: d.id, checkoutUrl: checkout.url, provider: provider.name, status: 'pending' }, 201);
+  return c.json({ donationId: d.id, checkoutUrl: checkout.url, provider: provider.name, status: 'pending', settlementStatus: 'pending', feeMinor: fee, netMinor: amount - fee, test: provider.name === 'test' }, 201);
 });
 
 // ---------- TEST provider (PAYMENTS_MODE=test only) ----------
-const testOnly = (c) => String(c.env.PAYMENTS_MODE || '').toLowerCase() === 'test';
+// The fake checkout works in PAYMENTS_MODE=test (dev) or when tester donations are switched on (WALLET_TEST_PURCHASES,
+// same gate as the wallet core's test purchases). Test donations are marked is_test and can only go into test payouts.
+const testOnly = (c) => String(c.env.PAYMENTS_MODE || '').toLowerCase() === 'test' || isOn(c.env.WALLET_TEST_PURCHASES);
 
 fundmePublic.get('/pay/test/:ref', async (c) => {
   if (!testOnly(c)) return c.notFound();
@@ -456,20 +467,64 @@ fundmePublic.post('/webhooks/fundme/test', async (c) => {
   if (!testOnly(c)) return c.notFound();
   const r = await TestProvider.handleWebhook(c.req.raw, c.env);
   if (r.ignored) throw bad(r.error || 'Bad webhook');
-  const res = await applyPaymentResult(c.env, 'test', r.providerRef, r.status);
+  const res = await applyPaymentResult(c, 'test', r.providerRef, r.status);
   return c.json({ ok: true, ...res });
 });
 
-// ---------- real providers ----------
-fundmePublic.post('/webhooks/fundme/:provider', async (c) => {
-  const provider = providerByName(c.req.param('provider'));
-  if (!provider || provider.name === 'test') return c.notFound();
-  if (provider.name === 'stripe' && !c.env.STRIPE_WEBHOOK_SECRET) return c.json({ error: 'Stripe is not configured', code: 'NOT_CONFIGURED' }, 503);
-  const r = await provider.handleWebhook(c.req.raw, c.env);
-  if (r.invalid) return c.json({ error: 'Invalid signature', code: 'BAD_SIGNATURE' }, 400);
-  if (r.ignored) return c.json({ ok: true, ignored: true });
-  const res = await applyPaymentResult(c.env, provider.name, r.providerRef, r.status);
-  return c.json({ ok: true, ...res });
+// ---------- Paystack (FUND ME MONEY) ----------
+// Webhook: X-Paystack-Signature = hex(HMAC-SHA512(PAYSTACK_SECRET_KEY, raw body)). A valid charge.success is still
+// re-verified through GET /transaction/verify before anything is recorded; amounts come from that answer.
+// transfer.* events settle automatic payouts (FUNDME_AUTO_PAYOUTS). Always 200 for well-signed events (Paystack retries).
+fundmePublic.post('/webhooks/fundme/paystack', async (c) => {
+  if (!paystackConfigured(c.env)) return c.json({ error: 'Paystack is not configured', code: 'NOT_CONFIGURED' }, 503);
+  const raw = await c.req.text();
+  const ok = await verifyPaystackSignature(raw, c.req.header('X-Paystack-Signature'), String(c.env.PAYSTACK_SECRET_KEY).trim());
+  if (!ok) return c.json({ error: 'Invalid signature', code: 'BAD_SIGNATURE' }, 400);
+  let evt;
+  try { evt = JSON.parse(raw); } catch (e) { return c.json({ error: 'Bad JSON', code: 'BAD_REQUEST' }, 400); }
+  const data = (evt && evt.data) || {};
+  const event = String(evt.event || '');
+  if (event === 'charge.success') {
+    const ref = String(data.reference || '');
+    const d = ref ? await one(c.env, `SELECT * FROM donations WHERE provider = 'paystack' AND provider_ref = $1`, [ref]) : null;
+    if (!d) return c.json({ ok: true, ignored: true });
+    const v = await verifyTransaction(c.env, ref);
+    if (v.status !== 'success') return c.json({ ok: true, ignored: true, gatewayStatus: v.status });
+    const r = await confirmDonation(c, d, { amountMinor: v.amountMinor, currency: v.currency, actor: 'paystack', gateway: gatewayInfo(v.raw) });
+    return c.json({ ok: true, changed: r.changed, status: r.status || undefined });
+  }
+  if (event === 'refund.processed') {
+    const ref = String(data.transaction_reference || (data.transaction && data.transaction.reference) || '');
+    const res = ref ? await applyPaymentResult(c, 'paystack', ref, 'refunded') : { changed: false };
+    return c.json({ ok: true, ...res });
+  }
+  if (event === 'transfer.success' || event === 'transfer.failed' || event === 'transfer.reversed') {
+    const ref = String(data.reference || '');
+    const p = isUuid(ref) ? await one(c.env, 'SELECT * FROM fundme_payouts WHERE id = $1', [ref]) : null;
+    if (!p || !['approved', 'processing'].includes(p.status)) return c.json({ ok: true, ignored: true });
+    try {
+      if (event === 'transfer.success') await markPayoutPaid(c, p, { reference: String(data.transfer_code || ref), actor: 'paystack', note: 'Paystack transfer succeeded' });
+      else await failPayout(c, p, { reason: `Paystack ${event.split('.')[1]}${data.reason ? `: ${String(data.reason).slice(0, 200)}` : ''}`, actor: 'paystack' });
+    } catch (e) { if (e.code !== 'STATE_CHANGED') throw e; }
+    return c.json({ ok: true });
+  }
+  return c.json({ ok: true, ignored: true });
+});
+
+// Paystack sends the donor back here (callback_url) → verify server-side → back to the public page with the result.
+fundmePublic.get('/fundme/paystack/return', async (c) => {
+  const ref = String(c.req.query('reference') || c.req.query('trxref') || '');
+  const d = ref ? await one(c.env, `SELECT d.*, f.slug FROM donations d JOIN fundraisers f ON f.id = d.fundraiser_id WHERE d.provider = 'paystack' AND d.provider_ref = $1`, [ref]) : null;
+  if (!d) return c.html(renderMessagePage({ title: 'Donation not found', text: 'We couldn’t find this payment. If you were charged, contact support with your Paystack receipt.' }), 404);
+  let result = d.status === 'succeeded' ? 'succeeded' : d.status === 'failed' ? 'failed' : null;
+  if (d.status === 'pending' && paystackConfigured(c.env)) {
+    try {
+      const r = await recheckDonation(c, d);
+      const now = await one(c.env, 'SELECT status FROM donations WHERE id = $1', [d.id]);
+      result = now.status === 'succeeded' ? 'succeeded' : now.status === 'failed' ? 'failed' : r.gatewayStatus === 'abandoned' ? 'cancelled' : null;
+    } catch (e) { /* the webhook will finish it */ }
+  }
+  return c.redirect(`${publicBase(c)}/f/${d.slug}${result ? `?donation=${result}` : ''}`, 302);
 });
 
 // =============================================================================================
@@ -584,7 +639,12 @@ fundme.post('/fundraisers/:id/submit', async (c) => {
   if (!f.main_image_key) missing.push('a main photo');
   if (words.trim().length < 20) missing.push('your story');
   if (missing.length) throw bad(`Add ${missing.join(' and ')} before submitting`, 'INCOMPLETE');
-  await q(c.env, `UPDATE fundraisers SET status = 'pending_review', submitted_at = now(), reject_reason = NULL, updated_at = now() WHERE id = $1`, [f.id]);
+  // FUND ME MONEY: publishing limits + enough credits (spent only when approved and published) + anti-fraud flags
+  await assertCanSubmit(c.env, f.owner_id, f.id);
+  const risk = await requestRiskFlags(c.env, f);
+  await q(c.env, `UPDATE fundraisers SET status = 'pending_review', submitted_at = now(), first_submitted_at = COALESCE(first_submitted_at, now()),
+      reject_reason = NULL, risk_flags = $2::jsonb, text_hash = $3, image_hashes = $4::text[], updated_at = now() WHERE id = $1 AND status IN ('draft','rejected')`,
+  [f.id, JSON.stringify(risk.flags), risk.textHash, risk.hashes]);
   return c.json(await fullShape(c, await reload(c.env, f.id), { privileged: true }));
 });
 
@@ -669,6 +729,11 @@ fundme.get('/fundraisers/:id/donations', async (c) => {
       currency: d.currency,
       message: d.message || null,
       status: d.status,
+      settlementStatus: d.settlement_status,
+      statusLabel: DONATION_LABEL[d.settlement_status] || d.settlement_status,
+      netMinor: d.net_minor != null ? toNum(d.net_minor) : toNum(d.amount_minor) - toNum(d.fee_minor),
+      receiptNo: d.receipt_no || null,
+      test: !!d.is_test,
       provider: d.provider,
       createdAt: iso(d.created_at),
       completedAt: iso(d.completed_at),
@@ -687,10 +752,15 @@ fundme.use('/admin/api/fundme/*', adminOnly);
 fundme.get('/admin/api/fundme', async (c) => {
   const status = c.req.query('status') || 'pending_review';
   if (!['draft', 'pending_review', 'live', 'paused', 'closed', 'rejected'].includes(status)) throw bad('Unknown status');
-  const rows = await q(c.env, `${FR_SELECT} WHERE f.status = $1 ORDER BY COALESCE(f.submitted_at, f.created_at) ASC LIMIT 100`, [status]);
+  // flagged requests first (anti-fraud checks), then oldest first; with the organiser's Fund Me credit balance
+  const rows = await q(c.env, `SELECT f.*, u.display_name AS owner_name, u.avatar_url AS owner_avatar,
+      COALESCE((SELECT balance FROM wallet_balances b WHERE b.account = f.owner_id::text AND b.wallet = 'fundme_credits'), 0)::int AS owner_credits
+    FROM fundraisers f JOIN users u ON u.id = f.owner_id WHERE f.status = $1
+    ORDER BY (jsonb_array_length(f.risk_flags) > 0) DESC, COALESCE(f.submitted_at, f.created_at) ASC LIMIT 100`, [status]);
   const counts = await q(c.env, `SELECT status, COUNT(*)::int AS n FROM fundraisers GROUP BY status`);
   return c.json({
-    items: rows.map((f) => ({ ...listShape(c, f), submittedAt: iso(f.submitted_at), rejectReason: f.reject_reason || null, pausedBy: f.paused_by || null })),
+    items: rows.map((f) => ({ ...listShape(c, f), ownerId: f.owner_id, submittedAt: iso(f.submitted_at), rejectReason: f.reject_reason || null, pausedBy: f.paused_by || null,
+      riskFlags: jsonv(f.risk_flags, []), ownerCredits: Number(f.owner_credits || 0), published: !!f.approved_at })),
     counts: Object.fromEntries(counts.map((r) => [r.status, r.n])),
   });
 });
@@ -699,30 +769,50 @@ fundme.get('/admin/api/fundme/pending', async (c) => {
   return c.json({ items: rows.map((f) => ({ ...listShape(c, f), submittedAt: iso(f.submitted_at) })) });
 });
 
-fundme.get('/admin/api/fundme/:id', async (c) => {
+fundme.get(`/admin/api/fundme/:id${UUID_P}`, async (c) => {
   const id = uuidParam(c);
   const f = await one(c.env, `${FR_SELECT} WHERE f.id = $1`, [id]);
   if (!f) throw notFound('Fundraiser not found');
   const out = await fullShape(c, f, { privileged: true });
   out.ownerId = f.owner_id;
   out.donations = await publicDonations(c.env, f.id);
+  out.riskFlags = jsonv(f.risk_flags, []);
+  out.ownerCredits = await getBalance(c.env, f.owner_id, 'fundme_credits');
+  out.published = !!f.approved_at;
   return c.json(out);
 });
 
-fundme.post('/admin/api/fundme/:id/approve', async (c) => {
+fundme.post(`/admin/api/fundme/:id${UUID_P}/approve`, async (c) => {
   const id = uuidParam(c);
   const me = c.get('user');
-  const f = await one(c.env,
-    `UPDATE fundraisers SET status = 'live', approved_at = COALESCE(approved_at, now()), reviewed_at = now(), reviewed_by = $2,
-            paused_by = NULL, reject_reason = NULL, updated_at = now()
-      WHERE id = $1 AND status IN ('pending_review','paused') RETURNING *`, [id, me.id]);
-  if (!f) throw new ApiError(409, 'BAD_STATUS', 'Only fundraisers waiting for review (or paused) can be approved');
-  await notify(c.env, f.owner_id, 'fundme_approved', 'Your fundraiser is live ✨', `“${f.title}” was approved — share your link so people can give.`, { fundraiserId: f.id, slug: f.slug });
-  await logAdmin(c.env, me.id, 'fundme.approve', f.id, { title: f.title });
+  const cur = await one(c.env, 'SELECT * FROM fundraisers WHERE id = $1', [id]);
+  if (!cur || !['pending_review', 'paused'].includes(cur.status)) throw new ApiError(409, 'BAD_STATUS', 'Only fundraisers waiting for review (or paused) can be approved');
+  let f; let cost = 0;
+  if (cur.status === 'pending_review' && !cur.approved_at) {
+    // FIRST publish: spend the publish credit(s) and go live in ONE transaction (spec §1). No credit → nothing published.
+    try {
+      ({ cost } = await publishFundraiser(c.env, cur, me.id));
+    } catch (e) {
+      if (e.code === 'INSUFFICIENT_BALANCE') {
+        await notify(c.env, cur.owner_id, 'fundme_credits_needed', 'Add a Fund Me credit to publish', `“${cur.title}” is ready to publish, but your account needs a Fund Me credit. Buy one or ask a friend to send you one — it stays in review until then.`, { fundraiserId: cur.id, screen: 'FundMeCredits' });
+        throw new ApiError(402, 'INSUFFICIENT_BALANCE', 'The organiser doesn’t have enough Fund Me credits to publish. They were notified; the request stays in review.');
+      }
+      throw e;
+    }
+    f = await one(c.env, 'SELECT * FROM fundraisers WHERE id = $1', [id]);
+  } else {
+    f = await one(c.env,
+      `UPDATE fundraisers SET status = 'live', approved_at = COALESCE(approved_at, now()), reviewed_at = now(), reviewed_by = $2,
+              paused_by = NULL, reject_reason = NULL, updated_at = now()
+        WHERE id = $1 AND status IN ('pending_review','paused') RETURNING *`, [id, me.id]);
+    if (!f) throw new ApiError(409, 'BAD_STATUS', 'Only fundraisers waiting for review (or paused) can be approved');
+  }
+  await notify(c.env, f.owner_id, 'fundme_approved', 'Your fundraiser is live ✨', `“${f.title}” was approved — share your link so people can give.${cost ? ` ${cost} Fund Me credit${cost === 1 ? ' was' : 's were'} used to publish it.` : ''}`, { fundraiserId: f.id, slug: f.slug });
+  await logAdmin(c.env, me.id, 'fundme.approve', f.id, { title: f.title, creditsSpent: cost });
   return c.json(await fullShape(c, await reload(c.env, f.id), { privileged: true }));
 });
 
-fundme.post('/admin/api/fundme/:id/reject', async (c) => {
+fundme.post(`/admin/api/fundme/:id${UUID_P}/reject`, async (c) => {
   const id = uuidParam(c);
   const me = c.get('user');
   const b = await body(c);
@@ -736,7 +826,7 @@ fundme.post('/admin/api/fundme/:id/reject', async (c) => {
   return c.json(await fullShape(c, await reload(c.env, f.id), { privileged: true }));
 });
 
-fundme.post('/admin/api/fundme/:id/pause', async (c) => {
+fundme.post(`/admin/api/fundme/:id${UUID_P}/pause`, async (c) => {
   const id = uuidParam(c);
   const me = c.get('user');
   const f = await one(c.env,

@@ -14,6 +14,7 @@ import { useSync } from '../../api/sync';
 import { useNav } from '../../navigation';
 import { GIFTS } from '../../data/seed';
 import { isServerId } from '../../api/social';
+import { GiftSheet as VGiftSheet } from '../gifts/GiftSheet'; // VIRTUAL GIFTS
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 export const GIFT_ICONS = {
@@ -86,6 +87,12 @@ export default function GiftSheet({ visible, target, onClose, onSent, subtitle }
   useEffect(() => { if (visible) setNotice(null); }, [visible]);
   const t = target || {};
   const coins = state.coins || 0;
+  // VIRTUAL GIFTS: Gifting Coin gift for the same post (or person)
+  const [vt, setVt] = useState(null); // target captured when opened (the parent may clear its target on close)
+  const vgiftNode = vt ? (
+    <VGiftSheet visible={!!vt.open} onClose={() => setVt((x) => ({ ...x, open: false }))} recipient={{ id: vt.userId, name: vt.name }}
+      context={isServerId(vt.postId) ? { type: 'post', id: vt.postId } : { type: 'profile', id: vt.userId }} />
+  ) : null;
 
   const pick = async (g) => {
     if (busy) return;
@@ -111,6 +118,7 @@ export default function GiftSheet({ visible, target, onClose, onSent, subtitle }
   };
 
   return (
+    <>
     <AnimatedModal visible={!!visible} onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel="Dismiss" />
@@ -162,6 +170,15 @@ export default function GiftSheet({ visible, target, onClose, onSent, subtitle }
             </ScaleIn>
           ) : null}
 
+          {/* VIRTUAL GIFTS: the same post / person can also get a Gifting Coin gift (80% to the creator as gift earnings) */}
+          {sync.online && isServerId(t.userId) ? (
+            <PressScale onPress={() => { const snap = { ...t }; onClose && onClose(); setTimeout(() => setVt({ ...snap, open: true }), 180); }} scaleTo={0.98} style={styles.vgift} accessibilityRole="button">
+              <Icon name="sparkles" size={15} color={colors.rose} />
+              <Text style={styles.vgiftText}>Send a Virtual Gift with Gifting Coins</Text>
+              <Text style={[styles.vgiftText, { color: colors.faint }]}>›</Text>
+            </PressScale>
+          ) : null}
+
           <View style={styles.row}>
             <Button
               small
@@ -179,6 +196,8 @@ export default function GiftSheet({ visible, target, onClose, onSent, subtitle }
         </View>
       </View>
     </AnimatedModal>
+    {vgiftNode}
+    </>
   );
 }
 
@@ -192,6 +211,8 @@ const styles = StyleSheet.create({
   sub: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
   close: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   balance: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.cardGold, paddingHorizontal: 11, height: 30, borderRadius: radius.pill },
+  vgift: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingVertical: 11, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }, // VIRTUAL GIFTS
+  vgiftText: { flex: 1, fontSize: 13.5, fontWeight: '700', color: colors.fg },
   balanceText: { fontSize: 13, fontWeight: '700', color: colors.goldMuted },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 2 },
   card: { width: (Math.min(SCREEN_WIDTH, 520) - 46) / 2, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, paddingVertical: 16, paddingHorizontal: 12, alignItems: 'center', ...shadow.sm },

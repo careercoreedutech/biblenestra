@@ -37,6 +37,7 @@ messages.patch('/messages/:id', async (c) => {
   if (msg.deleted) throw bad('This message was deleted', 'MESSAGE_DELETED');
   if (!['text', 'verse', 'prayer'].includes(msg.kind)) throw bad('Only text messages can be edited', 'NOT_EDITABLE');
   if (msg.meta && msg.meta.gift) throw bad('Gift messages can’t be edited', 'NOT_EDITABLE');
+  if (msg.kind === 'gift') throw bad('Gift messages can’t be edited', 'NOT_EDITABLE'); // VIRTUAL GIFTS: kind 'gift' bubbles are created only by POST /gifts/send
   if (Date.now() - new Date(msg.created_at).getTime() > EDIT_WINDOW_HOURS * 3600e3) {
     throw bad(`Messages can be edited for ${Math.round(EDIT_WINDOW_HOURS * 60)} minutes after sending`, 'EDIT_WINDOW_PASSED');
   }

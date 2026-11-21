@@ -1467,7 +1467,7 @@ ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS last_sent_at timestamp
 -- { sendMessages: 'all'|'admins', addMembers: 'admins'|'all', editInfo: 'admins'|'all', approveJoins: bool, slowModeSec: int }
 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_kind_check;
-ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system'));
+ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system','gift')); -- VIRTUAL GIFTS: 'gift' here too, so re-running this file on a database that already has gift messages never fails at this line
 CREATE INDEX IF NOT EXISTS messages_conv_kind ON messages (conversation_id, kind, created_at DESC);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS presence_at timestamptz;                         -- "online" = seen in the last ~70 s
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_visibility text NOT NULL DEFAULT 'everyone';
@@ -1768,3 +1768,719 @@ CREATE TABLE IF NOT EXISTS opportunity_directory (
   sort        integer,
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- ---------- MEMBERSHIPS & PAID CHANNELS (brief section 8: one unified system, three entry points) ----------
+-- A membership = catalogue listing + plans + a Broadcast Channel and a Community group (rows in conversations with
+-- membership_id set) + an ordered content library. Access = an active subscription row (checked by the API on every
+-- library / channel / community request). Creation is admin-only unless MEMBERSHIPS_PUBLIC_CREATION=true.
+CREATE TABLE IF NOT EXISTS memberships (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug            text UNIQUE NOT NULL CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,79}$'),
+  title           text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 120),
+  category        text NOT NULL DEFAULT 'Bible Study',
+  cover_key       text,                                  -- uploaded img/... key or an https image URL
+  intro_video_url text,
+  headline        text NOT NULL DEFAULT '',
+  description     text NOT NULL DEFAULT '',
+  benefits        jsonb NOT NULL DEFAULT '[]'::jsonb,    -- ["Weekly live Bible class", ...]
+  owner_id        uuid REFERENCES users(id) ON DELETE SET NULL,
+  creator_name    text,                                  -- optional override of the owner display name
+  creator_bio     text,                                  -- optional override of the owner bio
+  status          text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','published','archived')),
+  member_count    integer NOT NULL DEFAULT 0,
+  rating_avg      numeric(3,2) NOT NULL DEFAULT 0,
+  rating_count    integer NOT NULL DEFAULT 0,
+  faqs            jsonb NOT NULL DEFAULT '[]'::jsonb,    -- [{ q, a }]
+  questions       jsonb NOT NULL DEFAULT '[]'::jsonb,    -- custom checkout questions [{ label, required }]
+  sort_order      integer NOT NULL DEFAULT 0,            -- admin "featured" boost for Trending
+  trending_score  numeric NOT NULL DEFAULT 0,
+  channel_id      uuid REFERENCES conversations(id) ON DELETE SET NULL,
+  community_id    uuid REFERENCES conversations(id) ON DELETE SET NULL,
+  published_at    timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS memberships_status ON memberships (status, trending_score DESC);
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS membership_id uuid REFERENCES memberships(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS conversations_membership ON conversations (membership_id) WHERE membership_id IS NOT NULL;
+
+-- interval: 'one_time' (interval_days = days of access, NULL = lifetime) | 'month' | 'year' | 'days' (custom renewal)
+CREATE TABLE IF NOT EXISTS membership_plans (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  membership_id    uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  name             text NOT NULL DEFAULT 'Membership',
+  price_minor      bigint NOT NULL CHECK (price_minor >= 0),          -- kobo for NGN
+  currency         text NOT NULL DEFAULT 'NGN' CHECK (currency ~ '^[A-Z]{3}$'),
+  interval         text NOT NULL DEFAULT 'month' CHECK (interval IN ('one_time','month','year','days')),
+  interval_days    integer CHECK (interval_days IS NULL OR interval_days BETWEEN 1 AND 3650),
+  active           boolean NOT NULL DEFAULT true,
+  store_product_id text,                                               -- Google Play / App Store product id (Phase 3)
+  sort_order       integer NOT NULL DEFAULT 0,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS membership_plans_m ON membership_plans (membership_id, sort_order);
+
+-- One row per (membership, user); renewals update it. Access = status IN (active, trialing, cancelled) and not past expires_at.
+CREATE TABLE IF NOT EXISTS membership_subscriptions (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  membership_id  uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan_id        uuid REFERENCES membership_plans(id) ON DELETE SET NULL,
+  status         text NOT NULL DEFAULT 'active' CHECK (status IN ('active','trialing','expired','cancelled','refunded')),
+  source         text NOT NULL CHECK (source IN ('play','admin_grant','test')),
+  started_at     timestamptz NOT NULL DEFAULT now(),
+  expires_at     timestamptz,                                          -- NULL = no end date
+  answers        jsonb NOT NULL DEFAULT '[]'::jsonb,                   -- answers to the custom checkout questions
+  contact        jsonb NOT NULL DEFAULT '{}'::jsonb,                   -- { email, phone, name, country } typed at checkout
+  promo_code     text,
+  amount_minor   bigint,
+  currency       text,
+  purchase_token text,                                                 -- verified Google Play purchase token
+  checkout_key   text,                                                 -- idempotency key of the last checkout
+  granted_by     uuid REFERENCES users(id) ON DELETE SET NULL,
+  note           text,
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (membership_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS membership_subs_user ON membership_subscriptions (user_id);
+CREATE INDEX IF NOT EXISTS membership_subs_expiry ON membership_subscriptions (expires_at) WHERE status IN ('active','trialing','cancelled');
+CREATE UNIQUE INDEX IF NOT EXISTS membership_subs_token ON membership_subscriptions (purchase_token) WHERE purchase_token IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS membership_promos (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  membership_id uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  code          text NOT NULL CHECK (code ~ '^[A-Z0-9_-]{3,30}$'),
+  kind          text NOT NULL CHECK (kind IN ('percent','amount')),
+  value         bigint NOT NULL CHECK (value > 0),                    -- percent (1-100) or minor units
+  max_uses      integer CHECK (max_uses IS NULL OR max_uses > 0),
+  uses          integer NOT NULL DEFAULT 0,
+  expires_at    timestamptz,
+  active        boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (membership_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS membership_reviews (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  membership_id uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rating        smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  body          text NOT NULL DEFAULT '' CHECK (char_length(body) <= 2000),
+  hidden        boolean NOT NULL DEFAULT false,                        -- hidden by an admin (moderation)
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (membership_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS membership_reviews_m ON membership_reviews (membership_id, created_at DESC);
+
+-- Content library: ordered lessons (video link, file link or text) with per-member progress
+CREATE TABLE IF NOT EXISTS membership_lessons (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  membership_id uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  position      integer NOT NULL DEFAULT 0,
+  title         text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 160),
+  kind          text NOT NULL DEFAULT 'text' CHECK (kind IN ('video','file','text')),
+  body          text NOT NULL DEFAULT '' CHECK (char_length(body) <= 20000),
+  media_url     text,
+  minutes       integer CHECK (minutes IS NULL OR minutes BETWEEN 1 AND 1000),
+  is_sample     boolean NOT NULL DEFAULT false,                        -- title shown on the product page as a sample lesson
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS membership_lessons_m ON membership_lessons (membership_id, position);
+CREATE TABLE IF NOT EXISTS membership_lesson_progress (
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  lesson_id     uuid NOT NULL REFERENCES membership_lessons(id) ON DELETE CASCADE,
+  membership_id uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  completed_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, lesson_id)
+);
+
+-- ============================================================
+-- WALLET CORE (monetisation stage 1, client spec §15 + brief 3.4 / 3.5 / 10.4)
+-- Separate balances per wallet, one append-only ledger. Library + contract: src/lib/wallet.js and
+-- scratch/monetisation/wallet-core.md. The old users.coins / coin_ledger ("Kingdom Coins": earned from games, ads and
+-- contests; spent on chat passes, job bids and the legacy /gifts route) is untouched and is NOT one of these wallets.
+-- ============================================================
+-- One row per money/coin movement ("operation"). ref is the idempotency key: the same ref can only ever apply once.
+CREATE TABLE IF NOT EXISTS wallet_ops (
+  ref         text PRIMARY KEY CHECK (char_length(ref) BETWEEN 3 AND 200),
+  kind        text NOT NULL,
+  created_by  uuid REFERENCES users(id) ON DELETE SET NULL,   -- acting user / admin (null = system)
+  meta        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+-- Current balance per (account, wallet). account = the user's uuid as text, or 'platform' for BibleNestra's own ledgers.
+-- Updated in the SAME SQL statement as the ledger rows; the CHECK makes a negative balance impossible (the whole
+-- statement, i.e. every leg of the operation, is rolled back).
+CREATE TABLE IF NOT EXISTS wallet_balances (
+  account     text NOT NULL,
+  wallet      text NOT NULL,
+  user_id     uuid REFERENCES users(id) ON DELETE SET NULL,
+  balance     bigint NOT NULL DEFAULT 0,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (account, wallet),
+  CONSTRAINT wallet_balances_nonneg CHECK (balance >= 0)
+);
+CREATE INDEX IF NOT EXISTS wallet_balances_wallet ON wallet_balances (wallet);
+-- Append-only ledger: one row per leg. (ref, leg) is unique; amount is signed integer units of the wallet.
+CREATE TABLE IF NOT EXISTS wallet_entries (
+  id              bigserial PRIMARY KEY,
+  ref             text NOT NULL REFERENCES wallet_ops(ref),
+  leg             smallint NOT NULL,
+  account         text NOT NULL,
+  user_id         uuid REFERENCES users(id) ON DELETE SET NULL,
+  wallet          text NOT NULL,
+  amount          bigint NOT NULL CHECK (amount <> 0),
+  balance_after   bigint NOT NULL CHECK (balance_after >= 0),
+  kind            text NOT NULL,
+  counterparty_id uuid,                     -- the other person (gift sender / recipient, transfer partner)
+  related_type    text,                     -- 'purchase' | 'subscription' | 'gift' | 'fundraiser' | 'donation' | 'payout' …
+  related_id      text,
+  meta            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (ref, leg)
+);
+CREATE INDEX IF NOT EXISTS wallet_entries_account ON wallet_entries (account, wallet, id DESC);
+CREATE INDEX IF NOT EXISTS wallet_entries_kind ON wallet_entries (kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS wallet_entries_created ON wallet_entries (created_at DESC);
+CREATE INDEX IF NOT EXISTS wallet_entries_related ON wallet_entries (related_type, related_id) WHERE related_id IS NOT NULL;
+-- Ledger rows are never edited or deleted (brief 10.4). Only user_id may be nulled (account deletion, ON DELETE SET NULL).
+CREATE OR REPLACE FUNCTION wallet_entries_immutable() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'wallet_entries is append-only'; END IF;
+  IF NEW.ref <> OLD.ref OR NEW.leg <> OLD.leg OR NEW.account <> OLD.account OR NEW.wallet <> OLD.wallet
+     OR NEW.amount <> OLD.amount OR NEW.balance_after <> OLD.balance_after OR NEW.kind <> OLD.kind
+     OR NEW.created_at <> OLD.created_at OR (NEW.user_id IS NOT NULL AND NEW.user_id IS DISTINCT FROM OLD.user_id) THEN
+    RAISE EXCEPTION 'wallet_entries is append-only';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS wallet_entries_append_only ON wallet_entries;
+CREATE TRIGGER wallet_entries_append_only BEFORE UPDATE OR DELETE ON wallet_entries
+  FOR EACH ROW EXECUTE FUNCTION wallet_entries_immutable();
+
+-- Admin-editable settings (gift commission, gifting-coin conversion rate, earnings hold, …). Defaults live in wallet.js.
+CREATE TABLE IF NOT EXISTS wallet_config (
+  key         text PRIMARY KEY CHECK (key ~ '^[a-z][a-z0-9_]{1,60}$'),
+  value       jsonb NOT NULL,
+  updated_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Packages (coin / credit packs) and subscription plans. Prices in minor units (kobo for NGN).
+CREATE TABLE IF NOT EXISTS wallet_products (
+  id               text PRIMARY KEY CHECK (id ~ '^[a-z0-9][a-z0-9_]{2,60}$'),
+  type             text NOT NULL CHECK (type IN ('pack','subscription')),
+  area             text NOT NULL CHECK (area IN ('fundme','dating','gifts')),
+  wallet           text,                                   -- packs: wallet credited (fundme_credits | dating_coins | gift_coins)
+  title            text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 80),
+  description      text NOT NULL DEFAULT '' CHECK (char_length(description) <= 600),
+  units            bigint NOT NULL DEFAULT 0 CHECK (units >= 0),        -- packs: units credited
+  bonus_units      bigint NOT NULL DEFAULT 0 CHECK (bonus_units >= 0),  -- packs: extra units ("bonus tier")
+  price_minor      bigint NOT NULL CHECK (price_minor > 0),
+  currency         text NOT NULL DEFAULT 'NGN' CHECK (currency ~ '^[A-Z]{3}$'),
+  interval         text CHECK (interval IS NULL OR interval IN ('month','year')),
+  tier             smallint NOT NULL DEFAULT 0,                         -- subscriptions: 1 = Plus, 2 = VIP (higher = more)
+  benefits         jsonb NOT NULL DEFAULT '{}'::jsonb,                  -- subscriptions: { features:[…], flags:{…}, perCycle:[{wallet,amount}], badge }
+  play_product_id  text UNIQUE,
+  apple_product_id text UNIQUE,
+  active           boolean NOT NULL DEFAULT true,
+  sort_order       integer NOT NULL DEFAULT 0,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CHECK ((type = 'pack' AND wallet IS NOT NULL AND units > 0) OR (type = 'subscription' AND interval IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS wallet_products_list ON wallet_products (area, type, active, sort_order);
+-- Client's prices (spec §1, §4, §13, §14). Gifting Coin packs are OUR PROPOSAL at the default conversion rate
+-- (wallet_config gift_coin_rate, 1 coin = ₦1) — "proposal, client to confirm" (spec §9: never assume ₦1 = fixed coins).
+-- Admins edit every package, price and the conversion rate in Admin › Wallets & payments.
+INSERT INTO wallet_products (id, type, area, wallet, title, units, price_minor, play_product_id, sort_order) VALUES
+  ('fundme_credits_7',   'pack','fundme','fundme_credits','7 Fund Me credits',     7,    35000, 'bn_fundme_credits_7',   1),
+  ('fundme_credits_15',  'pack','fundme','fundme_credits','15 Fund Me credits',   15,    70000, 'bn_fundme_credits_15',  2),
+  ('fundme_credits_30',  'pack','fundme','fundme_credits','30 Fund Me credits',   30,   130000, 'bn_fundme_credits_30',  3),
+  ('fundme_credits_50',  'pack','fundme','fundme_credits','50 Fund Me credits',   50,   200000, 'bn_fundme_credits_50',  4),
+  ('fundme_credits_100', 'pack','fundme','fundme_credits','100 Fund Me credits', 100,   350000, 'bn_fundme_credits_100', 5),
+  ('fundme_credits_200', 'pack','fundme','fundme_credits','200 Fund Me credits', 200,   600000, 'bn_fundme_credits_200', 6),
+  ('dating_coins_100',   'pack','dating','dating_coins','100 Dating Coins',      100,    35000, 'bn_dating_coins_100',   1),
+  ('dating_coins_250',   'pack','dating','dating_coins','250 Dating Coins',      250,    70000, 'bn_dating_coins_250',   2),
+  ('dating_coins_500',   'pack','dating','dating_coins','500 Dating Coins',      500,   130000, 'bn_dating_coins_500',   3),
+  ('dating_coins_1000',  'pack','dating','dating_coins','1,000 Dating Coins',   1000,   250000, 'bn_dating_coins_1000',  4),
+  ('dating_coins_2500',  'pack','dating','dating_coins','2,500 Dating Coins',   2500,   500000, 'bn_dating_coins_2500',  5),
+  ('dating_coins_5000',  'pack','dating','dating_coins','5,000 Dating Coins',   5000,   900000, 'bn_dating_coins_5000',  6),
+  ('dating_coins_10000', 'pack','dating','dating_coins','10,000 Dating Coins', 10000,  1500000, 'bn_dating_coins_10000', 7),
+  ('gift_coins_500',     'pack','gifts','gift_coins','500 Gifting Coins',        500,    50000, 'bn_gift_coins_500',     1),
+  ('gift_coins_1000',    'pack','gifts','gift_coins','1,000 Gifting Coins',     1000,   100000, 'bn_gift_coins_1000',    2),
+  ('gift_coins_2500',    'pack','gifts','gift_coins','2,500 Gifting Coins',     2500,   250000, 'bn_gift_coins_2500',    3),
+  ('gift_coins_5000',    'pack','gifts','gift_coins','5,000 Gifting Coins',     5000,   500000, 'bn_gift_coins_5000',    4),
+  ('gift_coins_10000',   'pack','gifts','gift_coins','10,000 Gifting Coins',   10000,  1000000, 'bn_gift_coins_10000',   5),
+  ('gift_coins_50000',   'pack','gifts','gift_coins','50,000 Gifting Coins',   50000,  5000000, 'bn_gift_coins_50000',   6),
+  ('gift_coins_100000',  'pack','gifts','gift_coins','100,000 Gifting Coins', 100000, 10000000, 'bn_gift_coins_100000',  7)
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO wallet_products (id, type, area, title, description, price_minor, interval, tier, benefits, play_product_id, sort_order) VALUES
+  ('dating_plus_monthly', 'subscription', 'dating', 'Dating Plus', 'Renews monthly unless cancelled.', 150000, 'month', 1,
+   '{"badge":"PLUS","features":["See who liked you","Advanced filters","More recommendations","Undo swipes","Ad-free dating","No rewarded-ad requirement","Unrestricted messaging with matches","Better preference control"],"flags":{"seeWhoLiked":true,"advancedFilters":true,"moreRecommendations":true,"undoSwipes":true,"adFree":true,"noRewardedAds":true,"unlimitedMatchMessaging":true},"perCycle":[]}'::jsonb,
+   'bn_dating_plus_monthly', 1),
+  ('dating_vip_monthly', 'subscription', 'dating', 'Dating VIP', 'Renews monthly unless cancelled.', 350000, 'month', 2,
+   '{"badge":"VIP","features":["Everything in Dating Plus","300 bonus Dating Coins every month","2 profile boosts every month","Priority visibility","Advanced location and compatibility filters","VIP badge","Ad-free","No rewarded-ad requirement","Unrestricted messaging"],"flags":{"seeWhoLiked":true,"advancedFilters":true,"moreRecommendations":true,"advancedLocationFilters":true,"undoSwipes":true,"adFree":true,"noRewardedAds":true,"unlimitedMatchMessaging":true,"priorityVisibility":true,"vipBadge":true},"perCycle":[{"wallet":"dating_coins","amount":300},{"wallet":"dating_boosts","amount":2}]}'::jsonb,
+   'bn_dating_vip_monthly', 2)
+ON CONFLICT (id) DO NOTHING;
+
+-- Every purchase attempt of a digital good (packs, Dating Plus / VIP). Credits happen ONLY in walletStore.js
+-- activatePurchase() after verification (ledger ref 'purchase:<id>'), so a redelivered Play token or a retried request
+-- never credits twice. Providers: play (Google Play Billing), apple (slot), test (admins / testers, no money). Paystack
+-- is NOT allowed here — it is only for Fund Me donations (donations table).
+CREATE TABLE IF NOT EXISTS wallet_purchases (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          uuid REFERENCES users(id) ON DELETE SET NULL,
+  product_id       text NOT NULL REFERENCES wallet_products(id),
+  provider         text NOT NULL CHECK (provider IN ('play','apple','test')),
+  provider_ref     text,                                   -- Play purchase token / Apple transaction id / 'test:<id>'
+  order_id         text,                                   -- store order id once verified
+  idempotency_key  text NOT NULL CHECK (char_length(idempotency_key) BETWEEN 8 AND 100),
+  amount_minor     bigint NOT NULL,
+  currency         text NOT NULL,
+  units            bigint NOT NULL DEFAULT 0,               -- units credited (packs)
+  status           text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','verified','failed','refunded')),
+  test             boolean NOT NULL DEFAULT false,
+  error_code       text,
+  raw              jsonb NOT NULL DEFAULT '{}'::jsonb,       -- store verification response
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  verified_at      timestamptz,
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, idempotency_key)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS wallet_purchases_provider_ref ON wallet_purchases (provider, provider_ref) WHERE provider_ref IS NOT NULL;
+CREATE INDEX IF NOT EXISTS wallet_purchases_status ON wallet_purchases (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS wallet_purchases_user ON wallet_purchases (user_id, created_at DESC);
+
+-- Dating Plus / VIP. One live subscription per user (active / cancelled-until-period-end / past_due).
+CREATE TABLE IF NOT EXISTS dating_subscriptions (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id              uuid REFERENCES users(id) ON DELETE CASCADE,
+  product_id           text NOT NULL REFERENCES wallet_products(id),
+  status               text NOT NULL DEFAULT 'active' CHECK (status IN ('active','cancelled','past_due','expired','refunded')),
+  provider             text NOT NULL CHECK (provider IN ('play','apple','test','admin')),
+  purchase_token       text,                                -- Play subscription token (renewals arrive for the same token)
+  auto_renew           boolean NOT NULL DEFAULT true,
+  test                 boolean NOT NULL DEFAULT false,
+  current_period_start timestamptz NOT NULL,
+  current_period_end   timestamptz NOT NULL,
+  cancelled_at         timestamptz,
+  ended_at             timestamptz,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dating_subs_live ON dating_subscriptions (user_id) WHERE status IN ('active','cancelled','past_due');
+CREATE INDEX IF NOT EXISTS dating_subs_due ON dating_subscriptions (current_period_end) WHERE status IN ('active','cancelled','past_due');
+-- A Play subscription token belongs to one subscription (renewal notifications find it by token).
+CREATE UNIQUE INDEX IF NOT EXISTS dating_subs_token ON dating_subscriptions (provider, purchase_token) WHERE purchase_token IS NOT NULL;
+-- One row per paid billing cycle. The PRIMARY KEY makes the cycle's benefits grant (VIP: 300 coins + 2 boosts) once-only.
+CREATE TABLE IF NOT EXISTS dating_subscription_periods (
+  subscription_id uuid NOT NULL REFERENCES dating_subscriptions(id) ON DELETE CASCADE,
+  period_start    timestamptz NOT NULL,
+  period_end      timestamptz NOT NULL,
+  purchase_id     uuid REFERENCES wallet_purchases(id) ON DELETE SET NULL,
+  grant_ref       text,                                     -- wallet_ops.ref of the benefits grant (null = nothing to grant)
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (subscription_id, period_start)
+);
+
+-- Fund Me payouts (ledger E). Schema + ledger helpers only; the Fund Me agent builds verification / approval flows.
+-- Donation money is held by BibleNestra (ledger wallet donations_held_<cur> on the beneficiary's account) and moves
+-- to donations_paid_<cur> when a payout is marked paid.
+CREATE TABLE IF NOT EXISTS fundme_payouts (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  beneficiary_id  uuid REFERENCES users(id) ON DELETE SET NULL,
+  fundraiser_id   uuid REFERENCES fundraisers(id) ON DELETE SET NULL,
+  amount_minor    bigint NOT NULL CHECK (amount_minor > 0),
+  fee_minor       bigint NOT NULL DEFAULT 0 CHECK (fee_minor >= 0),
+  currency        text NOT NULL CHECK (currency IN ('GBP','USD','EUR','NGN')),
+  status          text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested','under_review','approved','processing','paid','failed','cancelled')),
+  provider        text,                                     -- 'paystack' transfer, 'manual' bank transfer …
+  provider_ref    text UNIQUE,
+  approved_by     uuid REFERENCES users(id) ON DELETE SET NULL,
+  approved_at     timestamptz,
+  paid_at         timestamptz,
+  failure_reason  text,
+  meta            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fundme_payouts_status ON fundme_payouts (status, created_at DESC);
+-- Donation verification states the client asked for (spec §3), next to the provider status in donations.status.
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS settlement_status text NOT NULL DEFAULT 'pending'
+  CHECK (settlement_status IN ('pending','processing','verified','approved_for_payout','paid','failed','refunded','under_review'));
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS payout_id uuid REFERENCES fundme_payouts(id) ON DELETE SET NULL;
+
+-- Simple fixed-window rate limits for wallet write endpoints (key = '<action>:<user id>').
+CREATE TABLE IF NOT EXISTS rate_limit_hits (
+  key          text NOT NULL,
+  window_start bigint NOT NULL,
+  n            integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (key, window_start)
+);
+
+-- ============================================================
+-- FIND LOVE (Christian dating) — brief §9, client spec §5 / §6 / §7 / §13 / §14. Owner: Find Love stage.
+-- Library: src/lib/dating.js · routes: src/routes/dating.js · notes: scratch/monetisation/dating.md.
+-- Coins are spent through the wallet core (wallet 'dating_coins' / 'dating_boosts', post() only). The rows below are the
+-- business records; every paid row is written in the same transaction as its ledger entry (post alsoRun), keyed by the
+-- ledger ref, so a retry never doubles anything. Dating activity is never shown in Socials.
+-- ============================================================
+-- One opt-in dating profile per member, separate from the social profile (users.*). City-level location only.
+CREATE TABLE IF NOT EXISTS dating_profiles (
+  user_id            uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  first_name         text NOT NULL CHECK (char_length(first_name) BETWEEN 1 AND 40),
+  birth_date         date NOT NULL,                              -- 18+ checked on every save; age shown, never the date
+  gender             text NOT NULL CHECK (gender IN ('man','woman')),
+  interested_in      text NOT NULL CHECK (interested_in IN ('men','women')),
+  city               text NOT NULL DEFAULT '' CHECK (char_length(city) <= 60),
+  country            text NOT NULL DEFAULT '' CHECK (char_length(country) <= 60),
+  denomination       text NOT NULL DEFAULT '' CHECK (char_length(denomination) <= 60),
+  church_involvement text NOT NULL DEFAULT '' CHECK (char_length(church_involvement) <= 60),
+  intention          text NOT NULL DEFAULT 'marriage' CHECK (intention IN ('marriage','long_term','friendship_first','not_sure')),
+  bio                text NOT NULL DEFAULT '' CHECK (char_length(bio) <= 500),
+  prompts            jsonb NOT NULL DEFAULT '[]'::jsonb,          -- [{ q, a }] max 3
+  prefs              jsonb NOT NULL DEFAULT '{}'::jsonb,          -- { ageMin, ageMax, country, city, denominations[], intentions[], involvement[], compatibleOnly }
+  status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','banned')),  -- paused = hidden by the member
+  verified           boolean NOT NULL DEFAULT false,              -- HOOK: photo / ID verification ("Verified" badge), not built yet
+  adult_confirmed_at timestamptz NOT NULL DEFAULT now(),
+  ban_reason         text,
+  last_active_at     timestamptz NOT NULL DEFAULT now(),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dating_profiles_active ON dating_profiles (status, gender, last_active_at DESC);
+-- Photos and their moderation queue (pending → approved / rejected). url = https URL or an R2 key under img/<user>/.
+CREATE TABLE IF NOT EXISTS dating_photos (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  url         text NOT NULL CHECK (char_length(url) <= 600),
+  position    smallint NOT NULL DEFAULT 0,
+  status      text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  reject_reason text,
+  reviewed_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dating_photos_user ON dating_photos (user_id, position);
+CREATE INDEX IF NOT EXISTS dating_photos_queue ON dating_photos (status, created_at);
+-- Swipes (one per pair). action: like | pass | super_like | priority_like. day = the swiper's local date (daily allowance).
+CREATE TABLE IF NOT EXISTS dating_swipes (
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id  uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  action     text NOT NULL CHECK (action IN ('like','pass','super_like','priority_like')),
+  day        date NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, target_id),
+  CHECK (user_id <> target_id)
+);
+CREATE INDEX IF NOT EXISTS dating_swipes_target ON dating_swipes (target_id, action);
+CREATE INDEX IF NOT EXISTS dating_swipes_day ON dating_swipes (user_id, day);
+-- Profiles served in someone's stack (boost stats "views"; last_seen_at moves on every serve).
+CREATE TABLE IF NOT EXISTS dating_views (
+  viewer_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (viewer_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS dating_views_target ON dating_views (target_id, last_seen_at);
+-- Matches (user_a < user_b). conversation_id = the DM labelled 'dating' (dating_conversations).
+CREATE TABLE IF NOT EXISTS dating_matches (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_a          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_b          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id uuid REFERENCES conversations(id) ON DELETE SET NULL,
+  status          text NOT NULL DEFAULT 'active' CHECK (status IN ('active','unmatched')),
+  via             text NOT NULL DEFAULT 'like' CHECK (via IN ('like','message_request')),
+  unmatched_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  unmatched_at    timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_a, user_b),
+  CHECK (user_a < user_b)
+);
+CREATE INDEX IF NOT EXISTS dating_matches_b ON dating_matches (user_b, status);
+-- The label on a DM conversation (same pattern as care_conversations): every chat feature and gift works in it, and
+-- the send path asks lib/dating.js datingSendGuard() for the free-user message allowance (one marked hook).
+-- status: request (paid message request, not accepted yet) · match · declined · closed (unmatched / blocked / banned).
+CREATE TABLE IF NOT EXISTS dating_conversations (
+  conversation_id uuid PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+  user_a          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_b          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  requester_id    uuid REFERENCES users(id) ON DELETE SET NULL,
+  match_id        uuid REFERENCES dating_matches(id) ON DELETE SET NULL,
+  status          text NOT NULL DEFAULT 'match' CHECK (status IN ('request','match','declined','closed')),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_a, user_b),
+  CHECK (user_a < user_b)
+);
+-- Every Dating Coin use (spec §5 / §16 "coin usage records"). ref = the wallet_ops ref (same transaction).
+-- units: swipes / messages / hours granted by this use. Allowances are SUMs over these rows, so they are idempotent.
+CREATE TABLE IF NOT EXISTS dating_spends (
+  ref             text PRIMARY KEY,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind            text NOT NULL,          -- super_like | priority_like | message_request | see_who_liked | boost_30m | boost_1h | boost_3h | spotlight_24h | extra_swipes | message_bundle
+  wallet          text NOT NULL DEFAULT 'dating_coins',
+  amount          integer NOT NULL,       -- coins (or boosts) spent
+  units           integer NOT NULL DEFAULT 0,
+  target_id       uuid REFERENCES users(id) ON DELETE SET NULL,
+  conversation_id uuid REFERENCES conversations(id) ON DELETE SET NULL,
+  day             date NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dating_spends_user ON dating_spends (user_id, kind, day);
+CREATE INDEX IF NOT EXISTS dating_spends_conv ON dating_spends (conversation_id, user_id) WHERE conversation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS dating_spends_created ON dating_spends (created_at DESC);
+-- Rewarded-ad completions for Find Love (spec §6). The server issues a nonce first; one reward per nonce
+-- (status issued → claimed in one UPDATE), one per AdMob transaction id (UNIQUE). verified = AdMob SSV confirmed it.
+CREATE TABLE IF NOT EXISTS dating_ad_rewards (
+  nonce           text PRIMARY KEY CHECK (char_length(nonce) BETWEEN 16 AND 64),
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id uuid REFERENCES conversations(id) ON DELETE CASCADE,
+  purpose         text NOT NULL DEFAULT 'dating_messages' CHECK (purpose IN ('dating_messages')),
+  status          text NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','claimed','expired','rejected')),
+  units           integer NOT NULL DEFAULT 0,            -- free messages granted when claimed
+  verified        boolean NOT NULL DEFAULT false,        -- AdMob server-side verification received
+  transaction_id  text UNIQUE,                           -- AdMob SSV transaction id
+  issued_at       timestamptz NOT NULL DEFAULT now(),
+  expires_at      timestamptz NOT NULL,
+  claimed_at      timestamptz,
+  claimed_via     text CHECK (claimed_via IN ('client','ssv'))   -- who applied the reward first
+);
+CREATE INDEX IF NOT EXISTS dating_ad_rewards_conv ON dating_ad_rewards (conversation_id, user_id, status);
+CREATE INDEX IF NOT EXISTS dating_ad_rewards_user ON dating_ad_rewards (user_id, issued_at DESC);
+-- Messages a free member has sent in a dating chat (consumed against SUM(ad units) + SUM(bundle units)).
+CREATE TABLE IF NOT EXISTS dating_message_usage (
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  used            integer NOT NULL DEFAULT 0 CHECK (used >= 0),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (conversation_id, user_id)
+);
+-- Boosts and Spotlight (spec §7). Ranking only: never bypasses filters, preferences or blocks. Auto-stops at ends_at.
+CREATE TABLE IF NOT EXISTS dating_boosts (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ref        text UNIQUE NOT NULL,        -- the wallet_ops ref that paid for it
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       text NOT NULL CHECK (kind IN ('boost_30m','boost_1h','boost_3h','spotlight_24h')),
+  paid_with  text NOT NULL CHECK (paid_with IN ('dating_coins','dating_boosts')),
+  amount     integer NOT NULL,
+  starts_at  timestamptz NOT NULL,
+  ends_at    timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dating_boosts_live ON dating_boosts (user_id, ends_at DESC);
+CREATE INDEX IF NOT EXISTS dating_boosts_ends ON dating_boosts (ends_at);
+-- Reports from Find Love (admin moderation queue).
+CREATE TABLE IF NOT EXISTS dating_reports (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reporter_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason      text NOT NULL CHECK (reason IN ('fake','inappropriate_photos','harassment','scam','underage','offensive','other')),
+  details     text NOT NULL DEFAULT '' CHECK (char_length(details) <= 1000),
+  status      text NOT NULL DEFAULT 'open' CHECK (status IN ('open','actioned','dismissed')),
+  action      text,
+  handled_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  handled_at  timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dating_reports_status ON dating_reports (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS dating_reports_target ON dating_reports (target_id);
+-- END FIND LOVE
+
+-- ============================================================
+-- FUND ME MONEY (monetisation stage 2, client spec §1 §2 §3 §15E §16 §17). Owner: Fund Me agent.
+-- Request credits (publish = 1 fundme_credits spend, at approval), anti-fraud flags, donations held by BibleNestra
+-- (Paystack), donation status history, beneficiary bank accounts, payouts. Ledger rows live in the WALLET CORE tables.
+-- Docs: scratch/monetisation/fundme.md
+-- ============================================================
+ALTER TABLE fundraisers ADD COLUMN IF NOT EXISTS risk_flags jsonb NOT NULL DEFAULT '[]'::jsonb;  -- [{code,label,detail}] set at submission
+ALTER TABLE fundraisers ADD COLUMN IF NOT EXISTS text_hash text;                                 -- normalised title+story hash (duplicate text)
+ALTER TABLE fundraisers ADD COLUMN IF NOT EXISTS image_hashes text[] NOT NULL DEFAULT '{}';       -- R2 etag:size of its photos (duplicate images)
+ALTER TABLE fundraisers ADD COLUMN IF NOT EXISTS first_submitted_at timestamptz;                 -- publishing limits count requests, not resubmissions
+ALTER TABLE fundraisers ADD COLUMN IF NOT EXISTS publish_ref text;                               -- wallet_ops.ref of the credit spent when it was published
+CREATE INDEX IF NOT EXISTS fundraisers_text_hash ON fundraisers (text_hash) WHERE text_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS fundraisers_first_submitted ON fundraisers (owner_id, first_submitted_at);
+
+-- Donations: allocated to the beneficiary + request when created; money only counts after gateway verification.
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS beneficiary_id uuid REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS donor_email text CHECK (donor_email IS NULL OR char_length(donor_email) <= 200); -- Paystack receipt
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS net_minor bigint CHECK (net_minor IS NULL OR net_minor >= 0);                  -- amount − fee (held for the beneficiary)
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS risk_flags jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS received_at timestamptz;                           -- gateway confirmed (ledger: donation:<id>)
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS verified_at timestamptz;                           -- BibleNestra verified
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS receipt_no text UNIQUE;
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS is_test boolean NOT NULL DEFAULT false;            -- test provider: no real money
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS gateway jsonb NOT NULL DEFAULT '{}'::jsonb;        -- channel, paid_at, gateway fees (never card data)
+CREATE INDEX IF NOT EXISTS donations_settlement ON donations (settlement_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS donations_beneficiary ON donations (beneficiary_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS donations_donor ON donations (donor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS donations_payout ON donations (payout_id) WHERE payout_id IS NOT NULL;
+
+-- Status history (who / when / why) for donations and payouts. Append-only by convention.
+CREATE TABLE IF NOT EXISTS fundme_donation_events (
+  id           bigserial PRIMARY KEY,
+  donation_id  uuid NOT NULL REFERENCES donations(id) ON DELETE CASCADE,
+  from_status  text,
+  to_status    text NOT NULL,
+  actor        text NOT NULL DEFAULT 'system' CHECK (actor IN ('system','admin','paystack','test','donor')),
+  actor_id     uuid REFERENCES users(id) ON DELETE SET NULL,
+  reason       text CHECK (reason IS NULL OR char_length(reason) <= 500),
+  meta         jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fundme_donation_events_d ON fundme_donation_events (donation_id, id);
+CREATE TABLE IF NOT EXISTS fundme_payout_events (
+  id           bigserial PRIMARY KEY,
+  payout_id    uuid NOT NULL REFERENCES fundme_payouts(id) ON DELETE CASCADE,
+  from_status  text,
+  to_status    text NOT NULL,
+  actor        text NOT NULL DEFAULT 'system' CHECK (actor IN ('system','admin','paystack')),
+  actor_id     uuid REFERENCES users(id) ON DELETE SET NULL,
+  reason       text CHECK (reason IS NULL OR char_length(reason) <= 500),
+  meta         jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fundme_payout_events_p ON fundme_payout_events (payout_id, id);
+CREATE INDEX IF NOT EXISTS fundme_payouts_beneficiary ON fundme_payouts (beneficiary_id, created_at DESC);
+
+-- Beneficiary bank account for payouts. The account number is AES-GCM encrypted (FUNDME_DATA_KEY); apps and admin lists
+-- only see the last 4 digits. Any change goes back to pending_review and puts unpaid payouts under review.
+CREATE TABLE IF NOT EXISTS fundme_bank_accounts (
+  user_id              uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  bank_code            text NOT NULL CHECK (char_length(bank_code) BETWEEN 2 AND 20),
+  bank_name            text NOT NULL CHECK (char_length(bank_name) BETWEEN 2 AND 120),
+  account_number_enc   text NOT NULL,
+  account_last4        text NOT NULL CHECK (account_last4 ~ '^[0-9]{4}$'),
+  account_name         text NOT NULL CHECK (char_length(account_name) BETWEEN 2 AND 120),
+  name_resolved        boolean NOT NULL DEFAULT false,         -- name confirmed by Paystack resolve-account
+  status               text NOT NULL DEFAULT 'pending_review' CHECK (status IN ('pending_review','verified','rejected')),
+  review_note          text,
+  reviewed_by          uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at          timestamptz,
+  recipient_code       text,                                   -- Paystack transfer recipient (auto payouts only)
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fundme_bank_accounts_status ON fundme_bank_accounts (status, updated_at);
+
+-- ===== VIRTUAL GIFTS & STARS (monetisation stage: client spec §8–§12, §15 C/D/F, §16 gift items) =====
+-- Owner: Virtual Gifts agent. Contract: scratch/monetisation/gifts.md. Money moves ONLY through lib/wallet.js postGift()
+-- (sender gift_coins −value · platform commission_gift_coins +commission · recipient gift_earnings +rest, one atomic op).
+-- The rows below are business records written in the SAME transaction (post({ alsoRun })).
+-- Legacy Kingdom Coin gifts (gift_transactions, POST /gifts, POST /conversations/:id/coins) are untouched and separate.
+
+-- Gift catalogue (spec §9). price_minor = the client's proposed retail price (kobo). coins = admin-set Gifting Coin
+-- cost; NULL = derived from wallet_config.gift_coin_rate (never hard-code ₦1 = 1 coin).
+CREATE TABLE IF NOT EXISTS gift_catalogue (
+  id             text PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_]{1,40}$'),
+  name           text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 60),
+  description    text CHECK (description IS NULL OR char_length(description) <= 200),
+  price_minor    bigint NOT NULL CHECK (price_minor >= 0),
+  currency       text NOT NULL DEFAULT 'NGN' CHECK (currency ~ '^[A-Z]{3}$'),
+  coins          integer CHECK (coins IS NULL OR coins > 0),
+  tier           text NOT NULL DEFAULT 'standard' CHECK (tier IN ('standard','premium')),
+  art            text NOT NULL DEFAULT 'star',            -- built-in animated artwork key (src/components/gifts/GiftArt.js)
+  image_key      text,                                    -- admin-uploaded replacement image (R2 img/gifts/...)
+  animation_key  text,                                    -- admin-uploaded animated GIF / WebP (R2 img/gifts/...)
+  contexts       text[] NOT NULL DEFAULT ARRAY['chat','profile','live','post']::text[]
+                 CHECK (contexts <@ ARRAY['chat','profile','live','post']::text[]),
+  active         boolean NOT NULL DEFAULT true,
+  sort           integer NOT NULL DEFAULT 0,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO gift_catalogue (id, name, description, price_minor, tier, art, sort) VALUES
+  ('star',        '1 Star',                 'A bright star of thanks',                    20000,    'standard', 'star',        1),
+  ('flowers',     'Flowers',                'A bouquet to brighten their day',            50000,    'standard', 'flowers',     2),
+  ('heart',       'Heart',                  'Love and encouragement',                     100000,   'standard', 'heart',       3),
+  ('teddy',       'Teddy Bear',             'A warm, cuddly hug',                         150000,   'standard', 'teddy',       4),
+  ('love_letter', 'Love Letter',            'Words from the heart',                       250000,   'standard', 'letter',      5),
+  ('diamonds',    'Diamonds',               'Precious and rare',                          500000,   'premium',  'diamond',     6),
+  ('crown',       'Crown',                  'Honour a faithful servant',                  1000000,  'premium',  'crown',       7),
+  ('gold_trophy', 'Gold Trophy',            'For a race well run',                        2000000,  'premium',  'trophy',      8),
+  ('celebration', 'Celebration Gift',       'Fireworks and joy',                          4000000,  'premium',  'celebration', 9),
+  ('premium',     'Premium Animated Gift',  'Our grandest gift, with a full-screen show', 10000000, 'premium',  'premium',     10)
+ON CONFLICT (id) DO NOTHING;
+
+-- Every virtual gift sent (one row per wallet op 'gift:<id>'). commission + earnings = coins, always.
+CREATE TABLE IF NOT EXISTS gift_sends (
+  id              uuid PRIMARY KEY,                       -- derived from (sender, client idempotency key)
+  ref             text NOT NULL UNIQUE,                   -- wallet_ops.ref ('gift:<id>')
+  sender_id       uuid REFERENCES users(id) ON DELETE SET NULL,
+  recipient_id    uuid REFERENCES users(id) ON DELETE SET NULL,
+  gift_id         text NOT NULL REFERENCES gift_catalogue(id),
+  gift_name       text NOT NULL,                          -- snapshot at send time
+  coins           integer NOT NULL CHECK (coins > 0),
+  commission      integer NOT NULL CHECK (commission >= 0),
+  earnings        integer NOT NULL CHECK (earnings >= 0),
+  commission_bps  integer NOT NULL CHECK (commission_bps BETWEEN 0 AND 10000),
+  context_type    text NOT NULL CHECK (context_type IN ('chat','profile','live','post')),
+  context_id      text,
+  message_id      uuid,                                   -- the chat 'gift' message (chat context)
+  note            text CHECK (note IS NULL OR char_length(note) <= 140),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  CHECK (commission + earnings = coins),
+  CHECK (sender_id IS NULL OR recipient_id IS NULL OR sender_id <> recipient_id)
+);
+CREATE INDEX IF NOT EXISTS gift_sends_recipient ON gift_sends (recipient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS gift_sends_sender ON gift_sends (sender_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS gift_sends_context ON gift_sends (context_type, context_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS gift_sends_created ON gift_sends (created_at DESC);
+
+-- Creator payout programme (spec §11): only approved members may withdraw gift earnings.
+CREATE TABLE IF NOT EXISTS gift_creator_programme (
+  user_id         uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','suspended')),
+  legal_name      text NOT NULL CHECK (char_length(legal_name) BETWEEN 2 AND 120),
+  country         text NOT NULL DEFAULT 'NG',
+  bank_name       text NOT NULL CHECK (char_length(bank_name) BETWEEN 2 AND 80),
+  account_name    text NOT NULL CHECK (char_length(account_name) BETWEEN 2 AND 120),
+  account_number  text NOT NULL CHECK (account_number ~ '^[0-9]{6,20}$'),
+  about           text CHECK (about IS NULL OR char_length(about) <= 600),
+  admin_note      text,
+  applied_at      timestamptz NOT NULL DEFAULT now(),
+  decided_at      timestamptz,
+  decided_by      uuid REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS gift_creator_programme_status ON gift_creator_programme (status, applied_at);
+
+-- Withdrawal requests (behind wallet_config.earnings_withdrawals_enabled, default off). No automatic cash-out:
+-- an admin approves, pays by hand and marks it paid with the payment reference.
+CREATE TABLE IF NOT EXISTS gift_withdrawals (
+  id              uuid PRIMARY KEY,                       -- derived from (user, client idempotency key)
+  user_id         uuid REFERENCES users(id) ON DELETE SET NULL,
+  coins           integer NOT NULL CHECK (coins > 0),
+  payout_minor    bigint NOT NULL CHECK (payout_minor >= 0),
+  currency        text NOT NULL,
+  status          text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested','approved','paid','rejected')),
+  payout_details  jsonb NOT NULL DEFAULT '{}'::jsonb,     -- snapshot of the programme bank details
+  reference       text,                                   -- bank / transfer reference when paid
+  admin_note      text,
+  decided_by      uuid REFERENCES users(id) ON DELETE SET NULL,
+  decided_at      timestamptz,
+  paid_at         timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS gift_withdrawals_status ON gift_withdrawals (status, created_at);
+CREATE INDEX IF NOT EXISTS gift_withdrawals_user ON gift_withdrawals (user_id, created_at DESC);
+
+-- Live sessions (minimal: the host and whether it is live), so a live gift can be checked server-side.
+CREATE TABLE IF NOT EXISTS live_sessions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  host_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title       text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 120),
+  status      text NOT NULL DEFAULT 'live' CHECK (status IN ('live','ended')),
+  started_at  timestamptz NOT NULL DEFAULT now(),
+  ended_at    timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS live_sessions_one_live ON live_sessions (host_id) WHERE status = 'live';
+CREATE INDEX IF NOT EXISTS live_sessions_status ON live_sessions (status, started_at DESC);
+
+-- Chat gift bubbles: messages.kind 'gift'. Keeps EVERY earlier kind (text, image, voice, verse, prayer, event, video,
+-- file, system). Another stage adding a kind must DROP/ADD with this full list plus its own.
+ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_kind_check;
+ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system','gift'));
+-- ===== END VIRTUAL GIFTS & STARS =====
