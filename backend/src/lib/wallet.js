@@ -89,6 +89,7 @@ export const KINDS = {
   fundme_publish: 'Published a Fund Me request', fundme_credit_gift_sent: 'Sent credits', fundme_credit_gift_received: 'Received credits',
   dating_spend: 'Used in Find Love', dating_refund: 'Refunded', boost_used: 'Used a boost',
   gift_sent: 'Sent a gift', gift_commission: 'Gift commission', gift_received: 'Gift received',
+  support_sent: 'Support BibleNestra', support_received: 'Support BibleNestra',
   earnings_release: 'Earnings released', withdrawal_request: 'Withdrawal requested', withdrawal_paid: 'Withdrawal paid', withdrawal_reversed: 'Withdrawal returned',
   purchase_reversal: 'Purchase refunded',
   donation_received: 'Donation received', donation_fee: 'Platform fee', payout_paid: 'Payout paid', donation_refunded: 'Donation refunded',
@@ -108,9 +109,11 @@ export const CONFIG_DEFAULTS = {
   gift_commission_bps: 2000,                                     // 20% (spec §11)
   gift_coin_rate: { coins: 1, perMinor: 100, currency: 'NGN' },  // conversion: `coins` Gifting Coins = `perMinor` kobo. PROPOSAL (1 coin = ₦1), client to confirm (spec §9). Admin-set; read it, never hard-code it.
   earnings_payout_rate: { minorPerCoin: 100, currency: 'NGN' },  // what 1 earned coin is worth on an approved creator payout. PROPOSAL, client to confirm.
-  earnings_hold_days: 7,                                         // pending → available after this many days. PROPOSAL, client to confirm.
+  earnings_hold_days: 14,                                        // pending → available after this many days (client answer Q21, 2026-11-21)
   earnings_withdrawals_enabled: false,                           // stays off until the payout programme is approved (legal review)
-  earnings_min_withdrawal: 5000,                                 // coins
+  earnings_min_withdrawal_usd: 10,                               // minimum gift-earnings withdrawal in US dollars (client answer Q22). null = use earnings_min_withdrawal
+  usd_ngn_rate: 1500,                                            // ₦ per $1. Turns the USD minimum into coins and shows "about ₦…" in the app
+  earnings_min_withdrawal: 15000,                                // coins. Only used when earnings_min_withdrawal_usd is null (or the payout currency is neither NGN nor USD)
   fundme_publish_credits: 1,                                     // credits per published Fund Me request (spec §1)
 };
 const posInt = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
@@ -121,8 +124,34 @@ const CONFIG_CHECK = {
   earnings_hold_days: (v) => posInt(v, 0, 365),
   earnings_withdrawals_enabled: (v) => typeof v === 'boolean',
   earnings_min_withdrawal: (v) => posInt(v, 0, 1e9),
+  earnings_min_withdrawal_usd: (v) => v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1e6 && Math.abs(Math.round(v * 100) - v * 100) < 1e-6), // whole cents
+  usd_ngn_rate: (v) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 1e7,
   fundme_publish_credits: (v) => posInt(v, 0, 100),
 };
+/**
+ * The gift-earnings withdrawal minimum, from the admin settings.
+ * The admin sets it in USD (earnings_min_withdrawal_usd, default $10). It becomes coins through the payout value of one
+ * earned coin (earnings_payout_rate) and, for a naira payout, usd_ngn_rate: $10 × ₦1,500 ÷ ₦1 per coin = 15,000 coins.
+ * When the USD minimum is null (or the payout currency is neither NGN nor USD) the coin setting earnings_min_withdrawal is used.
+ * → { coins, usd, payoutMinor, currency, usdNgnRate, source: 'usd' | 'coins', label: '$10 (about ₦15,000)' }
+ */
+export function withdrawalMinimum(cfg) {
+  const pr = cfg.earnings_payout_rate || {};
+  const per = Number(pr.minorPerCoin) || 0;
+  const fx = Number(cfg.usd_ngn_rate) || 0;
+  const cur = String(pr.currency || 'NGN').toUpperCase();
+  const minorPerUsd = cur === 'NGN' ? (fx > 0 ? fx * 100 : 0) : cur === 'USD' ? 100 : 0;
+  const usdSet = cfg.earnings_min_withdrawal_usd;
+  let coins; let source;
+  if (usdSet != null && minorPerUsd > 0 && per > 0) { coins = Math.ceil(Math.round(Number(usdSet) * minorPerUsd) / per); source = 'usd'; }
+  else { coins = Math.max(0, Number(cfg.earnings_min_withdrawal) || 0); source = 'coins'; }
+  const payoutMinor = coins * per;
+  const usd = source === 'usd' ? Number(usdSet) : (minorPerUsd > 0 ? Math.round((payoutMinor / minorPerUsd) * 100) / 100 : null);
+  const money = (minor) => `${cur === 'NGN' ? '₦' : cur === 'USD' ? '$' : `${cur} `}${(minor / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  const dollars = usd == null ? null : `$${usd.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(usd) ? 0 : 2, maximumFractionDigits: 2 })}`;
+  const label = dollars ? (cur === 'USD' ? dollars : `${dollars} (about ${money(payoutMinor)})`) : `${coins.toLocaleString('en-US')} coins (${money(payoutMinor)})`;
+  return { coins, usd, payoutMinor, currency: cur, usdNgnRate: fx, source, label };
+}
 /** Later stages can add their own settings (shown in Admin › Wallets & payments › Settings as JSON). */
 export function registerConfig(key, dflt, check) {
   if (!/^[a-z][a-z0-9_]{1,60}$/.test(key)) throw new Error('bad config key');
@@ -317,21 +346,25 @@ export function splitGift(coins, bps = CONFIG_DEFAULTS.gift_commission_bps) {
  * The gift posting, ONE atomic + idempotent operation (ref e.g. 'gift:<giftSendId>'):
  *   sender gift_coins −coins · platform commission_gift_coins +commission · recipient gift_earnings (pending) +rest.
  * bps: commission in basis points (default: admin setting gift_commission_bps, 2000 = 20%; pass 0 for a gift that is not
- * eligible for commission). Returns post()'s result plus split: { coins, commission, earnings, bps }.
+ * eligible for commission; 10000 = all of it to the platform, e.g. a Support BibleNestra gift). Returns post()'s result
+ * plus split: { coins, commission, earnings, bps }.
+ * kinds: optional entry kinds { sent, received, commission } (default gift_sent / gift_received / gift_commission). The
+ * operation kind is kinds.sent. Support BibleNestra uses { sent: 'support_sent', commission: 'support_received' }.
  */
-export async function postGift(env, { ref, senderId, recipientId, coins, giftId = null, relatedType = 'gift', relatedId = null, meta = {}, bps = null, alsoRun = null }) {
+export async function postGift(env, { ref, senderId, recipientId, coins, giftId = null, relatedType = 'gift', relatedId = null, meta = {}, bps = null, alsoRun = null, kinds = null }) {
   if (!senderId || !recipientId || String(senderId).toLowerCase() === String(recipientId).toLowerCase()) throw bad('You cannot send a gift to yourself', 'SELF_TRANSFER');
   const n = units(coins, 'coins');
   const rate = bps == null ? (await getConfig(env)).gift_commission_bps : Number(bps);
   if (!posInt(rate, 0, 10000)) throw bad('bps must be 0-10000', 'BAD_AMOUNT');
+  const k = { sent: 'gift_sent', received: 'gift_received', commission: 'gift_commission', ...(kinds || {}) };
   const s = splitGift(n, rate);
   const m = { ...meta, giftId, commissionBps: rate };
   const legs = [
-    { userId: senderId, wallet: 'gift_coins', amount: -s.coins, kind: 'gift_sent', counterpartyId: recipientId, relatedType, relatedId, meta: m },
-    { userId: recipientId, wallet: 'gift_earnings', amount: s.earnings, kind: 'gift_received', counterpartyId: senderId, relatedType, relatedId, meta: m },
-    { account: PLATFORM, wallet: 'commission_gift_coins', amount: s.commission, kind: 'gift_commission', counterpartyId: senderId, relatedType, relatedId, meta: m },
+    { userId: senderId, wallet: 'gift_coins', amount: -s.coins, kind: k.sent, counterpartyId: recipientId, relatedType, relatedId, meta: m },
+    { userId: recipientId, wallet: 'gift_earnings', amount: s.earnings, kind: k.received, counterpartyId: senderId, relatedType, relatedId, meta: m },
+    { account: PLATFORM, wallet: 'commission_gift_coins', amount: s.commission, kind: k.commission, counterpartyId: senderId, relatedType, relatedId, meta: m },
   ].filter((l) => l.amount !== 0);
-  const r = await post(env, { ref, kind: 'gift_sent', actorId: senderId, meta: m, legs, alsoRun });
+  const r = await post(env, { ref, kind: k.sent, actorId: senderId, meta: m, legs, alsoRun });
   return { ...r, split: { ...s, bps: rate } };
 }
 

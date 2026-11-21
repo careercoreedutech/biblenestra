@@ -4,6 +4,7 @@
 // Signed in:
 //   GET  /gifts/catalogue?context=chat|profile|live|post   active gifts with Gifting Coin cost + rules + my balance
 //   POST /gifts/send { giftId, context: { type, id }, recipientId?, note?, idempotencyKey }
+//        context { type: 'support' } = Support BibleNestra: to the official account, 100% platform revenue (ref support:<id>)
 //   GET  /gifts/history?dir=sent|received|all&cursor=       my gifts (both directions) + totals
 //   GET  /gifts/wall/:userId                                a profile's gifts wall
 //   GET  /gifts/earnings                                    earnings by state, rules, programme, withdrawals
@@ -17,10 +18,11 @@ import { Hono } from 'hono';
 import { q, one } from '../lib/db.js';
 import { ApiError, bad, body, isUuid, notFound, forbidden, str, uuidParam } from '../lib/http.js';
 import { audit, requireAdmin, registerAdminScript } from './admin.js';
-import { getConfig, getBalance, ledgerIntegrity, walletNotify } from '../lib/wallet.js';
+import { getConfig, getBalance, ledgerIntegrity, walletNotify, withdrawalMinimum } from '../lib/wallet.js';
 import {
   CONTEXTS, listCatalogue, cleanGiftInput, giftShape, sendGift, giftHistory, giftWall, earningsSummary, applyProgramme,
   requestWithdrawal, decideWithdrawal, programmeShape, withdrawalShape, sendShape, SEND_SELECT, liveShape, LIVE_SELECT, EXPLAIN,
+  SEND_CONTEXTS, SUPPORT_LABEL,
 } from '../lib/virtualGifts.js';
 import { GIFTS_ADMIN_SCRIPT } from '../lib/giftsAdminPage.js';
 
@@ -32,10 +34,16 @@ giftsApp.get('/gifts/catalogue', async (c) => {
   const me = c.get('user');
   const context = c.req.query('context') || null;
   const { cfg, items } = await listCatalogue(c, { context });
+  const min = withdrawalMinimum(cfg);
   return c.json({
     items,
     balance: await getBalance(c.env, me.id, 'gift_coins'),
-    rules: { commissionPct: cfg.gift_commission_bps / 100, holdDays: cfg.earnings_hold_days, withdrawalsEnabled: !!cfg.earnings_withdrawals_enabled, enabled: !!cfg.gifts_enabled, explain: EXPLAIN(cfg) },
+    rules: {
+      commissionPct: cfg.gift_commission_bps / 100, holdDays: cfg.earnings_hold_days, withdrawalsEnabled: !!cfg.earnings_withdrawals_enabled, enabled: !!cfg.gifts_enabled,
+      minWithdrawal: min.coins, minWithdrawalUsd: min.usd, minWithdrawalLabel: min.label, usdNgnRate: min.usdNgnRate, explain: EXPLAIN(cfg),
+    },
+    // Support BibleNestra: send any gift with context { type: 'support' }; 100% goes to BibleNestra
+    support: { context: { type: 'support' }, label: SUPPORT_LABEL, platformPct: 100 },
     rate: cfg.gift_coin_rate,
   });
 });
@@ -210,7 +218,7 @@ adminGifts.get('/admin/api/gifts/sends', async (c) => {
   const role = ['sent', 'received'].includes(c.req.query('role')) ? c.req.query('role') : 'any';
   const ref = (c.req.query('ref') || '').trim() || null;
   const giftId = c.req.query('giftId') || null;
-  const ctx = CONTEXTS.includes(c.req.query('context')) ? c.req.query('context') : null;
+  const ctx = SEND_CONTEXTS.includes(c.req.query('context')) ? c.req.query('context') : null;
   const from = dateQ(c.req.query('from')); const to = dateQ(c.req.query('to'));
   const isCsv = c.req.query('format') === 'csv';
   const limit = isCsv ? 5000 : Math.min(200, Math.max(1, Number(c.req.query('limit')) || 50));
@@ -245,13 +253,15 @@ adminGifts.get('/admin/api/gifts/commission', async (c) => {
     FROM gift_sends s WHERE ($1::timestamptz IS NULL OR s.created_at >= $1) AND ($2::timestamptz IS NULL OR s.created_at < $2)
     GROUP BY s.gift_id ORDER BY SUM(s.commission) DESC`, [from, to]);
   // reconciliation: business rows vs the ledger (all time)
-  const rows = await one(c.env, 'SELECT COUNT(*)::int AS n, COALESCE(SUM(coins),0)::bigint AS coins, COALESCE(SUM(commission),0)::bigint AS commission, COALESCE(SUM(earnings),0)::bigint AS earnings FROM gift_sends');
+  // Support BibleNestra gifts (ref 'support:<id>', kinds support_sent / support_received) are included: 100% commission
+  const rows = await one(c.env, `SELECT COUNT(*)::int AS n, COALESCE(SUM(coins),0)::bigint AS coins, COALESCE(SUM(commission),0)::bigint AS commission, COALESCE(SUM(earnings),0)::bigint AS earnings,
+      COUNT(*) FILTER (WHERE ref LIKE 'support:%')::int AS support_n, COALESCE(SUM(coins) FILTER (WHERE ref LIKE 'support:%'), 0)::bigint AS support_coins FROM gift_sends`);
   const led = await one(c.env, `SELECT
-      COALESCE(-SUM(amount) FILTER (WHERE kind = 'gift_sent' AND wallet = 'gift_coins'), 0)::bigint AS sent,
-      COALESCE(SUM(amount) FILTER (WHERE kind = 'gift_commission' AND wallet = 'commission_gift_coins'), 0)::bigint AS commission,
+      COALESCE(-SUM(amount) FILTER (WHERE kind IN ('gift_sent','support_sent') AND wallet = 'gift_coins'), 0)::bigint AS sent,
+      COALESCE(SUM(amount) FILTER (WHERE kind IN ('gift_commission','support_received') AND wallet = 'commission_gift_coins'), 0)::bigint AS commission,
       COALESCE(SUM(amount) FILTER (WHERE kind = 'gift_received' AND wallet = 'gift_earnings'), 0)::bigint AS earnings,
-      COUNT(DISTINCT ref) FILTER (WHERE ref LIKE 'gift:%')::int AS ops
-    FROM wallet_entries WHERE ref LIKE 'gift:%'`);
+      COUNT(DISTINCT ref)::int AS ops
+    FROM wallet_entries WHERE ref LIKE 'gift:%' OR ref LIKE 'support:%'`);
   const bal = await one(c.env, `SELECT COALESCE(balance, 0)::bigint AS b FROM wallet_balances WHERE account = 'platform' AND wallet = 'commission_gift_coins'`);
   const integrity = await ledgerIntegrity(c.env);
   const n = (v) => Number(v || 0);
@@ -259,6 +269,7 @@ adminGifts.get('/admin/api/gifts/commission', async (c) => {
     giftRows: rows.n, ledgerOps: led.ops,
     coins: { rows: n(rows.coins), ledger: n(led.sent) }, commission: { rows: n(rows.commission), ledger: n(led.commission), platformBalance: n(bal && bal.b) },
     earnings: { rows: n(rows.earnings), ledger: n(led.earnings) },
+    support: { gifts: rows.support_n, coins: n(rows.support_coins) },
   };
   recon.ok = recon.giftRows === recon.ledgerOps && recon.coins.rows === recon.coins.ledger && recon.commission.rows === recon.commission.ledger
     && recon.commission.ledger === recon.commission.platformBalance && recon.earnings.rows === recon.earnings.ledger
@@ -317,7 +328,8 @@ adminGifts.get('/admin/api/gifts/withdrawals', async (c) => {
     FROM gift_withdrawals w LEFT JOIN users u ON u.id = w.user_id
     WHERE ($1::text IS NULL OR w.status = $1) ORDER BY (w.status IN ('requested','approved')) DESC, w.created_at DESC LIMIT 200`, [status]);
   const cfg = await getConfig(c.env);
-  return c.json({ items: rows.map((r) => withdrawalShape(r, { admin: true })), withdrawalsEnabled: !!cfg.earnings_withdrawals_enabled, payoutRate: cfg.earnings_payout_rate, minWithdrawal: cfg.earnings_min_withdrawal });
+  const min = withdrawalMinimum(cfg);
+  return c.json({ items: rows.map((r) => withdrawalShape(r, { admin: true })), withdrawalsEnabled: !!cfg.earnings_withdrawals_enabled, payoutRate: cfg.earnings_payout_rate, minWithdrawal: min.coins, minWithdrawalLabel: min.label });
 });
 adminGifts.post('/admin/api/gifts/withdrawals/:id/:action', async (c) => {
   const me = c.get('user');

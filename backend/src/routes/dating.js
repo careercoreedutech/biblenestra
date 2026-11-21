@@ -28,8 +28,8 @@ datingApp.post('/dating/profile/photos', async (c) => {
   const me = c.get('user');
   await rateLimit(c.env, `dating_photo:${me.id}`, 30, 3600);
   const b = await body(c);
-  const id = await D.addPhoto(c.env, me, { key: b.key });
-  return c.json({ id, profile: await D.myProfile(c.env, me.id, ctxOf(c)) }, 201);
+  const r = await D.addPhoto(c.env, me, { key: b.key }); // review: live | flagged | pending (AI photo check, rules.photoReview)
+  return c.json({ id: r.id, review: r.review, profile: await D.myProfile(c.env, me.id, ctxOf(c)) }, 201);
 });
 datingApp.delete('/dating/profile/photos/:id', async (c) => {
   const me = c.get('user');
@@ -94,6 +94,28 @@ datingApp.post('/dating/report', async (c) => {
   return c.json(await D.reportMember(c.env, c.get('user'), { userId: b.userId, reason: b.reason, details: b.details, block: !!b.block }), 201);
 });
 
+// ─── verified badge: live selfie (code + gesture) + government ID → admin decision (client answer Q25) ─────────────
+datingApp.get('/dating/verification', async (c) => c.json({ verification: await D.verificationShape(c.env, c.get('user').id) }));
+datingApp.post('/dating/verification/start', async (c) => c.json({ verification: await D.startVerification(c.env, c.get('user')) }));
+// raw image body (like /uploads/image), ?kind=selfie|id. Stored privately under kyc/<user>/<verification>/.
+datingApp.post('/dating/verification/upload', async (c) => {
+  const len = Number(c.req.header('Content-Length') || 0);
+  if (len > 10 * 1024 * 1024) throw bad('Images must be under 10 MB', 'TOO_LARGE');
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  return c.json({ verification: await D.uploadVerificationImage(c.env, c.get('user'), { kind: c.req.query('kind'), contentType: c.req.header('Content-Type'), bytes }) }, 201);
+});
+datingApp.post('/dating/verification/submit', async (c) => c.json({ verification: await D.submitVerification(c.env, c.get('user'), { idType: (await body(c)).idType }) }));
+// The member's own images while the request is open (they are deleted after the decision). Never cached publicly.
+datingApp.get('/dating/verification/file/:kind', async (c) => {
+  const me = c.get('user');
+  const v = await one(c.env, `SELECT * FROM dating_verifications WHERE user_id = $1 AND status IN ('draft','pending') ORDER BY created_at DESC LIMIT 1`, [me.id]);
+  return kycResponse(c, v ? await D.verificationObject(c.env, v, c.req.param('kind')) : null);
+});
+function kycResponse(c, obj) {
+  if (!obj) throw notFound('Image not found');
+  return new Response(obj.body, { status: 200, headers: { 'Content-Type': (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/jpeg', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
+}
+
 // ─── admin ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 export const adminDating = new Hono();
 adminDating.use('/admin/api/dating/*', requireAdmin);
@@ -129,6 +151,9 @@ adminDating.get('/admin/api/dating/overview', async (c) => {
       (SELECT count(*)::int FROM dating_profiles WHERE status = 'paused') AS paused,
       (SELECT count(*)::int FROM dating_profiles WHERE status = 'banned') AS banned,
       (SELECT count(*)::int FROM dating_photos WHERE status = 'pending') AS photos_pending,
+      (SELECT count(*)::int FROM dating_photos WHERE status = 'pending' AND ai_flagged) AS photos_flagged,
+      (SELECT count(*)::int FROM dating_profiles WHERE report_hold_at IS NOT NULL) AS held,
+      (SELECT count(*)::int FROM dating_verifications WHERE status = 'pending') AS verifications_pending,
       (SELECT count(*)::int FROM dating_reports WHERE status = 'open') AS reports_open,
       (SELECT count(*)::int FROM dating_matches WHERE status = 'active') AS matches,
       (SELECT count(*)::int FROM dating_matches WHERE created_at > now() - interval '30 days') AS matches30,
@@ -142,6 +167,7 @@ adminDating.get('/admin/api/dating/overview', async (c) => {
   const spends = await q(c.env, `SELECT kind, count(*)::int AS count, sum(amount)::int AS coins FROM dating_spends WHERE created_at > now() - interval '30 days' AND wallet = 'dating_coins' GROUP BY kind ORDER BY coins DESC`);
   return c.json({
     profiles: { total: r.total, active: r.active, paused: r.paused, banned: r.banned }, photosPending: r.photos_pending, reportsOpen: r.reports_open,
+    photosFlagged: r.photos_flagged, heldAfterReports: r.held, verificationsPending: r.verifications_pending, autoHideReports: rules.autoHideReports,
     matches: r.matches, matches30: r.matches30, boostsActive: r.boosts_active, plus: r.plus, vip: r.vip, photoReview: rules.photoReview, requireSsv: !!rules.requireSsv,
     ads: { issued: r.ads_issued, claimed: r.ads_claimed, verified: r.ads_verified, expired: r.ads_expired },
     spends: spends.map((s) => ({ ...s, label: KINDS[s.kind] || s.kind })),
@@ -153,9 +179,11 @@ adminDating.get('/admin/api/dating/profiles', async (c) => {
   const where = [userFilter(c.req.query('q'), 'dp.user_id', p)];
   const st = c.req.query('status');
   if (['active', 'paused', 'banned'].includes(st)) { p.push(st); where.push(`dp.status = $${p.length}`); }
+  if (st === 'held') where.push('dp.report_hold_at IS NOT NULL'); // hidden automatically after reports (admin queue)
   if (c.req.query('reported') === '1') where.push('EXISTS (SELECT 1 FROM dating_reports r WHERE r.target_id = dp.user_id)');
   const rows = await q(c.env, `SELECT dp.*, EXTRACT(YEAR FROM age(current_date, dp.birth_date))::int AS age, u.display_name AS uname, u.handle AS uhandle,
       (SELECT count(*)::int FROM dating_reports r WHERE r.target_id = dp.user_id) AS reports,
+      (SELECT count(DISTINCT r.reporter_id)::int FROM dating_reports r WHERE r.target_id = dp.user_id AND r.created_at > COALESCE(dp.reports_cleared_at, '-infinity'::timestamptz)) AS reporters,
       (SELECT count(*)::int FROM dating_matches m WHERE (m.user_a = dp.user_id OR m.user_b = dp.user_id)) AS matches,
       (SELECT COALESCE(json_agg(json_build_object('id', ph.id, 'url', ph.url, 'status', ph.status) ORDER BY ph.position), '[]'::json) FROM dating_photos ph WHERE ph.user_id = dp.user_id) AS photos
     FROM dating_profiles dp JOIN users u ON u.id = dp.user_id WHERE ${where.join(' AND ')} ORDER BY dp.created_at DESC LIMIT 100`, p);
@@ -163,7 +191,8 @@ adminDating.get('/admin/api/dating/profiles', async (c) => {
   const abs = (url) => (/^https?:\/\//.test(url) ? url : `${(c.env.PUBLIC_MEDIA_BASE || `${ctx.origin}/media`).replace(/\/$/, '')}/${url}`);
   return c.json({ items: rows.map((r) => ({
     userId: r.user_id, firstName: r.first_name, age: r.age, gender: r.gender, interestedIn: r.interested_in, city: r.city, country: r.country,
-    denomination: r.denomination, intention: r.intention, bio: r.bio, status: r.status, banReason: r.ban_reason, verified: !!r.verified,
+    denomination: r.denomination, intention: r.intention, bio: r.bio, status: r.status, banReason: r.ban_reason, verified: !!r.verified, heldAt: r.report_hold_at || null,
+    reporters: r.reporters,
     reports: r.reports, matches: r.matches, createdAt: r.created_at, user: { id: r.user_id, name: r.uname, handle: r.uhandle },
     photos: (typeof r.photos === 'string' ? JSON.parse(r.photos) : r.photos || []).map((x) => ({ ...x, url: abs(x.url) })),
   })) });
@@ -178,11 +207,13 @@ adminDating.post('/admin/api/dating/profiles/:id/:action', async (c) => {
   if (action === 'ban') {
     const reason = str(b.reason, { min: 3, max: 300, field: 'reason' });
     await q(c.env, `UPDATE dating_profiles SET status = 'banned', ban_reason = $2, updated_at = now() WHERE user_id = $1`, [id, reason]);
-    const convs = await q(c.env, `UPDATE dating_conversations SET status = 'closed', updated_at = now() WHERE (user_a = $1 OR user_b = $1) AND status IN ('request','match') RETURNING conversation_id`, [id]);
-    for (const x of convs) await q(c.env, 'DELETE FROM conversation_members WHERE conversation_id = $1', [x.conversation_id]);
+    await D.closeAllConversations(c.env, id, 'closed');
     await q(c.env, `UPDATE dating_matches SET status = 'unmatched', unmatched_by = $2, unmatched_at = now() WHERE (user_a = $1 OR user_b = $1) AND status = 'active'`, [id, me.id]);
   } else if (action === 'unban') {
     await q(c.env, `UPDATE dating_profiles SET status = 'active', ban_reason = NULL, updated_at = now() WHERE user_id = $1 AND status = 'banned'`, [id]);
+    if (prof.report_hold_at) await D.restoreProfile(c.env, id, me.id);
+  } else if (action === 'restore') { // auto-hidden after reports → visible again; reports so far stop counting
+    await D.restoreProfile(c.env, id, me.id);
   } else if (action === 'verify') {
     await q(c.env, `UPDATE dating_profiles SET verified = $2, updated_at = now() WHERE user_id = $1`, [id, !!b.verified]);
   } else throw notFound();
@@ -195,11 +226,16 @@ adminDating.get('/admin/api/dating/photos', async (c) => {
   const st = ['pending', 'approved', 'rejected'].includes(c.req.query('status')) ? c.req.query('status') : 'pending';
   p.push(st);
   const where = [`ph.status = $1`, userFilter(c.req.query('q'), 'ph.user_id', p)];
+  const ai = c.req.query('ai'); // flagged = AI flagged · auto = approved by the AI (no human) · error = AI could not check
+  if (ai === 'flagged') where.push('ph.ai_flagged');
+  else if (ai === 'auto') where.push(`ph.ai_verdict = 'clean' AND ph.reviewed_by IS NULL`);
+  else if (ai === 'error') where.push(`ph.ai_verdict = 'error'`);
   const rows = await q(c.env, `SELECT ph.*, dp.first_name FROM dating_photos ph LEFT JOIN dating_profiles dp ON dp.user_id = ph.user_id
-    WHERE ${where.join(' AND ')} ORDER BY ph.created_at ${st === 'pending' ? 'ASC' : 'DESC'} LIMIT 120`, p);
+    WHERE ${where.join(' AND ')} ORDER BY ph.ai_flagged DESC, ph.created_at ${st === 'pending' ? 'ASC' : 'DESC'} LIMIT 120`, p);
   const origin = new URL(c.req.url).origin;
   const abs = (url) => (/^https?:\/\//.test(url) ? url : `${(c.env.PUBLIC_MEDIA_BASE || `${origin}/media`).replace(/\/$/, '')}/${url}`);
-  return c.json({ items: rows.map((r) => ({ id: r.id, userId: r.user_id, firstName: r.first_name || '', url: abs(r.url), status: r.status, rejectReason: r.reject_reason, createdAt: r.created_at })) });
+  return c.json({ items: rows.map((r) => ({ id: r.id, userId: r.user_id, firstName: r.first_name || '', url: abs(r.url), status: r.status, rejectReason: r.reject_reason, createdAt: r.created_at,
+    ai: { verdict: r.ai_verdict || null, flagged: !!r.ai_flagged, reason: r.ai_reason || null, model: r.ai_model || null, checkedAt: r.ai_checked_at || null }, reviewedBy: r.reviewed_by || null })) });
 });
 adminDating.post('/admin/api/dating/photos/:id', async (c) => {
   const me = c.get('user');
@@ -232,8 +268,7 @@ adminDating.post('/admin/api/dating/reports/:id', async (c) => {
   if (!r) throw notFound('Report not found');
   if (b.action === 'ban') {
     await q(c.env, `UPDATE dating_profiles SET status = 'banned', ban_reason = $2, updated_at = now() WHERE user_id = $1`, [r.target_id, `Suspended after a report (${r.reason})`]);
-    const convs = await q(c.env, `UPDATE dating_conversations SET status = 'closed', updated_at = now() WHERE (user_a = $1 OR user_b = $1) AND status IN ('request','match') RETURNING conversation_id`, [r.target_id]);
-    for (const x of convs) await q(c.env, 'DELETE FROM conversation_members WHERE conversation_id = $1', [x.conversation_id]);
+    await D.closeAllConversations(c.env, r.target_id, 'closed');
     await q(c.env, `UPDATE dating_reports SET status = 'actioned', action = 'ban', handled_by = $2, handled_at = now() WHERE target_id = $1 AND status = 'open'`, [r.target_id, me.id]);
   } else if (b.action === 'dismiss') {
     await q(c.env, `UPDATE dating_reports SET status = 'dismissed', action = 'dismiss', handled_by = $2, handled_at = now() WHERE id = $1`, [id, me.id]);
@@ -312,6 +347,41 @@ adminDating.get('/admin/api/dating/subscriptions', async (c) => {
     FROM dating_subscriptions s JOIN wallet_products pr ON pr.id = s.product_id ${USER_JOIN('s.user_id')}
     WHERE ${where.join(' AND ')} ORDER BY s.created_at DESC LIMIT 300`, p);
   return c.json({ items: rows.map((r) => ({ id: r.id, title: r.title, status: r.status, provider: r.provider, test: !!r.test, currentPeriodStart: r.current_period_start, currentPeriodEnd: r.current_period_end, cycles: r.cycles, user: userOf(r) })) });
+});
+
+// ─── verification queue: selfie + ID + profile photos side by side, the AI note, approve / reject ────────────────
+adminDating.get('/admin/api/dating/verifications', async (c) => {
+  const p = [];
+  const st = c.req.query('status') || 'pending';
+  const where = [userFilter(c.req.query('q'), 'v.user_id', p)];
+  if (['draft', 'pending', 'approved', 'rejected', 'expired'].includes(st)) { p.push(st); where.push(`v.status = $${p.length}`); }
+  const rows = await q(c.env, `SELECT v.*, dp.first_name, dp.gender, dp.birth_date, dp.verified AS profile_verified, EXTRACT(YEAR FROM age(current_date, dp.birth_date))::int AS age,
+      u.id AS uid, u.display_name AS name, u.handle,
+      (SELECT COALESCE(json_agg(ph.url ORDER BY ph.position), '[]'::json) FROM dating_photos ph WHERE ph.user_id = v.user_id AND ph.status = 'approved') AS photos
+    FROM dating_verifications v LEFT JOIN dating_profiles dp ON dp.user_id = v.user_id ${USER_JOIN('v.user_id')}
+    WHERE ${where.join(' AND ')} ORDER BY v.submitted_at ${st === 'pending' ? 'ASC' : 'DESC'} NULLS LAST, v.created_at DESC LIMIT 100`, p);
+  const origin = new URL(c.req.url).origin;
+  const abs = (url) => (/^https?:\/\//.test(url) ? url : `${(c.env.PUBLIC_MEDIA_BASE || `${origin}/media`).replace(/\/$/, '')}/${url}`);
+  return c.json({ items: rows.map((r) => ({
+    id: r.id, status: r.status, code: r.code, gesture: r.gesture, idType: r.id_type, idTypeLabel: D.ID_TYPES[r.id_type] || r.id_type,
+    ai: { status: r.ai_status, confidence: r.ai_confidence, note: r.ai_note }, submittedAt: r.submitted_at, decidedAt: r.decided_at, rejectReason: r.reject_reason,
+    hasSelfie: !!r.selfie_key, hasId: !!r.id_key, filesDeletedAt: r.files_deleted_at,
+    profile: { firstName: r.first_name, gender: r.gender, age: r.age, verified: !!r.profile_verified, photos: (typeof r.photos === 'string' ? JSON.parse(r.photos) : r.photos || []).map(abs) },
+    user: userOf(r),
+  })) });
+});
+// The private images (admins only — this whole prefix is behind requireAdmin). Fetched by the admin page with its token.
+adminDating.get('/admin/api/dating/verifications/:id/file/:kind', async (c) => {
+  const v = await one(c.env, 'SELECT * FROM dating_verifications WHERE id = $1', [uuidParam(c, 'id')]);
+  return kycResponse(c, v ? await D.verificationObject(c.env, v, c.req.param('kind')) : null);
+});
+adminDating.post('/admin/api/dating/verifications/:id', async (c) => {
+  const me = c.get('user');
+  const id = uuidParam(c, 'id');
+  const b = await body(c);
+  const r = await D.decideVerification(c, me, id, { decision: b.decision, reason: b.reason });
+  await audit(c.env, me, `dating.verification.${b.decision}`, 'dating_verification', id, { userId: r.userId, reason: b.reason || null });
+  return c.json({ ok: true, ...r });
 });
 
 adminDating.get('/admin/api/dating/config', async (c) => c.json(await D.datingConfig(c.env)));

@@ -15,6 +15,9 @@ import { useToast } from '../components/Toast';
 import { useWallet, getHistory, cancelSubscription, walletChanged, walletError, WALLET_META, fmtUnits, dateLabel, timeLabel } from '../api/wallet';
 import { BuyCoinsSheet, WalletSheet } from '../components/wallet';
 import { ws } from '../components/wallet/WalletSheet';
+import { GiftSheet } from '../components/gifts';
+import { SupportCard } from './GiftScreens';
+import { SUPPORT_CONTEXT, SUPPORT_RECIPIENT } from '../api/gifts';
 
 const GROUPS = [
   { key: 'fundme_credits', title: 'Fund Me request credits', icon: 'heart', tint: '#B5523B' },
@@ -51,7 +54,7 @@ function History({ wallet }) {
       {items.map((e) => (
         <View key={e.id} style={s.histRow}>
           <View style={{ flex: 1 }}>
-            <Text style={s.histLabel} numberOfLines={1}>{e.label}{e.counterparty && e.counterparty.name ? ` · ${e.counterparty.name}` : ''}</Text>
+            <Text style={s.histLabel} numberOfLines={1}>{e.label}{e.counterparty && e.counterparty.name && !String(e.kind).startsWith('support_') ? ` · ${e.counterparty.name}` : ''}{e.kind === 'support_sent' && e.meta && e.meta.giftName ? ` · ${e.meta.giftName}` : ''}</Text>
             <Text style={s.histMeta}>{timeLabel(e.createdAt)}{e.meta && e.meta.reason ? ` · ${e.meta.reason}` : ''}{wallet === 'gift_earnings' ? ` · ${(WALLET_META[e.wallet] || {}).short || ''}` : ''}</Text>
           </View>
           <Text style={[s.histAmt, { color: e.amount < 0 ? '#B3261E' : '#2E7D5B' }]}>{`${e.amount > 0 ? '+' : '−'}${fmtUnits(Math.abs(e.amount))}`}</Text>
@@ -76,7 +79,7 @@ function WalletCard({ g, cards, onBuy, open, onToggle, rules }) {
   const withdrawing = earnings ? cards.find((c) => c.wallet === 'gift_earnings_withdrawing') : null;
   const flags = earnings ? { purchasable: false, spendable: false, giftable: false, withdrawable: true } : main;
   const about = earnings
-    ? `You receive ${100 - (rules ? rules.giftCommissionPct : 20)}% of every gift sent to you; BibleNestra keeps ${rules ? rules.giftCommissionPct : 20}%. New earnings are held for ${rules ? rules.earningsHoldDays : 7} days. Withdrawal is only for members approved in the BibleNestra creator payout programme${rules && !rules.withdrawalsEnabled ? ' (not open yet)' : ''}.`
+    ? `Gift earnings: ${100 - (rules ? rules.giftCommissionPct : 20)}% to you (BibleNestra keeps ${rules ? rules.giftCommissionPct : 20}%), ${rules ? rules.earningsHoldDays : 14}-day hold, withdraw from ${(rules && rules.minWithdrawalLabel) || '$10 (about ₦15,000)'} once approved for the BibleNestra creator payout programme${rules && !rules.withdrawalsEnabled ? ' (withdrawals not open yet)' : ''}.`
     : main.about;
   return (
     <View style={s.card}>
@@ -124,6 +127,7 @@ export function WalletScreen({ params = {} }) {
   const [open, setOpen] = useState(params.focus || null);
   const [cancelAsk, setCancelAsk] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [support, setSupport] = useState(false);
 
   if (!online) {
     return (
@@ -166,6 +170,8 @@ export function WalletScreen({ params = {} }) {
       {loaded && cards.length ? GROUPS.map((g) => (
         <WalletCard key={g.key} g={g} cards={cards} rules={data.rules} onBuy={setBuy} open={open === g.key} onToggle={() => setOpen(open === g.key ? null : g.key)} />
       )) : null}
+
+      {loaded && data ? <SupportCard onPress={() => setSupport(true)} /> : null}
 
       {loaded && data ? (
         <>
@@ -210,6 +216,7 @@ export function WalletScreen({ params = {} }) {
 
       <BuyCoinsSheet visible={!!buy && buy !== 'plans'} wallet={buy && buy !== 'plans' ? buy : 'gift_coins'} onClose={() => setBuy(null)} onPurchased={() => reload()} />
       <BuyCoinsSheet visible={buy === 'plans'} plans onClose={() => setBuy(null)} onPurchased={() => reload()} />
+      <GiftSheet visible={support} onClose={() => setSupport(false)} recipient={SUPPORT_RECIPIENT} context={SUPPORT_CONTEXT} />
       <WalletSheet visible={cancelAsk} onClose={() => !busy && setCancelAsk(false)} title="Cancel renewal?" subtitle={sub ? `You keep ${sub.title} until ${dateLabel(sub.currentPeriodEnd)}. After that it won’t renew and you won’t be charged again.${sub.provider === 'play' ? ' Google Play subscriptions must also be cancelled in Google Play › Subscriptions.' : ''}` : ''}>
         <PressScale onPress={doCancel} scaleTo={0.98} style={[ws.primary, { backgroundColor: '#B3261E' }, busy && ws.disabled]} accessibilityRole="button">
           {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={ws.primaryText}>Cancel renewal</Text>}

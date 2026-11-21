@@ -1,6 +1,7 @@
 // Pick a virtual gift and send it (spec §12). Reusable anywhere: chats (incl. dating chats), groups, profiles, live, posts.
 //   <GiftSheet visible onClose recipient={{ id, name }} recipients={[{ id, name }]}? context={{ type, id }} onSent? allowNote? />
 //   - context.type: 'chat' (conversation id) | 'profile' (user id) | 'live' (live session id) | 'post' (post id)
+//                   | 'support' (no id: Support BibleNestra, 100% to BibleNestra — see SUPPORT_CONTEXT in api/gifts.js)
 //   - recipients: groups — the sender picks who receives it
 // Flow: choose → ConfirmSpend (cost + balance after; Buy Gifting Coins when short) → POST /gifts/send with ONE idempotency
 // key per confirmation (kept while retrying) → full-screen animation → onSent(result) (result.message = the chat bubble).
@@ -62,6 +63,10 @@ export function GiftSheet({ visible, onClose, recipient, recipients, context, on
   const pct = cat.rules.commissionPct != null ? cat.rules.commissionPct : 20;
   const noteOk = allowNote != null ? allowNote : !!(context && context.type === 'chat');
   const needPick = !!(recipients && recipients.length > 1 && !to);
+  const support = !!(context && context.type === 'support'); // Support BibleNestra: 100% to BibleNestra, no gift earnings
+  const subtitle = support
+    ? 'Your gift supports BibleNestra. All of it goes to keeping the app running; nobody earns from it.'
+    : `Gifts are bought with Gifting Coins. BibleNestra keeps ${pct}%; ${to && to.name ? to.name : 'they'} receive${to && to.name ? 's' : ''} ${100 - pct}% as gift earnings.`;
 
   const doSend = async () => {
     const r = await sendGift(api, { giftId: confirm.gift.id, context, recipientId: to && to.id, note: note.trim() || undefined, idempotencyKey: confirm.key });
@@ -77,8 +82,8 @@ export function GiftSheet({ visible, onClose, recipient, recipients, context, on
 
   return (
     <>
-      <WalletSheet visible={!!visible && !confirm && !buying} onClose={onClose} title={title || (to && to.name ? `Send ${to.name} a gift` : 'Send a gift')}
-        subtitle={`Gifts are bought with Gifting Coins. BibleNestra keeps ${pct}%; ${to && to.name ? to.name : 'they'} receive${to && to.name ? 's' : ''} ${100 - pct}% as gift earnings.`}>
+      <WalletSheet visible={!!visible && !confirm && !buying} onClose={onClose} title={title || (support ? 'Support BibleNestra' : to && to.name ? `Send ${to.name} a gift` : 'Send a gift')}
+        subtitle={subtitle}>
         <View style={styles.bar}>
           <WalletBalancePill wallet="gift_coins" onPress={() => setBuying(true)} />
           <View style={{ flex: 1 }} />
@@ -113,8 +118,10 @@ export function GiftSheet({ visible, onClose, recipient, recipients, context, on
         visible={!!confirm}
         amount={cs ? cs.gift.coins : 0}
         wallet="gift_coins"
-        title={cs ? `Send ${cs.gift.name}` : 'Send gift'}
-        description={cs ? `To ${(to && to.name) || 'them'}. They receive ${fmt(cs.gift.coins - Math.floor((cs.gift.coins * pct) / 100))} coins as gift earnings; BibleNestra keeps ${pct}%.` : ''}
+        title={cs ? (support ? `Support BibleNestra with ${cs.gift.name}` : `Send ${cs.gift.name}`) : 'Send gift'}
+        description={cs ? (support
+          ? `All ${fmt(cs.gift.coins)} coins go to BibleNestra to keep the app running. Thank you!`
+          : `To ${(to && to.name) || 'them'}. They receive ${fmt(cs.gift.coins - Math.floor((cs.gift.coins * pct) / 100))} coins as gift earnings; BibleNestra keeps ${pct}%.`) : ''}
         confirmLabel={cs ? `Send for ${fmt(cs.gift.coins)} coins` : 'Send'}
         onConfirm={doSend}
         onDone={done}

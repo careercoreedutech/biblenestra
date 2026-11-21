@@ -3,9 +3,13 @@
 //   datingChanged()                      every Find Love hook reloads (call after a swipe / purchase / profile change)
 //   dating.*(api, …)                     the calls below (every coin use carries an idempotency key; confirm first in the UI)
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
 import { useApi } from './auth';
-import { errorMessage } from './client';
+import { errorMessage, ApiError } from './client';
 import { walletChanged, newIdempotencyKey } from './wallet';
+import { prepareImage } from './media';
 
 const subs = new Set();
 let version = 0;
@@ -73,7 +77,48 @@ export const dating = {
   boost: (api, kind, key, useFreeBoost = true) => after(api.request('POST', '/dating/boost', { kind, idempotencyKey: key, useFreeBoost })),
   block: (api, userId) => after(api.request('POST', '/dating/block', { userId })),
   report: (api, userId, reason, details, block) => after(api.request('POST', '/dating/report', { userId, reason, details, block })),
+  // Verified badge (selfie with the code + gesture, and a government ID). The images are private to you and the team.
+  verification: (api) => api.request('GET', '/dating/verification'),
+  startVerification: (api) => api.request('POST', '/dating/verification/start'),
+  uploadVerification: (api, kind, photo) => uploadVerificationImage(api.request, kind, photo),
+  submitVerification: (api, idType) => after(api.request('POST', '/dating/verification/submit', { idType })),
 };
+
+/** Take a photo with the camera now (no gallery: the verification selfie must be live). → { uri, width, height, mimeType } | null */
+export async function takeLivePhoto({ front = true } = {}) {
+  if (Platform.OS !== 'web') {
+    const p = await ImagePicker.requestCameraPermissionsAsync();
+    if (!p.granted) throw new Error('Allow camera access in Settings to take your verification photo');
+  }
+  const res = await ImagePicker.launchCameraAsync({
+    mediaTypes: ['images'], quality: 0.85, allowsEditing: false,
+    cameraType: ImagePicker.CameraType ? (front ? ImagePicker.CameraType.front : ImagePicker.CameraType.back) : undefined,
+  });
+  if (res.canceled || !res.assets || !res.assets[0]) return null;
+  const a = res.assets[0];
+  return { uri: a.uri, width: a.width || 0, height: a.height || 0, mimeType: a.mimeType || 'image/jpeg' };
+}
+
+/** Upload the verification selfie or ID photo (raw JPEG body, like /uploads/image) → { verification }. */
+async function uploadVerificationImage(request, kind, photo) {
+  const img = await prepareImage(photo);
+  const path = `/dating/verification/upload?kind=${kind === 'id' ? 'id' : 'selfie'}`;
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(img.uri)).blob();
+    return request('POST', path, blob, { headers: { 'Content-Type': img.mimeType || blob.type || 'image/jpeg' }, timeout: 60000 });
+  }
+  const headers = { ...(await request.authHeaders()), 'Content-Type': img.mimeType || 'image/jpeg', Accept: 'application/json' };
+  let res;
+  try {
+    res = await FileSystem.uploadAsync(request.apiUrl + path, img.uri, { httpMethod: 'POST', uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT, headers });
+  } catch (e) {
+    throw new ApiError('Couldn’t upload your photo — check your connection', { code: 'NETWORK' });
+  }
+  let data = null;
+  try { data = res.body ? JSON.parse(res.body) : null; } catch (e) { data = null; }
+  if (res.status < 200 || res.status >= 300) throw new ApiError((data && data.error) || `Upload failed (${res.status})`, { code: (data && data.code) || `HTTP_${res.status}`, status: res.status });
+  return data;
+}
 
 export const datingError = (e, fallback) => {
   if (!e) return fallback || 'Something went wrong';

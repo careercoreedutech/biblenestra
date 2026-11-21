@@ -57,6 +57,53 @@ var tabs = [];          // { name, render }
 var current = null;
 var getToken = null;    // async () => token (Clerk)
 
+// ---------- STAFF ACCESS: what the signed-in person may see and do ----------
+// PERM null = the owner (everything). Otherwise { area: 'view' | 'manage' } from GET /admin/api/me, and ROUTES is the
+// server's route → area map. The server enforces all of this; the page only hides tabs and disables buttons.
+// Other tab scripts: window.adminTabAreas['My tab'] = ['area'] maps a new tab (unmapped tabs are hidden from staff).
+var PERM = null, ROUTES = [];
+var TAB_AREAS = window.adminTabAreas = Object.assign({
+  'Dashboard': ['overview'], 'Users': ['users'], 'Deletions': ['users'],
+  'Content': ['moderation'], 'Reports': ['moderation'], 'Communities & events': ['moderation'], 'Member websites': ['moderation'], 'Priests': ['moderation'], 'Apostle': ['moderation'],
+  'Announcements': ['broadcasts'], 'Broadcasts': ['broadcasts'], 'Fund Me approvals': ['fundme'],
+  'YouTube channels': ['media'], 'YouTube live': ['media'], 'Watch on Today': ['media'], 'Daily Bread & Videos': ['media'],
+  'Audit log': ['audit'], 'Ads': ['ads'], 'Blog': ['blog'], 'Chat passes': ['wallets'], 'Contests': ['contests'],
+  'Courses & Devotionals': ['learn'], 'Audio & Books': ['library'], 'Memberships': ['memberships'], 'Opportunities': ['opportunities'],
+  'Wallets & payments': ['wallets', 'fundme', 'gifts', 'dating'], 'Staff': ['staff']
+}, window.adminTabAreas || {});
+var SECTION_AREAS = { 'Wallets & payments': { 'Donations & payouts': 'fundme', 'Gift catalogue': 'gifts', 'Dating': 'dating', '*': 'wallets' } };
+function can(area, level){ if (!PERM) return true; var v = PERM[area]; return v === 'manage' || (v === 'view' && level !== 'manage'); }
+window.adminCan = can;
+function tabLevel(name){
+  if (!PERM) return 'manage';
+  var best = null;
+  (TAB_AREAS[name] || []).forEach(function(a){ if (PERM[a] === 'manage') best = 'manage'; else if (PERM[a] === 'view' && !best) best = 'view'; });
+  return best;
+}
+window.adminTabLevel = tabLevel;
+window.adminSectionAllowed = function(tab, section){ if (!PERM) return true; var m = SECTION_AREAS[tab]; if (!m) return true; return can(m[section] || m['*'], 'view'); };
+function allowedCall(method, path){
+  if (!PERM) return true;
+  var p = String(path).split('?')[0], area = null;
+  for (var i = 0; i < ROUTES.length; i++) { if (new RegExp(ROUTES[i][0]).test(p)) { area = ROUTES[i][1]; break; } }
+  var level = /^(GET|HEAD)$/i.test(method) ? 'view' : 'manage';
+  if (area === 'self') return true;
+  if (area === 'uploads') return level === 'view' || Object.keys(PERM).some(function(k){ return PERM[k] === 'manage' && k !== 'overview' && k !== 'audit'; });
+  return !!area && can(area, level);
+}
+// View-only tabs: disable buttons that change something (best effort; the server refuses the call anyway)
+var WRITE_RE = /^[+\\s]*(add|save|create|delete|remove|ban|unban|dismiss|approve|reject|hide|unhide|publish|unpublish|feature|unfeature|verify|unverify|make|grant|revoke|refund|send|post|schedule|run|generate|retry|cancel|end|pay|mark|update|activate|deactivate|enable|disable|upload|edit|reset|restore|archive|move|resolve|reverse|adjust|block|unblock|suspend|confirm|apply|import|assign|recheck|new|change|set|turn|stop|start|build|seed|reinstate|reopen|transfer|top up|credit|debit|link|unlink|pin|unpin|lock|unlock|close)\\b/i;
+var readOnly = false;
+function lockButtons(root){
+  if (!readOnly || !root || !root.querySelectorAll) return;
+  root.querySelectorAll('button').forEach(function(b){
+    if (b.closest('nav.tabs') || b.closest('header') || b.dataset.ro) return;
+    if (b.classList.contains('danger') || WRITE_RE.test((b.textContent || '').trim())) { b.disabled = true; b.dataset.ro = '1'; b.title = 'View only'; }
+  });
+}
+new MutationObserver(function(){ lockButtons(document.getElementById('panel')); var o = document.querySelector('.overlay'); if (o) lockButtons(o); })
+  .observe(document.body, { childList: true, subtree: true });
+
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function h(tag, attrs, kids){
   var el = document.createElement(tag);
@@ -79,6 +126,7 @@ async function api(method, path, body){
   else if (CFG.devMode && localStorage.getItem('bnAdminDevUser')) headers['X-Dev-User'] = localStorage.getItem('bnAdminDevUser');
   else if (getToken) { var tk = await getToken(); if (tk) headers['Authorization'] = 'Bearer ' + tk; }
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (!allowedCall(method, path)) { var deny = new Error(/^(GET|HEAD)$/i.test(method) ? 'Your staff role can’t open this' : 'You have view-only access here'); deny.code = 'STAFF_FORBIDDEN'; deny.status = 403; throw deny; }
   var res = await fetch(path, { method: method, headers: headers, body: body === undefined ? undefined : JSON.stringify(body) });
   var data = null; try { data = await res.json(); } catch (e) {}
   if (!res.ok) { var err = new Error((data && data.error) || ('Request failed (' + res.status + ')')); err.code = data && data.code; err.status = res.status; throw err; }
@@ -102,20 +150,25 @@ function sortTabs(){
 }
 window.adminToast = function(m, e){ toast(m, e); };
 window.adminH = function(t, a, k){ return h(t, a, k); };
-window.adminShow = function(name){ if (tabs.some(function(t){ return t.name === name; })) { show(name); window.scrollTo(0, 0); } };
+window.adminShow = function(name){ if (visibleTabs().some(function(t){ return t.name === name; })) { show(name); window.scrollTo(0, 0); } };
+function visibleTabs(){ return tabs.filter(function(t){ return !!tabLevel(t.name); }); }
 
 function drawTabs(){
   sortTabs();
   var nav = document.getElementById('tabs');
   if (!nav) return;
   nav.innerHTML = '';
-  tabs.forEach(function(t){ nav.appendChild(h('button', { class: t.name === current ? 'on' : '', text: t.name, onclick: function(){ show(t.name); } })); });
+  visibleTabs().forEach(function(t){ nav.appendChild(h('button', { class: t.name === current ? 'on' : '', text: t.name, onclick: function(){ show(t.name); } })); });
 }
 function show(name){
+  if (!tabLevel(name)) { var first = visibleTabs()[0]; if (!first) return; name = first.name; }
   current = name; drawTabs();
   var box = document.getElementById('panel'); box.innerHTML = '';
+  readOnly = tabLevel(name) === 'view';
+  if (readOnly) box.appendChild(h('div', { class: 'card', style: 'background:var(--raised);padding:10px 14px', text: 'View only — your staff role can look at this area but not change it.' }));
   var t = tabs.find(function(x){ return x.name === name; });
-  try { t.render(box, { api: api, toast: toast, esc: esc, h: h }); } catch (e) { box.appendChild(h('div', { class: 'card', text: 'This tab failed to load: ' + e.message })); }
+  try { t.render(box, { api: api, toast: toast, esc: esc, h: h, can: can, readOnly: readOnly }); } catch (e) { box.appendChild(h('div', { class: 'card', text: 'This tab failed to load: ' + e.message })); }
+  lockButtons(box);
   try { history.replaceState(null, '', '#' + encodeURIComponent(name)); } catch (e) {}
 }
 
@@ -214,14 +267,26 @@ function fundMePlaceholder(box){
 // ---------- Audit log ----------
 function auditTab(box){
   box.appendChild(h('h2', { class: 'serif', text: 'Audit log' }));
-  box.appendChild(h('p', { class: 'sub', text: 'The last 100 admin actions.' }));
+  box.appendChild(h('p', { class: 'sub', text: 'The last 100 admin actions. Staff actions show the staff member’s name.' }));
+  // STAFF ACCESS: "Activity by staff" filter (the Staff tab's "Activity" button presets it)
+  var filter = window.__auditStaff || ''; window.__auditStaff = '';
+  var sel = h('select', { onchange: function(){ filter = sel.value; load(); } });
+  box.appendChild(h('div', { class: 'row', style: 'margin-bottom:12px' }, [h('span', { class: 'meta', text: 'Activity by staff' }), sel]));
   var list = h('div', { class: 'card' }); box.appendChild(list);
-  api('GET', '/admin/api/actions').then(function(d){
-    if (!d.items.length) { list.className = 'card empty'; list.textContent = 'No admin actions yet.'; return; }
-    d.items.forEach(function(a, i){
-      list.appendChild(h('div', { class: 'row', style: 'padding:8px 0;' + (i ? 'border-top:1px solid var(--border)' : '') }, [h('span', { class: 'chip', text: a.action }), h('span', { class: 'grow', text: (a.details && (a.details.title || a.details.displayName || a.details.text)) || a.targetId || '' }), h('span', { class: 'meta', text: (a.admin || '—') + ' · ' + new Date(a.createdAt).toLocaleString() })]));
-    });
-  }).catch(function(e){ list.textContent = e.message; });
+  function load(){
+    list.className = 'card'; list.innerHTML = '<div class="meta">Loading…</div>';
+    api('GET', '/admin/api/actions' + (filter ? '?staff=' + encodeURIComponent(filter) : '')).then(function(d){
+      sel.innerHTML = '';
+      [['', 'Everyone'], ['owner', 'Owner only'], ['all-staff', 'All staff']].concat((d.staff || []).map(function(s){ return [s.id, s.name + (s.status === 'disabled' ? ' (disabled)' : '')]; }))
+        .forEach(function(o){ sel.appendChild(h('option', { value: o[0], text: o[1], selected: o[0] === filter })); });
+      list.innerHTML = '';
+      if (!d.items.length) { list.className = 'card empty'; list.textContent = 'No admin actions yet.'; return; }
+      d.items.forEach(function(a, i){
+        list.appendChild(h('div', { class: 'row', style: 'padding:8px 0;' + (i ? 'border-top:1px solid var(--border)' : '') }, [h('span', { class: 'chip' + (a.staffId ? ' gold' : ''), text: a.action }), h('span', { class: 'grow', text: (a.details && (a.details.title || a.details.displayName || a.details.text || a.details.name)) || a.targetId || '' }), h('span', { class: 'meta', text: (a.admin || '—') + ' · ' + new Date(a.createdAt).toLocaleString() })]));
+      });
+    }).catch(function(e){ list.textContent = e.message; });
+  }
+  load();
 }
 
 tabs.push({ name: 'YouTube channels', render: youtubeTab });
@@ -250,21 +315,72 @@ async function start(){
   catch (e) {
     localStorage.removeItem('bnAdminToken');
     if (e.code === 'NOT_ADMIN') return notAdmin();
+    if (e.code === 'STAFF_DISABLED' || e.code === 'STAFF_EXPIRED') toast(e.message, true);
     adminPasswordSignIn();
     return;
   }
+  // STAFF ACCESS: staff see only the tabs their role allows
+  PERM = me.owner === false ? (me.permissions || {}) : null;
+  ROUTES = me.routes || [];
+  window.adminMe = me;
   who.innerHTML = '';
-  who.appendChild(h('span', { text: 'Signed in as ' + (me.displayName || 'Benjamin') }));
+  who.appendChild(h('span', { text: 'Signed in as ' + (me.displayName || 'Benjamin') + (me.staff ? ' · ' + me.staff.roleLabel + ' (staff)' : '') }));
   who.appendChild(h('button', { class: 'btn small ghost', text: 'Sign out', onclick: signOut }));
   app.innerHTML = '';
   app.appendChild(h('nav', { class: 'tabs', id: 'tabs' }));
   app.appendChild(h('div', { id: 'panel' }));
   var want = decodeURIComponent((location.hash || '').slice(1));
   sortTabs();
-  show(tabs.some(function(t){ return t.name === want; }) ? want : tabs[0].name);
+  var vis = visibleTabs();
+  if (!vis.length) { document.getElementById('panel').appendChild(h('div', { class: 'card empty' }, [h('span', { class: 'serif', text: 'Nothing to show yet' }), 'Your staff role doesn’t include any dashboard areas. Ask the owner to change it.'])); return; }
+  show(vis.some(function(t){ return t.name === want; }) ? want : vis[0].name);
+}
+// STAFF ACCESS: /admin#invite=<token> — choose a username and password, then sign in as usual
+async function acceptInvite(token){
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  async function post(path, b){
+    var res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(b) });
+    var data = await res.json().catch(function(){ return {}; });
+    if (!res.ok) { var err = new Error(data.error || 'Something went wrong'); err.code = data.code; throw err; }
+    return data;
+  }
+  app.innerHTML = '<div class="meta">Checking your invite…</div>';
+  var inv;
+  try { inv = await post('/admin/api/staff/invite/check', { token: token }); }
+  catch (e) {
+    app.innerHTML = '';
+    app.appendChild(h('div', { class: 'signin' }, [h('div', { class: 'card' }, [h('div', { class: 'eyebrow', text: 'Invite' }), h('h2', { class: 'serif', text: 'This link can’t be used' }), h('p', { class: 'sub', text: e.message }), h('button', { class: 'btn ghost', text: 'Go to sign-in', onclick: function(){ adminPasswordSignIn(); } })])]));
+    return;
+  }
+  var userIn = h('input', { placeholder: 'Choose a username', value: inv.username || '', disabled: !inv.needsUsername, autocomplete: 'username', style: 'width:100%;margin:8px 0 14px' });
+  var passIn = h('input', { type: 'password', placeholder: 'At least 10 characters', autocomplete: 'new-password', style: 'width:100%;margin:8px 0 14px' });
+  var pass2 = h('input', { type: 'password', placeholder: 'Type it again', autocomplete: 'new-password', style: 'width:100%;margin:8px 0 16px' });
+  var btn = h('button', { class: 'btn', style: 'width:100%', text: inv.needsUsername ? 'Create my sign-in' : 'Set new password' });
+  var form = h('form', { onsubmit: async function(e){
+    e.preventDefault();
+    if (passIn.value !== pass2.value) return toast('The two passwords don’t match', true);
+    btn.disabled = true;
+    try {
+      var r = await post('/admin/api/staff/invite/accept', { token: token, username: userIn.value.trim().toLowerCase(), password: passIn.value });
+      try { localStorage.setItem('bnAdminLastUser', r.username); } catch (x) {}
+      toast('All set — sign in with your new password');
+      adminPasswordSignIn();
+    } catch (err) { toast(err.message, true); btn.disabled = false; }
+  } }, [
+    h('div', { class: 'eyebrow', text: 'BibleNestra dashboard invite' }),
+    h('h2', { class: 'serif', text: 'Welcome, ' + inv.name }),
+    h('p', { class: 'sub', text: 'You’ve been invited as ' + inv.roleLabel + '. This link works once and expires ' + new Date(inv.expiresAt).toLocaleString() + '.' }),
+    h('label', { class: 'meta', text: 'Username' }), userIn,
+    h('label', { class: 'meta', text: 'Password' }), passIn,
+    h('label', { class: 'meta', text: 'Confirm password' }), pass2,
+    btn,
+  ]);
+  app.innerHTML = '';
+  app.appendChild(h('div', { class: 'signin' }, [h('div', { class: 'card' }, [form])]));
 }
 function adminPasswordSignIn(){
-  var userIn = h('input', { placeholder: 'Username (benjamin)', value: 'benjamin', style: 'width:100%;margin:8px 0 14px' });
+  var lastUser = 'benjamin'; try { lastUser = localStorage.getItem('bnAdminLastUser') || 'benjamin'; } catch (e) {}
+  var userIn = h('input', { placeholder: 'Username', value: lastUser, autocomplete: 'username', style: 'width:100%;margin:8px 0 14px' });
   var passIn = h('input', { type: 'password', placeholder: 'Password', style: 'width:100%;margin:8px 0 16px' });
   var btn = h('button', { class: 'btn', style: 'width:100%', text: 'Sign in to Admin' });
   var form = h('form', { onsubmit: async function(e){
@@ -280,6 +396,7 @@ function adminPasswordSignIn(){
       var data = await res.json().catch(function(){ return {}; });
       if (!res.ok) throw new Error(data.error || 'Incorrect username or password');
       localStorage.setItem('bnAdminToken', data.token);
+      try { localStorage.setItem('bnAdminLastUser', userIn.value.trim().toLowerCase()); } catch (x) {}
       toast('Welcome back, ' + (data.user.displayName || 'Benjamin'));
       start();
     } catch (err) {
@@ -289,7 +406,7 @@ function adminPasswordSignIn(){
   }}, [
     h('div', { class: 'eyebrow', text: 'BibleNestra Administrator' }),
     h('h2', { class: 'serif', text: 'Admin Portal' }),
-    h('p', { class: 'sub', text: 'Enter your administrator username and password to continue.' }),
+    h('p', { class: 'sub', text: 'Enter your administrator or staff username and password to continue.' }),
     h('label', { class: 'meta', text: 'Username' }), userIn,
     h('label', { class: 'meta', text: 'Password' }), passIn,
     btn
@@ -299,6 +416,8 @@ function adminPasswordSignIn(){
   app.appendChild(h('div', { class: 'signin' }, [h('div', { class: 'card' }, [form])]));
 }
 window.addEventListener('load', function(){
+  var inv = /^#invite=([A-Za-z0-9_-]{20,200})$/.exec(location.hash || '');
+  if (inv) return acceptInvite(inv[1]);
   if (localStorage.getItem('bnAdminToken')) return start();
   if (CFG.devMode && localStorage.getItem('bnAdminDevUser')) return start();
   adminPasswordSignIn();

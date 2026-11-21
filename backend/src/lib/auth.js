@@ -1,15 +1,21 @@
 // Authentication: verifies the Clerk session token (Authorization: Bearer …) and loads/creates the
 // matching user row. Local development can use X-Dev-User when AUTH_DEV_MODE=true (never in production).
 import { verifyToken, createClerkClient } from '@clerk/backend';
-import { ApiError } from './http.js';
+import { ApiError, isUuid } from './http.js';
 import { one, q } from './db.js';
-import { verifyAdminToken } from './ticket.js';
+import { verifyAdminToken, verifyStaffToken } from './ticket.js';
+import { checkRequest, permissionsFor } from './staff.js';
 
 async function clerkSubject(c) {
   const env = c.env;
   const h = c.req.header('Authorization') || '';
   const token = h.startsWith('Bearer ') ? h.slice(7).trim() : null;
   if (token) {
+    if (token.startsWith('staff_token_')) { // STAFF ACCESS: invited dashboard staff (lib/staff.js)
+      const check = await verifyStaffToken(env.REALTIME_SECRET || env.ADMIN_PASSWORD, token);
+      if (check.valid && isUuid(check.id)) return { sub: 'staff', dev: false, staffId: check.id, staffVersion: check.version };
+      throw new ApiError(401, 'INVALID_TOKEN', 'Staff session expired — please sign in again');
+    }
     if (token.startsWith('admin_token_')) {
       const secret = env.REALTIME_SECRET || env.ADMIN_PASSWORD;
       const check = secret ? await verifyAdminToken(secret, token) : { valid: false };
@@ -49,15 +55,49 @@ async function clerkProfile(env, sub) {
   } catch (e) { return {}; }
 }
 
+// The owner's users row (what the ADMIN_PASSWORD sign-in acts as)
+async function ownerRow(env) {
+  let admin = await one(env, "SELECT * FROM users WHERE role = 'admin' LIMIT 1");
+  if (!admin) {
+    admin = await one(env, `INSERT INTO users (clerk_id, display_name, handle, role) VALUES ('admin', 'Benjamin', 'benjamin', 'admin') ON CONFLICT (clerk_id) DO UPDATE SET role = 'admin' RETURNING *`);
+  }
+  return admin;
+}
+
+// STAFF ACCESS: the central permission gate. The account is re-read on every request (disable / revoke sessions /
+// role changes apply at once); the path → area map and the view/manage rule live in lib/staff.js. Allowed requests
+// run as the owner's users row (so existing admin checks keep working) tagged with staffId; audit() writes that into
+// admin_actions.staff_id, and a successful write that no handler audited gets a generic "staff.request" row.
+async function staffRequest(c, next, subj) {
+  const env = c.env;
+  const staff = await one(env, 'SELECT * FROM staff_accounts WHERE id = $1', [subj.staffId]);
+  if (!staff || staff.session_version !== subj.staffVersion) throw new ApiError(401, 'INVALID_TOKEN', 'This session has ended — please sign in again');
+  if (staff.status === 'disabled') throw new ApiError(403, 'STAFF_DISABLED', 'This staff account has been disabled');
+  if (staff.status !== 'active') throw new ApiError(401, 'INVALID_TOKEN', 'Please sign in again');
+  if (staff.access_expires_at && new Date(staff.access_expires_at).getTime() < Date.now()) throw new ApiError(403, 'STAFF_EXPIRED', 'This staff account’s access has ended');
+  const chk = checkRequest(staff, c.req.method, c.req.path);
+  if (!chk.ok) {
+    throw new ApiError(403, chk.area ? 'STAFF_FORBIDDEN' : 'OWNER_ONLY', !chk.area ? 'Only the owner can use this'
+      : chk.level === 'manage' ? 'Your staff role can only view this area' : 'Your staff role can’t open this area');
+  }
+  const owner = await ownerRow(env);
+  const user = { ...owner, staffId: staff.id, staffName: staff.name, staffRole: staff.role };
+  c.set('user', user);
+  c.set('staff', { id: staff.id, name: staff.name, username: staff.username, role: staff.role, permissions: permissionsFor(staff), area: chk.area, level: chk.level });
+  await next();
+  if (chk.level === 'manage' && !user.__audited && c.res && c.res.status < 400) {
+    await q(env, `INSERT INTO admin_actions (admin_id, staff_id, action, target_type, target_id, details) VALUES ($1, $2, 'staff.request', 'route', $3, $4::jsonb)`,
+      [owner.id, staff.id, c.req.path.slice(0, 300), JSON.stringify({ method: c.req.method, area: chk.area, status: c.res.status, staff: staff.name })]).catch(() => {});
+  }
+}
+
 export function requireUser() {
   return async (c, next) => {
-    const { sub, dev, devName } = await clerkSubject(c);
+    const subj = await clerkSubject(c);
+    const { sub, dev, devName } = subj;
+    if (sub === 'staff') return staffRequest(c, next, subj);
     if (sub === 'admin') {
-      let admin = await one(c.env, "SELECT * FROM users WHERE role = 'admin' LIMIT 1");
-      if (!admin) {
-        admin = await one(c.env, `INSERT INTO users (clerk_id, display_name, handle, role) VALUES ('admin', 'Benjamin', 'benjamin', 'admin') ON CONFLICT (clerk_id) DO UPDATE SET role = 'admin' RETURNING *`);
-      }
-      c.set('user', admin);
+      c.set('user', await ownerRow(c.env));
       await next();
       return;
     }

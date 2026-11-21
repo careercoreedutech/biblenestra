@@ -112,8 +112,15 @@ test('insufficient balance: 402, nothing written; self-gift refused; inactive gi
   assert.ok(!(await call('eve', 'GET', '/gifts/catalogue')).json.items.some((g) => g.id === 't300'));
   await call('boss', 'PATCH', '/admin/api/gifts/catalogue/t300', { active: true });
   assert.equal(await bal('eve', 'gift_coins'), 1000);
-  // admin accounts are not eligible recipients by default
+  // admin accounts CAN receive gifts by default (client answer Q20); the setting still refuses them when turned off
+  assert.equal(W.CONFIG_DEFAULTS.gift_admins_can_receive, true);
+  await setCfg('gift_admins_can_receive', false);
   assert.equal((await send('eve', 'star', { type: 'profile', id: ids.boss })).json.code, 'RECIPIENT_NOT_ELIGIBLE');
+  await setCfg('gift_admins_can_receive', true);
+  const toAdmin = await send('eve', 'star', { type: 'profile', id: ids.boss });
+  assert.equal(toAdmin.status, 201, JSON.stringify(toAdmin.json));
+  assert.deepEqual([toAdmin.json.split.commission, toAdmin.json.split.earnings], [40, 160]); // the usual 20% applies to admins too
+  assert.equal(await bal('eve', 'gift_coins'), 800);
 });
 
 test('idempotent: the same key twice (and concurrently) charges once; same key for another gift → 409', async () => {
@@ -229,6 +236,8 @@ test('withdrawals: closed switch, approval, hold period, minimum, admin queue (a
   // bob has 1600+ pending earnings
   assert.equal((await call('bob', 'POST', '/gifts/withdrawals', { coins: 1000, idempotencyKey: key() })).json.code, 'WITHDRAWALS_CLOSED');
   await setCfg('earnings_withdrawals_enabled', true);
+  // this flow uses a small coin minimum (USD minimum cleared → the coin fallback applies); the $10 minimum is tested below
+  assert.equal((await setCfg('earnings_min_withdrawal_usd', null)).status, 200);
   await setCfg('earnings_min_withdrawal', 500);
   assert.equal((await call('bob', 'POST', '/gifts/withdrawals', { coins: 1000, idempotencyKey: key() })).json.code, 'NOT_APPROVED');
   const app1 = await call('bob', 'POST', '/gifts/programme', { legalName: 'Bob Builder', bankName: 'GTBank', accountName: 'Bob Builder', accountNumber: '0123456789' });
@@ -252,6 +261,10 @@ test('withdrawals: closed switch, approval, hold period, minimum, admin queue (a
   assert.equal((await call('bob', 'POST', '/gifts/withdrawals', { coins: 500, idempotencyKey: key() })).json.code, 'WITHDRAWAL_OPEN');
   const id = w.json.withdrawal.id;
   assert.equal((await call('boss', 'POST', `/admin/api/gifts/withdrawals/${id}/paid`, { reference: 'TRF-1' })).json.code, 'WITHDRAWAL_STATE');
+  // PAYOUT KYC (lib/kyc.js): a withdrawal is approved only for a member whose KYC is approved
+  assert.equal((await call('boss', 'POST', `/admin/api/gifts/withdrawals/${id}/approve`)).json.code, 'KYC_REQUIRED');
+  await q(env, `INSERT INTO payout_kyc (user_id, id_type, id_number_enc, id_last4, legal_name, bank_code, bank_name, account_number_enc, account_last4, account_name, name_match, status)
+    VALUES ($1, 'nin', 'v1:x:y', '8901', 'Bob Builder', '058', 'Guaranty Trust Bank', 'v1:x:y', '6789', 'Bob Builder', true, 'approved')`, [ids.bob]);
   assert.equal((await call('boss', 'POST', `/admin/api/gifts/withdrawals/${id}/approve`)).json.status, 'approved');
   const paid = await call('boss', 'POST', `/admin/api/gifts/withdrawals/${id}/paid`, { reference: 'TRF-0001' });
   assert.equal(paid.json.status, 'paid'); assert.equal(paid.json.reference, 'TRF-0001');
@@ -299,11 +312,106 @@ test('admin-only routes; catalogue art upload goes to R2', async () => {
   assert.ok(earn.json.items.some((x) => x.user.id === ids.bob && x.balances.withdrawn === 1000));
 });
 
+// ---------- client answers (2026-11-21): Support BibleNestra, 14-day hold, $10 minimum withdrawal ----------
+test('Support BibleNestra: 100% to the platform, no earnings, own ref, idempotent, shown in both histories', async () => {
+  const cat = await call('dee', 'GET', '/gifts/catalogue?context=support');
+  assert.equal(cat.status, 200); assert.equal(cat.json.support.label, 'Support BibleNestra');
+  assert.ok(cat.json.items.some((g) => g.id === 'star'), 'every active gift can be used to support BibleNestra');
+  await fund('dee', 5000);
+  const p0 = await platform();
+  const k = key();
+  const r = await send('dee', 'star', { type: 'support' }, { idempotencyKey: k });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  assert.deepEqual([r.json.split.coins, r.json.split.commission, r.json.split.earnings, r.json.split.bps], [200, 200, 0, 10000]);
+  assert.ok(r.json.send.ref.startsWith('support:')); assert.equal(r.json.send.support, true); assert.equal(r.json.send.label, 'Support BibleNestra');
+  const official = await one(env, `SELECT id FROM users WHERE clerk_id = 'system_official_biblenestra'`);
+  assert.equal(r.json.send.recipient.id, official.id);
+  const entries = await q(env, 'SELECT account, wallet, amount, kind FROM wallet_entries WHERE ref = $1 ORDER BY leg', [r.json.send.ref]);
+  assert.deepEqual(entries.map((e) => [e.wallet, Number(e.amount), e.kind]), [['gift_coins', -200, 'support_sent'], ['commission_gift_coins', 200, 'support_received']]);
+  assert.equal(await W.getBalance(env, official.id, 'gift_earnings'), 0);
+  assert.equal(await platform() - p0, 200);
+  assert.equal(await bal('dee', 'gift_coins'), 4800);
+  const row = await one(env, 'SELECT * FROM gift_sends WHERE ref = $1', [r.json.send.ref]);
+  assert.deepEqual([row.context_type, row.commission, row.earnings, row.commission_bps], ['support', 200, 0, 10000]);
+  // a retry of the same gift (also several at once) never charges twice
+  const again = await send('dee', 'star', { type: 'support' }, { idempotencyKey: k });
+  assert.equal(again.status, 200); assert.equal(again.json.duplicate, true); assert.equal(again.json.send.id, r.json.send.id);
+  const burst = await Promise.all([1, 2, 3].map(() => send('dee', 'star', { type: 'support' }, { idempotencyKey: k })));
+  assert.ok(burst.every((x) => x.status === 200 && x.json.duplicate), JSON.stringify(burst.map((x) => x.json)));
+  assert.equal(await bal('dee', 'gift_coins'), 4800);
+  assert.equal(await platform() - p0, 200);
+  assert.equal((await one(env, 'SELECT count(*)::int AS n FROM wallet_ops WHERE ref = $1', [r.json.send.ref])).n, 1);
+  // a profile gift straight to the official account is support too; a different recipient is refused
+  const prof = await send('dee', 'flowers', { type: 'profile', id: official.id });
+  assert.equal(prof.status, 201); assert.ok(prof.json.send.ref.startsWith('support:')); assert.equal(prof.json.split.earnings, 0);
+  assert.equal((await send('dee', 'star', { type: 'support' }, { recipientId: ids.bob })).json.code, 'BAD_RECIPIENT');
+  // histories: gift history and the Gifting Coin wallet history both say "Support BibleNestra"
+  const h = await call('dee', 'GET', '/gifts/history?dir=sent');
+  assert.ok(h.json.items.filter((x) => x.support).every((x) => x.label === 'Support BibleNestra' && x.earnings === 0));
+  assert.equal(h.json.items.filter((x) => x.support).length, 2);
+  const wh = await call('dee', 'GET', '/wallet/gift_coins/history');
+  assert.equal(wh.status, 200, JSON.stringify(wh.json));
+  assert.ok(wh.json.items.some((e) => e.kind === 'support_sent' && e.label === 'Support BibleNestra' && e.amount === -200));
+  // the 20% commission still applies to every other gift
+  const normal = await send('dee', 'star', { type: 'profile', id: ids.gus });
+  assert.deepEqual([normal.json.split.commission, normal.json.split.earnings, normal.json.split.bps], [40, 160, 2000]);
+  assert.equal(W.CONFIG_DEFAULTS.gift_commission_bps, 2000);
+});
+
+test('gift earnings are held 14 days by default', async () => {
+  assert.equal(W.CONFIG_DEFAULTS.earnings_hold_days, 14);
+  assert.equal((await W.getConfig(env)).earnings_hold_days, 14);
+  ids.hal = (await call('hal', 'GET', '/me')).json.id;
+  await fund('amy', 20000);
+  for (let i = 0; i < 10; i++) assert.equal((await send('amy', 't2000', { type: 'profile', id: ids.hal })).status, 201);
+  assert.equal(await bal('hal', 'gift_earnings'), 16000);
+  await W.releaseMaturedEarnings(env, { now: new Date(Date.now() + 13 * 86400e3) });
+  assert.equal(await bal('hal', 'gift_earnings_available'), 0, 'not released before 14 days');
+  await W.releaseMaturedEarnings(env, { now: new Date(Date.now() + 14 * 86400e3 + 60e3) });
+  assert.equal(await bal('hal', 'gift_earnings_available'), 16000);
+  assert.equal(await bal('hal', 'gift_earnings'), 0);
+  const e = await call('hal', 'GET', '/gifts/earnings');
+  assert.equal(e.json.rules.holdDays, 14);
+  assert.ok(e.json.rules.explain.join(' ').includes('14 days'));
+});
+
+test('withdrawal minimum is $10 = 15,000 coins (₦1 per coin, ₦1,500 per $1) and is enforced', async () => {
+  assert.equal((await setCfg('earnings_min_withdrawal_usd', 10)).status, 200);
+  assert.deepEqual(W.withdrawalMinimum(await W.getConfig(env)).coins, 15000);
+  assert.equal(W.withdrawalMinimum({ ...W.CONFIG_DEFAULTS }).coins, 15000);
+  assert.equal(W.withdrawalMinimum({ ...W.CONFIG_DEFAULTS }).label, '$10 (about ₦15,000)');
+  await setCfg('earnings_withdrawals_enabled', true);
+  await call('hal', 'POST', '/gifts/programme', { legalName: 'Hal Hope', bankName: 'Zenith', accountName: 'Hal Hope', accountNumber: '1234567890' });
+  await call('boss', 'POST', `/admin/api/gifts/programme/${ids.hal}`, { status: 'approved' });
+  const e = await call('hal', 'GET', '/gifts/earnings');
+  assert.equal(e.json.rules.minWithdrawal, 15000); assert.equal(e.json.rules.minWithdrawalUsd, 10);
+  assert.equal(e.json.rules.minWithdrawalLabel, '$10 (about ₦15,000)');
+  assert.equal(e.json.canWithdraw, true);
+  const low = await call('hal', 'POST', '/gifts/withdrawals', { coins: 14999, idempotencyKey: key() });
+  assert.equal(low.status, 400); assert.equal(low.json.code, 'BELOW_MINIMUM');
+  assert.equal(await bal('hal', 'gift_earnings_available'), 16000);
+  // the admin changes the rate → the coin minimum follows
+  assert.equal((await setCfg('usd_ngn_rate', 1600)).status, 200);
+  assert.equal((await call('hal', 'POST', '/gifts/withdrawals', { coins: 15000, idempotencyKey: key() })).json.code, 'BELOW_MINIMUM');
+  assert.equal((await call('hal', 'GET', '/gifts/earnings')).json.rules.minWithdrawalLabel, '$10 (about ₦16,000)');
+  assert.equal((await setCfg('usd_ngn_rate', 0)).status, 400);
+  assert.equal((await setCfg('earnings_min_withdrawal_usd', 10.123)).status, 400);
+  await setCfg('usd_ngn_rate', 1500);
+  const ok = await call('hal', 'POST', '/gifts/withdrawals', { coins: 15000, idempotencyKey: key() });
+  assert.equal(ok.status, 201, JSON.stringify(ok.json));
+  assert.equal(ok.json.withdrawal.payoutMinor, 1500000); // ₦15,000
+  assert.equal(await bal('hal', 'gift_earnings_available'), 1000);
+  // the Wallet screen gets the same rule
+  assert.equal((await call('hal', 'GET', '/wallet')).json.rules.minWithdrawalLabel, '$10 (about ₦15,000)');
+  await setCfg('earnings_withdrawals_enabled', false);
+});
+
 test('commission ledger reconciles with gift rows and the wallet core integrity check', async () => {
   const r = await call('boss', 'GET', '/admin/api/gifts/commission?group=month');
   assert.equal(r.status, 200);
   assert.equal(r.json.reconciliation.ok, true, JSON.stringify(r.json.reconciliation));
   assert.equal(r.json.integrity.ok, true);
+  assert.equal(r.json.reconciliation.support.gifts, 2); assert.equal(r.json.reconciliation.support.coins, 700);
   const rows = await one(env, 'SELECT sum(commission)::int AS c FROM gift_sends');
   assert.equal(r.json.periods.reduce((a, p) => a + p.commission, 0), rows.c);
   assert.ok(r.json.perGift.some((g) => g.gift_id === 't2000'));

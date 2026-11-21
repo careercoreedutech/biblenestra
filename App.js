@@ -60,7 +60,7 @@ import { useLivePushOpen } from './src/notifications/livePush'; // YOUTUBE LIVE
 import { useBroadcastPushOpen } from './src/notifications/broadcastPush'; // BROADCASTS
 import { useReminders } from './src/notifications/reminders'; // DISCOVER TOOLS (round 3)
 import { FundMeHomeScreen, FundraiserScreen, FundraiserEditScreen, FundraiserDonationsScreen } from './src/screens/FundMeScreens'; // FUND ME (round 3)
-import { FundMeCreditsScreen, FundMeGiftCreditsScreen, FundMeMoneyScreen, FundMePayoutAccountScreen, FundMeMyDonationsScreen, FundMeReceiptScreen } from './src/screens/FundMeMoneyScreens'; // FUND ME MONEY: credits, gifting credits, payouts, receipts
+import { FundMeCreditsScreen, FundMeGiftCreditsScreen, FundMeMoneyScreen, FundMePayoutAccountScreen, FundMeMyDonationsScreen, FundMeReceiptScreen, PayoutKycScreen } from './src/screens/FundMeMoneyScreens'; // FUND ME MONEY: credits, gifting credits, payouts, receipts
 import { OpportunitiesScreen } from './src/screens/OpportunitiesScreen'; // OPPORTUNITIES
 import { MediaLibraryScreen, MediaListScreen, MediaUploadScreen, BookReaderScreen } from './src/screens/MediaLibraryScreens'; // MEDIA LIBRARY: audio + Christian books
 import { AudioPlayerProvider } from './src/audio/Player'; // MEDIA LIBRARY: global audio player (continuous playback)
@@ -68,7 +68,7 @@ import { LibraryMiniBar } from './src/components/MiniPlayer'; // MEDIA LIBRARY
 import NotificationSettingsScreen from './src/screens/NotificationSettingsScreen'; // NOTIFICATIONS: Settings › Notifications › Daily moments
 import { MembershipsScreen, MembershipScreen, MembershipReviewsScreen, MembershipHomeScreen, MyChannelsScreen } from './src/screens/MembershipScreens'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
 import { WalletScreen } from './src/screens/WalletScreen'; // WALLET CORE: separate wallets, Buy sheets, history, Dating Plus / VIP
-import { DatingProfileEditScreen, DatingProfileViewScreen, DatingChatScreen, DatingPlansScreen, DatingBoostScreen, DatingSettingsScreen } from './src/screens/FindLoveScreens'; // FIND LOVE: profile, chat, plans, boost, safety
+import { DatingProfileEditScreen, DatingProfileViewScreen, DatingChatScreen, DatingPlansScreen, DatingBoostScreen, DatingSettingsScreen, DatingVerifyScreen } from './src/screens/FindLoveScreens'; // FIND LOVE: profile, chat, plans, boost, safety, verification
 import { GiftStoreScreen, GiftHistoryScreen, GiftEarningsScreen } from './src/screens/GiftScreens'; // VIRTUAL GIFTS & STARS: store, history, earnings
 import { useDailyMoments } from './src/notifications/daily'; // NOTIFICATIONS: daily moments (local, user's time zone)
 import { useDeepLinks } from './src/notifications/deepLinks'; // NOTIFICATIONS + WIDGETS: biblenestra:// deep links
@@ -137,9 +137,9 @@ if (__DEV__) ROUTES.SignInPreview = SignInPreviewScreen;
 ROUTES.InviteFriends = InviteFriendsScreen; // CHAT LIMITS
 Object.assign(ROUTES, { Memberships: MembershipsScreen, Membership: MembershipScreen, MembershipReviews: MembershipReviewsScreen, MembershipHome: MembershipHomeScreen, MyChannels: MyChannelsScreen }); // MEMBERSHIPS & PAID CHANNELS
 ROUTES.Wallet = WalletScreen; // WALLET CORE
-Object.assign(ROUTES, { FundMeCredits: FundMeCreditsScreen, FundMeGiftCredits: FundMeGiftCreditsScreen, FundMeMoney: FundMeMoneyScreen, FundMePayoutAccount: FundMePayoutAccountScreen, FundMeMyDonations: FundMeMyDonationsScreen, FundMeReceipt: FundMeReceiptScreen }); // FUND ME MONEY
+Object.assign(ROUTES, { FundMeCredits: FundMeCreditsScreen, FundMeGiftCredits: FundMeGiftCreditsScreen, FundMeMoney: FundMeMoneyScreen, FundMePayoutAccount: FundMePayoutAccountScreen, FundMeMyDonations: FundMeMyDonationsScreen, FundMeReceipt: FundMeReceiptScreen, PayoutKyc: PayoutKycScreen }); // FUND ME MONEY (+ payout KYC)
 Object.assign(ROUTES, { GiftStore: GiftStoreScreen, GiftHistory: GiftHistoryScreen, GiftEarnings: GiftEarningsScreen }); // VIRTUAL GIFTS & STARS
-Object.assign(ROUTES, { DatingProfileEdit: DatingProfileEditScreen, DatingProfileView: DatingProfileViewScreen, DatingChat: DatingChatScreen, DatingPlans: DatingPlansScreen, DatingBoost: DatingBoostScreen, DatingSettings: DatingSettingsScreen }); // FIND LOVE
+Object.assign(ROUTES, { DatingProfileEdit: DatingProfileEditScreen, DatingProfileView: DatingProfileViewScreen, DatingChat: DatingChatScreen, DatingPlans: DatingPlansScreen, DatingBoost: DatingBoostScreen, DatingSettings: DatingSettingsScreen, DatingVerify: DatingVerifyScreen }); // FIND LOVE
 
 // Gentle enter animation: pushed screens slide in from the right, tab switches cross-fade up.
 function Transition({ kind, children, skip }) {

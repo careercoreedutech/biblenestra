@@ -477,3 +477,325 @@ test('a plain like never changes your position in someone’s stack (no leak of 
   const card = (await call('liam', 'GET', '/dating/discover?limit=50')).json.items.find((c) => c.userId === ids.xena);
   assert.equal(card.superLikedYou, false);
 });
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// CLIENT ANSWERS (scratch/monetisation/client-answers.md): AI photo check, auto-hide after reports, verified badge
+// (selfie + ID), social profile for verified people in dating chats, retention of closed dating chats, and the
+// "already true" checks (18+, man/woman, no refund on a declined request, verification not needed to message).
+// env.AI is always a stub here: the "image" bytes are a short tag the stub reads to decide its answer.
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+const tagOf = (input) => Buffer.from(Uint8Array.from(input.image || [])).toString();
+function aiEnv(answer, calls = []) {
+  return { ...env, AI: { run: async (model, input) => { calls.push(model); const a = await answer(tagOf(input), model, input); if (a instanceof Error) throw a; return a; } } };
+}
+const PHOTO_OK = { nudity: false, sexual: false, minor: false, violence: false, face_visible: true, reason: 'A smiling woman' };
+async function putImg(u, name, tag) { const key = `img/${ids[u]}/${name}.jpg`; await env.MEDIA.put(key, Buffer.from(tag), { httpMetadata: { contentType: 'image/jpeg' } }); return key; }
+async function rawPost(u, path, bytes, type, e = env) {
+  const res = await app.fetch(new Request(`http://api.test${path}`, { method: 'POST', headers: { 'X-Dev-User': u, 'Content-Type': type }, body: bytes }), e);
+  const text = await res.text(); let json; try { json = JSON.parse(text); } catch (err) { json = text; }
+  return { status: res.status, json };
+}
+
+test('AI photo check: clean → live at once; flagged → hidden + admin queue with the reason; errors never go live', async () => {
+  await rules({});
+  assert.equal((await D.datingConfig(env)).rules.photoReview, 'ai', 'the AI check is the default');
+  await mkProfile('ruth', { gender: 'woman', interestedIn: 'men', age: 27, photo: false });
+  await mkProfile('sam', { gender: 'man', interestedIn: 'women', age: 29 });
+  const calls = [];
+  const e = aiEnv((tag) => {
+    if (tag === 'BOOM') return new Error('3040: capacity');
+    if (tag === 'JUNK') return { response: 'Looks fine to me!' };
+    if (tag === 'NUDE') return { response: JSON.stringify({ ...PHOTO_OK, nudity: true, reason: 'Exposed body' }) };
+    if (tag === 'LANDSCAPE') return { response: JSON.stringify({ ...PHOTO_OK, face_visible: false, reason: 'A beach' }) };
+    if (tag === 'HALF') return { response: JSON.stringify({ nudity: false, sexual: false, face_visible: true }) }; // minor / violence missing
+    return { response: '```json\n' + JSON.stringify(PHOTO_OK) + '\n```' };
+  }, calls);
+  const add = async (tag, ee = e) => call('ruth', 'POST', '/dating/profile/photos', { key: await putImg('ruth', tag.toLowerCase(), tag) }, ee);
+  const photo = (id) => one(env, 'SELECT * FROM dating_photos WHERE id = $1', [id]);
+  // clean → approved at once, visible in discovery, no human involved
+  const ok = await add('CLEAN');
+  assert.equal(ok.status, 201); assert.equal(ok.json.review, 'live');
+  assert.deepEqual([(await photo(ok.json.id)).status, (await photo(ok.json.id)).ai_verdict, (await photo(ok.json.id)).reviewed_by], ['approved', 'clean', null]);
+  assert.ok((await stack('sam')).includes(ids.ruth), 'live at once');
+  assert.equal(calls[0], '@cf/meta/llama-3.2-11b-vision-instruct');
+  // flagged → pending + ai_flagged + reason, hidden, listed first in the admin queue
+  const nude = await add('NUDE');
+  assert.equal(nude.json.review, 'flagged');
+  const np = await photo(nude.json.id);
+  assert.deepEqual([np.status, np.ai_flagged, np.ai_verdict], ['pending', true, 'flagged']);
+  assert.match(np.ai_reason, /nudity/); assert.match(np.ai_reason, /Exposed body/);
+  const card = (await call('sam', 'GET', `/dating/profiles/${ids.ruth}`)).json;
+  assert.deepEqual(card.photos.map((x) => x.id), [ok.json.id], 'the flagged photo is never shown');
+  const q1 = (await call('boss', 'GET', '/admin/api/dating/photos?status=pending&ai=flagged')).json.items;
+  assert.equal(q1.length, 1); assert.equal(q1[0].id, nude.json.id); assert.equal(q1[0].ai.flagged, true); assert.match(q1[0].ai.reason, /nudity/);
+  assert.equal((await call('boss', 'GET', '/admin/api/dating/overview')).json.photosFlagged, 1);
+  // no visible face → flagged too
+  const land = await add('LANDSCAPE');
+  assert.equal(land.json.review, 'flagged'); assert.match((await photo(land.json.id)).ai_reason, /no visible person or face/);
+  await call('ruth', 'DELETE', `/dating/profile/photos/${land.json.id}`);
+  // AI error (every model fails) → pending for a human, never live; both models were tried
+  calls.length = 0;
+  const boom = await add('BOOM');
+  assert.equal(boom.json.review, 'pending');
+  const bp = await photo(boom.json.id);
+  assert.deepEqual([bp.status, bp.ai_verdict, bp.ai_flagged], ['pending', 'error', false]);
+  assert.deepEqual(calls, ['@cf/meta/llama-3.2-11b-vision-instruct', '@cf/llava-hf/llava-1.5-7b-hf']);
+  await call('ruth', 'DELETE', `/dating/profile/photos/${boom.json.id}`);
+  // a reply that is not the strict JSON, or JSON with a missing flag → pending (fail closed)
+  const junk = await add('JUNK');
+  assert.equal(junk.json.review, 'pending'); assert.equal((await photo(junk.json.id)).ai_verdict, 'error');
+  await call('ruth', 'DELETE', `/dating/profile/photos/${junk.json.id}`);
+  const half = await add('HALF');
+  assert.equal(half.json.review, 'pending'); assert.match((await photo(half.json.id)).ai_reason, /incomplete/);
+  await call('ruth', 'DELETE', `/dating/profile/photos/${half.json.id}`);
+  // no Workers AI binding at all → pending (the old pre-moderation behaviour)
+  const noAi = await add('CLEAN2', env);
+  assert.equal(noAi.json.review, 'pending'); assert.equal((await photo(noAi.json.id)).status, 'pending');
+  await call('ruth', 'DELETE', `/dating/profile/photos/${noAi.json.id}`);
+  // 'pre' → every photo waits for a human and the AI is not asked · 'post' → live at once, but an AI-flagged photo stays hidden
+  await rules({ photoReview: 'pre' });
+  calls.length = 0;
+  const pre = await add('CLEAN3');
+  assert.equal(pre.json.review, 'pending'); assert.equal(calls.length, 0);
+  await call('ruth', 'DELETE', `/dating/profile/photos/${pre.json.id}`);
+  await rules({ photoReview: 'post' });
+  const post = await add('CLEAN4');
+  assert.equal(post.json.review, 'live'); assert.equal(calls.length, 0);
+  const seen = (await call('sam', 'GET', `/dating/profiles/${ids.ruth}`)).json.photos.map((x) => x.id);
+  assert.ok(seen.includes(post.json.id) && !seen.includes(nude.json.id), 'post mode never shows an AI-flagged photo');
+  await call('ruth', 'DELETE', `/dating/profile/photos/${post.json.id}`);
+  // admins approve / reject from the queue as before
+  assert.equal((await call('boss', 'POST', `/admin/api/dating/photos/${nude.json.id}`, { status: 'rejected', reason: 'Not modest' })).status, 200);
+  // the mode is an admin setting: ai | pre | post
+  assert.equal((await call('boss', 'PUT', '/admin/api/dating/config', { key: 'dating_rules', value: { ...D.DEFAULT_RULES, photoReview: 'bogus' } })).json.code, 'BAD_CONFIG');
+  assert.equal((await call('boss', 'PUT', '/admin/api/dating/config', { key: 'dating_rules', value: { ...D.DEFAULT_RULES, photoReview: 'ai' } })).json.rules.photoReview, 'ai');
+});
+
+test('auto-hide: reports from 5 different members hide a profile from discovery until an admin restores it', async () => {
+  await rules({});
+  await mkProfile('tom', { gender: 'man', interestedIn: 'women', age: 31 });
+  await mkProfile('una', { gender: 'woman', interestedIn: 'men', age: 30 });
+  for (const u of ['rep1', 'rep2', 'rep3', 'rep4', 'rep5', 'rep6', 'rep7']) ids[u] = (await call(u, 'GET', '/me')).json.id;
+  assert.ok((await stack('una')).includes(ids.tom));
+  const report = (u, reason = 'harassment') => call(u, 'POST', '/dating/report', { userId: ids.tom, reason, details: 'test' });
+  // the same member reporting twice counts once
+  assert.equal((await report('rep1')).json.autoHidden, false);
+  assert.equal((await report('rep1', 'fake')).json.autoHidden, false);
+  for (const u of ['rep2', 'rep3', 'rep4']) assert.equal((await report(u)).json.autoHidden, false);
+  assert.ok((await stack('una')).includes(ids.tom), '4 different reporters: still visible');
+  const fifth = await report('rep5');
+  assert.equal(fifth.status, 201); assert.equal(fifth.json.autoHidden, true);
+  // hidden from discovery, likes and new contact; not banned (his chats and account are untouched)
+  const row = await one(env, 'SELECT status, report_hold_at FROM dating_profiles WHERE user_id = $1', [ids.tom]);
+  assert.equal(row.status, 'active'); assert.ok(row.report_hold_at);
+  assert.ok(!(await stack('una')).includes(ids.tom));
+  assert.equal((await call('una', 'POST', '/dating/swipe', { targetId: ids.tom, action: 'like' })).status, 404);
+  const mine = (await call('tom', 'GET', '/dating/me')).json.profile;
+  assert.equal(mine.underReview, true); assert.equal(mine.visible, false);
+  assert.equal((await call('tom', 'GET', '/dating/discover')).json.code, 'DATING_UNDER_REVIEW');
+  // the admin queue
+  const held = (await call('boss', 'GET', '/admin/api/dating/profiles?status=held')).json.items;
+  assert.deepEqual(held.map((p) => p.userId), [ids.tom]); assert.equal(held[0].reporters, 5); assert.ok(held[0].heldAt);
+  assert.equal((await call('boss', 'GET', '/admin/api/dating/overview')).json.heldAfterReports, 1);
+  assert.equal((await call('una', 'POST', `/admin/api/dating/profiles/${ids.tom}/restore`)).status, 403);
+  assert.equal((await call('boss', 'POST', `/admin/api/dating/profiles/${ids.tom}/restore`)).status, 200);
+  assert.ok(await one(env, `SELECT 1 FROM admin_actions WHERE action = 'dating.profile.restore' AND target_id = $1`, [ids.tom]));
+  assert.ok((await stack('una')).includes(ids.tom), 'restored');
+  assert.equal((await one(env, `SELECT count(*)::int AS n FROM dating_reports WHERE target_id = $1 AND status = 'open'`, [ids.tom])).n, 0);
+  assert.equal((await one(env, `SELECT count(*)::int AS n FROM dating_reports WHERE target_id = $1`, [ids.tom])).n, 6, 'reports are kept');
+  // after a restore the count starts again; the threshold is an admin setting (0 = off)
+  assert.equal((await report('rep6')).json.autoHidden, false);
+  await rules({ autoHideReports: 2 });
+  assert.equal((await report('rep7')).json.autoHidden, true);
+  await call('boss', 'POST', `/admin/api/dating/profiles/${ids.tom}/restore`);
+  await rules({ autoHideReports: 0 });
+  for (const u of ['rep1', 'rep2', 'rep3', 'rep4', 'rep5']) assert.equal((await report(u)).json.autoHidden, false);
+  assert.equal((await one(env, 'SELECT report_hold_at FROM dating_profiles WHERE user_id = $1', [ids.tom])).report_hold_at, null);
+  // "may be under 18" still suspends at once, with a single report
+  await rules({});
+  assert.equal((await report('rep6', 'underage')).status, 201);
+  assert.equal((await one(env, 'SELECT status FROM dating_profiles WHERE user_id = $1', [ids.tom])).status, 'banned');
+  await call('boss', 'POST', `/admin/api/dating/profiles/${ids.tom}/unban`);
+});
+
+test('verified badge: code + gesture selfie and ID stay private, advisory AI note, admin decides, images deleted', async () => {
+  await rules({});
+  await mkProfile('vic', { gender: 'woman', interestedIn: 'men', age: 28, photo: false });
+  const mainKey = await putImg('vic', 'main', 'PROFILE');
+  await q(env, `INSERT INTO dating_photos (user_id, url, status) VALUES ($1, $2, 'approved')`, [ids.vic, mainKey]);
+  for (const u of ['olga']) ids[u] = (await call(u, 'GET', '/me')).json.id;
+  assert.equal((await call('vic', 'GET', '/dating/verification')).json.verification, null);
+  // nothing to upload before a code exists
+  assert.equal((await rawPost('vic', '/dating/verification/upload?kind=selfie', Buffer.from('SELFIE'), 'image/jpeg')).json.code, 'VERIFICATION_EXPIRED');
+  const st = (await call('vic', 'POST', '/dating/verification/start')).json.verification;
+  assert.match(st.code, /^\d{4}$/); assert.ok(st.gesture && st.gestureLabel); assert.equal(st.status, 'draft');
+  assert.equal((await call('vic', 'POST', '/dating/verification/start')).json.verification.code, st.code, 'start again → same code');
+  assert.equal((await rawPost('vic', '/dating/verification/upload?kind=selfie', Buffer.from('x'), 'application/pdf')).json.code, 'BAD_IMAGE_TYPE');
+  assert.equal((await call('vic', 'POST', '/dating/verification/submit', { idType: 'nin' })).json.code, 'VERIFICATION_INCOMPLETE');
+  assert.equal((await rawPost('vic', '/dating/verification/upload?kind=selfie', Buffer.from('OLDSELFIE'), 'image/jpeg')).status, 201);
+  const firstSelfie = (await one(env, `SELECT selfie_key FROM dating_verifications WHERE user_id = $1`, [ids.vic])).selfie_key;
+  assert.equal((await rawPost('vic', '/dating/verification/upload?kind=selfie', Buffer.from('SELFIE'), 'image/jpeg')).status, 201);
+  assert.equal(await env.MEDIA.head(firstSelfie), null, 'a replaced selfie is deleted');
+  const up = await rawPost('vic', '/dating/verification/upload?kind=id', Buffer.from('IDCARD'), 'image/jpeg');
+  assert.equal(up.json.verification.hasSelfie, true); assert.equal(up.json.verification.hasId, true);
+  const v0 = await one(env, `SELECT * FROM dating_verifications WHERE user_id = $1`, [ids.vic]);
+  assert.match(v0.selfie_key, new RegExp(`^kyc/${ids.vic}/${v0.id}/selfie_`));
+  // private: never served from /media; only the member (and admins) can read them
+  assert.equal((await app.fetch(new Request(`http://api.test/media/${v0.selfie_key}`), env)).status, 404);
+  const own = await app.fetch(new Request('http://api.test/dating/verification/file/selfie', { headers: { 'X-Dev-User': 'vic' } }), env);
+  assert.equal(own.status, 200); assert.equal(Buffer.from(await own.arrayBuffer()).toString(), 'SELFIE'); assert.match(own.headers.get('cache-control'), /no-store/);
+  assert.equal((await call('olga', 'GET', '/dating/verification/file/selfie')).status, 404, 'another member gets nothing');
+  assert.equal((await call('olga', 'GET', `/admin/api/dating/verifications/${v0.id}/file/id`)).status, 403);
+  const adm = await app.fetch(new Request(`http://api.test/admin/api/dating/verifications/${v0.id}/file/id`, { headers: { 'X-Dev-User': 'boss' } }), env);
+  assert.equal(adm.status, 200); assert.equal(Buffer.from(await adm.arrayBuffer()).toString(), 'IDCARD');
+  // submit → advisory AI pre-check (three single-image calls, compared)
+  const birthYear = yearsAgo(28).slice(0, 4);
+  const words = { thumbs_up: 'thumbs up', peace_sign: 'peace sign', open_palm: 'open palm', point_up: 'pointing up', hand_on_chin: 'hand on chin' };
+  const e = aiEnv((tag) => {
+    if (tag === 'SELFIE') return { response: JSON.stringify({ face_visible: true, people: 1, gender: 'woman', age_range: '26-35', hair: 'long braids', glasses: false, gesture: `making a ${words[st.gesture]}`, text_seen: `paper with ${st.code}` }) };
+    if (tag === 'IDCARD') return { description: JSON.stringify({ is_id_document: true, document_type: 'NIN slip', has_face_photo: true, gender: 'woman', age_range: '26-35', name: 'VIC OKAFOR EXAMPLE', date_of_birth: `14 MAR ${birthYear}` }) };
+    if (tag === 'PROFILE') return { response: JSON.stringify({ face_visible: true, people: 1, gender: 'woman', age_range: '26-35', hair: 'braids', glasses: false, gesture: 'none', text_seen: '' }) };
+    return new Error('unexpected image');
+  });
+  assert.equal((await call('vic', 'POST', '/dating/verification/submit', { idType: 'bvn' }, e)).json.code, 'BAD_ID_TYPE');
+  const sub = await call('vic', 'POST', '/dating/verification/submit', { idType: 'nin' }, e);
+  assert.equal(sub.status, 200); assert.equal(sub.json.verification.status, 'pending'); assert.equal(sub.json.verification.code, null);
+  const v1 = await one(env, `SELECT * FROM dating_verifications WHERE id = $1`, [v0.id]);
+  assert.deepEqual([v1.ai_status, v1.ai_confidence], ['done', 'high']);
+  assert.match(v1.ai_note, new RegExp(`code ${st.code} readable`)); assert.match(v1.ai_note, /birth year on the ID matches/); assert.match(v1.ai_note, /Advisory only/);
+  assert.ok(!/OKAFOR|EXAMPLE/i.test(v1.ai_note) && !v1.ai_note.includes(`MAR ${birthYear}`), 'the note never repeats what is printed on the ID');
+  assert.equal((await call('vic', 'POST', '/dating/verification/start')).json.code, 'VERIFICATION_PENDING');
+  // admin queue: everything side by side
+  const list = (await call('boss', 'GET', '/admin/api/dating/verifications')).json.items;
+  const item = list.find((x) => x.id === v0.id);
+  assert.equal(item.ai.confidence, 'high'); assert.equal(item.hasSelfie && item.hasId, true); assert.equal(item.profile.photos.length, 1); assert.equal(item.code, st.code);
+  assert.equal((await call('boss', 'GET', '/admin/api/dating/overview')).json.verificationsPending, 1);
+  assert.equal((await call('olga', 'GET', '/admin/api/dating/verifications')).status, 403);
+  // reject needs a reason; approve → Verified badge, both images deleted, only the outcome kept
+  assert.equal((await call('boss', 'POST', `/admin/api/dating/verifications/${v0.id}`, { decision: 'reject' })).json.code, 'REASON_REQUIRED');
+  const ok = await call('boss', 'POST', `/admin/api/dating/verifications/${v0.id}`, { decision: 'approve' });
+  assert.equal(ok.status, 200); assert.equal(ok.json.status, 'approved');
+  assert.equal((await one(env, 'SELECT verified FROM dating_profiles WHERE user_id = $1', [ids.vic])).verified, true);
+  const v2 = await one(env, `SELECT * FROM dating_verifications WHERE id = $1`, [v0.id]);
+  assert.deepEqual([v2.selfie_key, v2.id_key, v2.ai_details, v2.status], [null, null, null, 'approved']); assert.ok(v2.files_deleted_at && v2.ai_confidence === 'high');
+  assert.equal(await env.MEDIA.head(v1.selfie_key), null); assert.equal(await env.MEDIA.head(v1.id_key), null);
+  assert.equal((await call('vic', 'GET', '/dating/verification/file/selfie')).status, 404);
+  assert.equal((await call('boss', 'POST', `/admin/api/dating/verifications/${v0.id}`, { decision: 'reject', reason: 'again' })).json.code, 'ALREADY_DECIDED');
+  assert.ok(await one(env, `SELECT 1 FROM admin_actions WHERE action = 'dating.verification.approve' AND target_id = $1`, [v0.id]));
+  assert.equal((await call('vic', 'POST', '/dating/verification/start')).json.code, 'ALREADY_VERIFIED');
+  assert.equal((await call('sam', 'GET', `/dating/profiles/${ids.vic}`)).json.verified, true);
+  // AI unavailable → submitted anyway with an "unknown" note; a rejection tells the member why and deletes the images
+  await mkProfile('wes', { gender: 'man', interestedIn: 'women', age: 35 });
+  await call('wes', 'POST', '/dating/verification/start');
+  await rawPost('wes', '/dating/verification/upload?kind=selfie', Buffer.from('S2'), 'image/png');
+  await rawPost('wes', '/dating/verification/upload?kind=id', Buffer.from('I2'), 'image/webp');
+  const ws2 = await call('wes', 'POST', '/dating/verification/submit', { idType: 'passport' });
+  assert.equal(ws2.json.verification.status, 'pending');
+  const w = await one(env, `SELECT * FROM dating_verifications WHERE user_id = $1`, [ids.wes]);
+  assert.deepEqual([w.ai_status, w.ai_confidence], ['unavailable', 'unknown']);
+  await call('boss', 'POST', `/admin/api/dating/verifications/${w.id}`, { decision: 'reject', reason: 'The code is not visible' });
+  const mine = (await call('wes', 'GET', '/dating/verification')).json.verification;
+  assert.deepEqual([mine.status, mine.rejectReason], ['rejected', 'The code is not visible']);
+  assert.equal((await one(env, 'SELECT verified FROM dating_profiles WHERE user_id = $1', [ids.wes])).verified, false);
+  assert.equal(await env.MEDIA.head(w.selfie_key), null);
+  // an unfinished draft past its expiry loses its image in the cron
+  const again = (await call('wes', 'POST', '/dating/verification/start')).json.verification;
+  assert.equal(again.status, 'draft');
+  await rawPost('wes', '/dating/verification/upload?kind=selfie', Buffer.from('S3'), 'image/jpeg');
+  const d = await one(env, `SELECT * FROM dating_verifications WHERE id = $1`, [again.id]);
+  await q(env, `UPDATE dating_verifications SET expires_at = now() - interval '1 minute' WHERE id = $1`, [d.id]);
+  assert.ok((await D.runDatingCron(env)).draftsExpired >= 1);
+  const d2 = await one(env, `SELECT * FROM dating_verifications WHERE id = $1`, [d.id]);
+  assert.deepEqual([d2.status, d2.selfie_key], ['expired', null]); assert.equal(await env.MEDIA.head(d.selfie_key), null);
+});
+
+test('dating chat shows the social profile only when the other person is verified (admin setting, default on)', async () => {
+  await rules({});
+  await q(env, `UPDATE users SET handle = 'vic_social', display_name = 'Victoria Social', avatar_url = 'https://images.example/vic-avatar.jpg' WHERE id = $1`, [ids.vic]);
+  await call('sam', 'POST', '/dating/swipe', { targetId: ids.vic, action: 'like' });
+  const m = await call('vic', 'POST', '/dating/swipe', { targetId: ids.sam, action: 'like' });
+  const conv = m.json.match.conversationId;
+  const forSam = (await call('sam', 'GET', `/dating/conversations/${conv}`)).json;
+  assert.equal(forSam.profile.verified, true);
+  assert.deepEqual(forSam.social, { userId: ids.vic, displayName: 'Victoria Social', handle: 'vic_social', avatarUrl: 'https://images.example/vic-avatar.jpg' });
+  const forVic = (await call('vic', 'GET', `/dating/conversations/${conv}`)).json;
+  assert.equal(forVic.profile.verified, false); assert.equal(forVic.social, null, 'sam is not verified: dating name and photo only');
+  await rules({ showSocialToVerified: false });
+  assert.equal((await call('sam', 'GET', `/dating/conversations/${conv}`)).json.social, null);
+  await rules({});
+  ids.convSV = conv;
+});
+
+test('retention: closed dating chats lose their messages after chatRetentionDays, in small batches; reports stay', async () => {
+  await rules({ retentionBatch: 2 });
+  await mkProfile('nate', { gender: 'man', interestedIn: 'women', age: 33 });
+  await mkProfile('zoe', { gender: 'woman', interestedIn: 'men', age: 31 });
+  await call('nate', 'POST', '/dating/swipe', { targetId: ids.zoe, action: 'like' });
+  const conv = (await call('zoe', 'POST', '/dating/swipe', { targetId: ids.nate, action: 'like' })).json.match.conversationId;
+  const mediaKey = `chat/${conv}/img_test.jpg`;
+  await env.MEDIA.put(mediaKey, Buffer.from('PIC'), { httpMetadata: { contentType: 'image/jpeg' } });
+  for (const [i, k] of [[1, null], [2, mediaKey], [3, null]]) {
+    await q(env, `INSERT INTO messages (conversation_id, sender_id, kind, body, media_key) VALUES ($1, $2, $3, $4, $5)`, [conv, ids.nate, k ? 'image' : 'text', `m${i}`, k]);
+  }
+  await call('zoe', 'POST', '/dating/report', { userId: ids.nate, reason: 'harassment', details: 'kept forever' });
+  const m = (await call('zoe', 'GET', '/dating/matches')).json.items.find((x) => x.conversationId === conv);
+  await call('zoe', 'POST', `/dating/matches/${m.matchId}/unmatch`);
+  const dc = await one(env, 'SELECT status, closed_at FROM dating_conversations WHERE conversation_id = $1', [conv]);
+  assert.equal(dc.status, 'closed'); assert.ok(dc.closed_at, 'closing a chat stamps closed_at');
+  // not old enough yet → nothing deleted (and open chats are never touched)
+  const open = ids.convSV;
+  const openBefore = (await one(env, 'SELECT count(*)::int AS n FROM messages WHERE conversation_id = $1', [open])).n;
+  assert.equal((await D.runDatingCron(env)).messagesDeleted, 0);
+  await q(env, `UPDATE dating_conversations SET closed_at = now() - interval '731 days' WHERE conversation_id = $1`, [conv]);
+  // retention off (0) → kept
+  await rules({ retentionBatch: 2, chatRetentionDays: 0 });
+  assert.equal((await D.runDatingCron(env)).messagesDeleted, 0);
+  await rules({ retentionBatch: 2 });
+  const r1 = await D.runDatingCron(env);
+  assert.deepEqual([r1.messagesDeleted, r1.chatsPurged], [2, 0], 'small batches');
+  const r2 = await D.runDatingCron(env);
+  assert.deepEqual([r2.messagesDeleted, r2.chatsPurged], [1, 1]);
+  assert.equal((await one(env, 'SELECT count(*)::int AS n FROM messages WHERE conversation_id = $1', [conv])).n, 0);
+  assert.equal(await env.MEDIA.head(mediaKey), null, 'chat attachments go too');
+  assert.ok((await one(env, 'SELECT messages_purged_at FROM dating_conversations WHERE conversation_id = $1', [conv])).messages_purged_at);
+  assert.equal((await D.runDatingCron(env)).messagesDeleted, 0, 'done: nothing more to delete');
+  assert.ok(await one(env, `SELECT 1 FROM dating_reports WHERE target_id = $1 AND details = 'kept forever'`, [ids.nate]), 'reports are kept');
+  assert.ok(await one(env, 'SELECT 1 FROM dating_conversations WHERE conversation_id = $1', [conv]), 'the chat record is kept');
+  assert.equal((await one(env, 'SELECT count(*)::int AS n FROM messages WHERE conversation_id = $1', [open])).n, openBefore);
+  // the setting is an admin rule in days (validated)
+  assert.equal((await call('boss', 'PUT', '/admin/api/dating/config', { key: 'dating_rules', value: { ...D.DEFAULT_RULES, chatRetentionDays: -1 } })).json.code, 'BAD_CONFIG');
+  assert.equal(D.DEFAULT_RULES.chatRetentionDays, 730);
+  await rules({});
+});
+
+test('already true: 18+, man/woman matching, no refund on a declined request, verification not needed to message', async () => {
+  // 18+: an under-18 date of birth is refused and minAge can never go below 18
+  const young = await call('quin', 'PUT', '/dating/profile', { firstName: 'Quin', birthDate: yearsAgo(17), confirmAdult: true, gender: 'man', interestedIn: 'women' });
+  assert.equal(young.json.code, 'AGE_RESTRICTED');
+  await q(env, `UPDATE wallet_config SET value = $1::jsonb WHERE key = 'dating_rules'`, [JSON.stringify({ ...D.DEFAULT_RULES, minAge: 12 })]); // even a bad stored value
+  assert.equal((await D.datingConfig(env)).rules.minAge, 18);
+  await rules({});
+  // man / woman only, matching both ways
+  assert.equal((await call('quin', 'PUT', '/dating/profile', { firstName: 'Quin', birthDate: yearsAgo(30), confirmAdult: true, gender: 'other', interestedIn: 'women' })).json.code, 'BAD_PROFILE');
+  assert.equal((await call('quin', 'PUT', '/dating/profile', { firstName: 'Quin', birthDate: yearsAgo(30), confirmAdult: true, gender: 'man', interestedIn: 'both' })).json.code, 'BAD_PROFILE');
+  await mkProfile('quin', { gender: 'man', interestedIn: 'women', age: 30 });
+  const s = await stack('quin');
+  const genders = await q(env, 'SELECT gender, interested_in FROM dating_profiles WHERE user_id = ANY($1::uuid[])', [s]);
+  assert.ok(genders.length && genders.every((g) => g.gender === 'woman' && g.interested_in === 'men'), 'a man seeking women only sees women seeking men');
+  // a declined message request is not refunded
+  await mkProfile('olive', { gender: 'woman', interestedIn: 'men', age: 29 });
+  await W.credit(env, { ref: 'seed:quin', userId: ids.quin, wallet: 'dating_coins', amount: 25, kind: 'admin_adjust' });
+  const req = await call('quin', 'POST', '/dating/requests', { targetId: ids.olive, text: 'Hello Olive', idempotencyKey: key() });
+  assert.equal(req.json.charged, true); assert.equal(await coins('quin'), 0);
+  assert.equal((await call('olive', 'POST', `/dating/requests/${req.json.conversationId}/decline`)).json.status, 'declined');
+  assert.equal(await coins('quin'), 0, 'no refund');
+  assert.equal((await one(env, `SELECT count(*)::int AS n FROM wallet_entries WHERE user_id = $1 AND amount > 0 AND kind <> 'admin_adjust'`, [ids.quin])).n, 0);
+  assert.ok((await one(env, 'SELECT closed_at FROM dating_conversations WHERE conversation_id = $1', [req.json.conversationId])).closed_at, 'a declined request is closed (retention applies)');
+  // verification is not needed to message: two unverified members chat (sam ⇄ vic chat above; sam is not verified)
+  assert.equal((await one(env, 'SELECT verified FROM dating_profiles WHERE user_id = $1', [ids.sam])).verified, false);
+  await rules({ adMinWatchSec: 0 });
+  const stt = await call('sam', 'POST', `/dating/conversations/${ids.convSV}/ad/start`);
+  await call('sam', 'POST', '/dating/ads/claim', { nonce: stt.json.nonce, token: stt.json.token });
+  assert.equal((await call('sam', 'POST', `/conversations/${ids.convSV}/messages`, { text: 'Hello Vic' })).status, 201);
+  await rules({});
+});

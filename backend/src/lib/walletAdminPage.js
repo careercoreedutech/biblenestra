@@ -70,6 +70,9 @@ window.registerAdminTab('Wallets & payments', function(box, ctx){
   });
   var sctx = { api: api, toast: toast, esc: ctx.esc, h: h, open: function(name, preset){ open(name, preset); } };
   extra.forEach(function(x){ SECTIONS.push([x.title, function(el){ x.render(el, sctx); }]); });
+  // STAFF ACCESS: staff see only the sections their role allows (Donations & payouts = Fund Me, Gift catalogue = gifts, Dating = Find Love)
+  if (window.adminSectionAllowed) SECTIONS = SECTIONS.filter(function(s){ return window.adminSectionAllowed('Wallets & payments', s[0]); });
+  if (!SECTIONS.length) { panel.appendChild(h('div', { class: 'card empty', text: 'Your staff role has no sections here.' })); return; }
   var current = SECTIONS[0][0];
   function drawNav(){
     nav.innerHTML = '';
@@ -337,13 +340,21 @@ window.registerAdminTab('Wallets & payments', function(box, ctx){
     el.appendChild(rowOf('Gift earnings payout value', 'What 1 earned coin is worth when an approved creator withdraws (creator payout programme).', [h('span', { class: 'meta', text: '1 coin = ₦' }), pr], function(){ saveKey('earnings_payout_rate', { minorPerCoin: Math.round(parseFloat(pr.value) * 100), currency: 'NGN' }); }));
     var hd = inp('days', 80, 'number'); hd.value = c.earnings_hold_days;
     el.appendChild(rowOf('Earnings hold period', 'New gift earnings stay pending this many days before they can be released for withdrawal.', [hd, h('span', { class: 'meta', text: 'days' })], function(){ saveKey('earnings_hold_days', parseInt(hd.value, 10)); }));
+    var mu = inp('USD', 90, 'number'); mu.value = c.earnings_min_withdrawal_usd == null ? '' : c.earnings_min_withdrawal_usd;
+    var perCoin = (c.earnings_payout_rate && c.earnings_payout_rate.minorPerCoin) || 0;
+    var muHint = function(){ var u = parseFloat(mu.value); var fx = c.usd_ngn_rate || 0; return (u >= 0 && fx > 0 && perCoin > 0) ? ' = ' + Math.ceil(Math.round(u * fx * 100) / perCoin).toLocaleString('en-US') + ' coins at the saved rates' : ''; };
+    var muMeta = h('span', { class: 'meta', text: muHint() });
+    mu.oninput = function(){ muMeta.textContent = muHint(); };
+    el.appendChild(rowOf('Minimum withdrawal (USD)', 'Smallest gift-earnings withdrawal, in US dollars (client: $10). It becomes coins with the naira-per-dollar rate below and the payout value of one coin: $10 × ₦1,500 ÷ ₦1 = 15,000 coins. Members see “$10 (about ₦15,000)”. Leave empty to use the coin minimum instead.', [h('span', { class: 'meta', text: '$' }), mu, muMeta], function(){ var v = String(mu.value).trim(); saveKey('earnings_min_withdrawal_usd', v === '' ? null : Math.round(parseFloat(v) * 100) / 100); }));
+    var fxr = inp('₦ per $1', 100, 'number'); fxr.value = c.usd_ngn_rate;
+    el.appendChild(rowOf('Naira per US dollar', 'Exchange rate used to turn the USD minimum into coins and to show the “about ₦…” amount in the app. Update it when the rate moves.', [h('span', { class: 'meta', text: '$1 = ₦' }), fxr], function(){ saveKey('usd_ngn_rate', parseFloat(fxr.value)); }));
     var mw = inp('coins', 100, 'number'); mw.value = c.earnings_min_withdrawal;
-    el.appendChild(rowOf('Minimum withdrawal', 'Smallest gift-earnings withdrawal, in coins.', [mw], function(){ saveKey('earnings_min_withdrawal', parseInt(mw.value, 10)); }));
+    el.appendChild(rowOf('Minimum withdrawal in coins (fallback)', 'Only used when the USD minimum above is empty.', [mw], function(){ saveKey('earnings_min_withdrawal', parseInt(mw.value, 10)); }));
     var we = h('input', { type: 'checkbox' }); we.checked = !!c.earnings_withdrawals_enabled;
     el.appendChild(rowOf('Gift earnings withdrawals', 'Off until the creator payout programme is approved (legal / regulatory review). When off, members see earnings but cannot request a withdrawal.', [we, h('span', { class: 'meta', text: 'Withdrawals open' })], function(){ if (we.checked && !confirm('Open gift-earnings withdrawals? Only do this after the legal review is done.')) { we.checked = false; return; } saveKey('earnings_withdrawals_enabled', we.checked); }));
     var fc = inp('credits', 80, 'number'); fc.value = c.fundme_publish_credits;
     el.appendChild(rowOf('Fund Me publishing cost', 'Credits deducted when a Fund Me request is successfully published (client spec: 1).', [fc], function(){ saveKey('fundme_publish_credits', parseInt(fc.value, 10)); }));
-    var other = Object.keys(c).filter(function(k){ return ['gift_commission_bps', 'gift_coin_rate', 'earnings_payout_rate', 'earnings_hold_days', 'earnings_min_withdrawal', 'earnings_withdrawals_enabled', 'fundme_publish_credits'].indexOf(k) < 0; });
+    var other = Object.keys(c).filter(function(k){ return ['gift_commission_bps', 'gift_coin_rate', 'earnings_payout_rate', 'earnings_hold_days', 'earnings_min_withdrawal', 'earnings_min_withdrawal_usd', 'usd_ngn_rate', 'earnings_withdrawals_enabled', 'fundme_publish_credits'].indexOf(k) < 0; });
     other.forEach(function(k){
       var v = h('input', { style: 'width:320px' }); v.value = JSON.stringify(c[k]);
       el.appendChild(rowOf(k, 'Setting added by another feature (JSON value).', [v], function(){ var val; try { val = JSON.parse(v.value); } catch (e) { toast('Not valid JSON', true); return; } saveKey(k, val); }));

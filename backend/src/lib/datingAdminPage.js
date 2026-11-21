@@ -31,12 +31,23 @@ export const DATING_ADMIN_SCRIPT = `
       var a = document.createElement('a'); a.href = URL.createObjectURL(await res.blob()); a.download = 'dating-export.csv'; document.body.appendChild(a); a.click(); a.remove();
     } catch (e) { toast(e.message, true); }
   }
+  // Private images (verification selfie / ID): fetched with the admin token, shown from a blob URL, never cached.
+  function authImg(path, style){
+    var img = h('img', { alt: '', style: style || '' });
+    var hd = {};
+    var tk = localStorage.getItem('bnAdminToken');
+    if (tk) hd['Authorization'] = 'Bearer ' + tk; else { var dev = localStorage.getItem('bnAdminDevUser'); if (dev) hd['X-Dev-User'] = dev; }
+    fetch(path, { headers: hd, cache: 'no-store' }).then(function(res){ if (!res.ok) throw new Error('HTTP ' + res.status); return res.blob(); })
+      .then(function(b){ img.src = URL.createObjectURL(b); })
+      .catch(function(){ img.alt = 'Image not available'; img.style.background = 'var(--border)'; });
+    return img;
+  }
 
   box.appendChild(h('p', { class: 'sub', text: 'Find Love: profiles and moderation, Dating Coin usage, message unlocks, rewarded-ad completions, boosts and Spotlight, Dating Plus / VIP. Coins themselves live in the ledger (Ledger search, wallet dating_coins). Search by user id, @handle or name, reference, date and type.' }));
   var nav = h('div', { class: 'row', style: 'gap:6px;margin-bottom:12px' });
   var panel = h('div');
   box.appendChild(nav); box.appendChild(panel);
-  var TABS = [['Overview', overview], ['Profiles', profiles], ['Photo queue', photos], ['Reports', reports], ['Coin usage', spends], ['Message unlocks', unlocks], ['Rewarded ads', adRewards], ['Boosts & Spotlight', boosts], ['Plus / VIP', subs], ['Prices & rules', settings]];
+  var TABS = [['Overview', overview], ['Profiles', profiles], ['Photo queue', photos], ['Reports', reports], ['Verification', verifications], ['Coin usage', spends], ['Message unlocks', unlocks], ['Rewarded ads', adRewards], ['Boosts & Spotlight', boosts], ['Plus / VIP', subs], ['Prices & rules', settings]];
   var cur = 'Overview';
   function draw(){ nav.innerHTML = ''; TABS.forEach(function(t){ nav.appendChild(h('button', { class: 'btn small' + (t[0] === cur ? '' : ' ghost'), text: t[0], onclick: function(){ cur = t[0]; draw(); } })); }); panel.innerHTML = ''; var t = TABS.find(function(x){ return x[0] === cur; }); t[1](panel); }
 
@@ -60,8 +71,10 @@ export const DATING_ADMIN_SCRIPT = `
     await load(el, '/admin/api/dating/overview', function(d){
       el.appendChild(h('div', { class: 'row', style: 'gap:10px;margin-bottom:12px;flex-wrap:wrap' }, [
         stat('Profiles', num(d.profiles.total), num(d.profiles.active) + ' active · ' + num(d.profiles.paused) + ' hidden · ' + num(d.profiles.banned) + ' suspended'),
-        stat('Photos waiting', num(d.photosPending), 'review mode: ' + d.photoReview),
+        stat('Photos waiting', num(d.photosPending), 'review mode: ' + d.photoReview + ' · ' + num(d.photosFlagged) + ' flagged by AI'),
         stat('Open reports', num(d.reportsOpen)),
+        stat('Hidden after reports', num(d.heldAfterReports), 'auto-hide at ' + (d.autoHideReports ? d.autoHideReports + ' reporters' : 'off')),
+        stat('Verifications waiting', num(d.verificationsPending)),
         stat('Matches', num(d.matches), num(d.matches30) + ' in the last 30 days'),
         stat('Active boosts', num(d.boostsActive)),
         stat('Plus / VIP', num(d.plus) + ' / ' + num(d.vip), 'live subscriptions'),
@@ -75,11 +88,12 @@ export const DATING_ADMIN_SCRIPT = `
   }
 
   function profiles(el){
-    filterBar(el, [['q', 'user id, @handle or name', null, 220], ['status', '', [['', 'Any status'], ['active', 'Active'], ['paused', 'Hidden by member'], ['banned', 'Suspended']]], ['reported', '', [['', 'All'], ['1', 'Reported only']]]], function(out, v){
+    filterBar(el, [['q', 'user id, @handle or name', null, 220], ['status', '', [['', 'Any status'], ['held', 'Hidden after reports'], ['active', 'Active'], ['paused', 'Hidden by member'], ['banned', 'Suspended']]], ['reported', '', [['', 'All'], ['1', 'Reported only']]]], function(out, v){
       load(out, '/admin/api/dating/profiles' + qs(v), function(d){
         if (!d.items.length) { out.appendChild(h('div', { class: 'card empty', text: 'No profiles.' })); return; }
         d.items.forEach(function(p){
           var acts = h('div', { class: 'row', style: 'gap:6px;margin-top:8px' });
+          if (p.heldAt) acts.appendChild(h('button', { class: 'btn small', text: 'Restore to discovery', onclick: function(){ if (confirm('Show this profile again? Open reports on it are dismissed and the report count starts again.')) act(p.userId, 'restore', {}); } }));
           if (p.status === 'banned') acts.appendChild(h('button', { class: 'btn small ghost', text: 'Restore', onclick: function(){ act(p.userId, 'unban', {}); } }));
           else acts.appendChild(h('button', { class: 'btn small danger', text: 'Suspend', onclick: function(){ var r = prompt('Reason (shown to the member)'); if (r) act(p.userId, 'ban', { reason: r }); } }));
           acts.appendChild(h('button', { class: 'btn small ghost', text: p.verified ? 'Remove Verified' : 'Mark Verified', onclick: function(){ act(p.userId, 'verify', { verified: !p.verified }); } }));
@@ -88,7 +102,8 @@ export const DATING_ADMIN_SCRIPT = `
             h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, (p.photos || []).slice(0, 6).map(function(ph){ return h('img', { src: ph.url, title: ph.status, style: 'width:64px;height:80px;object-fit:cover;border-radius:8px;border:2px solid ' + (ph.status === 'approved' ? 'var(--primary)' : ph.status === 'rejected' ? 'var(--neg)' : 'var(--gold)') }); })),
             h('b', { text: p.firstName + ', ' + p.age + ' · ' + p.gender + ' seeking ' + p.interestedIn }),
             h('div', { class: 'meta', text: [p.city, p.country].filter(Boolean).join(', ') + ' · ' + (p.denomination || 'denomination not set') + ' · ' + p.intention + ' · status ' + p.status + (p.banReason ? ' (' + p.banReason + ')' : '') }),
-            h('div', { class: 'meta', text: 'Account: ' + (p.user.name || '') + (p.user.handle ? ' @' + p.user.handle : '') + ' · ' + p.userId + ' · reports ' + p.reports + ' · matches ' + p.matches + ' · joined ' + when(p.createdAt) }),
+            p.heldAt ? h('div', { class: 'meta', style: 'color:var(--neg);font-weight:600', text: 'Hidden from discovery automatically on ' + when(p.heldAt) + ' after reports from ' + p.reporters + ' different members. Review the Reports tab, then restore or suspend.' }) : null,
+            h('div', { class: 'meta', text: 'Account: ' + (p.user.name || '') + (p.user.handle ? ' @' + p.user.handle : '') + ' · ' + p.userId + ' · reports ' + p.reports + ' (' + p.reporters + ' reporters since last restore) · matches ' + p.matches + ' · joined ' + when(p.createdAt) + (p.verified ? ' · verified' : '') }),
             p.bio ? h('p', { text: p.bio }) : null, acts,
           ]));
         });
@@ -98,7 +113,7 @@ export const DATING_ADMIN_SCRIPT = `
   }
 
   function photos(el){
-    filterBar(el, [['status', '', [['pending', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Rejected']]], ['q', 'user id, @handle or name', null, 200]], function(out, v){
+    filterBar(el, [['status', '', [['pending', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Rejected']]], ['ai', '', [['', 'Any AI result'], ['flagged', 'Flagged by AI'], ['error', 'AI could not check'], ['auto', 'Approved by AI only']]], ['q', 'user id, @handle or name', null, 200]], function(out, v){
       load(out, '/admin/api/dating/photos' + qs(v), function(d){
         if (!d.items.length) { out.appendChild(h('div', { class: 'card empty', text: 'Nothing in this queue.' })); return; }
         var grid = h('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap' });
@@ -106,6 +121,9 @@ export const DATING_ADMIN_SCRIPT = `
           grid.appendChild(h('div', { class: 'card', style: 'width:180px;margin:0' }, [
             h('img', { src: p.url, style: 'width:100%;height:220px;object-fit:cover;border-radius:8px' }),
             h('div', { class: 'meta', text: p.firstName + ' · ' + p.userId.slice(0, 8) + ' · ' + when(p.createdAt) }),
+            p.ai && p.ai.flagged ? h('div', { class: 'meta', style: 'color:var(--neg);font-weight:600', text: p.ai.reason || 'Flagged by AI' }) : null,
+            p.ai && p.ai.verdict === 'error' ? h('div', { class: 'meta', text: 'AI could not check: ' + (p.ai.reason || '') }) : null,
+            p.ai && p.ai.verdict === 'clean' ? h('div', { class: 'meta', text: 'AI: no problems found' + (p.reviewedBy ? '' : ' (auto-approved)') }) : null,
             p.status === 'rejected' && p.rejectReason ? h('div', { class: 'meta', text: 'Rejected: ' + p.rejectReason }) : null,
             h('div', { class: 'row', style: 'gap:6px;margin-top:6px' }, [
               h('button', { class: 'btn small', text: 'Approve', onclick: function(){ review(p.id, 'approved'); } }),
@@ -134,6 +152,39 @@ export const DATING_ADMIN_SCRIPT = `
       });
     });
     async function handle(id, action){ try { await api('POST', '/admin/api/dating/reports/' + id, { action: action }); toast('Done'); draw(); } catch (e) { toast(e.message, true); } }
+  }
+
+  function verifications(el){
+    el.appendChild(h('p', { class: 'meta', text: 'Verified badge requests: a live selfie holding the code and making the gesture shown in the app, and a government ID photo. The AI note is advisory only (it compares described features, not a face match). Both images are deleted as soon as you approve or reject; only the outcome is kept. Verification is not needed to message.' }));
+    filterBar(el, [['status', '', [['pending', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['draft', 'Started, not submitted'], ['expired', 'Expired'], ['', 'All']]], ['q', 'user id, @handle or name', null, 200]], function(out, v){
+      load(out, '/admin/api/dating/verifications' + qs(v), function(d){
+        if (!d.items.length) { out.appendChild(h('div', { class: 'card empty', text: 'Nothing here.' })); return; }
+        var IMG = 'width:180px;height:220px;object-fit:cover;border-radius:8px;border:1px solid var(--border)';
+        d.items.forEach(function(r){
+          var pics = h('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap;align-items:flex-start' });
+          function col(label, node){ return h('div', {}, [h('div', { class: 'meta', text: label }), node]); }
+          if (r.hasSelfie) pics.appendChild(col('Selfie (code ' + r.code + ', ' + r.gesture.replace(/_/g, ' ') + ')', authImg('/admin/api/dating/verifications/' + r.id + '/file/selfie', IMG)));
+          if (r.hasId) pics.appendChild(col('ID: ' + (r.idTypeLabel || ''), authImg('/admin/api/dating/verifications/' + r.id + '/file/id', IMG)));
+          (r.profile.photos || []).slice(0, 3).forEach(function(u, i){ pics.appendChild(col(i ? 'Profile photo' : 'Main profile photo', h('img', { src: u, style: IMG }))); });
+          if (!r.hasSelfie && !r.hasId) pics.appendChild(h('div', { class: 'meta', text: r.filesDeletedAt ? 'Images deleted ' + when(r.filesDeletedAt) : 'No images uploaded' }));
+          var conf = r.ai && r.ai.confidence ? r.ai.confidence : 'not run';
+          var tint = conf === 'high' ? 'var(--primary)' : conf === 'low' ? 'var(--neg)' : 'var(--gold)';
+          var acts = h('div', { class: 'row', style: 'gap:6px;margin-top:8px' });
+          if (r.status === 'pending') {
+            acts.appendChild(h('button', { class: 'btn small', text: 'Approve: Verified', onclick: function(){ if (confirm('Approve and give ' + (r.profile.firstName || 'this member') + ' the Verified badge? The selfie and ID are deleted now.')) decide(r.id, 'approve'); } }));
+            acts.appendChild(h('button', { class: 'btn small danger', text: 'Reject', onclick: function(){ var why = prompt('Reason (shown to the member), e.g. code not visible, ID unreadable, face does not match'); if (why) decide(r.id, 'reject', why); } }));
+          }
+          out.appendChild(h('div', { class: 'card' }, [
+            h('b', { text: (r.profile.firstName || '?') + ', ' + (r.profile.age == null ? '?' : r.profile.age) + ' · ' + (r.profile.gender || '') + ' · ' + r.status }),
+            h('div', { class: 'meta', text: 'Account: ' + (r.user ? (r.user.name || '') + (r.user.handle ? ' @' + r.user.handle : '') + ' · ' + r.user.id : '-') + ' · submitted ' + when(r.submittedAt) + (r.decidedAt ? ' · decided ' + when(r.decidedAt) : '') }),
+            h('div', { style: 'margin:8px 0;padding:8px;border-radius:8px;border:1px solid ' + tint }, [h('b', { text: 'AI pre-check: ' + conf }), h('div', { class: 'meta', text: (r.ai && r.ai.note) || 'No AI note.' })]),
+            r.rejectReason ? h('div', { class: 'meta', text: 'Rejected: ' + r.rejectReason }) : null,
+            pics, acts,
+          ]));
+        });
+      });
+    });
+    async function decide(id, decision, reason){ try { await api('POST', '/admin/api/dating/verifications/' + id, { decision: decision, reason: reason || '' }); toast(decision === 'approve' ? 'Verified' : 'Rejected'); draw(); } catch (e) { toast(e.message, true); } }
   }
 
   var KINDS = [['', 'All uses'], ['super_like', 'Super Like'], ['priority_like', 'Priority Like'], ['message_request', 'Message request'], ['see_who_liked', 'See who liked you'], ['extra_swipes', '+20 swipes'], ['message_bundle', 'Message bundle'], ['boost_30m', 'Boost 30 min'], ['boost_1h', 'Boost 1 h'], ['boost_3h', 'Boost 3 h'], ['spotlight_24h', 'Spotlight 24 h']];
@@ -189,6 +240,7 @@ export const DATING_ADMIN_SCRIPT = `
   async function settings(el){
     await load(el, '/admin/api/dating/config', function(d){
       el.appendChild(h('p', { class: 'meta', text: 'Coin prices for each Find Love feature and the free-tier rules. Changes apply at once (no app release). Every change is logged.' }));
+      el.appendChild(h('p', { class: 'meta', text: 'Safety rules: photoReview "ai" (live at once unless the AI flags it; if the AI is down the photo waits for you), "pre" (every photo waits for you) or "post" (live at once, reviewed afterwards) · autoHideReports: hide a profile from discovery after reports from this many different members (0 = off) · showSocialToVerified: in a dating chat, show the other person’s social profile only if they are verified · chatRetentionDays: delete messages of closed dating chats after this many days (0 = keep; reports are always kept) · verificationMinutes: how long a verification code stays valid.' }));
       [['dating_prices', 'Prices (Dating Coins)', d.prices], ['dating_rules', 'Rules', d.rules]].forEach(function(s){
         var ta = h('textarea', { style: 'width:100%;min-height:220px;font-family:monospace;font-size:12px' });
         ta.value = JSON.stringify(s[2], null, 2);

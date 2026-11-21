@@ -16,30 +16,46 @@ import { mediaUrl, userJson } from './shape.js';
 import { notifyUser } from '../hub.js';
 import {
   getConfig, registerConfig, postGift, splitGift, rateLimit, walletNotify, getBalances, getBalance,
-  holdForWithdrawal, completeWithdrawal, reverseWithdrawal,
+  holdForWithdrawal, completeWithdrawal, reverseWithdrawal, withdrawalMinimum,
 } from './wallet.js';
 import { loadMessage } from './messages.js';
 import { groupContext, permissionsFor } from './chatGroups.js';
 import { useSlotForFirstMessage } from './chatLimits.js';
 import { hasAccess, subscriptionOf } from './memberships.js';
+import { OFFICIAL_CLERK_ID, ensureOfficialAccount } from './broadcasts.js';
+import { requireApprovedKyc } from './kyc.js'; // PAYOUT KYC guard for withdrawals
 
 // ─── admin-editable settings (Admin › Wallets & payments › Settings; commission % is the core gift_commission_bps) ──
 registerConfig('gifts_enabled', true, (v) => typeof v === 'boolean');                                  // kill switch
 registerConfig('gift_daily_coin_limit', 1000000, (v) => Number.isInteger(v) && v >= 0 && v <= 1e9);  // per sender per 24 h (0 = no limit)
-registerConfig('gift_admins_can_receive', false, (v) => typeof v === 'boolean');                      // platform/admin accounts excluded by default
+registerConfig('gift_admins_can_receive', true, (v) => typeof v === 'boolean');                       // admin + official accounts can receive gifts (client answer Q20)
 
-export const CONTEXTS = ['chat', 'profile', 'live', 'post'];
+export const CONTEXTS = ['chat', 'profile', 'live', 'post'];          // where catalogue items can be allowed (gift_catalogue.contexts)
+// SUPPORT BIBLENESTRA: a gift to the official BibleNestra account (users.clerk_id = OFFICIAL_CLERK_ID, the "BibleNestra"
+// verified account that posts Socials broadcasts). It is platform revenue: 100% goes to commission_gift_coins and the
+// official account earns nothing. Ledger ref 'support:<sendId>' (not 'gift:'), kinds support_sent / support_received.
+// Any active gift can be sent this way. A profile gift sent straight to the official account is treated the same way.
+export const SUPPORT_CONTEXT = 'support';
+export const SUPPORT_LABEL = 'Support BibleNestra';
+export const SEND_CONTEXTS = [...CONTEXTS, SUPPORT_CONTEXT];          // context types accepted by POST /gifts/send
+export const SUPPORT_BPS = 10000;
 export const ART_KEYS = ['star', 'flowers', 'heart', 'teddy', 'letter', 'diamond', 'crown', 'trophy', 'celebration', 'premium'];
 const KEY_RE = /^[A-Za-z0-9:_.\-]{8,120}$/;
 export const EXPLAIN = (cfg) => {
   const pct = cfg.gift_commission_bps / 100;
+  const min = withdrawalMinimum(cfg);
   return [
     `BibleNestra keeps ${pct}% of every gift; you receive ${100 - pct}% as gift earnings.`,
-    `New earnings are pending for ${cfg.earnings_hold_days} day${cfg.earnings_hold_days === 1 ? '' : 's'}, then become available.`,
-    'Earnings can only be withdrawn if you’re approved for the BibleNestra creator payout programme.',
+    `New earnings are on hold for ${cfg.earnings_hold_days} day${cfg.earnings_hold_days === 1 ? '' : 's'}, then become available.`,
+    `You can withdraw available earnings from ${min.label} once you’re approved for the BibleNestra creator payout programme.`,
     'Gifting Coins you buy are never cash and can never be withdrawn.',
   ];
 };
+/** The official BibleNestra account (created on first use, like the Socials broadcasts do). → { id, display_name } */
+export async function officialAccount(env) {
+  const row = await one(env, 'SELECT id, display_name FROM users WHERE clerk_id = $1', [OFFICIAL_CLERK_ID]);
+  return row || ensureOfficialAccount(env);
+}
 
 // ─── catalogue ──────────────────────────────────────────────────────────────────────────────────────────────────────
 /** Gifting Coin cost: the admin-set per-item cost, or derived from the admin conversion rate (rounded up). */
@@ -114,7 +130,12 @@ export async function resolveContext(env, me, context, recipientIn) {
   const id = context && context.id != null ? String(context.id) : '';
   const rid = recipientIn ? String(recipientIn) : null;
   if (rid && !isUuid(rid)) throw bad('Choose who receives the gift', 'BAD_RECIPIENT');
-  if (!CONTEXTS.includes(type)) throw bad(`context.type must be one of ${CONTEXTS.join(', ')}`, 'BAD_CONTEXT');
+  if (!SEND_CONTEXTS.includes(type)) throw bad(`context.type must be one of ${SEND_CONTEXTS.join(', ')}`, 'BAD_CONTEXT');
+  if (type === SUPPORT_CONTEXT) {
+    const off = await officialAccount(env);
+    if (rid && rid !== off.id) throw bad('A Support BibleNestra gift goes to BibleNestra', 'BAD_RECIPIENT');
+    return { recipientId: off.id, contextType: type, contextId: off.id };
+  }
   if (type === 'profile') {
     const pid = id || rid;
     if (!isUuid(pid) || (rid && rid !== pid)) throw bad('A profile gift goes to that profile’s owner', 'BAD_CONTEXT');
@@ -162,8 +183,9 @@ const parse = (v) => (v == null ? null : typeof v === 'string' ? JSON.parse(v) :
 export function sendShape(c, r, rate, viewerId = null) {
   const gift = r.g_id ? giftShape(c, { id: r.g_id, name: r.g_name, description: null, price_minor: r.g_price, currency: r.g_currency, coins: r.g_coins, tier: r.g_tier, art: r.g_art, image_key: r.g_image, animation_key: r.g_anim, contexts: r.g_contexts, active: r.g_active, sort: 0 }, rate) : null;
   const mine = viewerId && r.sender_id === viewerId;
+  const support = String(r.ref || '').startsWith('support:');
   const out = {
-    id: r.id, ref: r.ref, giftId: r.gift_id, giftName: r.gift_name,
+    id: r.id, ref: r.ref, giftId: r.gift_id, giftName: r.gift_name, support, label: support ? SUPPORT_LABEL : null,
     gift: gift ? { id: gift.id, name: r.gift_name, art: gift.art, tier: gift.tier, imageUrl: gift.imageUrl, animationUrl: gift.animationUrl } : { id: r.gift_id, name: r.gift_name },
     coins: Number(r.coins), commission: Number(r.commission), earnings: Number(r.earnings), commissionPct: Number(r.commission_bps) / 100,
     sender: parse(r.sender) || null, recipient: parse(r.recipient) || null,
@@ -205,14 +227,17 @@ export async function sendGift(c, me, b) {
   if (!gift) throw notFound('Gift not found');
   if (!gift.active) throw bad('This gift isn’t available any more', 'GIFT_INACTIVE');
   const target = await resolveContext(env, me, b.context, b.recipientId);
-  if (!(gift.contexts || CONTEXTS).includes(target.contextType)) throw bad('This gift can’t be sent here', 'GIFT_NOT_ALLOWED_HERE');
+  // Support BibleNestra accepts any active gift; other contexts follow the gift's allowed contexts
+  if (target.contextType !== SUPPORT_CONTEXT && !(gift.contexts || CONTEXTS).includes(target.contextType)) throw bad('This gift can’t be sent here', 'GIFT_NOT_ALLOWED_HERE');
 
   // eligibility
   const to = target.recipientId;
   if (to === me.id) throw bad('You cannot send a gift to yourself', 'SELF_GIFT');
-  const recipient = await one(env, 'SELECT id, display_name, role, banned FROM users WHERE id = $1', [to]);
+  const recipient = await one(env, 'SELECT id, display_name, role, banned, clerk_id FROM users WHERE id = $1', [to]);
   if (!recipient || recipient.banned) throw notFound('Recipient not found');
-  if (recipient.role === 'admin' && !cfg.gift_admins_can_receive) throw bad('This account can’t receive gifts', 'RECIPIENT_NOT_ELIGIBLE');
+  // every gift to the official account is platform revenue (Support BibleNestra), whatever the context
+  const support = recipient.clerk_id === OFFICIAL_CLERK_ID;
+  if (!support && recipient.role === 'admin' && !cfg.gift_admins_can_receive) throw bad('This account can’t receive gifts', 'RECIPIENT_NOT_ELIGIBLE');
   const blocked = await one(env, 'SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)', [me.id, to]);
   if (blocked) throw forbidden('You cannot send gifts to this person', 'BLOCKED');
 
@@ -231,9 +256,10 @@ export async function sendGift(c, me, b) {
   // CHAT LIMITS: a gift as the first message of a new 1:1 chat uses a chat slot, like any first message
   if (target.conv && target.conv.kind === 'dm') await useSlotForFirstMessage(env, me, target.contextId, to);
 
-  const bps = cfg.gift_commission_bps; // read once: the row and the ledger use the same rate
+  // read once: the row and the ledger use the same rate. Support BibleNestra: 100% to the platform, no earnings.
+  const bps = support ? SUPPORT_BPS : cfg.gift_commission_bps;
   const split = splitGift(coins, bps);
-  const ref = `gift:${sendId}`;
+  const ref = support ? `support:${sendId}` : `gift:${sendId}`;
   const msgId = target.conv ? await hashUuid(`giftmsg:${sendId}`) : null;
   const alsoRun = [[
     `INSERT INTO gift_sends (id, ref, sender_id, recipient_id, gift_id, gift_name, coins, commission, earnings, commission_bps, context_type, context_id, message_id, note)
@@ -252,7 +278,8 @@ export async function sendGift(c, me, b) {
   }
   const r = await postGift(env, {
     ref, senderId: me.id, recipientId: to, coins, giftId: gift.id, relatedType: 'gift_send', relatedId: sendId,
-    meta: { context: target.contextType, contextId: target.contextId, giftName: gift.name }, bps, alsoRun,
+    meta: { context: target.contextType, contextId: target.contextId, giftName: gift.name, ...(support ? { support: true } : {}) }, bps, alsoRun,
+    kinds: support ? { sent: 'support_sent', commission: 'support_received' } : null,
   });
   const row = await one(env, `${SEND_SELECT} WHERE s.id = $1`, [sendId]);
   if (!r.applied) return replay(c, me, row, giftId);
@@ -269,10 +296,19 @@ export async function sendGift(c, me, b) {
     }));
   }
   if (target.contextType === 'live') await notifyUser(env, to, { type: 'gift.live', sessionId: target.contextId, send }).catch(() => {});
+  if (support) {
+    // platform revenue: nobody to notify on the receiving side; thank the sender
+    await walletNotify(c, {
+      userId: me.id, kind: 'gift', title: `🙏 Thank you for supporting BibleNestra`,
+      body: `${SUPPORT_LABEL}: you sent ${gift.name} (${coins.toLocaleString('en-US')} Gifting Coins). It all goes to keeping BibleNestra running.`,
+      data: { wallet: 'gift_coins', screen: 'GiftHistory', sendId },
+    });
+    return { ok: true, duplicate: false, send, split: { ...split, bps }, balance: senderLeg ? senderLeg.balanceAfter : null, message };
+  }
   const where = { chat: 'in your chat', profile: 'on your profile', live: 'during your live session', post: 'on your post' }[target.contextType];
   await walletNotify(c, {
     userId: to, kind: 'gift', title: `🎁 You received ${gift.name}`,
-    body: `${me.display_name || 'Someone'} sent you ${gift.name} ${where}. +${split.earnings.toLocaleString('en-US')} coins gift earnings (pending).`,
+    body: `${me.display_name || 'Someone'} sent you ${gift.name} ${where}. +${split.earnings.toLocaleString('en-US')} coins gift earnings (${100 - bps / 100}% of the gift), available after ${cfg.earnings_hold_days} days.`,
     data: { wallet: 'gift_earnings', screen: 'GiftEarnings', sendId, giftId: gift.id, ...(msgId ? { conversationId: target.contextId } : {}) },
   });
   await walletNotify(c, {
@@ -360,7 +396,8 @@ function withdrawBlock(cfg, programme, available, open) {
   if (!cfg.earnings_withdrawals_enabled) return { code: 'WITHDRAWALS_CLOSED', text: 'Withdrawals aren’t open yet. Your earnings stay safe in your account.' };
   if (!programme || programme.status !== 'approved') return { code: 'NOT_APPROVED', text: 'Only members approved for the creator payout programme can withdraw.' };
   if (open) return { code: 'WITHDRAWAL_OPEN', text: 'You already have a withdrawal in progress.' };
-  if (available < Math.max(1, cfg.earnings_min_withdrawal)) return { code: 'BELOW_MINIMUM', text: `You can withdraw once you have ${cfg.earnings_min_withdrawal.toLocaleString('en-US')} available coins.` };
+  const min = withdrawalMinimum(cfg);
+  if (available < Math.max(1, min.coins)) return { code: 'BELOW_MINIMUM', text: `The minimum withdrawal is ${min.label}. You can withdraw once you have ${min.coins.toLocaleString('en-US')} available coins.` };
   return null;
 }
 export async function earningsSummary(c, userId) {
@@ -374,13 +411,14 @@ export async function earningsSummary(c, userId) {
   const open = wds.some((w) => w.status === 'requested' || w.status === 'approved');
   const block = withdrawBlock(cfg, programme, bal.gift_earnings_available, open);
   const rate = cfg.earnings_payout_rate;
+  const min = withdrawalMinimum(cfg);
   return {
     balances: { pending: bal.gift_earnings, available: bal.gift_earnings_available, withdrawing: bal.gift_earnings_withdrawing, withdrawn: bal.gift_earnings_withdrawn },
     giftCoins: bal.gift_coins,
     totals: { gifts: tot.n, earnings: Number(tot.e), giftValue: Number(tot.v) },
     rules: {
       commissionPct: cfg.gift_commission_bps / 100, holdDays: cfg.earnings_hold_days, withdrawalsEnabled: !!cfg.earnings_withdrawals_enabled,
-      minWithdrawal: cfg.earnings_min_withdrawal, payoutRate: rate, explain: EXPLAIN(cfg),
+      minWithdrawal: min.coins, minWithdrawalUsd: min.usd, minWithdrawalLabel: min.label, usdNgnRate: min.usdNgnRate, payoutRate: rate, explain: EXPLAIN(cfg),
     },
     programme: programmeShape(programme),
     withdrawals: wds.map((w) => withdrawalShape(w)),
@@ -421,7 +459,8 @@ export async function requestWithdrawal(c, me, b) {
   const bal = await getBalances(env, me.id);
   const block = withdrawBlock(cfg, programme, Math.max(bal.gift_earnings_available, coins), !!open);
   if (block) throw new ApiError(block.code === 'BELOW_MINIMUM' ? 400 : block.code === 'WITHDRAWAL_OPEN' ? 409 : 403, block.code, block.text);
-  if (coins < cfg.earnings_min_withdrawal) throw bad(`The minimum withdrawal is ${cfg.earnings_min_withdrawal.toLocaleString('en-US')} coins`, 'BELOW_MINIMUM');
+  const min = withdrawalMinimum(cfg);
+  if (coins < min.coins) throw bad(`The minimum withdrawal is ${min.label}: ${min.coins.toLocaleString('en-US')} coins`, 'BELOW_MINIMUM');
   const rate = cfg.earnings_payout_rate;
   const details = { legalName: programme.legal_name, bankName: programme.bank_name, accountName: programme.account_name, accountNumber: programme.account_number, country: programme.country };
   await holdForWithdrawal(env, {
@@ -444,6 +483,7 @@ export async function decideWithdrawal(c, admin, id, action, b = {}) {
   try {
     if (action === 'approve') {
       if (w.status !== 'requested') throw new ApiError(409, 'WITHDRAWAL_STATE', `This request is ${w.status}`);
+      await requireApprovedKyc(env, w.user_id); // PAYOUT KYC (lib/kyc.js): approved only for a member whose KYC is approved
       await q(env, `UPDATE gift_withdrawals SET status = 'approved', admin_note = COALESCE($2, admin_note), decided_by = $3, decided_at = now() WHERE id = $1 AND status = 'requested'`, [id, note, admin.id]);
     } else if (action === 'reject') {
       if (!['requested', 'approved'].includes(w.status)) throw new ApiError(409, 'WITHDRAWAL_STATE', `This request is ${w.status}`);

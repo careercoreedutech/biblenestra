@@ -12,6 +12,7 @@ import { resolveChannel } from '../lib/youtube.js';
 import { channelShape } from './youtube.js';
 import { adminPageHtml } from '../lib/admin-page.js';
 import { createAdminToken } from '../lib/ticket.js';
+import { AREAS, ROLES, ROUTE_AREAS, can, loginBlocked, recordLoginFailure, staffSignIn } from '../lib/staff.js'; // STAFF ACCESS
 
 const extraScripts = [];
 /** Add a script to the admin page (see the header comment). */
@@ -43,10 +44,26 @@ adminPage.post('/admin/api/login', async (c) => {
   }
   const validUser = String(c.env.ADMIN_USERNAME || 'benjamin').trim().toLowerCase();
 
+  // STAFF ACCESS: failed sign-ins are counted per IP address (owner and staff alike); staff accounts also lock.
+  const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+  if (await loginBlocked(c.env, ip)) {
+    return c.json({ error: 'Too many failed sign-ins — please wait a few minutes and try again', code: 'RATE_LIMITED' }, 429);
+  }
+  if (username !== validUser) {
+    const r = await staffSignIn(c.env, secret, username, String(b.password || ''));
+    if (!r.ok) {
+      if (r.code === 'INVALID_CREDENTIALS') await recordLoginFailure(c.env, ip);
+      return c.json({ error: r.error, code: r.code }, r.status);
+    }
+    return c.json({ ok: true, token: r.token, expiresAt: r.expiresAt,
+      user: { displayName: r.staff.name, handle: r.staff.username, role: 'staff', staffRole: r.staff.role } });
+  }
+
   const userMatches = username === validUser;
   const passMatches = password === validPass;
 
   if (!userMatches || !passMatches) {
+    await recordLoginFailure(c.env, ip);
     return c.json({ error: 'Incorrect username or password', code: 'INVALID_CREDENTIALS' }, 401);
   }
 
@@ -64,23 +81,45 @@ adminPage.post('/admin/api/login', async (c) => {
 });
 
 // ---------- authenticated + admin only ----------
-/** Middleware: only users with role = 'admin' (use after requireUser). Reusable by other areas' admin routes. */
+/** Middleware: only users with role = 'admin' (use after requireUser). Reusable by other areas' admin routes.
+ *  STAFF ACCESS: invited staff also pass here, because lib/auth.js has already checked their role against the
+ *  route → area map in lib/staff.js (unmapped admin routes are owner-only). */
 export async function requireAdmin(c, next) {
   const me = c.get('user');
   if (!me || me.role !== 'admin') throw forbidden('This account is not an admin', 'NOT_ADMIN');
   await next();
 }
+/** STAFF ACCESS: an explicit per-route check, for routes that need a stricter area than their path implies. */
+export function requirePermission(area, level = 'view') {
+  return async (c, next) => {
+    const me = c.get('user');
+    if (!me || me.role !== 'admin') throw forbidden('This account is not an admin', 'NOT_ADMIN');
+    const st = c.get('staff');
+    if (st && !can(st.permissions, area, level)) throw forbidden('Your staff role can’t do this', 'STAFF_FORBIDDEN');
+    await next();
+  };
+}
 export const adminApi = new Hono();
 adminApi.use('/admin/api/*', requireAdmin);
 
 export async function audit(env, admin, action, targetType, targetId, details = {}) {
-  await q(env, 'INSERT INTO admin_actions (admin_id, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5::jsonb)',
-    [admin.id, action, targetType || null, targetId ? String(targetId) : null, JSON.stringify(details || {})]);
+  if (admin && admin.staffId) admin.__audited = true; // STAFF ACCESS: lib/auth.js skips its generic row
+  await q(env, 'INSERT INTO admin_actions (admin_id, staff_id, action, target_type, target_id, details) VALUES ($1,$2,$3,$4,$5,$6::jsonb)',
+    [admin.id, (admin && admin.staffId) || null, action, targetType || null, targetId ? String(targetId) : null, JSON.stringify(details || {})]);
 }
 
 adminApi.get('/admin/api/me', (c) => {
   const me = c.get('user');
-  return c.json({ id: me.id, displayName: me.display_name, handle: me.handle, role: me.role });
+  const st = c.get('staff');
+  // STAFF ACCESS: permissions null = the owner (everything). areas/routes let the page hide tabs and disable buttons.
+  return c.json({
+    id: me.id, displayName: st ? st.name : me.display_name, handle: st ? st.username : me.handle, role: me.role,
+    owner: !st,
+    staff: st ? { id: st.id, name: st.name, username: st.username, role: st.role, roleLabel: (ROLES[st.role] || {}).label || st.role } : null,
+    permissions: st ? st.permissions : null,
+    areas: AREAS.map((a) => ({ key: a.key, label: a.label, hint: a.hint, ownerOnly: !!a.ownerOnly })),
+    routes: ROUTE_AREAS.map(([re, area]) => [re.source, area]),
+  });
 });
 
 // ----- YouTube channels -----
@@ -231,8 +270,19 @@ adminApi.post('/admin/api/reports/:id/dismiss', async (c) => {
 });
 
 // ----- Audit log -----
+// STAFF ACCESS: ?staff=<staff id> (one staff member), ?staff=owner (owner only) or ?staff=all-staff (any staff member)
 adminApi.get('/admin/api/actions', async (c) => {
-  const rows = await q(c.env, `SELECT a.*, u.display_name AS admin_name FROM admin_actions a LEFT JOIN users u ON u.id = a.admin_id
-    ORDER BY a.created_at DESC LIMIT 100`);
-  return c.json({ items: rows.map((x) => ({ id: x.id, action: x.action, targetType: x.target_type, targetId: x.target_id, details: x.details, admin: x.admin_name, createdAt: new Date(x.created_at).toISOString() })) });
+  const f = String(c.req.query('staff') || '');
+  const where = f === 'owner' ? 'WHERE a.staff_id IS NULL' : f === 'all-staff' ? 'WHERE a.staff_id IS NOT NULL'
+    : /^[0-9a-f-]{36}$/i.test(f) ? 'WHERE a.staff_id = $1' : '';
+  const rows = await q(c.env, `SELECT a.*, u.display_name AS admin_name, s.name AS staff_name, s.role AS staff_role
+    FROM admin_actions a LEFT JOIN users u ON u.id = a.admin_id LEFT JOIN staff_accounts s ON s.id = a.staff_id
+    ${where} ORDER BY a.created_at DESC LIMIT 100`, where.includes('$1') ? [f] : []);
+  const staff = await q(c.env, 'SELECT id, name, role, status FROM staff_accounts ORDER BY name');
+  return c.json({
+    items: rows.map((x) => ({ id: x.id, action: x.action, targetType: x.target_type, targetId: x.target_id, details: x.details,
+      admin: x.staff_id ? `${x.staff_name || 'Staff'} (staff)` : x.admin_name, staffId: x.staff_id || null, staffRole: x.staff_role || null,
+      createdAt: new Date(x.created_at).toISOString() })),
+    staff: staff.map((s) => ({ id: s.id, name: s.name, role: s.role, status: s.status })),
+  });
 });

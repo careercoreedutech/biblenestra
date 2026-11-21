@@ -144,6 +144,7 @@ async function download(path, toast){
       h('span', { class: 'chip' + (r.ok ? '' : ' neg'), text: r.ok ? 'Gifts reconcile with the ledger' : 'Gift reconciliation mismatch' }),
       h('span', { class: 'chip' + (d.integrity.ok ? '' : ' neg'), style: 'margin-left:6px', text: d.integrity.ok ? 'Ledger integrity OK' : 'Ledger integrity mismatch' }),
       h('div', { class: 'meta', style: 'margin-top:6px', text: r.giftRows + ' gifts / ' + r.ledgerOps + ' ledger ops · coins ' + num(r.coins.rows) + ' / ' + num(r.coins.ledger) + ' · commission ' + num(r.commission.rows) + ' / ' + num(r.commission.ledger) + ' (platform balance ' + num(r.commission.platformBalance) + ') · earnings ' + num(r.earnings.rows) + ' / ' + num(r.earnings.ledger) }),
+      r.support ? h('div', { class: 'meta', text: 'Support BibleNestra (gifts to the official account, 100% platform revenue, included above): ' + num(r.support.gifts) + ' gifts · ' + num(r.support.coins) + ' coins' }) : null,
     ]));
     var tot = d.periods.reduce(function(a, p){ a.g += p.gifts; a.c += p.coins; a.m += p.commission; a.e += p.earnings; return a; }, { g: 0, c: 0, m: 0, e: 0 });
     el.appendChild(h('div', { class: 'row', style: 'gap:10px;margin-bottom:10px' }, [stat('Gifts', num(tot.g)), stat('Gift value (coins)', num(tot.c)), stat('BibleNestra commission', num(tot.m), 'current rate ' + (d.commissionBps / 100) + '%'), stat('Recipient earnings', num(tot.e))]));
@@ -201,7 +202,7 @@ async function download(path, toast){
     var status = (preset && preset.status != null) ? preset.status : 'requested';
     var d; try { d = await api('GET', '/admin/api/gifts/withdrawals' + qs({ status: status })); } catch (e) { el.appendChild(h('div', { class: 'card', text: e.message })); return; }
     el.appendChild(h('div', { class: 'card', style: d.withdrawalsEnabled ? '' : 'border-color:var(--gold)' }, [h('b', { text: d.withdrawalsEnabled ? 'Withdrawals are OPEN for approved creators.' : 'Withdrawals are CLOSED (members can’t request).' }),
-      h('div', { class: 'meta', text: 'No automatic cash-out: approve, pay by bank transfer yourself, then mark paid with the transfer reference. Rejecting returns the coins to the member’s available earnings. 1 earned coin = ' + naira(d.payoutRate.minorPerCoin) + ' · minimum ' + num(d.minWithdrawal) + ' coins. Switch: Wallets & payments › Settings.' })]));
+      h('div', { class: 'meta', text: 'No automatic cash-out: approve, pay by bank transfer yourself, then mark paid with the transfer reference. Rejecting returns the coins to the member’s available earnings. 1 earned coin = ' + naira(d.payoutRate.minorPerCoin) + ' · minimum ' + (d.minWithdrawalLabel ? d.minWithdrawalLabel + ' = ' : '') + num(d.minWithdrawal) + ' coins. Switch and minimum: Wallets & payments › Settings.' })]));
     el.appendChild(h('div', { class: 'row', style: 'gap:6px;margin-bottom:10px' }, ['requested', 'approved', 'paid', 'rejected', ''].map(function(s){ return h('button', { class: 'btn small' + (s === status ? '' : ' ghost'), text: s || 'all', onclick: function(){ go('Withdrawals', { status: s }); } }); })));
     if (!d.items.length) { el.appendChild(h('div', { class: 'card empty', text: 'Nothing here.' })); return; }
     el.appendChild(table([
@@ -232,8 +233,9 @@ async function download(path, toast){
     var lim = inp('coins', 120, 'number'); lim.value = c.gift_daily_coin_limit;
     row('Daily gifting limit per member', 'Anti-fraud: the most Gifting Coins one member can send in 24 hours (0 = no limit).', [lim], function(){ save('gift_daily_coin_limit', parseInt(lim.value, 10)); });
     var adm = h('input', { type: 'checkbox' }); adm.checked = !!c.gift_admins_can_receive;
-    row('Admin accounts can receive gifts', 'Off by default: platform / admin accounts are not eligible gift recipients.', [adm, h('span', { class: 'meta', text: 'Allow' })], function(){ save('gift_admins_can_receive', adm.checked); });
-    el.appendChild(h('p', { class: 'meta', text: 'Conversion rate, earnings hold period, payout value, minimum withdrawal and the withdrawals switch are in Wallets & payments › Settings.' }));
+    row('Admin accounts can receive gifts', 'On by default (client decision): admin accounts can receive gifts like any member, with the usual commission. Turn off to refuse gifts to admin accounts.', [adm, h('span', { class: 'meta', text: 'Allow' })], function(){ save('gift_admins_can_receive', adm.checked); });
+    el.appendChild(h('div', { class: 'card' }, [h('b', { text: 'Support BibleNestra' }), h('div', { class: 'meta', text: 'Members can send any active gift to the official BibleNestra account (Gift store and Wallet › Support BibleNestra). These gifts are platform revenue: 100% goes to the gift commission ledger, nobody earns from them, and they show as “Support BibleNestra” in both histories and in the Commission tab. Every other gift pays the commission % above.' })]));
+    el.appendChild(h('p', { class: 'meta', text: 'Conversion rate, earnings hold period, payout value, minimum withdrawal (in USD) and the withdrawals switch are in Wallets & payments › Settings.' }));
   }
 
   draw(); go(cur);

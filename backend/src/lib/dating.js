@@ -20,6 +20,7 @@ import { datingEntitlement } from './walletStore.js';
 import { mediaUrl } from './shape.js';
 import { notifyUser } from '../hub.js';
 import { sendNotification } from './push.js';
+import { checkPhoto, readObjectBytes, verificationPrecheck, GESTURES } from './datingAi.js'; // CLIENT ANSWERS: AI photo check + verification pre-check
 
 // ─── coin kinds (labels in wallet history / admin) ─────────────────────────────────────────────────────────────────
 export const COIN_KINDS = {
@@ -47,20 +48,28 @@ export const DEFAULT_RULES = {
   adClaimsPerHour: 12,        // rate limit for ad claims per member
   requireSsv: false,          // true → only AdMob server-side verification unlocks (set this for production)
   undoMinutes: 10,            // Plus: undo the last like / pass within this window
-  photoReview: 'pre',         // 'pre' = photos visible only after approval · 'post' = visible at once, reviewed afterwards
+  photoReview: 'ai',          // 'ai' = live at once unless the AI check flags it (AI down → waits for a human) · 'pre' = visible only after approval · 'post' = visible at once, reviewed afterwards
   maxPhotos: 6,
   minAge: 18,
   batch: 10,                  // cards per discover page (free)
   plusBatch: 20,
+  autoHideReports: 5,         // hide a profile from discovery after reports from this many different members (0 = never)
+  showSocialToVerified: true, // dating chat shows the other person's social profile (handle, avatar, Socials link) only if they are verified
+  chatRetentionDays: 730,     // messages of closed dating chats are deleted this many days after the chat closed (0 = keep)
+  retentionBatch: 200,        // messages deleted per cron run (every 15 minutes)
+  verificationMinutes: 60,    // a verification code must be used (selfie + ID submitted) within this window
 };
 const posInt = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
 registerConfig('dating_prices', DEFAULT_PRICES, (v) => !!v && typeof v === 'object' && Object.keys(DEFAULT_PRICES).every((k) => v[k] === undefined || posInt(v[k], 1, 1e6)));
 registerConfig('dating_rules', DEFAULT_RULES, (v) => !!v && typeof v === 'object'
-  && ['dailySwipes', 'plusDailySwipes', 'extraSwipes', 'freeMessagesPerAd', 'maxAdUnlocks', 'messagesPerBundle', 'likesUnlockHours', 'adNonceMinutes', 'adMinWatchSec', 'adClaimsPerHour', 'undoMinutes', 'maxPhotos', 'batch', 'plusBatch']
+  && ['dailySwipes', 'plusDailySwipes', 'extraSwipes', 'freeMessagesPerAd', 'maxAdUnlocks', 'messagesPerBundle', 'likesUnlockHours', 'adNonceMinutes', 'adMinWatchSec', 'adClaimsPerHour', 'undoMinutes', 'maxPhotos', 'batch', 'plusBatch', 'autoHideReports', 'chatRetentionDays']
     .every((k) => v[k] === undefined || posInt(v[k], 0, 100000))
+  && (v.retentionBatch === undefined || posInt(v.retentionBatch, 1, 5000))
+  && (v.verificationMinutes === undefined || posInt(v.verificationMinutes, 5, 1440))
   && (v.minAge === undefined || posInt(v.minAge, 18, 99))
-  && (v.photoReview === undefined || ['pre', 'post'].includes(v.photoReview))
-  && (v.requireSsv === undefined || typeof v.requireSsv === 'boolean'));
+  && (v.photoReview === undefined || ['ai', 'pre', 'post'].includes(v.photoReview))
+  && (v.requireSsv === undefined || typeof v.requireSsv === 'boolean')
+  && (v.showSocialToVerified === undefined || typeof v.showSocialToVerified === 'boolean'));
 
 /** { prices, rules } merged with the defaults. env DATING_ADS_REQUIRE_SSV=true forces SSV-only ad rewards. */
 export async function datingConfig(env) {
@@ -98,7 +107,9 @@ export function ageOn(birthDate, now = new Date()) {
 }
 const AGE_SQL = (a) => `EXTRACT(YEAR FROM age(current_date, ${a}.birth_date))::int`;
 const SEEKS = (a) => `(CASE ${a}.interested_in WHEN 'men' THEN 'man' ELSE 'woman' END)`;
-const photoVisibleSql = (a, modeParam) => `(${a}.status = 'approved' OR (${modeParam} = 'post' AND ${a}.status = 'pending'))`;
+// 'post' mode shows pending photos at once, except ones the AI flagged (those always wait for a human).
+const photoVisibleSql = (a, modeParam) => `(${a}.status = 'approved' OR (${modeParam} = 'post' AND ${a}.status = 'pending' AND NOT ${a}.ai_flagged))`;
+const photoVisible = (p, mode) => p.status === 'approved' || (mode === 'post' && p.status === 'pending' && !p.ai_flagged);
 const BLOCKED_SQL = (x, y) => `EXISTS (SELECT 1 FROM blocks bl WHERE (bl.blocker_id = ${x} AND bl.blocked_id = ${y}) OR (bl.blocker_id = ${y} AND bl.blocked_id = ${x}))`;
 const LIVE_SUB = (uid) => `(SELECT wp.benefits FROM dating_subscriptions ds JOIN wallet_products wp ON wp.id = ds.product_id
    WHERE ds.user_id = ${uid} AND ds.status IN ('active','cancelled','past_due') AND ds.current_period_end > now() LIMIT 1)`;
@@ -122,7 +133,7 @@ async function tell(c, userId, { title, body, data = {} }) {
 // ─── profile ───────────────────────────────────────────────────────────────────────────────────────────────────────
 export const getProfileRow = (env, userId) => one(env, 'SELECT * FROM dating_profiles WHERE user_id = $1', [userId]);
 async function photosOf(env, userId) {
-  return q(env, 'SELECT id, url, position, status, reject_reason FROM dating_photos WHERE user_id = $1 ORDER BY position, created_at', [userId]);
+  return q(env, 'SELECT id, url, position, status, reject_reason, ai_flagged FROM dating_photos WHERE user_id = $1 ORDER BY position, created_at', [userId]);
 }
 
 /** A card / profile for another member (never the birth date, never anything below city level). */
@@ -149,8 +160,10 @@ export async function myProfile(env, userId, ctx) {
     gender: r.gender, interestedIn: r.interested_in, city: r.city, country: r.country, denomination: r.denomination,
     churchInvolvement: r.church_involvement, intention: r.intention, intentionLabel: INTENTIONS[r.intention], bio: r.bio,
     prompts: parse(r.prompts, []), prefs: parse(r.prefs, {}), status: r.status, verified: !!r.verified, banReason: r.status === 'banned' ? (r.ban_reason || null) : null,
-    photos: photos.map((p) => ({ id: p.id, url: photoUrl(ctx, p.url), status: p.status, rejectReason: p.reject_reason || null })),
-    visible: r.status === 'active' && photos.some((p) => p.status === 'approved' || (rules.photoReview === 'post' && p.status === 'pending')),
+    photos: photos.map((p) => ({ id: p.id, url: photoUrl(ctx, p.url), status: p.status, rejectReason: p.reject_reason || null, visible: photoVisible(p, rules.photoReview) })),
+    underReview: !!r.report_hold_at, // hidden from discovery after reports, until the team reviews it
+    visible: r.status === 'active' && !r.report_hold_at && photos.some((p) => photoVisible(p, rules.photoReview)),
+    verification: await verificationShape(env, userId),
     createdAt: iso(r.created_at),
   };
 }
@@ -214,10 +227,18 @@ async function needProfile(env, user, { active = true } = {}) {
   if (!p) throw new ApiError(409, 'DATING_PROFILE_REQUIRED', 'Create your Find Love profile first');
   if (p.status === 'banned') throw forbidden('Your Find Love profile is suspended', 'DATING_BANNED');
   if (active && p.status === 'paused') throw new ApiError(409, 'DATING_PAUSED', 'Your profile is hidden. Show it again to continue.');
+  if (active && p.report_hold_at) throw new ApiError(409, 'DATING_UNDER_REVIEW', 'Your profile is hidden while our team reviews some reports. You can still chat with your matches.');
   return p;
 }
 
-/** Add a photo: an upload key of this member (img/<userId>/…). Starts 'pending' (moderation queue). */
+/**
+ * Add a photo: an upload key of this member (img/<userId>/…). The row starts 'pending'. Then, by rules.photoReview:
+ *   'ai'   → Workers AI check: clean → 'approved' (live at once) · flagged → stays pending + ai_flagged (admin queue with
+ *            the AI's reason) · AI missing / error / timeout / unclear reply → stays pending (a human reviews it). Never
+ *            approved on an error.
+ *   'pre'  → pending until an admin approves it · 'post' → visible at once while pending, reviewed afterwards.
+ * → { id, review: 'live' | 'flagged' | 'pending' }
+ */
 export async function addPhoto(env, user, { key }) {
   await needProfile(env, user, { active: false });
   const { rules } = await datingConfig(env);
@@ -226,7 +247,20 @@ export async function addPhoto(env, user, { key }) {
   const n = await one(env, `SELECT count(*)::int AS n, COALESCE(max(position), -1)::int AS last FROM dating_photos WHERE user_id = $1 AND status <> 'rejected'`, [user.id]);
   if (n.n >= rules.maxPhotos) throw bad(`Up to ${rules.maxPhotos} photos`, 'TOO_MANY_PHOTOS');
   const row = await one(env, `INSERT INTO dating_photos (user_id, url, position) VALUES ($1, $2, $3) RETURNING id`, [user.id, k, n.last + 1]);
-  return row.id;
+  if (rules.photoReview === 'post') return { id: row.id, review: 'live' };
+  if (rules.photoReview !== 'ai') return { id: row.id, review: 'pending' };
+  let res;
+  try {
+    const bytes = await readObjectBytes(env, k);
+    res = bytes ? await checkPhoto(env, bytes) : { verdict: 'error', reason: 'Photo file not found for the AI check', labels: null, model: null };
+  } catch (e) {
+    res = { verdict: 'error', reason: `AI check failed: ${String((e && e.message) || e).slice(0, 160)}`, labels: null, model: null };
+  }
+  const clean = res.verdict === 'clean';
+  await q(env, `UPDATE dating_photos SET status = CASE WHEN $2 THEN 'approved' ELSE status END, ai_verdict = $3, ai_flagged = $4, ai_reason = $5,
+      ai_labels = $6::jsonb, ai_model = $7, ai_checked_at = now() WHERE id = $1 AND status = 'pending'`,
+  [row.id, clean, res.verdict, res.verdict === 'flagged', res.reason ? String(res.reason).slice(0, 500) : null, res.labels ? JSON.stringify(res.labels) : null, res.model]);
+  return { id: row.id, review: clean ? 'live' : res.verdict === 'flagged' ? 'flagged' : 'pending' };
 }
 export async function removePhoto(env, user, photoId) {
   const r = await q(env, 'DELETE FROM dating_photos WHERE id = $1 AND user_id = $2 RETURNING id', [photoId, user.id]);
@@ -256,20 +290,23 @@ export async function deleteProfile(env, user) {
   await q(env, 'DELETE FROM dating_views WHERE viewer_id = $1 OR target_id = $1', [user.id]);
   await q(env, 'DELETE FROM dating_photos WHERE user_id = $1', [user.id]);
   await q(env, 'DELETE FROM dating_profiles WHERE user_id = $1', [user.id]);
+  // verification: the private selfie / ID images go now; an approved / rejected outcome row stays (no images in it)
+  for (const v of await q(env, `SELECT id FROM dating_verifications WHERE user_id = $1 AND files_deleted_at IS NULL`, [user.id])) await dropVerificationFiles(env, v.id);
+  await q(env, `UPDATE dating_verifications SET status = 'expired', ai_details = NULL, updated_at = now() WHERE user_id = $1 AND status IN ('draft','pending')`, [user.id]);
   return { deleted: true };
 }
 
 // Close every dating chat of a member (unmatch / block / ban / delete): members leave so the chat disappears for both;
 // the messages stay in the database for moderation. The send hook refuses messages in a closed dating chat.
-async function closeAllConversations(env, userId, status = 'closed') {
-  const convs = await q(env, `UPDATE dating_conversations SET status = $2, updated_at = now() WHERE (user_a = $1 OR user_b = $1) AND status IN ('request','match') RETURNING conversation_id`, [userId, status]);
+export async function closeAllConversations(env, userId, status = 'closed') {
+  const convs = await q(env, `UPDATE dating_conversations SET status = $2, closed_at = now(), updated_at = now() WHERE (user_a = $1 OR user_b = $1) AND status IN ('request','match') RETURNING conversation_id`, [userId, status]);
   for (const r of convs) await q(env, 'DELETE FROM conversation_members WHERE conversation_id = $1', [r.conversation_id]);
   return convs.length;
 }
 async function closePair(env, a, b, { by = null, status = 'closed' } = {}) {
   const [x, y] = pairOf(a, b);
   await q(env, `UPDATE dating_matches SET status = 'unmatched', unmatched_by = $3, unmatched_at = now() WHERE user_a = $1 AND user_b = $2 AND status = 'active'`, [x, y, by]);
-  const c = await one(env, `UPDATE dating_conversations SET status = $3, updated_at = now() WHERE user_a = $1 AND user_b = $2 AND status IN ('request','match') RETURNING conversation_id`, [x, y, status]);
+  const c = await one(env, `UPDATE dating_conversations SET status = $3, closed_at = now(), updated_at = now() WHERE user_a = $1 AND user_b = $2 AND status IN ('request','match') RETURNING conversation_id`, [x, y, status]);
   if (c) await q(env, 'DELETE FROM conversation_members WHERE conversation_id = $1', [c.conversation_id]);
 }
 
@@ -351,10 +388,12 @@ async function paidUse(c, user, { ref, kind, amount, units = 0, wallet = 'dating
   return { charged: r.applied, duplicate: !!r.duplicate, ref, amount, wallet, balance };
 }
 
-async function targetProfile(env, me, targetId) {
+// allowHeld: a profile hidden after reports can still be seen by people who already have a chat with it (header).
+async function targetProfile(env, me, targetId, { allowHeld = false } = {}) {
   if (!isUuid(targetId) || targetId === me.id) throw bad('Choose someone else', 'BAD_TARGET');
   const t = await one(env, `SELECT p.*, u.banned FROM dating_profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = $1`, [targetId]);
   if (!t || t.status !== 'active' || t.banned) throw notFound('This profile is not available');
+  if (t.report_hold_at && !allowHeld) throw notFound('This profile is not available');
   if (await isBlocked(env, me.id, targetId)) throw notFound('This profile is not available');
   return t;
 }
@@ -388,7 +427,7 @@ export async function discover(env, user, ctx, { limit = null, record = true } =
       COALESCE((${LIVE_SUB('p.user_id')})->'flags'->>'priorityVisibility', 'false') = 'true' AS priority,
       COALESCE((${LIVE_SUB('p.user_id')})->'flags'->>'vipBadge', 'false') = 'true' AS vip_badge
     FROM dating_profiles p JOIN users u ON u.id = p.user_id, me
-    WHERE p.user_id <> me.user_id AND p.status = 'active' AND NOT u.banned
+    WHERE p.user_id <> me.user_id AND p.status = 'active' AND NOT u.banned AND p.report_hold_at IS NULL
       AND p.gender = ${SEEKS('me')} AND me.gender = ${SEEKS('p')}
       AND ${AGE_SQL('p')} BETWEEN $3 AND $4
       AND ${AGE_SQL('me')} BETWEEN COALESCE((p.prefs->>'ageMin')::int, 18) AND COALESCE((p.prefs->>'ageMax')::int, 99)
@@ -427,7 +466,9 @@ export async function discover(env, user, ctx, { limit = null, record = true } =
 /** One other member's profile, if they could appear for you (or you are matched / they liked you / a request exists). */
 export async function viewProfile(env, user, targetId, ctx) {
   await needProfile(env, user, { active: false });
-  const t = await targetProfile(env, user, targetId);
+  const [px, py] = isUuid(targetId) ? pairOf(user.id, targetId) : [null, null];
+  const chatted = !!(px && await one(env, 'SELECT 1 FROM dating_conversations WHERE user_a = $1 AND user_b = $2', [px, py]));
+  const t = await targetProfile(env, user, targetId, { allowHeld: chatted });
   const { rules } = await datingConfig(env);
   const r = await one(env, `SELECT p.*, ${AGE_SQL('p')} AS age,
       (SELECT COALESCE(json_agg(json_build_object('id', ph.id, 'url', ph.url) ORDER BY ph.position, ph.created_at), '[]'::json)
@@ -519,7 +560,7 @@ export async function createMatch(c, a, b, via = 'like') {
   const m = await one(env, 'SELECT * FROM dating_matches WHERE user_a = $1 AND user_b = $2', [x, y]);
   if (m.status !== 'active') return null;
   const conv = await ensureDatingConversation(env, a, b, { status: 'match' });
-  await q(env, `UPDATE dating_conversations SET status = 'match', match_id = $2, updated_at = now() WHERE conversation_id = $1 AND status IN ('request','match','declined')`, [conv.id, m.id]);
+  await q(env, `UPDATE dating_conversations SET status = 'match', match_id = $2, closed_at = NULL, updated_at = now() WHERE conversation_id = $1 AND status IN ('request','match','declined')`, [conv.id, m.id]);
   await q(env, `INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'member'), ($1, $3, 'member') ON CONFLICT DO NOTHING`, [conv.id, a, b]);
   if (!m.conversation_id) await q(env, 'UPDATE dating_matches SET conversation_id = $2 WHERE id = $1', [m.id, conv.id]);
   if (ins.length) {
@@ -557,7 +598,7 @@ export async function likesReceived(env, user, ctx) {
       (SELECT COALESCE(json_agg(json_build_object('id', ph.id, 'url', ph.url) ORDER BY ph.position, ph.created_at), '[]'::json)
          FROM dating_photos ph WHERE ph.user_id = p.user_id AND ${photoVisibleSql('ph', '$2')}) AS photos
     FROM dating_swipes s JOIN dating_profiles p ON p.user_id = s.user_id JOIN users u ON u.id = p.user_id
-    WHERE s.target_id = $1 AND s.action <> 'pass' AND p.status = 'active' AND NOT u.banned
+    WHERE s.target_id = $1 AND s.action <> 'pass' AND p.status = 'active' AND NOT u.banned AND p.report_hold_at IS NULL
       AND NOT ${BLOCKED_SQL('$1::uuid', 'p.user_id')}
       AND NOT EXISTS (SELECT 1 FROM dating_swipes m WHERE m.user_id = $1 AND m.target_id = s.user_id)
     ORDER BY (s.action = 'priority_like') DESC, (s.action = 'super_like') DESC, s.created_at DESC LIMIT 100`, [user.id, rules.photoReview]);
@@ -644,8 +685,32 @@ export async function reportMember(env, user, { userId: targetId, reason, detail
   if (reason === 'underage') {
     await q(env, `UPDATE dating_profiles SET status = 'banned', ban_reason = 'Under review: reported as under 18', updated_at = now() WHERE user_id = $1 AND status <> 'banned'`, [targetId]);
   }
+  const autoHidden = await maybeAutoHide(env, targetId);
   if (block) await blockMember(env, user, targetId);
-  return { reported: true, id: r.id, blocked: !!block };
+  return { reported: true, id: r.id, blocked: !!block, autoHidden };
+}
+
+/**
+ * Auto-hide (client answer Q26b): once reports from rules.autoHideReports DIFFERENT members have arrived since the last
+ * admin restore, the profile is hidden from discovery and new contact (report_hold_at) and shows in the admin queue.
+ * One statement, so concurrent reports can't race. 0 = off. → true when this call hid it.
+ */
+export async function maybeAutoHide(env, targetId) {
+  const { rules } = await datingConfig(env);
+  const n = Number(rules.autoHideReports) || 0;
+  if (n <= 0) return false;
+  const r = await one(env, `UPDATE dating_profiles p SET report_hold_at = now(), updated_at = now()
+      WHERE p.user_id = $1 AND p.report_hold_at IS NULL
+        AND (SELECT count(DISTINCT r.reporter_id) FROM dating_reports r WHERE r.target_id = p.user_id
+             AND r.created_at > COALESCE(p.reports_cleared_at, '-infinity'::timestamptz)) >= $2
+      RETURNING user_id`, [targetId, n]);
+  return !!r;
+}
+
+/** Admin: show a profile again after an auto-hide (or a suspension). Reports before now stop counting. */
+export async function restoreProfile(env, userId, adminId) {
+  await q(env, `UPDATE dating_profiles SET report_hold_at = NULL, reports_cleared_at = now(), updated_at = now() WHERE user_id = $1`, [userId]);
+  await q(env, `UPDATE dating_reports SET status = 'dismissed', action = 'restore', handled_by = $2, handled_at = now() WHERE target_id = $1 AND status = 'open'`, [userId, adminId]);
 }
 
 // ─── message requests (25 coins: message before matching) ─────────────────────────────────────────────────────────
@@ -713,7 +778,8 @@ export async function answerRequest(c, user, convId, accept) {
     const m = await createMatch(c, dc.requester_id, user.id, 'message_request');
     return { status: 'match', match: m };
   }
-  await q(c.env, `UPDATE dating_conversations SET status = 'declined', updated_at = now() WHERE conversation_id = $1 AND status = 'request'`, [convId]);
+  // No coin refund for a declined request (client answer Q30): the sender's 25 coins stay spent. Tested.
+  await q(c.env, `UPDATE dating_conversations SET status = 'declined', closed_at = now(), updated_at = now() WHERE conversation_id = $1 AND status = 'request'`, [convId]);
   await q(c.env, 'DELETE FROM conversation_members WHERE conversation_id = $1', [convId]);
   return { status: 'declined' };
 }
@@ -726,9 +792,17 @@ export async function conversationInfo(env, user, convId, ctx) {
   let profile = null;
   try { profile = await viewProfile(env, user, otherId, ctx); } catch (e) { profile = null; }
   const ent = await planOf(env, user);
+  const { rules } = await datingConfig(env);
+  // "Show the profile for trusted" (client D10, our reading — to be confirmed): the other person's social profile
+  // (handle, avatar, Socials link) only when they are verified and the setting is on. Otherwise: dating name + photo only.
+  let social = null;
+  if (rules.showSocialToVerified && profile && profile.verified) {
+    const u = await one(env, 'SELECT id, display_name, handle, avatar_url FROM users WHERE id = $1 AND NOT banned', [otherId]);
+    if (u) social = { userId: u.id, displayName: u.display_name, handle: u.handle, avatarUrl: u.avatar_url || null };
+  }
   return {
     conversationId: convId, status: dc.status, incomingRequest: dc.status === 'request' && dc.requester_id !== user.id, matchId: dc.match_id,
-    otherUserId: otherId, profile, plan: ent.plan, allowance: dc.status === 'match' ? await messageAllowance(env, user, convId, ent) : null,
+    otherUserId: otherId, profile, social, plan: ent.plan, allowance: dc.status === 'match' ? await messageAllowance(env, user, convId, ent) : null,
   };
 }
 
@@ -905,7 +979,7 @@ export async function datingHome(env, user, ctx) {
   const out = {
     profile, plan: { plan: ent.plan, tier: ent.tier, flags: ent.flags || {}, badge: ent.badge, subscription: ent.subscription },
     balances: { dating_coins: coins, dating_boosts: boosts }, prices, rules: { dailySwipes: rules.dailySwipes, plusDailySwipes: rules.plusDailySwipes, extraSwipes: rules.extraSwipes, freeMessagesPerAd: rules.freeMessagesPerAd, maxAdUnlocks: rules.maxAdUnlocks, messagesPerBundle: rules.messagesPerBundle, likesUnlockHours: rules.likesUnlockHours, minAge: rules.minAge, maxPhotos: rules.maxPhotos, photoReview: rules.photoReview },
-    options: { intentions: INTENTIONS, involvement: INVOLVEMENT, reportReasons: REPORT_REASONS, boosts: BOOSTS },
+    options: { intentions: INTENTIONS, involvement: INVOLVEMENT, reportReasons: REPORT_REASONS, boosts: BOOSTS, idTypes: ID_TYPES },
   };
   if (profile) {
     const [sw, likes, bs, matches, requests] = await Promise.all([
@@ -915,5 +989,171 @@ export async function datingHome(env, user, ctx) {
     ]);
     Object.assign(out, { swipes: sw, likes: { count: likes.count, unlocked: likes.unlocked, unlockedUntil: likes.unlockedUntil }, boost: bs, counts: { matches: matches.n, requests: requests.n } });
   }
+  return out;
+}
+
+// ─── verified badge = live selfie + government ID (client answer Q25) ──────────────────────────────────────────────
+// 1. start → a code (4 digits) and a hand gesture are shown on screen. 2. The member takes a live selfie holding the code
+// written on paper while making the gesture, and photographs their ID. Both go to PRIVATE R2 keys kyc/<user>/<id>/…
+// (never under img/, so /media never serves them; only GET /dating/verification/file/:kind for the member and the
+// admin route can read them). 3. submit → an advisory Workers AI pre-check (datingAi.js) stores a confidence note.
+// 4. An admin approves (→ dating_profiles.verified) or rejects; both images are deleted at once and the AI details are
+// cleared, so only the outcome stays. Verification is NOT required to message (client answer Q25b).
+export const ID_TYPES = { nin: 'National ID (NIN)', passport: 'International passport', drivers_licence: 'Driver’s licence', voters_card: 'Voter’s card', other: 'Other government ID' };
+const KYC_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const MAX_KYC_BYTES = 10 * 1024 * 1024;
+const randomDigits = () => String(1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000));
+const randomGesture = () => { const k = Object.keys(GESTURES); return k[crypto.getRandomValues(new Uint32Array(1))[0] % k.length]; };
+
+/** The member's latest verification (no images, no AI note — those are for admins). */
+export async function verificationShape(env, userId) {
+  const v = await one(env, `SELECT * FROM dating_verifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, [userId]);
+  if (!v) return null;
+  const expired = v.status === 'draft' && new Date(v.expires_at) <= new Date();
+  return {
+    id: v.id, status: expired ? 'expired' : v.status, code: v.status === 'draft' ? v.code : null, gesture: v.gesture, gestureLabel: (GESTURES[v.gesture] || {}).label || v.gesture,
+    expiresAt: iso(v.expires_at), hasSelfie: !!v.selfie_key, hasId: !!v.id_key, idType: v.id_type, submittedAt: iso(v.submitted_at), decidedAt: iso(v.decided_at),
+    rejectReason: v.status === 'rejected' ? (v.reject_reason || null) : null,
+  };
+}
+
+/** Delete both private images of one verification (best effort on storage, always clears the keys). */
+export async function dropVerificationFiles(env, id) {
+  const v = await one(env, 'SELECT selfie_key, id_key FROM dating_verifications WHERE id = $1', [id]);
+  if (!v) return;
+  for (const k of [v.selfie_key, v.id_key]) {
+    if (k && env.MEDIA) { try { await env.MEDIA.delete(k); } catch (e) { console.warn('kyc delete failed', k, e && e.message); } }
+  }
+  await q(env, `UPDATE dating_verifications SET selfie_key = NULL, id_key = NULL, files_deleted_at = COALESCE(files_deleted_at, now()), updated_at = now() WHERE id = $1`, [id]);
+}
+
+async function openDraft(env, userId) {
+  const v = await one(env, `SELECT * FROM dating_verifications WHERE user_id = $1 AND status = 'draft'`, [userId]);
+  if (v && new Date(v.expires_at) <= new Date()) {
+    await q(env, `UPDATE dating_verifications SET status = 'expired', updated_at = now() WHERE id = $1 AND status = 'draft'`, [v.id]);
+    await dropVerificationFiles(env, v.id);
+    return null;
+  }
+  return v;
+}
+
+/** Start (or continue) a verification: → the code + gesture to show. */
+export async function startVerification(env, user) {
+  const p = await needProfile(env, user, { active: false });
+  if (p.verified) throw new ApiError(409, 'ALREADY_VERIFIED', 'Your profile is already verified');
+  if (await one(env, `SELECT 1 FROM dating_verifications WHERE user_id = $1 AND status = 'pending'`, [user.id])) throw new ApiError(409, 'VERIFICATION_PENDING', 'Your verification is with our team');
+  if (!(await openDraft(env, user.id))) {
+    await rateLimit(env, `dating_verify_start:${user.id}`, 6, 86400);
+    const { rules } = await datingConfig(env);
+    await q(env, `INSERT INTO dating_verifications (user_id, code, gesture, expires_at) VALUES ($1, $2, $3, now() + make_interval(mins => $4::int))
+        ON CONFLICT DO NOTHING`, [user.id, randomDigits(), randomGesture(), rules.verificationMinutes]);
+  }
+  return verificationShape(env, user.id);
+}
+
+/** Store the selfie or the ID image of the open draft (raw image body). Replacing one deletes the old file. */
+export async function uploadVerificationImage(env, user, { kind, contentType, bytes }) {
+  if (!['selfie', 'id'].includes(kind)) throw bad('kind must be selfie or id', 'BAD_KIND');
+  const type = String(contentType || '').split(';')[0].trim().toLowerCase();
+  const ext = KYC_TYPES[type];
+  if (!ext) throw bad('Upload a JPEG, PNG or WebP photo', 'BAD_IMAGE_TYPE');
+  if (!bytes || !bytes.byteLength) throw bad('Empty upload');
+  if (bytes.byteLength > MAX_KYC_BYTES) throw new ApiError(413, 'TOO_LARGE', 'Images must be under 10 MB');
+  if (!env.MEDIA) throw new ApiError(500, 'STORAGE_NOT_CONFIGURED', 'Media storage is not configured');
+  await rateLimit(env, `dating_verify_upload:${user.id}`, 30, 3600);
+  const v = await openDraft(env, user.id);
+  if (!v) throw new ApiError(409, 'VERIFICATION_EXPIRED', 'Your code expired. Start again to get a new one.');
+  const key = `kyc/${user.id}/${v.id}/${kind}_${crypto.randomUUID()}.${ext}`;
+  await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: type, cacheControl: 'private, no-store' } });
+  const col = kind === 'selfie' ? 'selfie_key' : 'id_key';
+  const old = v[col];
+  const upd = await one(env, `UPDATE dating_verifications SET ${col} = $2, updated_at = now() WHERE id = $1 AND status = 'draft' RETURNING id`, [v.id, key]);
+  if (!upd) { try { await env.MEDIA.delete(key); } catch (e) { /* ignore */ } throw new ApiError(409, 'VERIFICATION_EXPIRED', 'Start again to get a new code.'); }
+  if (old) { try { await env.MEDIA.delete(old); } catch (e) { /* best effort */ } }
+  return verificationShape(env, user.id);
+}
+
+/** Submit for review: needs both images and the ID type; runs the advisory AI pre-check. */
+export async function submitVerification(env, user, { idType }) {
+  const p = await needProfile(env, user, { active: false });
+  if (!ID_TYPES[idType]) throw bad(`idType must be one of ${Object.keys(ID_TYPES).join(', ')}`, 'BAD_ID_TYPE');
+  const v = await openDraft(env, user.id);
+  if (!v) throw new ApiError(409, 'VERIFICATION_EXPIRED', 'Your code expired. Start again to get a new one.');
+  if (!v.selfie_key || !v.id_key) throw bad('Add your selfie and a photo of your ID first', 'VERIFICATION_INCOMPLETE');
+  const sub = await one(env, `UPDATE dating_verifications SET status = 'pending', id_type = $2, submitted_at = now(), updated_at = now() WHERE id = $1 AND status = 'draft' RETURNING id`, [v.id, idType]);
+  if (!sub) return verificationShape(env, user.id);
+  let pre;
+  try {
+    const main = await one(env, `SELECT url FROM dating_photos WHERE user_id = $1 AND status = 'approved' AND url LIKE 'img/%' ORDER BY position, created_at LIMIT 1`, [user.id]);
+    const [selfie, idImg, profilePhoto] = await Promise.all([readObjectBytes(env, v.selfie_key), readObjectBytes(env, v.id_key), main ? readObjectBytes(env, main.url) : null]);
+    pre = await verificationPrecheck(env, { selfie, id: idImg, profilePhoto, code: v.code, gesture: v.gesture,
+      profile: { firstName: p.first_name, gender: p.gender, age: ageOn(p.birth_date), birthYear: ymd(p.birth_date).slice(0, 4) } });
+  } catch (e) {
+    pre = { status: 'unavailable', confidence: 'unknown', note: `AI pre-check failed (${String((e && e.message) || e).slice(0, 120)}). Review the images yourself.`, details: null };
+  }
+  await q(env, `UPDATE dating_verifications SET ai_status = $2, ai_confidence = $3, ai_note = $4, ai_details = $5::jsonb, updated_at = now() WHERE id = $1`,
+    [v.id, pre.status, pre.confidence, String(pre.note || '').slice(0, 2000), pre.details ? JSON.stringify(pre.details) : null]);
+  return verificationShape(env, user.id);
+}
+
+/** A private verification image (R2 object) — the caller has already checked who may see it. */
+export async function verificationObject(env, v, kind) {
+  const key = kind === 'selfie' ? v.selfie_key : kind === 'id' ? v.id_key : null;
+  if (!key || !env.MEDIA) return null;
+  return env.MEDIA.get(key);
+}
+
+/** Admin decision: approve → Verified badge; reject → reason shown to the member. Both images are deleted now. */
+export async function decideVerification(c, admin, id, { decision, reason }) {
+  const env = c.env;
+  if (!['approve', 'reject'].includes(decision)) throw bad('decision must be approve or reject', 'BAD_DECISION');
+  const why = clean(reason, 300);
+  if (decision === 'reject' && why.length < 3) throw bad('Give the member a short reason', 'REASON_REQUIRED');
+  const v = await one(env, `UPDATE dating_verifications SET status = $2, decided_at = now(), decided_by = $3, reject_reason = $4, ai_details = NULL, updated_at = now()
+      WHERE id = $1 AND status = 'pending' RETURNING *`, [id, decision === 'approve' ? 'approved' : 'rejected', admin.id, decision === 'reject' ? why : null]);
+  if (!v) {
+    const cur = await one(env, 'SELECT status FROM dating_verifications WHERE id = $1', [id]);
+    if (!cur) throw notFound('Verification not found');
+    throw new ApiError(409, 'ALREADY_DECIDED', `This verification is already ${cur.status}`);
+  }
+  if (decision === 'approve') await q(env, `UPDATE dating_profiles SET verified = true, updated_at = now() WHERE user_id = $1`, [v.user_id]);
+  await dropVerificationFiles(env, v.id);
+  await tell(c, v.user_id, decision === 'approve'
+    ? { title: 'You’re verified ✔', body: 'Your Find Love profile now shows the Verified badge.', data: { event: 'verified' } }
+    : { title: 'Verification not approved', body: why || 'Please try again with clear photos.', data: { event: 'verification_rejected' } });
+  return { id: v.id, status: v.status, userId: v.user_id };
+}
+
+// ─── retention cron (client answer Q32) — called from the 15-minute cron in src/index.js ─────────────────────────
+// * Messages of closed / declined dating chats are deleted rules.chatRetentionDays (default 730) after closed_at, at most
+//   rules.retentionBatch messages per run (with their chat attachments in R2). The dating_conversations row stays, and
+//   dating_reports + admin_actions (the safety log) are never touched: they are kept forever.
+// * Unfinished verification drafts past their expiry lose their images.
+export async function runDatingCron(env) {
+  const { rules } = await datingConfig(env);
+  const out = { messagesDeleted: 0, chatsPurged: 0, draftsExpired: 0 };
+  const days = Number(rules.chatRetentionDays) || 0;
+  if (days > 0) {
+    const convs = (await q(env, `SELECT conversation_id FROM dating_conversations
+        WHERE status IN ('closed','declined') AND messages_purged_at IS NULL AND closed_at IS NOT NULL AND closed_at < now() - make_interval(days => $1::int)
+        ORDER BY closed_at LIMIT 20`, [days])).map((r) => r.conversation_id);
+    if (convs.length) {
+      const gone = await q(env, `DELETE FROM messages WHERE id IN (SELECT id FROM messages WHERE conversation_id = ANY($1::uuid[]) ORDER BY created_at LIMIT $2)
+          RETURNING conversation_id, media_key`, [convs, Math.max(1, Number(rules.retentionBatch) || 200)]);
+      out.messagesDeleted = gone.length;
+      for (const m of gone) {
+        if (m.media_key && env.MEDIA && String(m.media_key).startsWith(`chat/${m.conversation_id}/`)) {
+          try { await env.MEDIA.delete(m.media_key); } catch (e) { /* best effort */ }
+        }
+      }
+      const done = await q(env, `UPDATE dating_conversations dc SET messages_purged_at = now() WHERE dc.conversation_id = ANY($1::uuid[])
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = dc.conversation_id) RETURNING conversation_id`, [convs]);
+      out.chatsPurged = done.length;
+    }
+  }
+  const drafts = await q(env, `UPDATE dating_verifications SET status = 'expired', updated_at = now() WHERE id IN (
+      SELECT id FROM dating_verifications WHERE status = 'draft' AND expires_at < now() ORDER BY expires_at LIMIT 50) RETURNING id`);
+  for (const d of drafts) await dropVerificationFiles(env, d.id);
+  out.draftsExpired = drafts.length;
   return out;
 }

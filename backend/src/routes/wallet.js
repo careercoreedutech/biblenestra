@@ -21,7 +21,7 @@ import { audit, requireAdmin, registerAdminScript } from './admin.js';
 import { playConfigured, PAYMENTS_SOON } from '../lib/play.js';
 import {
   WALLETS, USER_WALLETS, KINDS, PLATFORM, getBalances, history, walletCards, rateLimit, adjust, entryShape, walletInfo, isWallet,
-  getConfig, setConfig, CONFIG_DEFAULTS, ledgerIntegrity,
+  getConfig, setConfig, CONFIG_DEFAULTS, ledgerIntegrity, withdrawalMinimum,
 } from '../lib/wallet.js';
 import {
   AREAS, listProducts, purchaseMethods, createPurchase, testPurchaseAllowed, purchaseShape, currentSubscription, listSubscriptions,
@@ -61,7 +61,8 @@ walletApp.get('/wallet', async (c) => {
     kingdomCoins: { ...KINGDOM_COINS, balance: Number((u && u.coins) || 0) },
     subscription: sub,
     dating: { plan: dating.plan, tier: dating.tier, flags: dating.flags, badge: dating.badge },
-    rules: { giftCommissionPct: cfg.gift_commission_bps / 100, earningsHoldDays: cfg.earnings_hold_days, withdrawalsEnabled: !!cfg.earnings_withdrawals_enabled },
+    rules: { giftCommissionPct: cfg.gift_commission_bps / 100, earningsHoldDays: cfg.earnings_hold_days, withdrawalsEnabled: !!cfg.earnings_withdrawals_enabled,
+      minWithdrawal: withdrawalMinimum(cfg).coins, minWithdrawalLabel: withdrawalMinimum(cfg).label },
     payments: { provider: 'paystack', paystackConfigured: paystackConfigured(c.env), playConfigured: playConfigured(c.env), testPurchases: testPurchaseAllowed(c.env, me), message: paystackConfigured(c.env) ? null : PAYMENTS_SOON },
   });
 });

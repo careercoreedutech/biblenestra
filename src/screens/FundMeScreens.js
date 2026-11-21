@@ -18,7 +18,7 @@ import { pickPhotos } from '../api/media';
 import GiftSheet from '../components/social/GiftSheet';
 import {
   useFundMe, onFundMeChange, pickPdf, formatMoney, toMinor, minorToText, CURRENCIES, SYMBOL, CURRENCY_NAME, LIMITS, STATUS_LABEL,
-  isReceived, DONATION_STATUS, HELD_EXPLAINER,
+  isReceived, DONATION_STATUS, HELD_EXPLAINER, localeCurrency,
 } from '../api/fundme';
 // FUND ME MONEY (monetisation stage 2): credits before publishing, donations held by BibleNestra, payouts, receipts
 import { FundMeCreditsCard } from './FundMeMoneyScreens';
@@ -570,16 +570,30 @@ function Tool({ icon, label, onPress, danger }) {
 }
 
 // ---------- donate sheet ----------
+// Client answers (2026-11-21): the donor picks a currency (default: the device's, else the request's), "Cover the fees"
+// is ticked by default (BibleNestra fee + Paystack fee + VAT added so the beneficiary gets the full gift), and the
+// server quote (/f/:slug/donation-quote) shows the breakdown and, when converted, both amounts. Non-refundable.
 function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
   const api = useApi();
-  const presets = f.presets || LIMITS[f.currency].presets;
+  const fm = useFundMe();
+  const options = (f.donorCurrencies && f.donorCurrencies.length ? f.donorCurrencies : [{ code: f.currency, chargedIn: f.currency, ...LIMITS[f.currency], presets: f.presets || LIMITS[f.currency].presets }]);
+  const pickDefault = () => {
+    const loc = localeCurrency();
+    return (loc && options.some((o) => o.code === loc) ? loc : null) || f.defaultDonorCurrency || f.currency;
+  };
+  const [cur, setCur] = useState(pickDefault);
+  const opt = options.find((o) => o.code === cur) || options[0];
+  const presets = opt.presets || f.presets || LIMITS[f.currency].presets;
   const [email, setEmail] = useState('');
   const [test, setTest] = useState(false);
-  const [preset, setPreset] = useState(presets[1]);
+  const [preset, setPreset] = useState(presets[1] || presets[0]);
   const [custom, setCustom] = useState('');
   const [name, setName] = useState('');
   const [message, setMessage] = useState('');
   const [anon, setAnon] = useState(false);
+  const [cover, setCover] = useState(f.coverFeesDefault !== false);
+  const [quote, setQuote] = useState(null);
+  const [pickCur, setPickCur] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -589,19 +603,31 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
     setName((n) => n || (defaultName && defaultName !== 'Friend' ? defaultName : ''));
     setEmail((m) => m || (EMAIL_RE.test(String(api.email || '')) ? api.email : ''));
   }, [visible]);
+  useEffect(() => { setPreset(presets[1] || presets[0]); setCustom(''); }, [cur]);
   const needsEmail = !!f.needsEmail && !test;
   const amount = custom ? toMinor(custom) : preset;
-  const min = f.minMinor || LIMITS[f.currency].min;
-  const max = f.maxMinor || LIMITS[f.currency].max;
+  const min = opt.min || f.minMinor || LIMITS[f.currency].min;
+  const max = opt.max || f.maxMinor || LIMITS[f.currency].max;
+  const sym = SYMBOL[cur] != null ? SYMBOL[cur] : `${cur} `;
+  const money = (m, c) => (SYMBOL[c] != null ? formatMoney(m, c) : `${c} ${formatMoney(m, c)}`);
+  // live quote (debounced) — fees, conversion and what the beneficiary receives
+  useEffect(() => {
+    if (!visible || demo || !amount || Number.isNaN(amount) || amount < min || amount > max) { setQuote(null); return undefined; }
+    let alive = true;
+    const t = setTimeout(() => { fm.quote(f.slug, { amountMinor: amount, currency: cur, coverFees: cover }).then((q) => { if (alive) setQuote(q); }).catch(() => { if (alive) setQuote(null); }); }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [visible, amount, cur, cover]);
   const submit = async () => {
     if (!amount || Number.isNaN(amount)) return setErr('Choose or enter an amount');
-    if (amount < min) return setErr(`The smallest gift is ${formatMoney(min, f.currency)}`);
-    if (amount > max) return setErr(`The largest single gift is ${formatMoney(max, f.currency)}`);
+    if (amount < min) return setErr(`The smallest gift is ${money(min, cur)}`);
+    if (amount > max) return setErr(`The largest single gift is ${money(max, cur)}`);
+    if (quote && !quote.ok) return setErr('This amount is too small to cover the fees');
     if (needsEmail && !EMAIL_RE.test(email.trim())) return setErr('Add your email — your payment receipt is sent there');
     setErr(null); setBusy(true);
-    await onDonate({ amount_minor: amount, message: message.trim(), anonymous: anon, donor_name: name.trim(), email: needsEmail ? email.trim() : undefined, provider: test ? 'test' : undefined });
+    await onDonate({ amount_minor: amount, currency: cur, coverFees: cover, message: message.trim(), anonymous: anon, donor_name: name.trim(), email: needsEmail ? email.trim() : undefined, provider: test ? 'test' : undefined });
     setBusy(false);
   };
+  const payLabel = quote ? (quote.converted ? `${quote.display.charged} (≈ ${quote.display.donorTotal})` : quote.display.charged) : amount && !Number.isNaN(amount) ? money(amount, cur) : '';
   return (
     <AnimatedModal visible={visible} onRequestClose={onClose}>
       <Pressable style={{ flex: 1 }} onPress={onClose} />
@@ -610,18 +636,35 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
         <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Eyebrow>Give</Eyebrow>
           <Text style={styles.sheetTitle} numberOfLines={2}>{f.title}</Text>
+          {options.length > 1 ? (
+            <View style={{ marginTop: 10 }}>
+              <PressScale onPress={() => setPickCur((v) => !v)} scaleTo={0.97} style={styles.curBtn} accessibilityLabel={`Currency ${cur}. Change`}>
+                <Text style={styles.curBtnText}>Give in {cur}{CURRENCY_NAME[cur] ? ` · ${CURRENCY_NAME[cur]}` : ''}</Text>
+                <Icon name={pickCur ? 'chevron-up' : 'chevron-down'} size={14} color={colors.muted} />
+              </PressScale>
+              {pickCur ? (
+                <View style={styles.curList}>
+                  {options.map((o) => (
+                    <PressScale key={o.code} onPress={() => { setCur(o.code); setPickCur(false); }} scaleTo={0.93} style={[styles.curChip, o.code === cur && styles.presetOn]} accessibilityLabel={o.code}>
+                      <Text style={[styles.curChipText, o.code === cur && { color: '#FFFFFF' }]}>{o.code}</Text>
+                    </PressScale>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           <View style={styles.presets}>
             {presets.map((p) => {
               const on = !custom && preset === p;
               return (
-                <PressScale key={p} onPress={() => { setPreset(p); setCustom(''); }} scaleTo={0.93} style={[styles.preset, on && styles.presetOn]} accessibilityLabel={formatMoney(p, f.currency)}>
-                  <Text style={[styles.presetText, on && { color: '#FFFFFF' }]}>{formatMoney(p, f.currency)}</Text>
+                <PressScale key={p} onPress={() => { setPreset(p); setCustom(''); }} scaleTo={0.93} style={[styles.preset, on && styles.presetOn]} accessibilityLabel={money(p, cur)}>
+                  <Text style={[styles.presetText, on && { color: '#FFFFFF' }]} numberOfLines={1} adjustsFontSizeToFit>{money(p, cur)}</Text>
                 </PressScale>
               );
             })}
           </View>
           <View style={styles.amountBox}>
-            <Text style={styles.amountSym}>{SYMBOL[f.currency]}</Text>
+            <Text style={styles.amountSym}>{sym}</Text>
             <TextInput
               value={custom}
               onChangeText={(t) => setCustom(t.replace(/[^\d.,]/g, ''))}
@@ -632,6 +675,34 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
               accessibilityLabel="Other amount"
             />
           </View>
+          {!demo ? (
+            <View style={styles.anonRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.anonTitle}>Cover the fees</Text>
+                <Text style={styles.anonSub}>Adds the BibleNestra fee, the payment processing fee and VAT so the organiser gets your full gift. Untick and the fees come out of your gift.</Text>
+              </View>
+              <Switch value={cover} onValueChange={setCover} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" activeThumbColor="#FFFFFF" accessibilityLabel="Cover the fees" />
+            </View>
+          ) : null}
+          {quote ? (
+            <View style={styles.quoteBox}>
+              {[
+                ['Your gift', quote.display.gift],
+                ...(quote.currency !== 'NGN' ? [[`In Naira (₦${Number(quote.fxRate).toLocaleString()} per ${quote.currency})`, formatMoney(quote.giftNgnMinor, 'NGN')]] : []),
+                ['BibleNestra fee', quote.display.platformFee],
+                ['Payment processing (estimate)', quote.display.processingFee],
+                ['VAT on fees', quote.display.vat],
+                ['You pay', payLabel],
+                ['The organiser receives', quote.display.beneficiary],
+              ].map(([k, v], i) => (
+                <View key={k} style={[styles.quoteRow, i >= 5 && { marginTop: 4 }]}>
+                  <Text style={[styles.quoteKey, i >= 5 && { color: colors.fg, fontWeight: '700' }]}>{k}</Text>
+                  <Text style={[styles.quoteVal, i >= 5 && { fontWeight: '800' }]}>{v}</Text>
+                </View>
+              ))}
+              {quote.converted ? <Text style={styles.quoteNote}>Charged in Naira at our rate — your bank shows about {quote.display.donorTotal}. {f.settlementNote || ''}</Text> : null}
+            </View>
+          ) : null}
           <Text style={styles.label}>Your name</Text>
           <Input value={name} onChangeText={setName} placeholder="Name shown with your gift" maxLength={80} />
           {needsEmail ? (
@@ -660,7 +731,7 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
           ) : null}
           {err ? <Text style={styles.err}>{err}</Text> : null}
           <Button
-            label={busy ? 'Starting checkout…' : amount && !Number.isNaN(amount) ? `Donate ${formatMoney(amount, f.currency)}` : 'Donate'}
+            label={busy ? 'Starting checkout…' : payLabel ? `Donate ${payLabel}` : 'Donate'}
             onPress={submit}
             disabled={busy}
             style={{ marginTop: 14 }}
@@ -668,6 +739,7 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
           <Text style={styles.sheetNote}>
             {demo ? 'Demo mode — the gift is recorded on this device only. No money moves.'
               : f.testMode || test ? 'Test mode — you’ll see a simulated checkout. No real money moves.' : `You’ll pay on Paystack’s secure checkout. ${HELD_EXPLAINER}`}
+            {demo ? '' : ` ${f.refundPolicy || 'Donations are non-refundable.'}`}
           </Text>
         </ScrollView>
       </View>
@@ -1224,6 +1296,16 @@ const styles = StyleSheet.create({
   grabber: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: 14 },
   sheetTitle: { fontFamily: fonts.serifBold, fontSize: 22, letterSpacing: -0.4, color: colors.fg, marginTop: 4 },
   sheetNote: { color: colors.faint, fontSize: 12, textAlign: 'center', marginTop: 10, lineHeight: 17 },
+  curBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  curBtnText: { color: colors.fg, fontSize: 13, fontWeight: '600' },
+  curList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  curChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  curChipText: { color: colors.fg, fontSize: 13, fontWeight: '700' },
+  quoteBox: { marginTop: 12, padding: 12, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 4 },
+  quoteRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  quoteKey: { color: colors.muted, fontSize: 13, flex: 1 },
+  quoteVal: { color: colors.fg, fontSize: 13, fontWeight: '600' },
+  quoteNote: { color: colors.faint, fontSize: 12, marginTop: 6, lineHeight: 16 },
   presets: { flexDirection: 'row', gap: 8, marginTop: 16 },
   preset: { flex: 1, height: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   presetOn: { backgroundColor: colors.fg, borderColor: colors.fg },

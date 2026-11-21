@@ -3,7 +3,8 @@
 //   FundMeGiftCredits     pick a member → amount → ConfirmSpend → atomic transfer (credits only, never cash)
 //   FundMeMoney           organiser: totals, donations with status, payouts with timelines, bank account
 //   FundMePayoutAccount   organiser: bank + account number (+ name check with Paystack), masked, reviewed by staff
-//   FundMeMyDonations     my donations; FundMeReceipt  one receipt with its status history
+//   FundMeMyDonations     my donations; FundMeReceipt  one receipt with its fee breakdown and status history
+//   PayoutKyc             identity check before any payout (Fund Me) or gift-earnings withdrawal: ID + legal name + bank
 //   <FundMeCreditsCard/>  "Publishing uses 1 credit · you have N" + Buy, used by the create / edit wizard
 // Server: backend/src/routes/fundmeMoney.js · docs: scratch/monetisation/fundme.md
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,7 +18,10 @@ import { useNav, useIsFocused } from '../navigation';
 import { errorMessage } from '../api/client';
 import { BuyCoinsSheet, ConfirmSpend } from '../components/wallet';
 import { walletChanged, newIdempotencyKey, walletError, dateLabel, timeLabel } from '../api/wallet';
-import { useFundMe, onFundMeChange, formatMoney, DONATION_STATUS, PAYOUT_STATUS, HELD_EXPLAINER } from '../api/fundme';
+import { useFundMe, onFundMeChange, formatMoney, DONATION_STATUS, PAYOUT_STATUS, HELD_EXPLAINER, SYMBOL } from '../api/fundme';
+
+const KYC_TINT = { approved: colors.positive, rejected: colors.negative, pending_review: colors.gold, none: colors.muted };
+const moneyAny = (m, c) => (SYMBOL[c] != null ? formatMoney(m, c) : `${c} ${formatMoney(m, c)}`);
 
 const KIND_LABEL = {
   purchase: 'Bought credits', test_purchase: 'Test purchase', fundme_publish: 'Published a request', fundme_credit_gift_sent: 'Sent to a friend',
@@ -309,7 +313,7 @@ export function FundMeMoneyScreen({ params = {} }) {
           <Kpi label="Fees" value={fmt(t.feesMinor)} />
           <Kpi label="Refunded" value={fmt(t.refundedMinor)} />
         </View>
-        <Text style={st.rowMeta}>Payouts are made after a {m.rules.holdDays}-day hold and our checks. Minimum payout {fmt(m.rules.minPayoutMinor)}.{m.rules.feeBps || m.rules.feeFixedMinor ? ` BibleNestra fee: ${m.rules.feeBps / 100}%${m.rules.feeFixedMinor ? ` + ${fmt(m.rules.feeFixedMinor)}` : ''} per donation.` : ' No BibleNestra fee.'}</Text>
+        <Text style={st.rowMeta}>{m.rules.scheduleText || `Payouts are made after a ${m.rules.holdDays}-day hold and our checks.`}{m.rules.nextPayoutRun ? ` Next payout run: ${dateLabel(m.rules.nextPayoutRun)}.` : ''} Minimum payout {fmt(m.rules.minPayoutMinor)}. All amounts are in Naira.{m.rules.feeBps || m.rules.feeFixedMinor ? ` BibleNestra fee: ${m.rules.feeBps / 100}%${m.rules.feeFixedMinor ? ` + ${fmt(m.rules.feeFixedMinor)}` : ''} per donation, plus payment processing and VAT unless the donor covers them.` : ' No BibleNestra fee.'}</Text>
       </FadeInUp>
 
       <Section title="Your bank account" style={{ marginTop: 22 }}>
@@ -329,6 +333,17 @@ export function FundMeMoneyScreen({ params = {} }) {
             )}
           </View>
           <Icon name="edit" size={15} color={colors.muted} />
+        </PressScale>
+      </Section>
+
+      <Section title="Identity check (KYC)" style={{ marginTop: 22 }}>
+        <PressScale onPress={() => nav.push('PayoutKyc')} scaleTo={0.98} style={[st.card, st.pickRow]} accessibilityLabel="Identity check for payouts">
+          <View style={[st.rowIcon, { backgroundColor: alpha(colors.primary, 0.1) }]}><Icon name="shield" size={15} color={colors.primary} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowTitle}>{m.kyc && m.kyc.status !== 'none' ? m.kyc.statusLabel : 'Verify your identity'}</Text>
+            <Text style={st.rowMeta}>{m.kyc && m.kyc.approved ? `${m.kyc.idTypeLabel} ${m.kyc.idNumberMasked} · ${m.kyc.legalName}` : 'Needed before any payout: your BVN, NIN or national ID and a bank account in your name'}</Text>
+          </View>
+          <Icon name="chevron-right" size={15} color={colors.muted} />
         </PressScale>
       </Section>
 
@@ -362,7 +377,11 @@ export function FundMeMoneyScreen({ params = {} }) {
                 {open === d.id ? (
                   <View style={{ width: '100%', marginTop: 8 }}>
                     {d.message ? <Text style={st.body}>“{d.message}”</Text> : null}
-                    <Text style={st.rowMeta}>Fee {formatMoney(d.feeMinor, d.currency)} · for you {formatMoney(d.netMinor, d.currency)}{d.receiptNo ? ` · receipt ${d.receiptNo}` : ''}</Text>
+                    <Text style={st.rowMeta}>
+                      {d.original && d.original.currency !== d.currency ? `Gave ${moneyAny(d.original.amountMinor, d.original.currency)} · ` : ''}
+                      Fees {formatMoney(d.fees ? d.fees.totalMinor : d.feeMinor, d.currency)}{d.coverFees ? ' (covered by the donor)' : ''} · for you {formatMoney(d.netMinor, d.currency)}
+                      {d.payoutRun ? ` · payout run ${dateLabel(d.payoutRun)}` : ''}{d.receiptNo ? ` · receipt ${d.receiptNo}` : ''}
+                    </Text>
                   </View>
                 ) : null}
               </Pressable>
@@ -424,6 +443,14 @@ export function FundMePayoutAccountScreen() {
   return (
     <Screen title="Bank account for payouts" back>
       <Notice text="We only pay out to an account in your name. Your account number is stored encrypted and shown only as its last 4 digits. Every new or changed account is checked by our team, and payouts wait until then." />
+      <PressScale onPress={() => nav.push('PayoutKyc')} scaleTo={0.98} style={[st.card, st.pickRow, { marginTop: 12 }]} accessibilityLabel="Identity check (KYC)">
+        <View style={[st.rowIcon, { backgroundColor: alpha(colors.primary, 0.1) }]}><Icon name="shield" size={15} color={colors.primary} /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={st.rowTitle}>Identity check (KYC)</Text>
+          <Text style={st.rowMeta}>Required before any payout. Submitting it also sets this bank account.</Text>
+        </View>
+        <Icon name="chevron-right" size={15} color={colors.muted} />
+      </PressScale>
       {cur ? (
         <Card style={{ marginTop: 14 }}>
           <Eyebrow>Current account</Eyebrow>
@@ -470,6 +497,120 @@ export function FundMePayoutAccountScreen() {
 }
 
 // =============================================================================================
+// Payout KYC — Fund Me payouts and gift-earnings withdrawals (backend/src/lib/kyc.js)
+// =============================================================================================
+export function PayoutKycScreen() {
+  const fm = useFundMe();
+  const nav = useNav();
+  const toast = useToast();
+  const [k, setK] = useState(undefined);
+  const [info, setInfo] = useState(null);
+  const [banks, setBanks] = useState([]);
+  const [idType, setIdType] = useState('nin');
+  const [idNumber, setIdNumber] = useState('');
+  const [legal, setLegal] = useState('');
+  const [bankQ, setBankQ] = useState('');
+  const [bank, setBank] = useState(null);
+  const [num, setNum] = useState('');
+  const [accName, setAccName] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    Promise.all([fm.kyc(), fm.banks()]).then(([a, b]) => {
+      setInfo(a); setK(a.kyc); setBanks(b.banks || []);
+      if (a.kyc && a.kyc.status !== 'none') { setIdType(a.kyc.idType); setLegal(a.kyc.legalName); setBank({ code: a.kyc.bankCode, name: a.kyc.bankName }); }
+      setEditing(!a.kyc || a.kyc.status === 'none' || a.kyc.status === 'rejected');
+    }).catch((e) => { setErr(errorMessage(e, 'Couldn’t load your identity check')); setK(null); });
+  }, [fm]);
+  const shown = bankQ.trim() ? banks.filter((b) => b.name.toLowerCase().includes(bankQ.trim().toLowerCase())) : banks;
+  const submit = async () => {
+    setErr(null);
+    if (idType !== 'national_id' && !/^\d{11}$/.test(idNumber)) return setErr(`Your ${idType === 'bvn' ? 'BVN' : 'NIN'} is 11 digits`);
+    if (idType === 'national_id' && idNumber.trim().length < 4) return setErr('Enter your ID number');
+    if (legal.trim().split(/\s+/).length < 2) return setErr('Enter your full legal name (first name and surname)');
+    if (!bank) return setErr('Choose your bank');
+    if (!/^\d{10}$/.test(num)) return setErr('Enter your 10-digit account number');
+    if (!(info && info.canResolve) && accName.trim().length < 2) return setErr('Enter the account name exactly as your bank shows it');
+    setBusy(true);
+    try {
+      const r = await fm.saveKyc({ idType, idNumber: idNumber.trim(), legalName: legal.trim(), bankCode: bank.code, accountNumber: num, accountName: accName.trim() || legal.trim() });
+      setK(r.kyc); setEditing(false); setIdNumber(''); setNum('');
+      toast.show('Submitted — our team will check it', { icon: 'shield', duration: 3600 });
+    } catch (e) { setErr(errorMessage(e, 'Couldn’t submit')); }
+    setBusy(false);
+  };
+  if (k === undefined) return <Screen title="Identity check" back><Shimmer style={{ height: 220, borderRadius: radius.lg }} /></Screen>;
+  const status = (k && k.status) || 'none';
+  return (
+    <Screen title="Identity check (KYC)" back>
+      <Notice text={(info && info.explain) || 'Before BibleNestra pays out Fund Me donations or gift earnings, we check who you are.'} />
+      {status !== 'none' ? (
+        <Card style={{ marginTop: 14 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={[st.rowTitle, { flex: 1 }]}>{k.legalName}</Text>
+            <Badge label={k.statusLabel} tint={KYC_TINT[status]} />
+          </View>
+          <Text style={st.rowMeta}>{k.idTypeLabel} {k.idNumberMasked}</Text>
+          <Text style={st.rowMeta}>{k.bankName} {k.accountNumberMasked} · {k.accountName}{k.nameResolved ? ' (from your bank)' : ''}</Text>
+          {k.reviewNote ? <Text style={st.short}>{k.reviewNote}</Text> : null}
+          {!editing ? <Button kind="ghost" small label="Update my details" onPress={() => setEditing(true)} style={{ marginTop: 10 }} /> : null}
+        </Card>
+      ) : null}
+      {editing ? (
+        <>
+          <Text style={st.label}>ID type</Text>
+          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+            {((info && info.idTypes) || [{ value: 'bvn', label: 'BVN' }, { value: 'nin', label: 'NIN' }, { value: 'national_id', label: 'Other national ID' }]).map((t) => (
+              <PressScale key={t.value} onPress={() => setIdType(t.value)} scaleTo={0.95} style={[st.card, { paddingVertical: 8, paddingHorizontal: 12 }, idType === t.value && { borderColor: colors.primary, backgroundColor: alpha(colors.primary, 0.08) }]} accessibilityLabel={t.label}>
+                <Text style={[st.rowTitle, { fontSize: 13 }]}>{t.value === 'national_id' ? 'Other national ID' : t.value.toUpperCase()}</Text>
+              </PressScale>
+            ))}
+          </View>
+          <Text style={st.label}>{idType === 'bvn' ? 'BVN' : idType === 'nin' ? 'NIN' : 'ID number'}</Text>
+          <Input value={idNumber} onChangeText={(t) => setIdNumber(idType === 'national_id' ? t.replace(/[^A-Za-z0-9]/g, '').slice(0, 30) : t.replace(/\D/g, '').slice(0, 11))} placeholder={idType === 'national_id' ? 'As printed on your ID' : '11 digits'} keyboardType={idType === 'national_id' ? 'default' : 'number-pad'} autoCapitalize="characters" />
+          <Text style={st.label}>Legal name</Text>
+          <Input value={legal} onChangeText={setLegal} placeholder="As on your ID — first name and surname" maxLength={120} />
+          <Text style={st.label}>Bank</Text>
+          {bank ? (
+            <View style={[st.card, st.pickRow]}>
+              <Text style={[st.rowTitle, { flex: 1 }]}>{bank.name}</Text>
+              <Pressable onPress={() => setBank(null)} hitSlop={10}><Text style={st.link}>Change</Text></Pressable>
+            </View>
+          ) : (
+            <>
+              <View style={st.search}>
+                <Icon name="search" size={16} color={colors.faint} />
+                <TextInput value={bankQ} onChangeText={setBankQ} placeholder="Search your bank" placeholderTextColor={colors.faint} style={st.searchInput} accessibilityLabel="Search banks" />
+              </View>
+              <View style={[st.card, { paddingVertical: 2, marginTop: 8, maxHeight: 220 }]}>
+                {shown.slice(0, 40).map((b, i) => (
+                  <Pressable key={b.code} onPress={() => setBank(b)} style={[st.row, i > 0 && st.rowBorder]} accessibilityLabel={b.name}>
+                    <Text style={st.rowTitle}>{b.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
+          <Text style={st.label}>Account number (NUBAN)</Text>
+          <Input value={num} onChangeText={(t) => setNum(t.replace(/\D/g, '').slice(0, 10))} placeholder="10 digits — an account in your own name" keyboardType="number-pad" maxLength={10} />
+          {!(info && info.canResolve) ? (
+            <>
+              <Text style={st.label}>Account name</Text>
+              <Input value={accName} onChangeText={setAccName} placeholder="Exactly as your bank shows it" maxLength={120} />
+            </>
+          ) : <Text style={st.rowMeta}>We check the account name with your bank. It must match your legal name (any order; middle names don’t matter).</Text>}
+          {err ? <Text style={st.short}>{err}</Text> : null}
+          <Button label={busy ? 'Submitting…' : 'Submit for review'} disabled={busy} onPress={submit} style={{ marginTop: 18 }} icon={<Icon name="shield" size={15} color="#FFFFFF" />} />
+          <Text style={[st.rowMeta, { marginTop: 10 }]}>Your ID and account numbers are stored encrypted and shown only as their last digits.</Text>
+        </>
+      ) : null}
+      {status === 'approved' ? <Button kind="ghost" label="Done" onPress={() => nav.pop()} style={{ marginTop: 16 }} /> : null}
+    </Screen>
+  );
+}
+
+// =============================================================================================
 // Donor: my donations + receipt
 // =============================================================================================
 export function FundMeMyDonationsScreen() {
@@ -495,7 +636,7 @@ export function FundMeMyDonationsScreen() {
                   <Text style={st.rowMeta}>{dateLabel(d.receivedAt || d.createdAt)}{d.receiptNo ? ' · tap for receipt' : ''}{d.test ? ' · test' : ''}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                  <Text style={st.rowAmt}>{formatMoney(d.amountMinor, d.currency)}</Text>
+                  <Text style={st.rowAmt}>{d.original ? moneyAny(d.original.amountMinor, d.original.currency) : formatMoney(d.amountMinor, d.currency)}</Text>
                   <StatusPill map={DONATION_STATUS} status={d.status} />
                 </View>
               </PressScale>
@@ -529,9 +670,14 @@ export function FundMeReceiptScreen({ params = {} }) {
             <Text style={st.receiptTitle}>Thank you for your gift</Text>
             <Text style={st.rowMeta}>{r.test ? 'TEST — no money moved · ' : ''}Receipt {r.receiptNo}</Text>
           </View>
-          {line('Amount', formatMoney(r.amountMinor, r.currency), true)}
-          {r.feeMinor ? line('BibleNestra fee', formatMoney(r.feeMinor, r.currency)) : null}
-          {line('For the organiser', formatMoney(r.netMinor, r.currency))}
+          {r.breakdown ? r.breakdown.filter((b) => b.value).map((b, i) => <React.Fragment key={b.label}>{line(b.label, b.value, i === 0)}</React.Fragment>) : (
+            <>
+              {line('Amount', formatMoney(r.amountMinor, r.currency), true)}
+              {r.feeMinor ? line('BibleNestra fee', formatMoney(r.feeMinor, r.currency)) : null}
+              {line('For the organiser', formatMoney(r.netMinor, r.currency))}
+            </>
+          )}
+          {r.breakdown ? line('Fees', r.coverFees ? 'Covered by you' : 'Taken from the gift') : null}
           {line('Request', r.request.title)}
           {r.beneficiary ? line('Organiser', r.beneficiary) : null}
           {line('Date', timeLabel(r.date))}
@@ -544,6 +690,7 @@ export function FundMeReceiptScreen({ params = {} }) {
         </View>
       </FadeInUp>
       <Text style={[st.body, { marginTop: 14 }]}>{r.note}</Text>
+      {r.refundPolicy ? <Text style={[st.rowMeta, { marginTop: 8 }]}>{r.refundPolicy}</Text> : null}
       <Section title="What happened" style={{ marginTop: 18 }}><Card><Timeline items={r.timeline} /></Card></Section>
       <Button kind="ghost" label="Open the request" onPress={() => nav.push('Fundraiser', { id: r.request.id })} style={{ marginTop: 16 }} />
     </Screen>

@@ -29,6 +29,7 @@ import rhythm from './routes/rhythm.js';
 import social from './routes/social.js'; // SOCIAL (round 3)
 import { fundme, fundmePublic } from './routes/fundme.js'; // FUND ME (round 3)
 import { fundmeMoney } from './routes/fundmeMoney.js'; // FUND ME MONEY: credits, gifting credits, donations held by BibleNestra, payouts, admin "Donations & payouts"
+import { runFundmePayoutCron } from './lib/fundmeMoney.js'; // FUND ME: monthly payout run (approves donations due in the run)
 import recordings from './routes/recordings.js'; // DISCOVER TOOLS (round 3)
 import reminders from './routes/reminders.js'; // DISCOVER TOOLS (round 3)
 import youtube from './routes/youtube.js'; // DISCOVER TOOLS (round 3)
@@ -64,7 +65,9 @@ import { paystackPublic, paystackApp, adminPaystack } from './routes/paystack.js
 import { runPaystackCron } from './lib/paystackCheckout.js'; // WALLET CORE: separate wallets, ledger, packages, purchases, Dating Plus / VIP
 import { runWalletCron } from './lib/walletStore.js'; // WALLET CORE: expire ended dating subscriptions, prune rate-limit windows
 import { datingApp, adminDating } from './routes/dating.js'; // FIND LOVE (Christian dating): profiles, discovery, matches, Dating Coin uses, ad unlocks, boosts, admin "Dating"
+import { runDatingCron } from './lib/dating.js'; // FIND LOVE: retention (closed dating chats' messages after 2 years) + expired verification drafts
 import { giftsApp, adminGifts } from './routes/virtualGifts.js'; // VIRTUAL GIFTS & STARS: catalogue, send (20/80 split), histories, earnings, withdrawals, live sessions, admin "Gift catalogue"
+import { staffPublic, adminStaff } from './routes/staff.js'; // STAFF ACCESS: dashboard invites, staff accounts, roles (gate: lib/auth.js + lib/staff.js)
 
 export function createApp() {
   const app = new Hono();
@@ -131,6 +134,7 @@ export function createApp() {
   app.route('/', chatGapsPublic); // CHAT GAPS: GET /g/:code (and /join/:code) group-invite landing page
   app.route('/', blogPublic); // BLOG: GET /blog, /blog/:slug, /blog/api/posts[/:slug] (public, published posts only)
   app.route('/', legalPublic); // LEGAL: GET /terms, /privacy, /delete-account (public HTML)
+  app.route('/', staffPublic); // STAFF ACCESS: POST /admin/api/staff/invite/check|accept (one-time invite links)
 
   // everything below needs a signed-in user
   app.use('*', requireUser());
@@ -217,6 +221,7 @@ export function createApp() {
   app.route('/', adminGifts); // VIRTUAL GIFTS & STARS: /admin/api/gifts/* (admin only)
   app.route('/', datingApp); // FIND LOVE: /dating/* (profile, discover, swipes, likes, matches, requests, ad unlocks, bundles, boosts, safety)
   app.route('/', adminDating); // FIND LOVE: /admin/api/dating/* (admin only) — "Dating" section of Wallets & payments
+  app.route('/', adminStaff); // STAFF ACCESS: /admin/api/staff/* (owner only) — "Staff" tab
 
   return app;
 }
@@ -237,5 +242,7 @@ export default {
     runMembershipCron(env).catch((e) => console.error('membership expiry failed', e)), // MEMBERSHIPS: expire lapsed subscriptions, remove them from Channel + Community
     runWalletCron(env).catch((e) => console.error('wallet cron failed', e)), // WALLET CORE: expire ended dating subscriptions
     runPaystackCron(env).catch((e) => console.error('paystack cron failed', e)), // PAYSTACK: card renewals, renewal reminders, Plus expiry
+    runFundmePayoutCron(env).catch((e) => console.error('fundme payout run failed', e)), // FUND ME: monthly payout run (staff still pay by hand)
+    runDatingCron(env).catch((e) => console.error('dating cron failed', e)), // FIND LOVE: delete closed dating chats' messages after rules.chatRetentionDays (small batches)
   ])),
 };

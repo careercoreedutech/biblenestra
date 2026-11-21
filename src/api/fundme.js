@@ -13,7 +13,15 @@ const IS_WEB = Platform.OS === 'web';
 
 // ---------- money ----------
 export const CURRENCIES = ['GBP', 'USD', 'EUR', 'NGN'];
-export const SYMBOL = { GBP: '£', USD: '$', EUR: '€', NGN: '₦' };
+export const SYMBOL = { GBP: '£', USD: '$', EUR: '€', NGN: '₦', CAD: 'CA$', GHS: 'GH₵', KES: 'KSh ', ZAR: 'R ' };
+/** The device's likely currency (donor default) from its locale region, else null. */
+export function localeCurrency() {
+  let loc = '';
+  try { loc = Intl.DateTimeFormat().resolvedOptions().locale || ''; } catch (e) { loc = ''; }
+  const region = (loc.split('-').pop() || '').toUpperCase();
+  const BY_REGION = { NG: 'NGN', GB: 'GBP', US: 'USD', CA: 'CAD', GH: 'GHS', KE: 'KES', ZA: 'ZAR', IE: 'EUR', DE: 'EUR', FR: 'EUR', ES: 'EUR', IT: 'EUR', NL: 'EUR', BE: 'EUR', PT: 'EUR', AT: 'EUR', FI: 'EUR' };
+  return BY_REGION[region] || null;
+}
 export const CURRENCY_NAME = { GBP: 'British pound', USD: 'US dollar', EUR: 'Euro', NGN: 'Nigerian naira' };
 export const LIMITS = {
   GBP: { min: 100, max: 1000000, goalMax: 100000000, presets: [1000, 2500, 5000, 10000] },
@@ -117,6 +125,10 @@ function onlineClient(request) {
     payoutAccount: () => r('GET', '/fundme/payout-account'),
     resolveAccount: (body) => r('POST', '/fundme/payout-account/resolve', body),
     savePayoutAccount: (body) => mut('PUT', '/fundme/payout-account', body),
+    // Client answers: fee / currency quote before checkout, and payout KYC (Fund Me payouts + gift withdrawals)
+    quote: (slug, { amountMinor, currency, coverFees }) => r('GET', `/f/${slug}/donation-quote?amountMinor=${amountMinor}&currency=${encodeURIComponent(currency)}&coverFees=${coverFees ? 'true' : 'false'}`),
+    kyc: () => r('GET', '/payout-kyc'),
+    saveKyc: (body) => r('PUT', '/payout-kyc', body),
   };
 }
 
@@ -280,6 +292,7 @@ function demoClient() {
     creditHistory: async () => ({ items: [], nextCursor: null }),
     members: async () => ({ items: [] }),
     giftCredits: offline, rules: offline, receipt: offline, money: offline, banks: offline, payoutAccount: offline, resolveAccount: offline, savePayoutAccount: offline,
+    quote: offline, kyc: offline, saveKyc: offline,
     myDonations: async () => ({ items: [] }),
   };
 }

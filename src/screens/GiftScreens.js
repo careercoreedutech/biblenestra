@@ -14,7 +14,7 @@ import { useNav } from '../navigation';
 import { useApi } from '../api/auth';
 import { WalletBalancePill, BuyCoinsSheet } from '../components/wallet';
 import { getHistory, newIdempotencyKey, walletError, timeLabel } from '../api/wallet';
-import { useGiftCatalogue, useGiftEarnings, getGiftHistory, applyCreatorProgramme, requestWithdrawal, fmt, naira, CONTEXT_LABEL } from '../api/gifts';
+import { useGiftCatalogue, useGiftEarnings, getGiftHistory, applyCreatorProgramme, requestWithdrawal, fmt, naira, CONTEXT_LABEL, SUPPORT_CONTEXT, SUPPORT_RECIPIENT, SUPPORT_LABEL, earningsRulesLine } from '../api/gifts';
 import { GiftArt, GiftGrid, GiftPlayer, GiftSheet } from '../components/gifts';
 
 function Offline({ title }) {
@@ -28,6 +28,7 @@ export function GiftStoreScreen({ params = {} }) {
   const [buy, setBuy] = useState(false);
   const [preview, setPreview] = useState(null);
   const [sendTo, setSendTo] = useState(false);
+  const [support, setSupport] = useState(!!params.support);
   const recipient = params.recipientId ? { id: params.recipientId, name: params.name } : null;
   if (cat.loaded && !cat.online) return <Offline title="Gift store" />;
   const pct = cat.rules.commissionPct != null ? cat.rules.commissionPct : 20;
@@ -48,6 +49,7 @@ export function GiftStoreScreen({ params = {} }) {
           <GiftArt art="premium" gift={{ art: 'premium', tier: 'premium' }} size={84} />
         </View>
       </FadeInUp>
+      <SupportCard onPress={() => setSupport(true)} />
       <Section title="All gifts">
         {!cat.loaded ? <ActivityIndicator color={colors.primary} style={{ marginVertical: 30 }} /> : null}
         {cat.error ? <Notice tint={colors.rose} text={walletError(cat.error, 'Couldn’t load gifts')} /> : null}
@@ -55,6 +57,7 @@ export function GiftStoreScreen({ params = {} }) {
         <Text style={styles.hint}>{recipient ? `Tap a gift to preview it, then send it to ${recipient.name}.` : 'Tap a gift to see its animation. To send one, open a chat, a profile, a post or a live session and tap the gift button.'}</Text>
       </Section>
       <Section title="How it works">
+        <Text style={styles.rulesLine}>{earningsRulesLine(cat.rules)}</Text>
         {(cat.rules.explain || []).map((t) => (
           <View key={t} style={styles.bullet}><Icon name="check" size={14} color={colors.primary} /><Text style={styles.bulletText}>{t}</Text></View>
         ))}
@@ -63,7 +66,22 @@ export function GiftStoreScreen({ params = {} }) {
       <BuyCoinsSheet visible={buy} wallet="gift_coins" onClose={() => setBuy(false)} />
       <GiftPlayer play={preview ? { gift: preview, key: preview.id + Date.now() } : null} onDone={() => { const g = preview; setPreview(null); if (g && recipient) setSendTo(true); }} />
       {recipient ? <GiftSheet visible={sendTo} onClose={() => setSendTo(false)} recipient={recipient} context={params.context || { type: 'profile', id: recipient.id }} /> : null}
+      <GiftSheet visible={support} onClose={() => setSupport(false)} recipient={SUPPORT_RECIPIENT} context={SUPPORT_CONTEXT} />
     </Screen>
+  );
+}
+
+// ---------- Support BibleNestra (gift store + Wallet): opens the gift picker for the official account ----------
+export function SupportCard({ onPress }) {
+  return (
+    <PressScale onPress={onPress} scaleTo={0.98} style={styles.support} accessibilityRole="button" accessibilityLabel="Support BibleNestra with a gift">
+      <View style={styles.supportIcon}><Icon name="heart" size={20} color={colors.primary} /></View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.cardTitle}>{SUPPORT_LABEL}</Text>
+        <Text style={styles.rowSub}>Send any gift to BibleNestra. All of it goes to keeping the app running.</Text>
+      </View>
+      <Icon name="gift" size={18} color={colors.gold} />
+    </PressScale>
   );
 }
 
@@ -75,8 +93,8 @@ function HistoryRow({ s }) {
     <View style={styles.row}>
       <View style={styles.rowArt}><GiftArt gift={s.gift} size={40} animate={false} /></View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={styles.rowTitle} numberOfLines={1}>{sent ? `${s.giftName} to ${(who && who.displayName) || 'a member'}` : `${s.giftName} from ${(who && who.displayName) || 'a member'}`}</Text>
-        <Text style={styles.rowSub} numberOfLines={1}>{`${CONTEXT_LABEL[s.context.type] || ''} · ${timeLabel(s.createdAt)}`}</Text>
+        <Text style={styles.rowTitle} numberOfLines={1}>{s.support ? `${SUPPORT_LABEL} · ${s.giftName}` : sent ? `${s.giftName} to ${(who && who.displayName) || 'a member'}` : `${s.giftName} from ${(who && who.displayName) || 'a member'}`}</Text>
+        <Text style={styles.rowSub} numberOfLines={1}>{`${s.support ? 'Thank you · 100% to BibleNestra' : CONTEXT_LABEL[s.context.type] || ''} · ${timeLabel(s.createdAt)}`}</Text>
         {s.note ? <Text style={styles.rowNote} numberOfLines={2}>“{s.note}”</Text> : null}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
@@ -126,7 +144,7 @@ export function GiftHistoryScreen({ params = {} }) {
 
 // ---------- earnings ----------
 const STATES = [
-  ['pending', 'Pending', 'clock', 'Held for a few days after each gift'],
+  ['pending', 'Pending', 'clock', 'On hold after each gift'],
   ['available', 'Available', 'sparkles', 'Past the hold period'],
   ['withdrawing', 'Withdrawing', 'clock', 'In a withdrawal request'],
   ['withdrawn', 'Withdrawn', 'check', 'Paid out to you'],
@@ -172,7 +190,8 @@ function WithdrawForm({ data, onDone }) {
   return (
     <View style={{ gap: 8 }}>
       <Input placeholder={`Coins (min ${fmt(data.rules.minWithdrawal)}, max ${fmt(data.balances.available)})`} keyboardType="number-pad" value={coins} onChangeText={setCoins} />
-      <Text style={styles.hint}>{n ? `≈ ${naira(n * rate.minorPerCoin)} to ${data.programme.bankName} ${data.programme.accountNumber}. BibleNestra reviews and pays withdrawals by bank transfer.` : 'Only available gift earnings can be withdrawn. Gifting Coins you bought never can.'}</Text>
+      <Text style={styles.hint}>{n ? `≈ ${naira(n * rate.minorPerCoin)} to ${data.programme.bankName} ${data.programme.accountNumber}. BibleNestra reviews and pays withdrawals by bank transfer.` : `The minimum withdrawal is ${data.rules.minWithdrawalLabel || `${fmt(data.rules.minWithdrawal)} coins`} (${fmt(data.rules.minWithdrawal)} coins). Only available gift earnings can be withdrawn. Gifting Coins you bought never can.`}</Text>
+      {n && n < data.rules.minWithdrawal ? <Text style={[styles.hint, { color: colors.rose }]}>{`Below the minimum of ${fmt(data.rules.minWithdrawal)} coins.`}</Text> : null}
       <Button label={busy ? 'Sending…' : 'Request withdrawal'} disabled={!ok || busy} onPress={submit} />
     </View>
   );
@@ -202,11 +221,12 @@ export function GiftEarningsScreen() {
           <FadeInUp key={k} index={i + 1} style={styles.stateCard}>
             <View style={styles.stateHead}><Icon name={icon} size={14} color={k === 'available' ? colors.primary : colors.muted} /><Text style={styles.stateLabel}>{label}</Text></View>
             <Text style={styles.stateValue}>{fmt(data.balances[k])}</Text>
-            <Text style={styles.stateSub}>{sub}</Text>
+            <Text style={styles.stateSub}>{k === 'pending' ? `On hold for ${data.rules.holdDays} days after each gift` : sub}</Text>
           </FadeInUp>
         ))}
       </View>
       <Section title="How gift earnings work">
+        <Text style={styles.rulesLine}>{earningsRulesLine(data.rules)}</Text>
         {data.rules.explain.map((t) => (<View key={t} style={styles.bullet}><Icon name="check" size={14} color={colors.primary} /><Text style={styles.bulletText}>{t}</Text></View>))}
       </Section>
       <Section title="Creator payout programme">
@@ -221,6 +241,8 @@ export function GiftEarningsScreen() {
       <Section title="Withdraw">
         <View style={styles.card}>
           {data.canWithdraw ? <WithdrawForm data={data} onDone={reload} /> : <Text style={styles.bulletText}>{(data.withdrawBlocked && data.withdrawBlocked.text) || 'Withdrawals aren’t available.'}</Text>}
+          {/* PAYOUT KYC (Fund Me agent): a withdrawal is approved only after the identity check */}
+          <Button small kind="ghost" label="Identity check (KYC) for payouts" onPress={() => nav.push('PayoutKyc')} style={{ marginTop: 10, alignSelf: 'flex-start' }} />
         </View>
         {data.withdrawals.map((w) => (
           <View key={w.id} style={styles.row}>
@@ -280,4 +302,7 @@ const styles = StyleSheet.create({
   card: { padding: 14, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 8 },
   cardTitle: { fontSize: 15, fontWeight: '700', color: colors.fg },
   link: { color: colors.primary, fontWeight: '700', fontSize: 14, paddingHorizontal: 6 },
+  rulesLine: { fontSize: 13.5, lineHeight: 19, fontWeight: '700', color: colors.fg, marginBottom: 10 },
+  support: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, marginTop: 12, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  supportIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF1EE' },
 });

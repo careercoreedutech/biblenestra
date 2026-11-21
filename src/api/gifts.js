@@ -34,7 +34,7 @@ function useGet(path) {
 export function useGiftCatalogue(context = null) {
   const r = useGet(`/gifts/catalogue${context ? `?context=${encodeURIComponent(context)}` : ''}`);
   const d = r.data || {};
-  return { ...r, items: d.items || [], balance: Number(d.balance || 0), rules: d.rules || { commissionPct: 20, holdDays: 7, explain: [] } };
+  return { ...r, items: d.items || [], balance: Number(d.balance || 0), rules: d.rules || { commissionPct: 20, holdDays: 14, explain: [] }, support: d.support || null };
 }
 export function useGiftEarnings() { return useGet('/gifts/earnings'); }
 export function useGiftWall(userId) { return useGet(userId ? `/gifts/wall/${userId}` : null); }
@@ -54,6 +54,18 @@ export const startLive = (api, title) => api.request('POST', '/live-sessions', {
 export const endLive = (api, id) => api.request('POST', `/live-sessions/${id}/end`);
 export const liveGifts = (api, id, after) => api.request('GET', `/live-sessions/${id}${after ? `?after=${encodeURIComponent(after)}` : ''}`);
 
-export const CONTEXT_LABEL = { chat: 'in a chat', profile: 'on a profile', live: 'in a live session', post: 'on a post' };
+export const CONTEXT_LABEL = { chat: 'in a chat', profile: 'on a profile', live: 'in a live session', post: 'on a post', support: 'Support BibleNestra' };
+// SUPPORT BIBLENESTRA: <GiftSheet context={SUPPORT_CONTEXT} recipient={SUPPORT_RECIPIENT} /> sends any gift to the official
+// BibleNestra account. 100% goes to BibleNestra (platform revenue); the server records it as "Support BibleNestra".
+export const SUPPORT_CONTEXT = { type: 'support' };
+export const SUPPORT_RECIPIENT = { id: null, name: 'BibleNestra' };
+export const SUPPORT_LABEL = 'Support BibleNestra';
+/** The gift-earnings rules in one line, e.g. "Gift earnings: 80% to you, 14-day hold, withdraw from $10 (about ₦15,000) once approved for payouts." */
+export function earningsRulesLine(rules = {}) {
+  const pct = rules.commissionPct != null ? rules.commissionPct : 20;
+  const days = rules.holdDays != null ? rules.holdDays : 14;
+  const min = rules.minWithdrawalLabel || '$10 (about ₦15,000)';
+  return `Gift earnings: ${100 - pct}% to you, ${days}-day hold, withdraw from ${min} once approved for payouts.`;
+}
 export const fmt = (n) => Number(n || 0).toLocaleString('en-US');
 export const naira = (minor) => `₦${(Number(minor || 0) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;

@@ -122,7 +122,9 @@ test('gift 2,000 coins → sender −2,000, commission +400, recipient earnings 
   await assert.rejects(W.postGift(env, { ref: 'gift:test:3', senderId: ids.amy, recipientId: ids.cal, coins: 2000 }), (e) => e.code === 'INSUFFICIENT_BALANCE');
   assert.equal(await bal('cal', 'gift_earnings'), 1600);
   // earnings release after the hold moves pending → available, once
-  const future = new Date(Date.now() + 8 * 86400000);
+  // default hold is 14 days (client answer Q21): nothing after 8 days, released after 15
+  assert.equal((await W.releaseMaturedEarnings(env, { now: new Date(Date.now() + 8 * 86400000) })).released, 0);
+  const future = new Date(Date.now() + 15 * 86400000);
   assert.equal((await W.releaseMaturedEarnings(env, { now: future })).released, 1);
   assert.equal((await W.releaseMaturedEarnings(env, { now: future })).released, 0);
   assert.equal(await bal('cal', 'gift_earnings'), 0);

@@ -2600,3 +2600,156 @@ CREATE INDEX IF NOT EXISTS plus_subs_due ON plus_subscriptions (current_period_e
 -- Wallet purchases need nothing extra: each payment has its own wallet_purchases row (status 'verified' = applied).
 ALTER TABLE plus_subscriptions ADD COLUMN IF NOT EXISTS applied_payment_refs text[] NOT NULL DEFAULT '{}';
 ALTER TABLE membership_subscriptions ADD COLUMN IF NOT EXISTS applied_payment_refs text[] NOT NULL DEFAULT '{}';
+
+-- ---------- FIND LOVE: CLIENT ANSWERS (AI photo check, auto-hide, verification, retention) ----------
+-- Client answers Q25, Q26, Q32 (scratch/monetisation/client-answers.md). Logic: src/lib/dating.js, src/lib/datingAi.js.
+-- AI photo check (dating_rules.photoReview = 'ai', the default): the Workers AI verdict on each new dating photo.
+-- clean → approved at once · flagged → stays pending + ai_flagged (admin queue, with ai_reason) · error → pending (human).
+-- An ai_flagged photo is never shown while pending, whatever the review mode.
+ALTER TABLE dating_photos ADD COLUMN IF NOT EXISTS ai_verdict text;
+ALTER TABLE dating_photos ADD COLUMN IF NOT EXISTS ai_flagged boolean NOT NULL DEFAULT false;
+ALTER TABLE dating_photos ADD COLUMN IF NOT EXISTS ai_reason text;
+ALTER TABLE dating_photos ADD COLUMN IF NOT EXISTS ai_labels jsonb;
+ALTER TABLE dating_photos ADD COLUMN IF NOT EXISTS ai_model text;
+ALTER TABLE dating_photos ADD COLUMN IF NOT EXISTS ai_checked_at timestamptz;
+ALTER TABLE dating_photos DROP CONSTRAINT IF EXISTS dating_photos_ai_verdict_check;
+ALTER TABLE dating_photos ADD CONSTRAINT dating_photos_ai_verdict_check CHECK (ai_verdict IS NULL OR ai_verdict IN ('clean','flagged','error'));
+CREATE INDEX IF NOT EXISTS dating_photos_ai_queue ON dating_photos (created_at) WHERE ai_flagged AND status = 'pending';
+-- Auto-hide after reports from dating_rules.autoHideReports distinct reporters (default 5). Hidden from discovery and
+-- new contact until an admin restores it. Restoring sets reports_cleared_at: older reports no longer count.
+ALTER TABLE dating_profiles ADD COLUMN IF NOT EXISTS report_hold_at timestamptz;
+ALTER TABLE dating_profiles ADD COLUMN IF NOT EXISTS reports_cleared_at timestamptz;
+CREATE INDEX IF NOT EXISTS dating_profiles_report_hold ON dating_profiles (report_hold_at) WHERE report_hold_at IS NOT NULL;
+-- Retention: messages of closed / declined dating chats are deleted dating_rules.chatRetentionDays (default 730) after
+-- closed_at, by the 15-minute cron in small batches. The dating_conversations row, dating_reports and admin_actions stay.
+ALTER TABLE dating_conversations ADD COLUMN IF NOT EXISTS closed_at timestamptz;
+ALTER TABLE dating_conversations ADD COLUMN IF NOT EXISTS messages_purged_at timestamptz;
+UPDATE dating_conversations SET closed_at = updated_at WHERE closed_at IS NULL AND status IN ('closed','declined');
+CREATE INDEX IF NOT EXISTS dating_conversations_retention ON dating_conversations (closed_at) WHERE messages_purged_at IS NULL AND status IN ('closed','declined');
+-- Verified badge = live selfie (with a code + gesture shown on screen) + a government ID photo, an advisory AI
+-- pre-check, then an admin decision. The two images are private R2 objects under kyc/<user>/<verification>/ (never
+-- served from /media); only the member and admins can read them, and both are deleted when the admin decides (or when
+-- an unfinished draft expires). After the decision only the outcome is kept (ai_details is cleared).
+CREATE TABLE IF NOT EXISTS dating_verifications (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status           text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','pending','approved','rejected','expired')),
+  code             text NOT NULL CHECK (char_length(code) BETWEEN 3 AND 12),
+  gesture          text NOT NULL CHECK (char_length(gesture) <= 40),
+  selfie_key       text CHECK (char_length(selfie_key) <= 300),
+  id_key           text CHECK (char_length(id_key) <= 300),
+  id_type          text CHECK (id_type IS NULL OR id_type IN ('nin','passport','drivers_licence','voters_card','other')),
+  ai_status        text CHECK (ai_status IS NULL OR ai_status IN ('done','unavailable')),
+  ai_confidence    text CHECK (ai_confidence IS NULL OR ai_confidence IN ('high','medium','low','unknown')),
+  ai_note          text CHECK (char_length(ai_note) <= 2000),
+  ai_details       jsonb,
+  expires_at       timestamptz NOT NULL,
+  submitted_at     timestamptz,
+  decided_at       timestamptz,
+  decided_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  reject_reason    text CHECK (char_length(reject_reason) <= 300),
+  files_deleted_at timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dating_verifications_open ON dating_verifications (user_id) WHERE status IN ('draft','pending');
+CREATE INDEX IF NOT EXISTS dating_verifications_queue ON dating_verifications (status, submitted_at);
+-- ---------- END FIND LOVE: CLIENT ANSWERS ----------
+
+-- ---------- FUND ME: CLIENT ANSWERS (fees, currency, KYC, monthly payouts) ----------
+-- Client answers 2026-11-21 (scratch/monetisation/client-answers.md W3, W4, W5, W6). Code: lib/fundmeMoney.js, lib/kyc.js.
+-- Donations: the donor gives in any currency; BibleNestra charges Paystack in that currency when it is listed in
+-- PAYSTACK_CURRENCIES, otherwise in NGN at the admin rate table. The beneficiary's money (donations.amount_minor /
+-- fee_minor / net_minor / currency, and the ledger) is always NGN for these donations.
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS original_currency text CHECK (original_currency IS NULL OR original_currency ~ '^[A-Z]{3}$'); -- what the donor chose
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS original_amount_minor bigint CHECK (original_amount_minor IS NULL OR original_amount_minor > 0);
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS fx_rate numeric(18,6) CHECK (fx_rate IS NULL OR fx_rate > 0);              -- NGN per 1 unit of original_currency (1 for NGN)
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS charge_currency text CHECK (charge_currency IS NULL OR charge_currency ~ '^[A-Z]{3}$');   -- what Paystack charged
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS charge_amount_minor bigint CHECK (charge_amount_minor IS NULL OR charge_amount_minor > 0);
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS charge_fx_rate numeric(18,6) CHECK (charge_fx_rate IS NULL OR charge_fx_rate > 0); -- NGN per 1 unit of charge_currency
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS cover_fees boolean NOT NULL DEFAULT false;          -- donor ticked "Cover the fees"
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS gift_ngn_minor bigint CHECK (gift_ngn_minor IS NULL OR gift_ngn_minor >= 0);     -- the gift, in NGN, before fees
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS processing_fee_minor bigint NOT NULL DEFAULT 0 CHECK (processing_fee_minor >= 0); -- Paystack fee estimate (NGN)
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS vat_minor bigint NOT NULL DEFAULT 0 CHECK (vat_minor >= 0);                       -- VAT on the fees (NGN)
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS total_ngn_minor bigint CHECK (total_ngn_minor IS NULL OR total_ngn_minor > 0);    -- what the donor paid, in NGN
+ALTER TABLE donations ADD COLUMN IF NOT EXISTS raised_credit_minor bigint CHECK (raised_credit_minor IS NULL OR raised_credit_minor >= 0); -- added to fundraisers.raised_minor (request currency)
+
+-- Payout KYC (Fund Me beneficiaries AND gift-earnings withdrawals). ID and account numbers are AES-GCM encrypted
+-- (FUNDME_DATA_KEY, same key as fundme_bank_accounts). A payout / withdrawal is approved only when status = 'approved'.
+CREATE TABLE IF NOT EXISTS payout_kyc (
+  user_id              uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  id_type              text NOT NULL CHECK (id_type IN ('bvn','nin','national_id')),
+  id_country           text NOT NULL DEFAULT 'NG' CHECK (id_country ~ '^[A-Z]{2}$'),
+  id_number_enc        text NOT NULL,
+  id_last4             text NOT NULL CHECK (char_length(id_last4) BETWEEN 1 AND 4),
+  legal_name           text NOT NULL CHECK (char_length(legal_name) BETWEEN 3 AND 120),
+  bank_code            text NOT NULL CHECK (char_length(bank_code) BETWEEN 2 AND 20),
+  bank_name            text NOT NULL CHECK (char_length(bank_name) BETWEEN 2 AND 120),
+  account_number_enc   text NOT NULL,
+  account_last4        text NOT NULL CHECK (account_last4 ~ '^[0-9]{4}$'),
+  account_name         text NOT NULL CHECK (char_length(account_name) BETWEEN 2 AND 120), -- the bank's name for the account
+  name_resolved        boolean NOT NULL DEFAULT false,         -- account_name came from Paystack resolve-account
+  name_match           boolean NOT NULL DEFAULT false,         -- legal_name fuzzy-matches account_name
+  status               text NOT NULL DEFAULT 'pending_review' CHECK (status IN ('pending_review','approved','rejected')),
+  review_note          text,
+  reviewed_by          uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at          timestamptz,
+  submitted_at         timestamptz NOT NULL DEFAULT now(),
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS payout_kyc_status ON payout_kyc (status, updated_at);
+
+-- Monthly payout runs (fundme_payout_schedule = 'monthly'). The 15-minute cron claims a run date once, then approves
+-- the verified donations whose hold has passed. Staff still pay each beneficiary by hand and enter the reference.
+CREATE TABLE IF NOT EXISTS fundme_payout_runs (
+  run_date     date PRIMARY KEY,
+  approved     integer NOT NULL DEFAULT 0,
+  total_minor  bigint NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- ---------- STAFF ACCESS (dashboard invites and roles) ----------
+-- People the owner invites to the admin dashboard with a role (owner / finance / moderator / content / viewer, or
+-- custom ticked permissions per area — see src/lib/staff.js). Passwords: PBKDF2-SHA256 with a per-user salt, never
+-- plain text. Invite links are one-time: only the SHA-256 of the token is stored. session_version is in every staff
+-- token; bumping it signs the account out everywhere. admin_actions.staff_id says which staff member did what.
+CREATE TABLE IF NOT EXISTS staff_accounts (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name              text NOT NULL,
+  email_note        text,
+  username          text UNIQUE CHECK (username IS NULL OR username ~ '^[a-z0-9][a-z0-9._-]{2,31}$'),
+  password_hash     text,
+  role              text NOT NULL CHECK (role IN ('owner','finance','moderator','content','viewer','custom')),
+  permissions       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status            text NOT NULL DEFAULT 'invited' CHECK (status IN ('invited','active','disabled')),
+  session_version   integer NOT NULL DEFAULT 1,
+  failed_logins     integer NOT NULL DEFAULT 0,
+  locked_until      timestamptz,
+  access_expires_at timestamptz,
+  last_login_at     timestamptz,
+  created_by        uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS staff_invites (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id    uuid NOT NULL REFERENCES staff_accounts(id) ON DELETE CASCADE,
+  token_hash  text NOT NULL UNIQUE,
+  expires_at  timestamptz NOT NULL,
+  used_at     timestamptz,
+  revoked_at  timestamptz,
+  created_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS staff_invites_staff ON staff_invites (staff_id, created_at DESC);
+ALTER TABLE admin_actions ADD COLUMN IF NOT EXISTS staff_id uuid REFERENCES staff_accounts(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS admin_actions_staff ON admin_actions (staff_id, created_at DESC) WHERE staff_id IS NOT NULL;
+
+-- ---------- GIFTS: CLIENT ANSWERS ----------
+-- Support BibleNestra (client answer C4): a gift to the official BibleNestra account is recorded with context_type
+-- 'support' (ledger ref 'support:<id>', 100% platform commission, no earnings). Re-adding the check with every earlier
+-- value keeps re-runs of this file safe. The new settings (earnings_hold_days 14, earnings_min_withdrawal_usd 10,
+-- usd_ngn_rate 1500, gift_admins_can_receive on) are code defaults in wallet_config, so no rows are written here.
+ALTER TABLE gift_sends DROP CONSTRAINT IF EXISTS gift_sends_context_type_check;
+ALTER TABLE gift_sends ADD CONSTRAINT gift_sends_context_type_check CHECK (context_type IN ('chat','profile','live','post','support'));

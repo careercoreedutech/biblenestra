@@ -14,7 +14,8 @@ import { activeProvider, TestProvider, hmacSha256Hex } from '../lib/payments.js'
 // FUND ME MONEY (monetisation stage 2): credits on publish, anti-fraud flags, Paystack donations held by BibleNestra.
 import {
   pickProvider, DONATIONS_OFF, paystackCurrencies, testDonationsAllowed, confirmDonation, failDonation, recheckDonation, gatewayInfo,
-  assertCanSubmit, requestRiskFlags, publishFundraiser, donationFee, DONATION_LABEL, refundDonation, markPayoutPaid, failPayout,
+  assertCanSubmit, requestRiskFlags, publishFundraiser, DONATION_LABEL, refundDonation, markPayoutPaid, failPayout,
+  donationQuote, donorCurrencyCodes, donorCurrencyRules, fxRates, fmtMoney, NON_REFUNDABLE, payoutScheduleText,
 } from '../lib/fundmeMoney.js';
 import { paystackConfigured, paystackTestMode, verifyPaystackSignature, verifyTransaction } from '../lib/paystack.js';
 import { settlePayment, refundedByGateway } from '../lib/paystackCheckout.js';
@@ -149,13 +150,18 @@ function moneyShape(f) {
   };
 }
 
-function donateInfo(c, f) {
-  let p = activeProvider(c.env);
-  // Paystack is set up for NGN (env PAYSTACK_CURRENCIES); other currencies can't take donations through it yet.
-  const currencyOk = !p || p.name !== 'paystack' || paystackCurrencies(c.env).includes(f.currency);
-  if (!currencyOk) p = null;
+// Donations in any currency (client W5): the donor picks a currency (rates: Admin › Rules › fundme_fx_ngn_per_unit).
+// It is charged in that currency when PAYSTACK_CURRENCIES lists it, otherwise converted to NGN and charged in NGN.
+async function donateInfo(c, f) {
+  const p = activeProvider(c.env);
   const r = FUNDME.currencies[f.currency];
   const user = c.get('user');
+  const cfg = await getConfig(c.env);
+  const rates = fxRates(cfg);
+  const charge = paystackCurrencies(c.env);
+  const currencies = donorCurrencyCodes(cfg).map((code) => ({
+    code, ngnPerUnit: rates[code], chargedIn: code === 'NGN' || charge.includes(code) ? code : 'NGN', ...donorCurrencyRules(cfg, code, FUNDME.currencies),
+  }));
   return {
     donationsOpen: !!p && f.status === 'live',
     paymentsReady: !!p,
@@ -163,11 +169,22 @@ function donateInfo(c, f) {
     testMode: !!p && p.name === 'test',
     needsEmail: !!p && !!p.needsEmail,
     canTestDonate: !!user && testDonationsAllowed(c.env, user) && f.status === 'live',
-    closedMessage: p ? null : currencyOk ? DONATIONS_OFF : `Donations in ${f.currency} aren’t available yet`,
+    closedMessage: p ? null : DONATIONS_OFF,
     heldByBibleNestra: 'Donations are paid to BibleNestra, held safely and paid out to the organiser after verification.',
+    refundPolicy: NON_REFUNDABLE,
     presets: r.presets,
     minMinor: r.min,
     maxMinor: r.max,
+    donorCurrencies: currencies,
+    defaultDonorCurrency: f.currency,
+    coverFeesDefault: true,
+    fees: {
+      platformBps: cfg.fundme_fee_bps, processingBps: cfg.fundme_paystack_fee_bps, processingFlatMinor: cfg.fundme_paystack_fee_flat_minor,
+      processingFlatFromMinor: cfg.fundme_paystack_fee_flat_from_minor, processingCapMinor: cfg.fundme_paystack_fee_cap_minor, vatBps: cfg.fundme_vat_bps,
+      explain: `BibleNestra fee ${cfg.fundme_fee_bps / 100}%, payment processing (Paystack, about ${cfg.fundme_paystack_fee_bps / 100}% + ₦${cfg.fundme_paystack_fee_flat_minor / 100} from ₦${(cfg.fundme_paystack_fee_flat_from_minor / 100).toLocaleString('en-US')}, at most ₦${(cfg.fundme_paystack_fee_cap_minor / 100).toLocaleString('en-US')}) and ${cfg.fundme_vat_bps / 100}% VAT on the fees.`,
+    },
+    settlementNote: 'Donations are held and paid out in Naira (NGN). Rates are set by BibleNestra and may differ slightly from your bank’s.',
+    payoutSchedule: payoutScheduleText(cfg),
   };
 }
 
@@ -210,7 +227,7 @@ async function fullShape(c, f, { privileged }) {
     status: f.status,
     pausedBy: f.paused_by || null,
     ...moneyShape(f),
-    ...donateInfo(c, f),
+    ...(await donateInfo(c, f)),
     owner: { displayName: f.owner_name || 'Friend', avatarUrl: f.owner_avatar || null },
     media: items,
     createdAt: iso(f.created_at),
@@ -228,7 +245,7 @@ async function fullShape(c, f, { privileged }) {
 
 async function publicDonations(env, fundraiserId, limit = 50) {
   const rows = await q(env,
-    `SELECT donor_name, anonymous, amount_minor, currency, message, completed_at FROM donations
+    `SELECT donor_name, anonymous, COALESCE(original_amount_minor, amount_minor) AS amount_minor, COALESCE(original_currency, currency) AS currency, message, completed_at FROM donations
       WHERE fundraiser_id = $1 AND status = 'succeeded' ORDER BY completed_at DESC, id DESC LIMIT $2`, [fundraiserId, limit]);
   // never expose donor ids; anonymous donors are "Anonymous" (their amount still counts)
   return rows.map((d) => ({
@@ -266,7 +283,9 @@ export async function applyPaymentResult(c, providerName, providerRef, status, {
   const d = await one(c.env, 'SELECT * FROM donations WHERE provider = $1 AND provider_ref = $2', [providerName, providerRef]);
   if (!d) return { changed: false };
   if (status === 'succeeded') {
-    const r = await confirmDonation(c, d, { amountMinor: amountMinor ?? Number(d.amount_minor), currency: currency || d.currency, actor: providerName === 'paystack' ? 'paystack' : 'test', gateway: gateway || {} });
+    // test provider: "paid" exactly what was asked (charge_* since the client answers; amount/currency for older rows)
+    const asked = d.charge_amount_minor != null ? Number(d.charge_amount_minor) : Number(d.amount_minor);
+    const r = await confirmDonation(c, d, { amountMinor: amountMinor ?? asked, currency: currency || d.charge_currency || d.currency, actor: providerName === 'paystack' ? 'paystack' : 'test', gateway: gateway || {} });
     return { changed: r.changed, donationId: d.id, status: r.status || undefined };
   }
   if (status === 'failed') return failDonation(c.env, d, { actor: providerName === 'paystack' ? 'paystack' : 'test', reason: 'Payment did not complete' });
@@ -369,6 +388,26 @@ async function servePdf(c, m, cache) {
   });
 }
 
+// What a donation would cost: GET /f/:slug/donation-quote?amountMinor=2000&currency=GBP&coverFees=true (no auth).
+// → donationQuote(): the gift in NGN, BibleNestra fee, Paystack fee estimate, VAT, what is charged (and in which
+// currency) and what the beneficiary receives (NGN).
+fundmePublic.get('/f/:slug/donation-quote', async (c) => {
+  const f = await bySlug(c.env, c.req.param('slug'));
+  if (!f) throw notFound('Fundraiser not found');
+  const cfg = await getConfig(c.env);
+  const cur = String(c.req.query('currency') || f.currency).toUpperCase();
+  if (!donorCurrencyCodes(cfg).includes(cur)) throw new ApiError(400, 'CURRENCY_NOT_SUPPORTED', `Donations in ${cur} aren’t available — choose another currency`);
+  const rules = donorCurrencyRules(cfg, cur, FUNDME.currencies);
+  const amount = int(c.req.query('amountMinor') ?? c.req.query('amount_minor'), { min: rules.min, max: rules.max, field: 'Amount' });
+  const cover = ['true', '1', 'on'].includes(String(c.req.query('coverFees') ?? c.req.query('cover_fees') ?? ''));
+  const qt = donationQuote(cfg, { amountMinor: amount, currency: cur, coverFees: cover, chargeCurrencies: paystackCurrencies(c.env), fundraiserCurrency: f.currency });
+  c.header('Cache-Control', 'no-store');
+  return c.json({ ...qt, ok: qt.netMinor > 0, display: {
+    gift: fmtMoney(qt.amountMinor, qt.currency), charged: fmtMoney(qt.chargeAmountMinor, qt.chargeCurrency), donorTotal: fmtMoney(qt.donorTotalMinor, qt.currency),
+    beneficiary: fmtMoney(qt.netMinor, 'NGN'), platformFee: fmtMoney(qt.platformFeeMinor, 'NGN'), processingFee: fmtMoney(qt.processingFeeMinor, 'NGN'), vat: fmtMoney(qt.vatMinor, 'NGN'),
+  }, refundPolicy: NON_REFUNDABLE });
+});
+
 // Donation status (the app polls this after opening the checkout)
 fundmePublic.get('/f/:slug/donations/:donationId', async (c) => {
   const id = c.req.param('donationId');
@@ -394,7 +433,7 @@ fundmePublic.post('/f/:slug/donations', async (c) => {
   if (isForm) {
     const fd = await c.req.parseBody();
     const amt = Number(fd.amount_custom) > 0 ? Math.round(Number(fd.amount_custom) * 100) : Number(fd.amount_minor);
-    b = { amount_minor: amt, message: fd.message || '', anonymous: fd.anonymous === 'on' || fd.anonymous === 'true', donor_name: fd.donor_name || '' };
+    b = { amount_minor: amt, message: fd.message || '', anonymous: fd.anonymous === 'on' || fd.anonymous === 'true', donor_name: fd.donor_name || '', cover_fees: fd.cover_fees === 'on' || fd.cover_fees === 'true', currency: fd.currency || undefined };
   } else b = await body(c);
   const user = await optionalUser(c);
   const f = await one(c.env, `SELECT * FROM fundraisers WHERE slug = $1`, [c.req.param('slug')]);
@@ -403,10 +442,14 @@ fundmePublic.post('/f/:slug/donations', async (c) => {
   // Paid to BibleNestra's gateway account — never to the beneficiary (spec §3). Testers may ask for provider 'test'.
   const provider = pickProvider(c.env, user, b.provider === 'test' ? 'test' : null);
   if (!provider) throw new ApiError(503, 'DONATIONS_NOT_OPEN', DONATIONS_OFF);
-  if (provider.name === 'paystack' && !paystackCurrencies(c.env).includes(f.currency)) throw new ApiError(409, 'CURRENCY_NOT_SUPPORTED', `Donations in ${f.currency} aren’t available yet`);
 
-  const rules = FUNDME.currencies[f.currency];
+  // Donor currency (default: the request's) and "Cover the fees" (the app ticks it by default; absent = not covered).
+  const cfg = await getConfig(c.env);
+  const cur = String(b.currency || f.currency).toUpperCase();
+  if (!donorCurrencyCodes(cfg).includes(cur)) throw new ApiError(400, 'CURRENCY_NOT_SUPPORTED', `Donations in ${cur} aren’t available — choose another currency`);
+  const rules = donorCurrencyRules(cfg, cur, FUNDME.currencies);
   const amount = int(b.amount_minor ?? b.amountMinor, { min: rules.min, max: rules.max, field: 'Amount' });
+  const coverFees = b.cover_fees === true || b.coverFees === true || b.cover_fees === 'true' || b.coverFees === 'true';
   const message = str(b.message, { max: 500, field: 'Message', optional: true });
   const anonymous = b.anonymous === true || b.anonymous === 'true';
   let donorName = str(b.donor_name ?? b.donorName, { max: 80, field: 'Name', optional: true });
@@ -419,18 +462,20 @@ fundmePublic.post('/f/:slug/donations', async (c) => {
   const recent = await one(c.env, `SELECT COUNT(*)::int AS n FROM donations WHERE rl_key = $1 AND created_at > now() - interval '10 minutes'`, [key]);
   if (recent && recent.n >= FUNDME.donationsPer10Min) throw new ApiError(429, 'RATE_LIMITED', 'Too many attempts — please wait a few minutes and try again');
 
-  const cfg = await getConfig(c.env);
-  const fee = donationFee(cfg, amount, f.currency);
-  if (fee >= amount) throw bad('This amount is too small to cover the fee', 'AMOUNT_TOO_SMALL');
+  const qt = donationQuote(cfg, { amountMinor: amount, currency: cur, coverFees, chargeCurrencies: paystackCurrencies(c.env), fundraiserCurrency: f.currency });
+  if (!(qt.netMinor > 0)) throw bad('This amount is too small to cover the fees', 'AMOUNT_TOO_SMALL');
+  const fee = qt.platformFeeMinor;
   // Our simulated checkout, or Paystack running on test keys (sk_test_…): never real money
   const isTestDonation = provider.name === 'test' || (provider.name === 'paystack' && paystackTestMode(c.env));
   const d = await one(c.env,
     `INSERT INTO donations (fundraiser_id, donor_id, donor_name, amount_minor, fee_minor, net_minor, currency, message, anonymous, provider, rl_key,
-                            beneficiary_id, donor_email, is_test)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-    [f.id, user ? user.id : null, donorName, amount, fee, amount - fee, f.currency, message, anonymous, provider.name, key, f.owner_id, email, isTestDonation]);
+                            beneficiary_id, donor_email, is_test, original_currency, original_amount_minor, fx_rate, charge_currency, charge_amount_minor,
+                            charge_fx_rate, cover_fees, gift_ngn_minor, processing_fee_minor, vat_minor, total_ngn_minor, raised_credit_minor)
+     VALUES ($1, $2, $3, $4, $5, $6, 'NGN', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) RETURNING *`,
+    [f.id, user ? user.id : null, donorName, qt.netMinor + fee, fee, qt.netMinor, message, anonymous, provider.name, key, f.owner_id, email, isTestDonation,
+      cur, amount, qt.fxRate, qt.chargeCurrency, qt.chargeAmountMinor, qt.chargeFxRate, coverFees, qt.giftNgnMinor, qt.processingFeeMinor, qt.vatMinor, qt.totalNgnMinor, qt.raisedMinor]);
   await q(c.env, `INSERT INTO fundme_donation_events (donation_id, from_status, to_status, actor, actor_id, reason, meta) VALUES ($1, NULL, 'pending', 'donor', $2, 'Checkout started', $3::jsonb)`,
-    [d.id, user ? user.id : null, JSON.stringify({ provider: provider.name, amountMinor: amount, feeMinor: fee })]);
+    [d.id, user ? user.id : null, JSON.stringify({ provider: provider.name, currency: cur, amountMinor: amount, chargeCurrency: qt.chargeCurrency, chargeAmountMinor: qt.chargeAmountMinor, feeMinor: fee, processingFeeMinor: qt.processingFeeMinor, vatMinor: qt.vatMinor, coverFees })]);
   const base = `${publicBase(c)}/f/${f.slug}`;
   let checkout;
   try {
@@ -443,7 +488,7 @@ fundmePublic.post('/f/:slug/donations', async (c) => {
   }
   await q(c.env, 'UPDATE donations SET provider_ref = $2 WHERE id = $1', [d.id, checkout.providerRef]);
   if (isForm) return c.redirect(checkout.url, 303);
-  return c.json({ donationId: d.id, checkoutUrl: checkout.url, provider: provider.name, status: 'pending', settlementStatus: 'pending', feeMinor: fee, netMinor: amount - fee, test: isTestDonation }, 201);
+  return c.json({ donationId: d.id, checkoutUrl: checkout.url, provider: provider.name, status: 'pending', settlementStatus: 'pending', feeMinor: fee, netMinor: qt.netMinor, test: isTestDonation, quote: qt, refundPolicy: NON_REFUNDABLE }, 201);
 });
 
 // ---------- TEST provider (PAYMENTS_MODE=test only) ----------
@@ -461,7 +506,10 @@ fundmePublic.get('/pay/test/:ref', async (c) => {
   c.header('Content-Security-Policy', `default-src 'none'; img-src 'self' https: data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'nonce-${nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'`);
   c.header('Cache-Control', 'no-store');
   return c.html(renderTestCheckout({
-    ref: d.provider_ref, status: d.status, title: d.title, amount: formatMoney(d.amount_minor, d.currency, { cents: true }),
+    ref: d.provider_ref, status: d.status, title: d.title,
+    amount: d.charge_currency
+      ? formatMoney(d.charge_amount_minor, d.charge_currency, { cents: true }) + (d.original_currency && d.original_currency !== d.charge_currency ? ` (${d.original_currency} ${formatMoney(d.original_amount_minor, d.original_currency, { cents: true })} converted)` : '')
+      : formatMoney(d.amount_minor, d.currency, { cents: true }),
     mainImageUrl: imgUrl(c, d.main_image_key), returnUrl: `${publicBase(c)}/f/${d.slug}`, anonymous: d.anonymous, donorName: d.donor_name,
   }, { nonce }));
 });

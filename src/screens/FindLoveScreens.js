@@ -23,7 +23,7 @@ import { ws } from '../components/wallet/WalletSheet';
 import { useWalletProducts, cancelSubscription, walletChanged, dateLabel } from '../api/wallet';
 import {
   useDatingHome, useDatingGet, datingChanged, dating, datingError, newIdempotencyKey, INTENTION_LABELS, DENOMINATIONS, INVOLVEMENT, PROMPTS,
-  REPORT_REASONS, BOOST_OPTIONS, countdown,
+  REPORT_REASONS, BOOST_OPTIONS, countdown, takeLivePhoto,
 } from '../api/dating';
 import { SegmentToggle } from './MembershipScreens';
 import { ChatScreen } from './ChatScreen';
@@ -114,7 +114,10 @@ export function FindLoveTab({ nav }) {
       {p.status === 'paused' ? (
         <PressScale onPress={() => dating.pause(api, false)} style={s.pausedBar} accessibilityRole="button"><Icon name="lock" size={14} color={colors.gold} /><Text style={s.pausedText}>Your profile is hidden. Tap to show it again.</Text></PressScale>
       ) : null}
-      {p.status === 'active' && !p.visible ? (
+      {p.underReview && p.status === 'active' ? (
+        <View style={s.pausedBar}><Icon name="shield" size={14} color={colors.gold} /><Text style={s.pausedText}>Your profile is hidden from Discover while our team reviews some reports. You can still chat with your matches.</Text></View>
+      ) : null}
+      {p.status === 'active' && !p.visible && !p.underReview ? (
         <PressScale onPress={() => nav.push('DatingProfileEdit')} style={s.pausedBar} accessibilityRole="button"><Icon name="image" size={14} color={colors.gold} /><Text style={s.pausedText}>{p.photos.length ? 'Your photo is being reviewed — others will see you once it’s approved.' : 'Add a photo so others can see you.'}</Text></PressScale>
       ) : null}
       {d.boost && d.boost.active ? <BoostBar boost={d.boost.active} onPress={() => nav.push('DatingBoost')} /> : null}
@@ -125,7 +128,9 @@ export function FindLoveTab({ nav }) {
           { id: 'matches', label: d.counts && (d.counts.matches || d.counts.requests) ? `Matches · ${d.counts.matches + d.counts.requests}` : 'Matches', icon: 'chat' },
         ]} />
       </View>
-      {tab === 'discover' ? <DiscoverStack nav={nav} home={d} /> : tab === 'likes' ? <LikesPane nav={nav} home={d} /> : <MatchesPane nav={nav} />}
+      {tab === 'discover' ? (p.underReview
+        ? <View style={s.tabPad}><Empty title="Discover is paused for you" body="While our team reviews reports about your profile, you won’t see new people and they won’t see you. Your matches and chats stay open." /></View>
+        : <DiscoverStack nav={nav} home={d} />) : tab === 'likes' ? <LikesPane nav={nav} home={d} /> : <MatchesPane nav={nav} />}
       {buying ? <BuyCoinsSheet visible wallet="dating_coins" onClose={() => setBuying(false)} onPurchased={() => datingChanged()} /> : null}
     </View>
   );
@@ -549,8 +554,9 @@ export function DatingProfileEditScreen({ params = {} }) {
       if (!picked.length) return;
       setUploading(true);
       const up = await uploadImage(api.request, picked[0]);
-      await dating.addPhoto(api, up.key);
-      toast.show('Photo added — it appears once a moderator approves it', { icon: 'image' });
+      const r = await dating.addPhoto(api, up.key);
+      toast.show(r && r.review === 'live' ? 'Photo added — it’s live on your profile' : r && r.review === 'flagged'
+        ? 'This photo needs a check by our team before others can see it' : 'Photo added — it appears once a moderator approves it', { icon: 'image', tone: r && r.review === 'flagged' ? 'error' : undefined });
     } catch (e) { toast.show(datingError(e, 'Couldn’t add that photo'), { tone: 'error' }); } finally { setUploading(false); }
   }
   const promptSlots = [0, 1, 2];
@@ -560,7 +566,7 @@ export function DatingProfileEditScreen({ params = {} }) {
       {p ? (
         <View style={{ marginTop: 4 }}>
           <Text style={s.fieldLabel}>Photos</Text>
-          <Text style={s.fieldHint}>Clear, modest photos of you. New photos are checked by our team before others see them.</Text>
+          <Text style={s.fieldHint}>{home.data.rules.photoReview === 'ai' ? 'Clear, modest photos of you with your face showing. Each photo gets a quick automatic check and goes live straight away unless it needs a look from our team.' : 'Clear, modest photos of you. New photos are checked by our team before others see them.'}</Text>
           <View style={s.photoGrid}>
             {p.photos.map((ph, i) => (
               <View key={ph.id} style={s.photoCell}>
@@ -790,6 +796,8 @@ export function DatingChatScreen({ params = {} }) {
   useEffect(() => { ads.preloadRewarded && a && a.needsUnlock && a.adUnlocksLeft > 0 && ads.preloadRewarded(); }, [a && a.needsUnlock]);
   const name = (d && d.profile && d.profile.firstName) || params.name || 'Match';
   const photo = (d && d.profile && firstPhoto(d.profile)) || params.photo;
+  // Verified people only (admin setting): their social profile — handle, avatar and a link to it in Socials.
+  const social = d && d.social;
 
   async function watchAd() {
     if (adBusy) return;
@@ -840,6 +848,15 @@ export function DatingChatScreen({ params = {} }) {
         {d && d.status === 'match' ? <GiftButton recipientId={d.otherUserId} name={name} context={{ type: 'chat', id: convId }} label="Gift" /> : null}
         <Pressable onPress={() => setMenu(true)} hitSlop={8} style={s.roundBtn} accessibilityRole="button" accessibilityLabel="Chat options"><Icon name="more" size={16} color={colors.fg} /></Pressable>
       </View>
+      {social ? (
+        <PressScale onPress={() => nav.push('UserProfile', { id: social.userId, name: social.displayName })} style={s.socialBar} accessibilityRole="button" accessibilityLabel={`Open ${social.displayName}’s profile in Socials`}>
+          <Avatar uri={social.avatarUrl} size={24} />
+          <Text style={s.socialText} numberOfLines={1}><Text style={{ fontWeight: '700' }}>{social.displayName}</Text>{social.handle ? ` · @${social.handle}` : ''}</Text>
+          <Icon name="check-circle" size={13} color={colors.sky} />
+          <Text style={s.linkText}>Socials</Text>
+          <Icon name="chevron-right" size={14} color={colors.faint} />
+        </PressScale>
+      ) : null}
       {d && d.status === 'match' && a ? (
         <View style={s.freeBar}>
           <Icon name={a.unrestricted ? 'sparkles' : 'chat'} size={13} color={a.unrestricted ? colors.gold : ROSE} />
@@ -1055,7 +1072,10 @@ export function DatingSettingsScreen() {
           <PressScale onPress={() => nav.push('DatingProfileEdit')} style={s.settingRow}><View style={{ flex: 1 }}><Text style={s.rowName}>Edit profile & preferences</Text></View><Icon name="chevron-right" size={16} color={colors.faint} /></PressScale>
           <PressScale onPress={() => nav.push('DatingPlans')} style={s.settingRow}><View style={{ flex: 1 }}><Text style={s.rowName}>Dating Plus & VIP</Text></View><Icon name="chevron-right" size={16} color={colors.faint} /></PressScale>
           <PressScale onPress={() => nav.push('Wallet', { focus: 'dating_coins' })} style={s.settingRow}><View style={{ flex: 1 }}><Text style={s.rowName}>Dating Coins history</Text></View><Icon name="chevron-right" size={16} color={colors.faint} /></PressScale>
-          <View style={s.settingRow}><View style={{ flex: 1 }}><Text style={s.rowName}>Verified badge</Text><Text style={s.rowSub}>{p.verified ? 'Your profile is verified.' : 'Photo verification is coming soon.'}</Text></View>{p.verified ? <Icon name="check-circle" size={18} color={colors.sky} /> : null}</View>
+          <PressScale onPress={p.verified ? undefined : () => nav.push('DatingVerify')} disabled={!!p.verified} style={s.settingRow} accessibilityRole="button">
+            <View style={{ flex: 1 }}><Text style={s.rowName}>Verified badge</Text><Text style={s.rowSub}>{p.verified ? 'Your profile is verified.' : verifyStatusText(p.verification)}</Text></View>
+            {p.verified ? <Icon name="check-circle" size={18} color={colors.sky} /> : <Icon name="chevron-right" size={16} color={colors.faint} />}
+          </PressScale>
           <PressScale onPress={() => setConfirmDelete(true)} style={[s.settingRow, { borderBottomWidth: 0 }]}><Text style={[s.rowName, { color: colors.negative }]}>Delete my dating profile</Text></PressScale>
         </>
       ) : null}
@@ -1063,6 +1083,93 @@ export function DatingSettingsScreen() {
         <PressScale onPress={del} style={[ws.primary, { backgroundColor: colors.negative }]}><Text style={ws.primaryText}>Delete dating profile</Text></PressScale>
         <PressScale onPress={() => setConfirmDelete(false)} style={ws.ghost}><Text style={ws.ghostText}>Keep it</Text></PressScale>
       </WalletSheet>
+    </Screen>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Verified badge: a live selfie with the code + gesture shown here, and a photo of a government ID → our team decides.
+// Optional (never needed to message). The two images are private to the member and the team, deleted after the decision.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+function verifyStatusText(v) {
+  if (!v || v.status === 'expired') return 'Get a blue tick: a quick selfie and a photo of your ID.';
+  if (v.status === 'draft') return 'Started — finish your selfie and ID.';
+  if (v.status === 'pending') return 'Our team is checking your photos.';
+  if (v.status === 'rejected') return `Not approved${v.rejectReason ? `: ${v.rejectReason}` : ''}. You can try again.`;
+  return 'Your profile is verified.';
+}
+const ID_TYPE_LABELS = { nin: 'National ID (NIN)', passport: 'Passport', drivers_licence: 'Driver’s licence', voters_card: 'Voter’s card', other: 'Other ID' };
+export function DatingVerifyScreen() {
+  const api = useApi();
+  const toast = useToast();
+  const home = useDatingHome();
+  const p = home.data && home.data.profile;
+  const [v, setV] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [selfie, setSelfie] = useState(null);
+  const [idPhoto, setIdPhoto] = useState(null);
+  const [idType, setIdType] = useState(null);
+  useEffect(() => { if (p && v === null) setV(p.verification || false); }, [p]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!p) return <Screen back title="Get verified"><ActivityIndicator color={ROSE} style={{ marginTop: 40 }} /></Screen>;
+  const status = p.verified ? 'approved' : v ? v.status : null;
+  async function start() {
+    setBusy('start');
+    try { const r = await dating.startVerification(api); setV(r.verification); setSelfie(null); setIdPhoto(null); } catch (e) { toast.show(datingError(e), { tone: 'error' }); } finally { setBusy(null); }
+  }
+  async function capture(kind, fromGallery) {
+    if (busy) return;
+    try {
+      const photo = fromGallery ? (await pickPhotos(1))[0] : await takeLivePhoto({ front: kind === 'selfie' });
+      if (!photo) return;
+      setBusy(kind);
+      const r = await dating.uploadVerification(api, kind, photo);
+      setV(r.verification);
+      if (kind === 'selfie') setSelfie(photo.uri); else setIdPhoto(photo.uri);
+    } catch (e) { toast.show(datingError(e, 'Couldn’t upload that photo'), { tone: 'error' }); } finally { setBusy(null); }
+  }
+  async function submit() {
+    setBusy('submit');
+    try { const r = await dating.submitVerification(api, idType); setV(r.verification); toast.show('Sent to our team — we’ll let you know', { icon: 'shield', haptic: 'success' }); } catch (e) { toast.show(datingError(e), { tone: 'error' }); } finally { setBusy(null); }
+  }
+  const privacy = 'Your selfie and ID are seen only by you and the BibleNestra team, and are deleted as soon as we decide. An automatic check compares them with your profile photos to help our team; a person makes the decision. You don’t need to be verified to message anyone.';
+  return (
+    <Screen back title="Get verified" subtitle="Find Love">
+      {status === 'approved' ? <Notice tint={colors.sky} text="Your profile is verified. Others see a blue tick next to your name." /> : null}
+      {status === 'pending' ? <Notice text="Thank you! Our team is checking your selfie and ID. You’ll get a notification when it’s done." /> : null}
+      {status === 'rejected' ? <Notice tint={colors.negative} text={`Your last request wasn’t approved${v.rejectReason ? `: ${v.rejectReason}` : ''}. You can try again with clear photos.`} /> : null}
+      {status !== 'approved' && status !== 'pending' && status !== 'draft' ? (
+        <>
+          <Text style={s.rowSub}>A blue tick shows people you are who your photos say. It takes two photos:</Text>
+          <View style={s.tipRow}><View style={s.tipIcon}><Icon name="user" size={16} color={ROSE} /></View><View style={{ flex: 1 }}><Text style={s.rowName}>A live selfie</Text><Text style={s.rowSub}>Holding a code we show you, written on paper, while making a hand gesture.</Text></View></View>
+          <View style={s.tipRow}><View style={s.tipIcon}><Icon name="shield" size={16} color={ROSE} /></View><View style={{ flex: 1 }}><Text style={s.rowName}>A photo of your ID</Text><Text style={s.rowSub}>National ID (NIN), passport, driver’s licence or voter’s card.</Text></View></View>
+          <Text style={[s.fieldHint, { marginTop: 10 }]}>{privacy}</Text>
+          <Button label={busy === 'start' ? 'Starting…' : 'Get my code'} onPress={start} disabled={!!busy} style={{ marginTop: 16, backgroundColor: ROSE, borderColor: ROSE }} />
+        </>
+      ) : null}
+      {status === 'draft' ? (
+        <>
+          <View style={s.verifyBox}>
+            <Text style={[s.rowSub, { textAlign: 'center' }]}>Write this code on a piece of paper</Text>
+            <Text style={s.verifyCode} accessibilityLabel={`Code ${v.code.split('').join(' ')}`}>{v.code}</Text>
+            <Text style={[s.rowName, { textAlign: 'center' }]}>Hold it up and make this gesture: {v.gestureLabel}</Text>
+            <Text style={[s.fieldHint, { textAlign: 'center' }]}>{v.expiresAt ? `Use this code by ${new Date(v.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : ''}</Text>
+          </View>
+          <Text style={[s.sectionLabel, { marginTop: 20 }]}>1 · Your selfie</Text>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 8 }}>
+            {selfie || v.hasSelfie ? (selfie ? <Image source={{ uri: selfie }} style={s.verifyThumb} /> : <View style={[s.verifyThumb, s.center, { minHeight: 0 }]}><Icon name="check" size={22} color={colors.positive} /></View>) : null}
+            <Button small label={busy === 'selfie' ? 'Uploading…' : v.hasSelfie ? 'Retake selfie' : 'Take selfie'} onPress={() => capture('selfie')} disabled={!!busy} />
+          </View>
+          <Text style={[s.sectionLabel, { marginTop: 20 }]}>2 · Your ID</Text>
+          <Choice items={Object.keys(ID_TYPE_LABELS)} labels={ID_TYPE_LABELS} value={idType} onChange={setIdType} />
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+            {idPhoto || v.hasId ? (idPhoto ? <Image source={{ uri: idPhoto }} style={s.verifyThumb} /> : <View style={[s.verifyThumb, s.center, { minHeight: 0 }]}><Icon name="check" size={22} color={colors.positive} /></View>) : null}
+            <Button small label={busy === 'id' ? 'Uploading…' : v.hasId ? 'Retake ID photo' : 'Photograph your ID'} onPress={() => capture('id')} disabled={!!busy} />
+            <Button small kind="ghost" label="Choose from gallery" onPress={() => capture('id', true)} disabled={!!busy} />
+          </View>
+          <Text style={[s.fieldHint, { marginTop: 14 }]}>{privacy}</Text>
+          <Button label={busy === 'submit' ? 'Sending…' : 'Send for review'} onPress={submit} disabled={!!busy || !v.hasSelfie || !v.hasId || !idType} style={{ marginTop: 14, backgroundColor: ROSE, borderColor: ROSE }} />
+        </>
+      ) : null}
     </Screen>
   );
 }
@@ -1192,6 +1299,11 @@ const s = StyleSheet.create({
   chatSub: { fontSize: 12, color: ROSE, fontWeight: '600' },
   freeBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: colors.cardRose },
   freeBarText: { flex: 1, fontSize: 12.5, color: colors.fg, fontWeight: '600' },
+  socialBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.rule, backgroundColor: colors.surface },
+  socialText: { flex: 1, minWidth: 0, fontSize: 12.5, color: colors.fg },
+  verifyCode: { fontSize: 40, fontWeight: '800', letterSpacing: 8, color: ROSE, textAlign: 'center', marginVertical: 6, fontFamily: fonts.mono || undefined },
+  verifyBox: { padding: 16, borderRadius: radius.lg || 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginTop: 12 },
+  verifyThumb: { width: 96, height: 120, borderRadius: 10, backgroundColor: colors.cardRose },
   reqBanner: { padding: 12, backgroundColor: colors.cardGold },
   reqBannerText: { fontSize: 13, color: colors.fg },
   lockPanel: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 16, paddingBottom: 22, backgroundColor: colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderColor: colors.border, alignItems: 'center', ...shadow.lg },

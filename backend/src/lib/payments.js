@@ -58,8 +58,9 @@ export const PaystackProvider = {
   async createCheckout(donation, fundraiser, env, ctx) {
     const r = await initializeTransaction(env, {
       email: ctx.email,
-      amountMinor: Number(donation.amount_minor),
-      currency: fundraiser.currency,
+      // FUND ME client answers (W5): charge what the donation row says (any currency → charge_* ; older rows: amount/currency)
+      amountMinor: Number(donation.charge_amount_minor != null ? donation.charge_amount_minor : donation.amount_minor),
+      currency: donation.charge_currency || donation.currency || fundraiser.currency,
       reference: donation.id,
       callbackUrl: ctx.returnUrl,
       metadata: { donation_id: donation.id, fundraiser_id: fundraiser.id, purpose: 'fundme_donation' },

@@ -26,10 +26,11 @@ import {
   recordDonationRefunded, walletNotify,
 } from './wallet.js';
 import { paystackConfigured, verifyTransaction, listBanks, resolveAccount, createTransferRecipient, initiateTransfer, refundTransaction } from './paystack.js';
-import { formatMoney } from './money.js';
+import { formatMoney, CURRENCY_SYMBOL } from './money.js';
 import { isOn } from './play.js';
 import { testPurchaseAllowed } from './walletStore.js';
 import { TestProvider, PaystackProvider } from './payments.js';
+import { requireApprovedKyc, kycBankMatches } from './kyc.js';
 
 export const MONEY_CURRENCIES = ['NGN', 'GBP', 'USD', 'EUR'];
 
@@ -37,19 +38,38 @@ export const MONEY_CURRENCIES = ['NGN', 'GBP', 'USD', 'EUR'];
 const pint = (min, max) => (v) => Number.isInteger(v) && v >= min && v <= max;
 const perCur = (max) => (v) => !!v && typeof v === 'object' && !Array.isArray(v)
   && Object.keys(v).every((k) => MONEY_CURRENCIES.includes(k)) && Object.values(v).every((n) => Number.isInteger(n) && n >= 0 && n <= max);
+// FX rate table: NGN per 1 unit of each currency (minor units convert 1:1 — all these currencies have 2 decimals).
+// GBP, USD and EUR are required (Fund Me requests can be in them). Staff MUST keep these current (Admin › Rules):
+// they are not live rates. Seeded 2026-11-21 as rough values.
+export const FX_SEED = { USD: 1500, GBP: 1950, EUR: 1700, CAD: 1080, GHS: 125, KES: 11.6, ZAR: 85 };
+const fxCheck = (v) => !!v && typeof v === 'object' && !Array.isArray(v) && ['USD', 'GBP', 'EUR'].every((k) => k in v)
+  && Object.entries(v).every(([k, n]) => /^[A-Z]{3}$/.test(k) && k !== 'NGN' && typeof n === 'number' && Number.isFinite(n) && n > 0 && n < 1e7);
 export const FUNDME_RULES = {
-  fundme_max_requests_per_day: { dflt: 2, check: pint(0, 100), label: 'Requests a member can submit per day (0 = no limit)' },
-  fundme_max_requests_per_month: { dflt: 10, check: pint(0, 1000), label: 'Requests a member can submit per 30 days (0 = no limit)' },
-  fundme_max_active_requests: { dflt: 3, check: pint(0, 1000), label: 'Active requests per member: in review, live or paused (0 = no limit)' },
+  // client decision 2026-11-21: no publishing limits, credits are the only limit (0 = no limit)
+  fundme_max_requests_per_day: { dflt: 0, check: pint(0, 100), label: 'Requests a member can submit per day (0 = no limit; client: credits are the only limit)' },
+  fundme_max_requests_per_month: { dflt: 0, check: pint(0, 1000), label: 'Requests a member can submit per 30 days (0 = no limit)' },
+  fundme_max_active_requests: { dflt: 0, check: pint(0, 1000), label: 'Active requests per member: in review, live or paused (0 = no limit)' },
   fundme_new_account_days: { dflt: 7, check: pint(0, 365), label: 'Accounts younger than this are flagged for review' },
   fundme_review_goal_over_minor: { dflt: { NGN: 1000000000, GBP: 2000000, USD: 2000000, EUR: 2000000 }, check: perCur(1e14), label: 'Goals at or above this are flagged (minor units: kobo, pence, cents)' },
   fundme_review_donation_over_minor: { dflt: { NGN: 50000000, GBP: 100000, USD: 100000, EUR: 100000 }, check: perCur(1e14), label: 'Single donations at or above this go under review (minor units)' },
   fundme_auto_verify: { dflt: false, check: (v) => typeof v === 'boolean', label: 'Verify donations automatically when no check flagged them (off = an admin verifies each one)' },
-  fundme_payout_hold_days: { dflt: 3, check: pint(0, 365), label: 'Days a received donation is held before it can be approved for payout. PROPOSAL, client to confirm' },
-  fundme_min_payout_minor: { dflt: { NGN: 100000, GBP: 1000, USD: 1000, EUR: 1000 }, check: perCur(1e14), label: 'Minimum payout (minor units). PROPOSAL, client to confirm' },
-  fundme_fee_bps: { dflt: 0, check: pint(0, 3000), label: 'BibleNestra fee on each donation, in basis points (100 = 1%). Default 0, client to confirm' },
-  fundme_fee_fixed_minor: { dflt: { NGN: 0, GBP: 0, USD: 0, EUR: 0 }, check: perCur(1e9), label: 'Fixed BibleNestra fee per donation (minor units). Default 0, client to confirm' },
-  fundme_credit_gift_max: { dflt: 100, check: pint(1, 100000), label: 'Most Fund Me credits one gift can send' },
+  fundme_payout_hold_days: { dflt: 7, check: pint(0, 365), label: 'Days a received donation is held before it can be approved for payout (client: 7)' },
+  fundme_min_payout_minor: { dflt: { NGN: 100000, GBP: 1000, USD: 1000, EUR: 1000 }, check: perCur(1e14), label: 'Minimum payout (minor units). PROPOSAL ₦1,000, client to confirm the amount' },
+  fundme_fee_bps: { dflt: 20, check: pint(0, 3000), label: 'BibleNestra fee on each donation, in basis points (20 = 0.2%). The client said 0.2% — confirm whether 2% (200)' },
+  fundme_fee_fixed_minor: { dflt: { NGN: 0, GBP: 0, USD: 0, EUR: 0 }, check: perCur(1e9), label: 'Fixed BibleNestra fee per donation (minor units; only NGN is used now)' },
+  fundme_credit_gift_max: { dflt: 500, check: pint(1, 100000), label: 'Most Fund Me credits one gift can send (client: 500)' },
+  // ── fees the donor can cover (client W4). All in NGN kobo: donations are settled in NGN. ──
+  fundme_paystack_fee_bps: { dflt: 150, check: pint(0, 2000), label: 'Paystack processing fee ESTIMATE, basis points (150 = 1.5%)' },
+  fundme_paystack_fee_flat_minor: { dflt: 10000, check: pint(0, 1e7), label: 'Paystack flat fee estimate in kobo (10000 = ₦100)' },
+  fundme_paystack_fee_flat_from_minor: { dflt: 250000, check: pint(0, 1e10), label: 'The flat fee applies from this amount, kobo (250000 = ₦2,500; Paystack waives it below)' },
+  fundme_paystack_fee_cap_minor: { dflt: 200000, check: pint(0, 1e10), label: 'Paystack fee cap, kobo (200000 = ₦2,000; 0 = no cap)' },
+  fundme_vat_bps: { dflt: 750, check: pint(0, 5000), label: 'VAT on the fees (BibleNestra fee + Paystack fee), basis points (750 = 7.5%)' },
+  // ── donations in any currency (client W5) ──
+  fundme_fx_ngn_per_unit: { dflt: FX_SEED, check: fxCheck, label: 'Exchange rates: NGN per 1 unit of each currency. NOT live — staff must keep these current. USD, GBP and EUR are required' },
+  // ── payout schedule (client W6) ──
+  // one object (the wallet core's config store can't hold a bare JSON string): { mode: 'monthly' | 'on_demand', day: 1–28 }
+  fundme_payout_schedule: { dflt: { mode: 'monthly', day: 1 }, check: (v) => !!v && typeof v === 'object' && ['monthly', 'on_demand'].includes(v.mode) && Number.isInteger(v.day) && v.day >= 1 && v.day <= 28 && Object.keys(v).length === 2,
+    label: 'Payout schedule: {"mode":"monthly","day":1} = one run a month on that day (UTC, 1–28); {"mode":"on_demand","day":1} = staff pay whenever' },
 };
 for (const [k, r] of Object.entries(FUNDME_RULES)) registerConfig(k, r.dflt, r.check);
 
@@ -65,6 +85,102 @@ export function curVal(cfg, key, currency) {
 export function donationFee(cfg, amountMinor, currency) {
   const bps = Number(cfg.fundme_fee_bps) || 0;
   return Math.floor((Number(amountMinor) * bps) / 10000) + curVal(cfg, 'fundme_fee_fixed_minor', currency);
+}
+
+// ─── fees the donor sees (client W4) and currency conversion (client W5) — pure, used by the routes and the tests ───
+const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+/** Paystack's fee on a charge of `totalMinor` kobo (an ESTIMATE from the admin settings): bps + flat from a threshold, capped. */
+export function processingFeeEstimate(cfg, totalMinor) {
+  const t = Number(totalMinor);
+  let f = Math.ceil((t * num(cfg.fundme_paystack_fee_bps, 150)) / 10000) + (t >= num(cfg.fundme_paystack_fee_flat_from_minor, 250000) ? num(cfg.fundme_paystack_fee_flat_minor, 10000) : 0);
+  const cap = num(cfg.fundme_paystack_fee_cap_minor, 200000);
+  if (cap > 0) f = Math.min(f, cap);
+  return f;
+}
+/** VAT on a fee amount (rounded to the nearest kobo). */
+export const vatOn = (cfg, feeMinor) => Math.round((Number(feeMinor) * num(cfg.fundme_vat_bps, 750)) / 10000);
+
+/**
+ * Fee breakdown of a gift of `giftMinor` kobo.
+ *   coverFees = true:  the donor pays gift + BibleNestra fee + Paystack fee + VAT on both fees; the beneficiary gets the
+ *                      whole gift (plus any rounding surplus). The Paystack fee depends on the total, so the total is
+ *                      found by iterating up to a fixed point (monotone, a few steps).
+ *   coverFees = false: the donor pays the gift; all fees come out of it.
+ * → { giftMinor, platformFeeMinor, processingFeeMinor, vatMinor, feesMinor, totalMinor (donor pays), netMinor (beneficiary) }
+ */
+export function feeBreakdown(cfg, giftMinor, { coverFees = false } = {}) {
+  const gift = Number(giftMinor);
+  const platform = donationFee(cfg, gift, 'NGN');
+  let total = gift;
+  if (coverFees) {
+    total = gift + platform + vatOn(cfg, platform);
+    for (let i = 0; i < 50; i++) {
+      const p = processingFeeEstimate(cfg, total);
+      const next = gift + platform + p + vatOn(cfg, platform + p);
+      if (next <= total) break;
+      total = next;
+    }
+  }
+  const processing = processingFeeEstimate(cfg, total);
+  const vat = vatOn(cfg, platform + processing);
+  const net = total - platform - processing - vat;
+  return { giftMinor: gift, platformFeeMinor: platform, processingFeeMinor: processing, vatMinor: vat, feesMinor: platform + processing + vat, totalMinor: total, netMinor: net, coverFees: !!coverFees };
+}
+
+/** { NGN: 1, USD: 1500, … } from the admin table (NGN per 1 unit). */
+export function fxRates(cfg) {
+  const t = cfg && cfg.fundme_fx_ngn_per_unit && typeof cfg.fundme_fx_ngn_per_unit === 'object' ? cfg.fundme_fx_ngn_per_unit : FX_SEED;
+  const out = { NGN: 1 };
+  for (const [k, v] of Object.entries(t)) if (/^[A-Z]{3}$/.test(k) && Number(v) > 0) out[k] = Number(v);
+  return out;
+}
+export const donorCurrencyCodes = (cfg) => Object.keys(fxRates(cfg));
+function rateOf(cfg, currency) {
+  const r = fxRates(cfg)[String(currency || '').toUpperCase()];
+  if (!r) throw new ApiError(400, 'CURRENCY_NOT_SUPPORTED', `Donations in ${currency} aren’t available — choose another currency`);
+  return r;
+}
+/** minor units of `currency` → kobo (rounded). */
+export const toNgnMinor = (cfg, minor, currency) => (currency === 'NGN' ? Number(minor) : Math.round(Number(minor) * rateOf(cfg, currency)));
+/** kobo → minor units of `currency` (round up when charging, so the charge never falls short). */
+export const fromNgnMinor = (cfg, ngnMinor, currency, { up = false } = {}) => (currency === 'NGN' ? Number(ngnMinor) : (up ? Math.ceil : Math.round)(Number(ngnMinor) / rateOf(cfg, currency)));
+
+/** Donation limits and presets in a donor currency: FUNDME rules when the currency has them, else NGN's converted. */
+export function donorCurrencyRules(cfg, currency, FUNDME_CURRENCIES) {
+  const own = FUNDME_CURRENCIES[currency];
+  if (own) return { min: own.min, max: own.max, presets: own.presets };
+  const ngn = FUNDME_CURRENCIES.NGN;
+  const nice = (m) => { const units = m / 100; const p = 10 ** Math.max(0, Math.floor(Math.log10(Math.max(1, units)))); return Math.max(100, Math.round(units / p) * p * 100); };
+  return { min: Math.max(1, fromNgnMinor(cfg, ngn.min, currency, { up: true })), max: fromNgnMinor(cfg, ngn.max, currency), presets: ngn.presets.map((p) => nice(fromNgnMinor(cfg, p, currency))) };
+}
+
+/**
+ * Everything about one donation before checkout. `amountMinor` is in the donor's `currency`.
+ * Charged in that currency when it is in `chargeCurrencies` (PAYSTACK_CURRENCIES), otherwise in NGN at the admin rate.
+ * The beneficiary side (ledger) is always NGN.
+ */
+export function donationQuote(cfg, { amountMinor, currency, coverFees, chargeCurrencies = ['NGN'], fundraiserCurrency = 'NGN' }) {
+  const cur = String(currency || 'NGN').toUpperCase();
+  const amount = Number(amountMinor);
+  const rate = rateOf(cfg, cur);
+  const giftNgn = toNgnMinor(cfg, amount, cur);
+  const b = feeBreakdown(cfg, giftNgn, { coverFees });
+  const chargeCurrency = cur === 'NGN' || chargeCurrencies.includes(cur) ? cur : 'NGN';
+  let chargeMinor; let settledNgn;
+  if (chargeCurrency === 'NGN') { chargeMinor = b.totalMinor; settledNgn = b.totalMinor; } else {
+    chargeMinor = coverFees ? fromNgnMinor(cfg, b.totalMinor, cur, { up: true }) : amount;
+    settledNgn = Math.max(b.totalMinor, toNgnMinor(cfg, chargeMinor, cur));
+  }
+  const net = settledNgn - b.platformFeeMinor - b.processingFeeMinor - b.vatMinor; // rounding surplus goes to the beneficiary
+  const raised = fundraiserCurrency === cur ? amount : fromNgnMinor(cfg, giftNgn, fundraiserCurrency);
+  return {
+    currency: cur, amountMinor: amount, fxRate: rate, coverFees: !!coverFees,
+    giftNgnMinor: giftNgn, platformFeeMinor: b.platformFeeMinor, processingFeeMinor: b.processingFeeMinor, vatMinor: b.vatMinor, feesMinor: b.feesMinor,
+    totalNgnMinor: settledNgn, netMinor: net, settlementCurrency: 'NGN',
+    chargeCurrency, chargeAmountMinor: chargeMinor, chargeFxRate: chargeCurrency === 'NGN' ? 1 : rate,
+    donorTotalMinor: chargeCurrency === cur ? chargeMinor : fromNgnMinor(cfg, settledNgn, cur, { up: true }), // in the donor's currency (≈ when charged in NGN)
+    converted: chargeCurrency !== cur, raisedMinor: raised, fundraiserCurrency,
+  };
 }
 
 // ─── statuses ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -287,9 +403,10 @@ export function pickProvider(env, user, requested) {
 }
 
 // ─── donation received (gateway confirmed) ───────────────────────────────────────────────────────────────────────
-async function donationRiskFlags(env, cfg, d, beneficiaryId, amount, mismatch) {
+async function donationRiskFlags(env, cfg, d, beneficiaryId, amount, mismatch, paid = amount, expected = Number(d.amount_minor)) {
   const flags = [];
-  if (mismatch) flags.push(flag('amount_mismatch', 'Paid amount differs from the checkout', `${formatMoney(d.amount_minor, d.currency)} expected, ${formatMoney(amount, d.currency)} paid`));
+  const pc = d.charge_currency || d.currency;
+  if (mismatch) flags.push(flag('amount_mismatch', 'Paid amount differs from the checkout', `${fmtMoney(expected, pc)} expected, ${fmtMoney(paid, pc)} paid`));
   if (amount >= curVal(cfg, 'fundme_review_donation_over_minor', d.currency)) flags.push(flag('large_amount', 'Large donation', formatMoney(amount, d.currency)));
   if (d.donor_id && beneficiaryId && String(d.donor_id) === String(beneficiaryId)) flags.push(flag('self_donation', 'Donor is the beneficiary'));
   const rapid = await one(env, `SELECT COUNT(*)::int AS n FROM donations WHERE rl_key = $1 AND received_at > now() - interval '1 hour' AND id <> $2`, [d.rl_key || '-', d.id]);
@@ -300,6 +417,10 @@ async function donationRiskFlags(env, cfg, d, beneficiaryId, amount, mismatch) {
   if (rep.n >= 2) flags.push(flag('reported_beneficiary', 'Beneficiary reported several times', `${rep.n} reports in 90 days`));
   return flags;
 }
+
+/** "£20" — the amount in the donor's own currency (or the ledger amount for older donations). */
+export const fmtMoney = (m, cur) => (CURRENCY_SYMBOL[cur] ? formatMoney(m, cur) : `${cur} ${formatMoney(m, cur)}`);
+const giftText = (d, fallback) => (d.original_currency && d.original_amount_minor ? fmtMoney(d.original_amount_minor, d.original_currency) : formatMoney(fallback, d.currency));
 
 const receiptNo = (d) => `BNF-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(d.id).replace(/-/g, '').slice(0, 10).toUpperCase()}`;
 
@@ -317,7 +438,11 @@ export async function confirmDonation(c, d, { amountMinor, currency, actor = 'sy
   const cfg = await getConfig(env);
   const amount = Number(amountMinor);
   const evActor = actor === 'paystack' || actor === 'test' ? actor : 'system';
-  if (String(currency || '').toUpperCase() !== d.currency || !(amount > 0)) {
+  // What was asked of the gateway: charge_* for donations made since the client answers (any currency → NGN ledger),
+  // amount_minor / currency for older rows.
+  const chargeCur = d.charge_currency || d.currency;
+  const expected = d.charge_amount_minor != null ? Number(d.charge_amount_minor) : Number(d.amount_minor);
+  if (String(currency || '').toUpperCase() !== chargeCur || !(amount > 0)) {
     // Money arrived in a currency we didn't ask for: hold it for an admin, don't record anything automatically.
     const flags = [flag('currency_mismatch', 'Paid in an unexpected currency', `${currency} ${amount}`)];
     const r = await q(env, `WITH u AS (UPDATE donations SET settlement_status = 'under_review', risk_flags = $2::jsonb, gateway = $3::jsonb
@@ -326,26 +451,45 @@ export async function confirmDonation(c, d, { amountMinor, currency, actor = 'sy
     [d.id, JSON.stringify(flags), JSON.stringify(gateway), d.settlement_status, evActor]);
     return { changed: r.length > 0, status: 'under_review' };
   }
-  const mismatch = amount !== Number(d.amount_minor);
-  let fee = mismatch ? donationFee(cfg, amount, d.currency) : Number(d.fee_minor || 0);
-  if (fee >= amount) fee = 0;
-  const net = amount - fee;
-  const flags = await donationRiskFlags(env, cfg, d, beneficiaryId, amount, mismatch);
+  const mismatch = amount !== expected;
+  // Ledger side (d.currency; NGN for new donations): gross = net + BibleNestra fee. The Paystack fee and VAT never reach
+  // BibleNestra's books (the gateway keeps them), so they are recorded on the donation only.
+  let gross; let fee; let processing = Number(d.processing_fee_minor || 0); let vat = Number(d.vat_minor || 0);
+  let raised = d.raised_credit_minor != null ? Number(d.raised_credit_minor) : null;
+  let totalNgn = d.total_ngn_minor != null ? Number(d.total_ngn_minor) : null;
+  if (!mismatch) { gross = Number(d.amount_minor); fee = Number(d.fee_minor || 0); } else if (d.charge_currency) {
+    // paid a different amount: fees come out of what was actually paid (flagged for review below)
+    const paidNgn = Math.round(amount * Number(d.charge_fx_rate || 1));
+    const b = feeBreakdown(cfg, paidNgn, { coverFees: false });
+    fee = b.platformFeeMinor; processing = b.processingFeeMinor; vat = b.vatMinor;
+    if (b.netMinor <= 0) { fee = 0; processing = 0; vat = 0; }
+    gross = paidNgn - processing - vat; totalNgn = paidNgn;
+    if (raised != null && expected > 0) raised = Math.round((raised * amount) / expected);
+  } else { gross = amount; fee = donationFee(cfg, amount, d.currency); }
+  if (!(gross > 0)) { gross = Math.max(1, Math.round(amount * Number(d.charge_fx_rate || 1))); fee = 0; processing = 0; vat = 0; }
+  if (fee >= gross) fee = 0;
+  const net = gross - fee;
+  const amountForFlags = gross;
+  const flags = await donationRiskFlags(env, cfg, d, beneficiaryId, amountForFlags, mismatch, amount, expected);
   const to = flags.length ? 'under_review' : cfg.fundme_auto_verify ? 'verified' : 'processing';
   const why = flags.length ? `Flagged: ${flags.map((x) => x.label).join(', ')}` : to === 'verified' ? 'Payment confirmed and checks passed (automatic)' : 'Payment confirmed by the gateway';
   const alsoRun = [
     [`WITH u AS (
         UPDATE donations SET status = 'succeeded', settlement_status = $2, amount_minor = $3, fee_minor = $4, net_minor = $5,
                beneficiary_id = $6, received_at = now(), completed_at = now(), verified_at = CASE WHEN $2 = 'verified' THEN now() END,
-               risk_flags = $7::jsonb, receipt_no = $8, gateway = $9::jsonb
+               risk_flags = $7::jsonb, receipt_no = $8, gateway = $9::jsonb,
+               charge_amount_minor = CASE WHEN charge_currency IS NULL THEN NULL ELSE $14::bigint END, processing_fee_minor = $15, vat_minor = $16,
+               raised_credit_minor = $17, total_ngn_minor = COALESCE($18::bigint, total_ngn_minor)
          WHERE id = $1 AND status = 'pending' RETURNING id),
       e AS (${ev(`SELECT id, $10::text, $2, $11, NULL, $12, $13::jsonb FROM u`)})
       SELECT 1 / (SELECT COUNT(*)::int FROM u) AS ok`,
-    [d.id, to, amount, fee, net, beneficiaryId, JSON.stringify(flags), receiptNo(d), JSON.stringify(gateway), d.settlement_status, evActor, why, JSON.stringify({ amountMinor: amount, feeMinor: fee, test: !!d.is_test })]],
-    [`UPDATE fundraisers SET raised_minor = raised_minor + $2, donors_count = donors_count + 1, updated_at = now() WHERE id = $1`, [d.fundraiser_id, amount]],
+    [d.id, to, gross, fee, net, beneficiaryId, JSON.stringify(flags), receiptNo(d), JSON.stringify(gateway), d.settlement_status, evActor, why,
+      JSON.stringify({ amountMinor: gross, feeMinor: fee, paidMinor: amount, paidCurrency: chargeCur, processingFeeMinor: processing, vatMinor: vat, test: !!d.is_test }),
+      amount, processing, vat, raised != null ? raised : gross, totalNgn]],
+    [`UPDATE fundraisers SET raised_minor = raised_minor + $2, donors_count = donors_count + 1, updated_at = now() WHERE id = $1`, [d.fundraiser_id, raised != null ? raised : gross]],
   ];
   try {
-    await recordDonationReceived(env, { donationId: d.id, beneficiaryId, fundraiserId: d.fundraiser_id, amountMinor: amount, feeMinor: fee, currency: d.currency, donorId: d.donor_id || null, alsoRun });
+    await recordDonationReceived(env, { donationId: d.id, beneficiaryId, fundraiserId: d.fundraiser_id, amountMinor: gross, feeMinor: fee, currency: d.currency, donorId: d.donor_id || null, alsoRun });
   } catch (e) {
     if (isGuard(e)) return { changed: false, status: null };
     throw e;
@@ -355,12 +499,12 @@ export async function confirmDonation(c, d, { amountMinor, currency, actor = 'sy
   if (f) {
     try {
       await q(env, 'INSERT INTO notifications (user_id, kind, title, body, data) VALUES ($1, $2, $3, $4, $5)', [f.owner_id, 'fundme_donation', 'New donation 🎉',
-        `${who} gave ${formatMoney(amount, d.currency)} to “${f.title}”${d.message ? `: “${String(d.message).slice(0, 80)}”` : ''}. BibleNestra holds it until it is verified and paid out to you.`,
+        `${who} gave ${giftText(d, gross)} to “${f.title}”${d.message ? `: “${String(d.message).slice(0, 80)}”` : ''}. BibleNestra holds it until it is verified and paid out to you.`,
         JSON.stringify({ fundraiserId: f.id, slug: f.slug, donationId: d.id, screen: 'FundMeMoney' })]);
     } catch (e) { console.warn('[fundme] owner notification failed', e && e.message); }
   }
   if (d.donor_id) {
-    await walletNotify(c, { userId: d.donor_id, kind: 'fundme_receipt', title: 'Thank you — donation received', body: `Your ${formatMoney(amount, d.currency)} gift${f ? ` to “${f.title}”` : ''} was received. Tap for your receipt.`, data: { screen: 'FundMeReceipt', donationId: d.id } });
+    await walletNotify(c, { userId: d.donor_id, kind: 'fundme_receipt', title: 'Thank you — donation received', body: `Your ${giftText(d, gross)} gift${f ? ` to “${f.title}”` : ''} was received. Tap for your receipt.`, data: { screen: 'FundMeReceipt', donationId: d.id } });
   }
   return { changed: true, status: to, donationId: d.id };
 }
@@ -386,7 +530,7 @@ export async function refundDonation(env, d, { actor = 'admin', actorId = null, 
               WHERE id = $1 AND settlement_status = $2 AND payout_id IS NULL AND received_at IS NOT NULL RETURNING id),
             e AS (${ev(`SELECT id, $2::text, 'refunded', $3, $4::uuid, $5, '{}'::jsonb FROM u`)})
           SELECT 1 / (SELECT COUNT(*)::int FROM u) AS ok`, [d.id, d.settlement_status, actor, actorId, reason || 'Refunded']],
-        [`UPDATE fundraisers SET raised_minor = GREATEST(0, raised_minor - $2), donors_count = GREATEST(0, donors_count - 1), updated_at = now() WHERE id = $1`, [d.fundraiser_id, gross]],
+        [`UPDATE fundraisers SET raised_minor = GREATEST(0, raised_minor - $2), donors_count = GREATEST(0, donors_count - 1), updated_at = now() WHERE id = $1`, [d.fundraiser_id, d.raised_credit_minor != null ? Number(d.raised_credit_minor) : gross]],
       ],
     });
   } catch (e) {
@@ -444,6 +588,21 @@ export async function payableHeld(env, beneficiaryId, currency) {
 }
 
 /**
+ * Payout KYC guard (client W3): the beneficiary's KYC must be approved AND the payout bank account must be the account
+ * checked in that KYC. Throws 409 KYC_REQUIRED / KYC_BANK_MISMATCH.
+ */
+export async function assertPayoutKyc(env, beneficiaryId, account = null) {
+  const kyc = await requireApprovedKyc(env, beneficiaryId);
+  const acct = account || await one(env, 'SELECT * FROM fundme_bank_accounts WHERE user_id = $1', [beneficiaryId]);
+  if (acct && !(await kycBankMatches(env, kyc, acct))) {
+    const e = new ApiError(409, 'KYC_BANK_MISMATCH', 'The payout bank account isn’t the one checked in the member’s KYC — they must resubmit KYC with this account.');
+    e.details = { screen: 'PayoutKyc' };
+    throw e;
+  }
+  return kyc;
+}
+
+/**
  * Create a payout for one request from its donations that are approved for payout (and not in a payout yet).
  * Checks: verified bank account, minimum payout, and the payout can't exceed the verified money held for the beneficiary.
  * Real and test donations are never mixed in one payout.
@@ -453,6 +612,7 @@ export async function createPayout(env, admin, fundraiserId, { test = false } = 
   if (!f) throw new ApiError(404, 'NOT_FOUND', 'Request not found');
   const acct = await one(env, 'SELECT * FROM fundme_bank_accounts WHERE user_id = $1', [f.owner_id]);
   if (!acct || acct.status !== 'verified') throw new ApiError(409, 'NO_PAYOUT_ACCOUNT', 'The beneficiary has no verified bank account yet');
+  await assertPayoutKyc(env, f.owner_id, acct);
   const rows = await q(env, `SELECT id, net_minor, currency FROM donations WHERE fundraiser_id = $1 AND settlement_status = 'approved_for_payout'
       AND payout_id IS NULL AND is_test = $2 AND beneficiary_id = $3 ORDER BY received_at`, [f.id, !!test, f.owner_id]);
   if (!rows.length) throw new ApiError(409, 'NOTHING_TO_PAY', 'No donations of this request are approved for payout');
@@ -486,6 +646,7 @@ export async function createPayout(env, admin, fundraiserId, { test = false } = 
 export async function markPayoutPaid(c, p, { reference, actor = 'admin', actorId = null, note = null }) {
   const env = c.env;
   if (!['approved', 'processing'].includes(p.status)) throw new ApiError(409, 'BAD_STATUS', `This payout is ${PAYOUT_LABEL[p.status] || p.status}`);
+  if (actor === 'admin') await assertPayoutKyc(env, p.beneficiary_id); // the Paystack webhook only reports a transfer already sent
   const refText = String(reference || '').trim();
   if (refText.length < 4 || refText.length > 120) throw bad('Enter the payment reference from the bank or Paystack (4–120 characters)', 'REFERENCE_REQUIRED');
   try {
@@ -541,6 +702,7 @@ export async function setPayoutReview(env, p, { to, reason, actorId = null, acto
   if (to === 'approved') {
     const acct = await one(env, 'SELECT status FROM fundme_bank_accounts WHERE user_id = $1', [p.beneficiary_id]);
     if (!acct || acct.status !== 'verified') throw new ApiError(409, 'NO_PAYOUT_ACCOUNT', 'Verify the beneficiary’s bank account first');
+    await assertPayoutKyc(env, p.beneficiary_id);
   }
   const r = await q(env, `WITH u AS (UPDATE fundme_payouts SET status = $2, updated_at = now() WHERE id = $1 AND status = $3 RETURNING id)
       ${pev(`SELECT id, $3::text, $2, $4, $5::uuid, $6, '{}'::jsonb FROM u`)} RETURNING payout_id`, [p.id, to, p.status, actor, actorId, reason || (to === 'approved' ? 'Review cleared' : 'Under review')]);
@@ -559,6 +721,7 @@ export async function sendPayoutTransfer(c, p, admin) {
   if (p.currency !== 'NGN') throw new ApiError(409, 'BAD_CURRENCY', 'Paystack transfers are set up for NGN only');
   const acct = await one(env, 'SELECT * FROM fundme_bank_accounts WHERE user_id = $1', [p.beneficiary_id]);
   if (!acct || acct.status !== 'verified') throw new ApiError(409, 'NO_PAYOUT_ACCOUNT', 'The beneficiary has no verified bank account');
+  await assertPayoutKyc(env, p.beneficiary_id, acct);
   let recipient = acct.recipient_code;
   if (!recipient) {
     recipient = await createTransferRecipient(env, { name: acct.account_name, accountNumber: await decryptField(env, acct.account_number_enc), bankCode: acct.bank_code });
@@ -569,6 +732,140 @@ export async function sendPayoutTransfer(c, p, admin) {
       WHERE id = $1 AND status = 'approved' RETURNING id)
     ${pev(`SELECT id, 'approved', 'processing', 'admin', $3::uuid, 'Sent through Paystack Transfer', jsonb_build_object('transferCode', $2::text, 'status', $4::text) FROM u`)}`, [p.id, t.transferCode, admin.id, t.status || '']);
   return { transferCode: t.transferCode, status: t.status };
+}
+
+// ─── monthly payout runs (client W6) ────────────────────────────────────────────────────────────────────────────
+// fundme_payout_schedule = { mode: 'monthly', day }: one run a month on that day (UTC). A donation whose hold has passed by
+// the run date is DUE in that run (anything older and still unpaid stays due). On the run day the 15-minute cron
+// approves the verified ones (verified → approved_for_payout); staff then pay each beneficiary by hand and enter the
+// reference (Admin › Due this run). 'on_demand' = the old behaviour: staff approve and pay whenever.
+const DAY = 86400000;
+/** 'monthly' | 'on_demand' and the run day (1–28) from the fundme_payout_schedule setting. */
+export const payoutMode = (cfg) => (cfg.fundme_payout_schedule && cfg.fundme_payout_schedule.mode === 'on_demand' ? 'on_demand' : 'monthly');
+export const payoutDay = (cfg) => Math.min(28, Math.max(1, Number(cfg.fundme_payout_schedule && cfg.fundme_payout_schedule.day) || 1));
+const utcDate = (y, m, d) => new Date(Date.UTC(y, m, d));
+/** The run date (00:00 UTC) of the current / next monthly run: this month's payout day if it is today or later, else next month's. */
+export function nextRunDate(cfg, now = new Date()) {
+  const day = payoutDay(cfg);
+  const n = new Date(now);
+  const thisMonth = utcDate(n.getUTCFullYear(), n.getUTCMonth(), day);
+  const today = utcDate(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate());
+  return today.getTime() <= thisMonth.getTime() ? thisMonth : utcDate(n.getUTCFullYear(), n.getUTCMonth() + 1, day);
+}
+/** Is this received donation due in the run on `runDate`? (its hold ends on or before the run date) */
+export function dueInRun(cfg, receivedAt, runDate) {
+  if (!receivedAt) return false;
+  const holdEnds = new Date(receivedAt).getTime() + (Number(cfg.fundme_payout_hold_days) || 0) * DAY;
+  return holdEnds <= new Date(runDate).getTime();
+}
+/** The run this donation falls into: the first run date on or after the end of its hold. */
+export function runForDonation(cfg, receivedAt) {
+  const holdEnds = new Date(new Date(receivedAt).getTime() + (Number(cfg.fundme_payout_hold_days) || 0) * DAY);
+  const r = nextRunDate(cfg, holdEnds);
+  return r.getTime() < holdEnds.getTime() ? nextRunDate(cfg, new Date(r.getTime() + DAY)) : r;
+}
+export const payoutScheduleText = (cfg) => (payoutMode(cfg) === 'monthly'
+  ? `Payouts are made once a month, on day ${payoutDay(cfg)} — a donation is paid in the first monthly payout after its ${cfg.fundme_payout_hold_days}-day hold.`
+  : `Payouts are made after the ${cfg.fundme_payout_hold_days}-day hold and our checks.`);
+
+/**
+ * "Due this run" for the admin: per request (real money only), the unpaid donations whose hold passes by the run date.
+ * Ready = verified or approved (can be paid); checking = still processing / under review (not payable yet).
+ */
+export async function dueThisRun(env, { now = new Date() } = {}) {
+  const cfg = await getConfig(env);
+  const monthly = payoutMode(cfg) === 'monthly';
+  const runDate = monthly ? nextRunDate(cfg, now) : new Date(now);
+  const holdDays = Number(cfg.fundme_payout_hold_days) || 0;
+  const rows = await q(env, `SELECT d.fundraiser_id, f.title, d.currency, f.owner_id, u.display_name AS owner_name, u.handle AS owner_handle,
+      ba.status AS bank_status, ba.bank_name, ba.account_last4, k.status AS kyc_status,
+      COALESCE(SUM(d.net_minor) FILTER (WHERE d.settlement_status IN ('verified','approved_for_payout')), 0)::bigint AS ready,
+      COUNT(*) FILTER (WHERE d.settlement_status IN ('verified','approved_for_payout'))::int AS ready_n,
+      COALESCE(SUM(d.net_minor) FILTER (WHERE d.settlement_status IN ('processing','under_review')), 0)::bigint AS checking,
+      COUNT(*) FILTER (WHERE d.settlement_status IN ('processing','under_review'))::int AS checking_n
+    FROM donations d JOIN fundraisers f ON f.id = d.fundraiser_id JOIN users u ON u.id = f.owner_id
+      LEFT JOIN fundme_bank_accounts ba ON ba.user_id = f.owner_id LEFT JOIN payout_kyc k ON k.user_id = f.owner_id
+    WHERE d.received_at IS NOT NULL AND NOT d.is_test AND d.payout_id IS NULL
+      AND d.settlement_status IN ('processing','under_review','verified','approved_for_payout')
+      AND d.received_at + make_interval(days => $1::int) <= $2::timestamptz
+    GROUP BY d.fundraiser_id, f.title, d.currency, f.owner_id, u.display_name, u.handle, ba.status, ba.bank_name, ba.account_last4, k.status
+    ORDER BY ready DESC LIMIT 500`, [holdDays, runDate.toISOString()]);
+  const open = await q(env, `SELECT p.id, p.fundraiser_id, p.amount_minor, p.currency, p.status FROM fundme_payouts p
+      WHERE p.status IN ('approved','processing','under_review') AND NOT COALESCE((p.meta->>'test')::boolean, false)`);
+  const items = rows.map((r) => {
+    const openP = open.filter((p) => p.fundraiser_id === r.fundraiser_id).map((p) => ({ id: p.id, amountMinor: Number(p.amount_minor), currency: p.currency, status: p.status }));
+    const min = curVal(cfg, 'fundme_min_payout_minor', r.currency);
+    const blockers = [];
+    if (r.kyc_status !== 'approved') blockers.push(r.kyc_status ? `KYC ${r.kyc_status.replace('_', ' ')}` : 'No KYC');
+    if (r.bank_status !== 'verified') blockers.push(r.bank_status ? `bank ${r.bank_status.replace('_', ' ')}` : 'No bank account');
+    if (Number(r.ready) > 0 && Number(r.ready) < min) blockers.push(`below the ${formatMoney(min, r.currency)} minimum`);
+    if (!Number(r.ready)) blockers.push('nothing verified yet');
+    return {
+      fundraiserId: r.fundraiser_id, title: r.title, currency: r.currency, beneficiaryId: r.owner_id, beneficiaryName: r.owner_name, beneficiaryHandle: r.owner_handle,
+      kycStatus: r.kyc_status || 'none', bank: r.bank_status ? { status: r.bank_status, bankName: r.bank_name, last4: r.account_last4 } : null,
+      readyMinor: Number(r.ready), readyCount: r.ready_n, checkingMinor: Number(r.checking), checkingCount: r.checking_n, minPayoutMinor: min,
+      openPayouts: openP, payable: blockers.length === 0, blockers,
+    };
+  });
+  const totals = {};
+  for (const x of items) {
+    const t = totals[x.currency] || (totals[x.currency] = { currency: x.currency, readyMinor: 0, payableMinor: 0, checkingMinor: 0, requests: 0, payable: 0 });
+    t.readyMinor += x.readyMinor; t.checkingMinor += x.checkingMinor; t.requests += 1;
+    if (x.payable) { t.payableMinor += x.readyMinor; t.payable += 1; }
+  }
+  const lastRun = await one(env, 'SELECT run_date, approved, total_minor, created_at FROM fundme_payout_runs ORDER BY run_date DESC LIMIT 1');
+  return {
+    schedule: payoutMode(cfg), payoutDay: payoutDay(cfg), holdDays, runDate: runDate.toISOString().slice(0, 10), monthly,
+    autoPayouts: false, items, totals: Object.values(totals),
+    lastRun: lastRun ? { runDate: new Date(lastRun.run_date).toISOString().slice(0, 10), approved: lastRun.approved, totalMinor: Number(lastRun.total_minor), at: iso(lastRun.created_at) } : null,
+    explain: payoutScheduleText(cfg) + ' Staff pay each beneficiary by bank transfer and enter the reference here; automatic payouts stay off.',
+  };
+}
+
+/**
+ * Staff paid one request's due money by hand: approve its verified donations whose hold has passed, put every donation
+ * approved for payout into one payout, and mark it paid with the reference — or, when a payout for it is already open,
+ * mark that one paid. KYC, bank and minimum checks are the usual ones (createPayout / markPayoutPaid).
+ */
+export async function payDueRequest(c, admin, fundraiserId, { reference, note = null }) {
+  const env = c.env;
+  const refText = String(reference || '').trim();
+  if (refText.length < 4 || refText.length > 120) throw bad('Enter the payment reference from the bank (4–120 characters)', 'REFERENCE_REQUIRED');
+  const cfg = await getConfig(env);
+  const holdDays = Number(cfg.fundme_payout_hold_days) || 0;
+  const ver = await q(env, `SELECT * FROM donations WHERE fundraiser_id = $1 AND settlement_status = 'verified' AND NOT is_test AND payout_id IS NULL
+      AND received_at <= now() - make_interval(days => $2::int)`, [fundraiserId, holdDays]);
+  for (const d of ver) { try { await setDonationStatus(env, d, 'approve', { actor: 'admin', actorId: admin.id, reason: 'Paid in the payout run' }); } catch (e) { /* changed meanwhile */ } }
+  let p;
+  try { p = await createPayout(env, admin, fundraiserId, {}); } catch (e) {
+    if (e.code !== 'NOTHING_TO_PAY') throw e;
+    const openP = await q(env, `SELECT * FROM fundme_payouts WHERE fundraiser_id = $1 AND status IN ('approved','processing') AND NOT COALESCE((meta->>'test')::boolean, false) ORDER BY created_at`, [fundraiserId]);
+    if (openP.length !== 1) throw e;
+    p = openP[0];
+  }
+  await markPayoutPaid(c, p, { reference: refText, actor: 'admin', actorId: admin.id, note: note || 'Paid by hand in the payout run' });
+  return one(env, 'SELECT * FROM fundme_payouts WHERE id = $1', [p.id]);
+}
+
+/** 15-minute cron: on (or after) the monthly payout day, claim the run once and approve the verified donations past their hold. */
+export async function runFundmePayoutCron(env, { now = new Date() } = {}) {
+  const cfg = await getConfig(env);
+  if (payoutMode(cfg) !== 'monthly') return { skipped: 'on_demand' };
+  const n = new Date(now);
+  const day = payoutDay(cfg);
+  if (n.getUTCDate() < day) return { skipped: 'not_yet' };
+  const runDate = utcDate(n.getUTCFullYear(), n.getUTCMonth(), day);
+  const claim = await q(env, `INSERT INTO fundme_payout_runs (run_date) VALUES ($1::date) ON CONFLICT (run_date) DO NOTHING RETURNING run_date`, [runDate.toISOString().slice(0, 10)]);
+  if (!claim.length) return { skipped: 'done' };
+  const holdDays = Number(cfg.fundme_payout_hold_days) || 0;
+  const rows = await q(env, `SELECT * FROM donations WHERE settlement_status = 'verified' AND NOT is_test AND payout_id IS NULL AND received_at IS NOT NULL
+      AND received_at + make_interval(days => $1::int) <= $2::timestamptz ORDER BY received_at LIMIT 2000`, [holdDays, runDate.toISOString()]);
+  let approved = 0; let total = 0;
+  for (const d of rows) {
+    try { await setDonationStatus(env, d, 'approve', { actor: 'system', reason: `Due in the monthly payout run of ${runDate.toISOString().slice(0, 10)}` }); approved++; total += Number(d.net_minor || 0); } catch (e) { /* changed meanwhile */ }
+  }
+  await q(env, 'UPDATE fundme_payout_runs SET approved = $2, total_minor = $3 WHERE run_date = $1::date', [runDate.toISOString().slice(0, 10), approved, total]);
+  return { runDate: runDate.toISOString().slice(0, 10), approved, totalMinor: total };
 }
 
 // ─── bank accounts (beneficiary payout details) ─────────────────────────────────────────────────────────────────
@@ -657,6 +954,7 @@ export function donationShape(d, who = 'owner') {
     currency: d.currency, status: d.settlement_status, statusLabel: DONATION_LABEL[d.settlement_status] || d.settlement_status, paymentStatus: d.status,
     message: d.message || null, anonymous: !!d.anonymous, receiptNo: d.receipt_no || null, provider: d.provider, test: !!d.is_test,
     createdAt: iso(d.created_at), receivedAt: iso(d.received_at), verifiedAt: iso(d.verified_at), payoutId: d.payout_id || null,
+    ...feeFields(d),
   };
   if (who === 'owner' || who === 'admin') out.name = d.donor_name || (d.anonymous ? 'Anonymous' : 'A friend');
   if (who === 'admin') {
@@ -678,15 +976,41 @@ export function payoutShape(p) {
 }
 export const eventShape = (e) => ({ from: e.from_status, to: e.to_status, label: DONATION_LABEL[e.to_status] || PAYOUT_LABEL[e.to_status] || e.to_status, actor: e.actor, actorName: e.actor_name || null, reason: e.reason || null, meta: jv(e.meta, {}), at: iso(e.created_at) });
 
+export const NON_REFUNDABLE = 'Donations are non-refundable. BibleNestra only reverses a payment made in error or found to be fraud.';
+/** Fee breakdown and currencies of a donation (client W4, W5). All fees are NGN kobo; original_* is what the donor chose. */
+export function feeFields(d) {
+  const n = (v) => (v == null ? null : Number(v));
+  return {
+    coverFees: !!d.cover_fees,
+    fees: { platformMinor: Number(d.fee_minor || 0), processingMinor: Number(d.processing_fee_minor || 0), vatMinor: Number(d.vat_minor || 0),
+      totalMinor: Number(d.fee_minor || 0) + Number(d.processing_fee_minor || 0) + Number(d.vat_minor || 0), currency: d.currency },
+    original: d.original_currency ? { currency: d.original_currency, amountMinor: n(d.original_amount_minor), fxRate: n(d.fx_rate) } : { currency: d.currency, amountMinor: Number(d.amount_minor), fxRate: 1 },
+    charged: d.charge_currency ? { currency: d.charge_currency, amountMinor: n(d.charge_amount_minor), fxRate: n(d.charge_fx_rate) } : { currency: d.currency, amountMinor: Number(d.amount_minor), fxRate: 1 },
+    giftNgnMinor: n(d.gift_ngn_minor), totalNgnMinor: n(d.total_ngn_minor),
+  };
+}
+
 /** Receipt for a donor (spec §3 "users receive payment confirmations and receipts"). */
 export function receiptShape(d) {
+  const ff = feeFields(d);
+  const lines = [
+    [`Your gift`, fmtMoney(ff.original.amountMinor, ff.original.currency)],
+    ...(ff.original.currency !== 'NGN' && d.gift_ngn_minor != null ? [[`Converted at ₦${Number(d.fx_rate).toLocaleString('en-US', { maximumFractionDigits: 4 })} per ${ff.original.currency}`, formatMoney(d.gift_ngn_minor, 'NGN')]] : []),
+    [`BibleNestra fee`, formatMoney(ff.fees.platformMinor, ff.fees.currency)],
+    [`Payment processing (Paystack, estimate)`, formatMoney(ff.fees.processingMinor, ff.fees.currency)],
+    [`VAT on fees`, formatMoney(ff.fees.vatMinor, ff.fees.currency)],
+    [ff.coverFees ? 'You covered the fees' : 'Fees taken from the gift', ''],
+    [`You paid`, fmtMoney(ff.charged.amountMinor, ff.charged.currency)],
+    [`To the beneficiary`, formatMoney(Number(d.net_minor != null ? d.net_minor : Number(d.amount_minor) - Number(d.fee_minor || 0)), d.currency)],
+  ];
   return {
+    ...ff, breakdown: lines.map(([label, value]) => ({ label, value })), refundPolicy: NON_REFUNDABLE,
     receiptNo: d.receipt_no, donationId: d.id, date: iso(d.received_at || d.created_at), status: d.settlement_status, statusLabel: DONATION_LABEL[d.settlement_status],
     amountMinor: Number(d.amount_minor), feeMinor: Number(d.fee_minor || 0), netMinor: Number(d.net_minor != null ? d.net_minor : Number(d.amount_minor) - Number(d.fee_minor || 0)), currency: d.currency,
     request: { id: d.fundraiser_id, title: d.fundraiser_title, slug: d.slug }, beneficiary: d.beneficiary_name || null,
     donorName: d.anonymous ? 'Anonymous (name hidden publicly)' : d.donor_name || null, reference: d.provider_ref || d.id, method: d.provider === 'paystack' ? 'Paystack' : d.provider === 'test' ? 'Test payment (no money moved)' : d.provider,
     paidTo: 'BibleNestra (collecting on behalf of the beneficiary)',
-    note: 'Your donation was paid to BibleNestra, which holds it for the beneficiary and pays it out after verification. This is a receipt for a gift, not a purchase.',
+    note: `Your donation was paid to BibleNestra, which holds it for the beneficiary and pays it out after verification. This is a receipt for a gift, not a purchase. ${NON_REFUNDABLE}`,
     test: !!d.is_test,
   };
 }

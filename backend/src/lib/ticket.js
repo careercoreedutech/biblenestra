@@ -97,3 +97,30 @@ export async function verifyAdminToken(secret, tokenStr) {
     return { valid: false, reason: 'verification_failed' };
   }
 }
+
+// STAFF ACCESS: "staff_token_" + b64url("stf:<staff id>:<role>:<session version>:<exp>:<sig>"). The account is re-read on
+// every request (lib/auth.js), so a disabled account or a bumped session version is refused even before exp.
+export async function createStaffToken(secret, { id, role, version }, ttlSeconds = 12 * 3600) {
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const payloadStr = `stf:${id}:${role}:${version}:${exp}`;
+  const key = await getHmacKey(secret);
+  const sigB64 = b64url(await crypto.subtle.sign('HMAC', key, encoder.encode(payloadStr)));
+  return { token: 'staff_token_' + b64url(encoder.encode(`${payloadStr}:${sigB64}`)), expiresAt: new Date(exp * 1000).toISOString() };
+}
+
+export async function verifyStaffToken(secret, tokenStr) {
+  if (!secret || typeof tokenStr !== 'string' || !tokenStr.startsWith('staff_token_')) return { valid: false, reason: 'invalid_prefix' };
+  try {
+    const parts = decoder.decode(unb64url(tokenStr.slice('staff_token_'.length))).split(':');
+    if (parts.length !== 6 || parts[0] !== 'stf') return { valid: false, reason: 'malformed_staff_token' };
+    const [, id, role, verStr, expStr, sigB64] = parts;
+    const exp = parseInt(expStr, 10);
+    if (Number.isNaN(exp) || exp < Math.floor(Date.now() / 1000)) return { valid: false, reason: 'expired_token' };
+    const key = await getHmacKey(secret);
+    const ok = await crypto.subtle.verify('HMAC', key, unb64url(sigB64), encoder.encode(`stf:${id}:${role}:${verStr}:${expStr}`));
+    if (!ok) return { valid: false, reason: 'invalid_signature' };
+    return { valid: true, id, role, version: parseInt(verStr, 10) };
+  } catch (e) {
+    return { valid: false, reason: 'verification_failed' };
+  }
+}

@@ -11,9 +11,12 @@
 //   GET  /fundme/donations/:id/receipt       donor, organiser or admin
 //   GET  /fundme/fundraisers/:id/money       organiser: totals, donations, payouts with status timelines, bank account
 //   GET  /fundme/banks · GET|PUT /fundme/payout-account · POST /fundme/payout-account/resolve
+//   GET|PUT /payout-kyc                      payout KYC (ID + legal name + bank, name must match) — Fund Me AND gift withdrawals
 // Admin (/admin/api/fundme/*, role admin, every change in admin_actions):
 //   donations (filters + CSV) · donation detail + history · donation actions · payout queue · payouts (+ create, paid,
 //   fail, transfer, review) · reconciliation · suspicious queue · bank accounts (verify / reject / reveal) · rules
+//   · due this run (monthly payouts: GET /admin/api/fundme/due, POST /admin/api/fundme/due/:fundraiserId/paid)
+//   · payout KYC (GET /admin/api/fundme/kyc, POST /admin/api/fundme/kyc/:userId/approve|reject|reveal)
 import { Hono } from 'hono';
 import { q, one } from '../lib/db.js';
 import { ApiError, bad, body, forbidden, isUuid, notFound, str } from '../lib/http.js';
@@ -24,8 +27,9 @@ import {
   creditSummary, giftCredits, donationShape, payoutShape, eventShape, receiptShape, DONATION_ACTIONS, DONATION_LABEL, PAYOUT_LABEL,
   canDonationAction, setDonationStatus, refundDonation, recheckDonation, paystackRefund, createPayout, markPayoutPaid, failPayout,
   setPayoutReview, sendPayoutTransfer, reconciliation, reconciliationByRequest, bankList, bankShape, saveBankAccount, decryptField,
-  FUNDME_RULES, curVal, payableHeld,
+  FUNDME_RULES, curVal, payableHeld, dueThisRun, payDueRequest, payoutMode, payoutDay, payoutScheduleText, nextRunDate, runForDonation, NON_REFUNDABLE, fxRates,
 } from '../lib/fundmeMoney.js';
+import { getKyc, kycShape, submitKyc, reviewKyc, revealKycId, KYC_ID_TYPES } from '../lib/kyc.js';
 import { paystackConfigured, resolveAccount } from '../lib/paystack.js';
 import { isOn } from '../lib/play.js';
 import { FUNDME_MONEY_ADMIN_SCRIPT } from '../lib/fundmeMoneyAdmin.js';
@@ -79,11 +83,17 @@ fundmeMoney.get('/fundme/rules', async (c) => {
   return c.json({
     feeBps: cfg.fundme_fee_bps, feeFixedMinor: cfg.fundme_fee_fixed_minor, holdDays: cfg.fundme_payout_hold_days, minPayoutMinor: cfg.fundme_min_payout_minor,
     publishCredits: cfg.fundme_publish_credits, paystack: paystackConfigured(c.env), autoPayouts: isOn(c.env.FUNDME_AUTO_PAYOUTS),
+    processingFeeBps: cfg.fundme_paystack_fee_bps, processingFlatMinor: cfg.fundme_paystack_fee_flat_minor, processingFlatFromMinor: cfg.fundme_paystack_fee_flat_from_minor,
+    processingCapMinor: cfg.fundme_paystack_fee_cap_minor, vatBps: cfg.fundme_vat_bps, fxNgnPerUnit: fxRates(cfg),
+    payoutSchedule: payoutMode(cfg), payoutDay: payoutDay(cfg), nextPayoutRun: payoutMode(cfg) === 'monthly' ? nextRunDate(cfg).toISOString().slice(0, 10) : null,
+    refundPolicy: NON_REFUNDABLE,
     explain: [
       'Every donation is paid to BibleNestra through our payment partner (Paystack) — never straight to the organiser.',
       'BibleNestra holds the money safely and checks each donation.',
-      `After a ${cfg.fundme_payout_hold_days}-day hold and our checks, the money is paid out to the organiser’s verified bank account.`,
+      payoutScheduleText(cfg) + ' Payouts go to the organiser’s verified bank account, once their identity check (KYC) is approved.',
+      `A ${cfg.fundme_fee_bps / 100}% BibleNestra fee, the payment processing fee and VAT on the fees apply. Donors can choose to cover them; otherwise they come out of the donation.`,
       'Donors get a receipt in the app. Organisers see every donation and payout with its status.',
+      NON_REFUNDABLE,
     ],
   });
 });
@@ -121,7 +131,7 @@ fundmeMoney.get('/fundme/fundraisers/:id/money', async (c) => {
   const acct = await one(c.env, 'SELECT * FROM fundme_bank_accounts WHERE user_id = $1', [f.owner_id]);
   const received = dons.filter((d) => d.received_at);
   return c.json({
-    fundraiserId: f.id, currency: f.currency,
+    fundraiserId: f.id, currency: 'NGN', requestCurrency: f.currency, // money is held and paid out in NGN (client answers W5)
     totals: {
       receivedMinor: sum((d) => !!d.received_at, 'amount_minor'),
       feesMinor: sum((d) => !!d.received_at && d.settlement_status !== 'refunded', 'fee_minor'),
@@ -132,12 +142,32 @@ fundmeMoney.get('/fundme/fundraisers/:id/money', async (c) => {
       refundedMinor: sum((d) => d.settlement_status === 'refunded', 'amount_minor'),
       donations: received.length,
     },
-    rules: { holdDays: cfg.fundme_payout_hold_days, minPayoutMinor: curVal(cfg, 'fundme_min_payout_minor', f.currency), feeBps: cfg.fundme_fee_bps, feeFixedMinor: curVal(cfg, 'fundme_fee_fixed_minor', f.currency) },
-    donations: dons.map((d) => donationShape(d, 'owner')),
+    rules: { holdDays: cfg.fundme_payout_hold_days, minPayoutMinor: curVal(cfg, 'fundme_min_payout_minor', 'NGN'), feeBps: cfg.fundme_fee_bps, feeFixedMinor: curVal(cfg, 'fundme_fee_fixed_minor', 'NGN'),
+      payoutSchedule: payoutMode(cfg), payoutDay: payoutDay(cfg), nextPayoutRun: payoutMode(cfg) === 'monthly' ? nextRunDate(cfg).toISOString().slice(0, 10) : null, scheduleText: payoutScheduleText(cfg) },
+    settlementCurrency: 'NGN',
+    kyc: kycShape(await getKyc(c.env, f.owner_id)),
+    donations: dons.map((d) => ({ ...donationShape(d, 'owner'), payoutRun: payoutMode(cfg) === 'monthly' && d.received_at && ['processing', 'under_review', 'verified', 'approved_for_payout'].includes(d.settlement_status) && !d.payout_id ? runForDonation(cfg, d.received_at).toISOString().slice(0, 10) : null })),
     payouts: pays.map((p) => ({ ...payoutShape(p), timeline: pev.filter((e) => e.payout_id === p.id).map(eventShape).map((e) => ({ ...e, meta: undefined })) })),
     bankAccount: bankShape(acct),
-    explain: 'Donations are paid to BibleNestra and held safely. After checks and the hold period they are approved and paid to your verified bank account.',
+    explain: `Donations are paid to BibleNestra and held safely in Naira. ${payoutScheduleText(cfg)} Payouts need a verified bank account and an approved identity check (KYC).`,
   });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Payout KYC (lib/kyc.js) — Fund Me beneficiaries and gift-earnings withdrawals
+// ---------------------------------------------------------------------------------------------------------------
+fundmeMoney.get('/payout-kyc', async (c) => {
+  const me = c.get('user');
+  return c.json({ kyc: kycShape(await getKyc(c.env, me.id)), idTypes: Object.entries(KYC_ID_TYPES).map(([value, label]) => ({ value, label })), canResolve: paystackConfigured(c.env),
+    explain: 'Before BibleNestra pays out Fund Me donations or gift earnings, we check who you are. Give your BVN, NIN or another national ID, your legal name and a bank account in that same name. Our team reviews it.' });
+});
+
+fundmeMoney.put('/payout-kyc', async (c) => {
+  const me = c.get('user');
+  await rateLimit(c.env, `payout_kyc:${me.id}`, 10, 600);
+  const b = await body(c);
+  const kyc = await submitKyc(c, me, b);
+  return c.json({ kyc, note: 'Thanks — our team checks your details. Payouts and withdrawals can be approved once your identity check is approved.' });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -414,6 +444,53 @@ fundmeMoney.post('/admin/api/fundme/bank-accounts/:userId/:action', async (c) =>
   await audit(c.env, me, `fundme.bank.${action}`, 'user', uid, { last4: a.account_last4, bank: a.bank_name, note });
   await walletNotify(c, { userId: uid, kind: 'fundme_payout', title: action === 'verify' ? 'Bank details confirmed' : 'Please check your bank details', body: action === 'verify' ? `Payouts will go to ${a.bank_name} •••• ${a.account_last4}.` : `We couldn’t confirm your bank details: ${note}`, data: { screen: 'FundMePayoutAccount' } });
   return c.json({ account: bankShape(r, { admin: true }) });
+});
+
+// Monthly payouts: what is due in this run (per request, totals per currency) and "paid by hand with a reference".
+fundmeMoney.get('/admin/api/fundme/due', async (c) => c.json(await dueThisRun(c.env)));
+
+fundmeMoney.post('/admin/api/fundme/due/:fundraiserId/paid', async (c) => {
+  const me = c.get('user');
+  const fid = idParam(c, 'fundraiserId');
+  const b = await body(c);
+  const p = await payDueRequest(c, me, fid, { reference: b.reference, note: str(b.note, { max: 500, field: 'Note', optional: true }) });
+  await audit(c.env, me, 'fundme.payout.run_paid', 'payout', p.id, { fundraiserId: fid, reference: p.provider_ref, amountMinor: Number(p.amount_minor), currency: p.currency });
+  const now = await one(c.env, `${PAY_SELECT} WHERE p.id = $1`, [p.id]);
+  return c.json({ ok: true, payout: payoutShape(now) });
+});
+
+fundmeMoney.get('/admin/api/fundme/kyc', async (c) => {
+  const st = c.req.query('status') || 'pending_review';
+  if (!['pending_review', 'approved', 'rejected'].includes(st)) throw bad('Unknown status');
+  const rows = await q(c.env, `SELECT k.*, u.display_name, u.handle, ba.status AS bank_status, ba.bank_code AS fb_code, ba.account_last4 AS fb_last4
+      FROM payout_kyc k JOIN users u ON u.id = k.user_id LEFT JOIN fundme_bank_accounts ba ON ba.user_id = k.user_id
+      WHERE k.status = $1 ORDER BY k.updated_at DESC LIMIT 200`, [st]);
+  const counts = await q(c.env, 'SELECT status, COUNT(*)::int AS n FROM payout_kyc GROUP BY status');
+  return c.json({
+    items: rows.map((k) => ({ ...kycShape(k, { admin: true }), displayName: k.display_name, handle: k.handle,
+      fundmeBank: k.bank_status ? { status: k.bank_status, sameAccount: k.fb_code === k.bank_code && k.fb_last4 === k.account_last4 } : null })),
+    counts: Object.fromEntries(counts.map((r) => [r.status, r.n])),
+  });
+});
+
+fundmeMoney.post('/admin/api/fundme/kyc/:userId/:action', async (c) => {
+  const me = c.get('user');
+  const uid = idParam(c, 'userId');
+  const action = c.req.param('action');
+  const b = await body(c).catch(() => ({}));
+  const reason = str(b.reason, { max: 500, field: 'Reason', optional: true });
+  if (action === 'reveal') {
+    const r = await revealKycId(c.env, uid);
+    await audit(c.env, me, 'kyc.reveal', 'user', uid, { idType: r.idType });
+    return c.json(r);
+  }
+  if (!['approve', 'reject'].includes(action)) throw notFound('Unknown action');
+  const r = await reviewKyc(c.env, me, uid, action, reason);
+  await audit(c.env, me, `kyc.${action}`, 'user', uid, { reason, bankVerified: r.bankVerified });
+  await walletNotify(c, { userId: uid, kind: 'fundme_payout', title: action === 'approve' ? 'Identity check approved' : 'Please check your identity details',
+    body: action === 'approve' ? 'Your payout identity check (KYC) is approved. Payouts and withdrawals can now be approved.' : `We couldn’t approve your identity check: ${reason}`,
+    data: { screen: 'PayoutKyc' } });
+  return c.json(r);
 });
 
 fundmeMoney.get('/admin/api/fundme/rules', async (c) => {

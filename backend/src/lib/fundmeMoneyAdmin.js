@@ -1,12 +1,21 @@
 // FUND ME MONEY: the "Donations & payouts" section of Admin › Wallets & payments (wallet-core.md §9 hook point).
 // Registered with registerAdminScript() from routes/fundmeMoney.js. Plain JS in a string: NO backticks and no dollar-brace
 // inside. Uses ctx = { api, toast, esc, h, open } from the wallet tab; h() builds DOM with textContent (no HTML injection).
-// Views: Donations (filters, CSV, detail + status history + actions) · Payout queue · Payouts · Reconciliation ·
-// Suspicious · Moderation · Bank accounts · Credits · Rules.
+// Views: Donations (filters, CSV, detail + fee breakdown + status history + actions) · Due this run (monthly payouts,
+// mark paid by hand) · Payout queue · Payouts · KYC (payout identity checks) · Reconciliation · Suspicious · Moderation ·
+// Bank accounts · Credits · Rules.
 export const FUNDME_MONEY_ADMIN_SCRIPT = `
 (function(){
 var SYM = { NGN: '₦', GBP: '£', USD: '$', EUR: '€' };
 function money(m, cur){ return (SYM[cur] || ((cur || '') + ' ')) + (Number(m || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+function feeLine(x){
+  if (!x || !x.fees) return '';
+  var o = x.original || {}, ch = x.charged || {};
+  return 'Donor gave ' + money(o.amountMinor, o.currency) + (o.currency !== 'NGN' && o.fxRate ? ' at ₦' + o.fxRate + '/' + o.currency : '') +
+    ' · charged ' + money(ch.amountMinor, ch.currency) + ' · BibleNestra fee ' + money(x.fees.platformMinor, x.fees.currency) +
+    ' · Paystack fee (est.) ' + money(x.fees.processingMinor, x.fees.currency) + ' · VAT ' + money(x.fees.vatMinor, x.fees.currency) +
+    ' · ' + (x.coverFees ? 'donor covered the fees' : 'fees taken from the gift');
+}
 function when(s){ if (!s) return '—'; return new Date(s).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 function qs(o){ var p = []; Object.keys(o).forEach(function(k){ if (o[k] !== '' && o[k] != null) p.push(encodeURIComponent(k) + '=' + encodeURIComponent(o[k])); }); return p.length ? '?' + p.join('&') : ''; }
 var STATUS = [['', 'All'], ['pending', 'Pending'], ['processing', 'Processing'], ['under_review', 'Under review'], ['verified', 'Verified'], ['approved_for_payout', 'Approved for payout'], ['paid', 'Paid'], ['refunded', 'Refunded'], ['failed', 'Failed'], ['flagged', 'Flagged']];
@@ -32,7 +41,7 @@ async function downloadCsv(path, toast){
 
 (window.__walletSections = window.__walletSections || []).push({ title: 'Donations & payouts', render: function(box, ctx){
   var h = ctx.h, api = ctx.api, toast = ctx.toast;
-  var VIEWS = ['Donations', 'Payout queue', 'Payouts', 'Reconciliation', 'Suspicious', 'Moderation', 'Bank accounts', 'Credits', 'Rules'];
+  var VIEWS = ['Donations', 'Due this run', 'Payout queue', 'Payouts', 'KYC', 'Reconciliation', 'Suspicious', 'Moderation', 'Bank accounts', 'Credits', 'Rules'];
   var view = 'Donations';
   box.appendChild(h('p', { class: 'meta', text: 'Fund Me donations are paid to BibleNestra (Paystack) and held for the beneficiary. Flow: pending → processing (received) → verified → approved for payout → paid. Every action here is logged.' }));
   var nav = h('div', { class: 'row', style: 'gap:6px;margin:8px 0 12px' }); box.appendChild(nav);
@@ -75,7 +84,7 @@ async function downloadCsv(path, toast){
         if (!d.items.length) { list.appendChild(h('div', { class: 'card', text: 'No donations match.' })); return; }
         list.appendChild(table([
           ['When', function(x){ return when(x.createdAt); }],
-          ['Amount', function(x){ return money(x.amountMinor, x.currency) + (x.feeMinor ? ' (fee ' + money(x.feeMinor, x.currency) + ')' : ''); }],
+          ['Amount', function(x){ return money(x.amountMinor, x.currency) + (x.feeMinor ? ' (fee ' + money(x.feeMinor, x.currency) + ')' : '') + (x.original && x.original.currency !== x.currency ? ' · gave ' + money(x.original.amountMinor, x.original.currency) : ''); }],
           ['Status', function(x){ return h('div', {}, [chip(x.status, x.statusLabel), x.test ? chip('mut', 'test') : '', flags(x.riskFlags)]); }],
           ['Request / beneficiary', function(x){ return (x.fundraiserTitle || '') + ' — ' + (x.beneficiaryName || x.beneficiaryId || ''); }],
           ['Donor', function(x){ return (x.name || '') + (x.donorEmail ? ' · ' + x.donorEmail : ''); }],
@@ -94,6 +103,7 @@ async function downloadCsv(path, toast){
       wrap.appendChild(h('div', { class: 'row' }, [h('b', { text: money(x.amountMinor, x.currency) + ' → ' + (x.fundraiserTitle || '') }), chip(x.status, x.statusLabel), h('button', { class: 'btn small ghost', text: 'Close', onclick: function(){ wrap.remove(); } })]));
       wrap.appendChild(h('div', { class: 'meta', text: 'Fee ' + money(x.feeMinor, x.currency) + ' · net held for beneficiary ' + money(x.netMinor, x.currency) + ' · provider ' + x.provider + (x.test ? ' (TEST — no money)' : '') + ' · ref ' + (x.reference || '—') + ' · receipt ' + (x.receiptNo || '—') }));
       wrap.appendChild(h('div', { class: 'meta', text: 'Donor ' + (x.name || '') + (x.donorId ? ' (' + x.donorId + ')' : ' (guest)') + ' · beneficiary ' + (x.beneficiaryName || '') + ' (' + (x.beneficiaryId || '') + ')' + (x.payoutId ? ' · in payout ' + x.payoutId : '') }));
+      wrap.appendChild(h('div', { class: 'meta', text: feeLine(x) }));
       if ((x.riskFlags || []).length) wrap.appendChild(flags(x.riskFlags));
       wrap.appendChild(h('div', { class: 'eyebrow', style: 'margin-top:10px', text: 'Status history' }));
       wrap.appendChild(table([['When', function(e){ return when(e.at); }], ['Change', function(e){ return (e.from || '—') + ' → ' + e.to; }], ['By', function(e){ return e.actor + (e.actorName ? ' (' + e.actorName + ')' : ''); }], ['Why', function(e){ return e.reason || ''; }]], d.history));
@@ -104,6 +114,7 @@ async function downloadCsv(path, toast){
       var LABEL = { verify: 'Verify', approve: 'Approve for payout', unapprove: 'Back to verified', review: 'Put under review', fail: 'Mark failed', refund: 'Refund (record)', recheck: 'Re-check with Paystack' };
       d.actions.forEach(function(a){
         row.appendChild(h('button', { class: 'btn small' + (a === 'refund' || a === 'fail' ? ' danger' : a === 'verify' || a === 'approve' ? '' : ' ghost'), text: LABEL[a] || a, onclick: function(ev){
+          if (a === 'refund' && !confirm('Donations are non-refundable to donors: refund ONLY for an error or fraud. Continue?')) return;
           if (a === 'refund' && !confirm('Record a refund of ' + money(x.amountMinor, x.currency) + '? Refund the donor in the Paystack dashboard too (or it is sent through Paystack when keys are set and you choose OK on the next question).')) return;
           var via = a === 'refund' && x.provider === 'paystack' ? confirm('Send the refund through Paystack now?') : false;
           act('POST', '/admin/api/fundme/donations/' + x.id + '/' + a, function(){ return { reason: reason.value.trim(), viaPaystack: via }; }, 'Done', function(){ wrap.remove(); detail(x.id); })(ev);
@@ -112,6 +123,59 @@ async function downloadCsv(path, toast){
       wrap.appendChild(row);
     }).catch(fail(wrap));
   }
+
+  // ── Due this run (monthly payouts) ───────────────────────────────────────────────────────────────────────────
+  R['Due this run'] = function(el){
+    loading(el);
+    api('GET', '/admin/api/fundme/due').then(function(d){
+      el.innerHTML = '';
+      el.appendChild(h('div', { class: 'card' }, [
+        h('b', { text: d.monthly ? 'Monthly run: ' + d.runDate + ' (day ' + d.payoutDay + ')' : 'On-demand payouts (no monthly run)' }),
+        h('p', { class: 'meta', text: d.explain }),
+        h('p', { class: 'meta', text: 'Totals: ' + (d.totals.length ? d.totals.map(function(t){ return money(t.readyMinor, t.currency) + ' ready (' + money(t.payableMinor, t.currency) + ' payable now, ' + t.payable + '/' + t.requests + ' requests) · ' + money(t.checkingMinor, t.currency) + ' still being checked'; }).join(' · ') : 'nothing due') + (d.lastRun ? ' · last run ' + d.lastRun.runDate + ': ' + d.lastRun.approved + ' approved' : '') }),
+      ]));
+      if (!d.items.length) { el.appendChild(h('div', { class: 'card', text: 'Nothing due in this run.' })); return; }
+      d.items.forEach(function(x){
+        var ref = h('input', { placeholder: 'Bank transfer reference', style: 'min-width:220px' });
+        var note = h('input', { placeholder: 'Note (optional)' });
+        el.appendChild(h('div', { class: 'card' }, [
+          h('div', { class: 'row' }, [h('b', { text: money(x.readyMinor, x.currency) }), chip(x.payable ? 'verified' : 'under_review', x.payable ? 'payable' : 'blocked'), h('span', { class: 'meta', text: x.title + ' → ' + (x.beneficiaryName || '') + (x.beneficiaryHandle ? ' @' + x.beneficiaryHandle : '') })]),
+          h('div', { class: 'meta', text: x.readyCount + ' verified donation(s) · ' + money(x.checkingMinor, x.currency) + ' still being checked (' + x.checkingCount + ') · KYC ' + x.kycStatus.replace('_', ' ') + ' · bank ' + (x.bank ? x.bank.status.replace('_', ' ') + ' ' + x.bank.bankName + ' •••• ' + x.bank.last4 : 'none') + ' · minimum ' + money(x.minPayoutMinor, x.currency) + (x.blockers.length ? ' · blocked: ' + x.blockers.join(', ') : '') + (x.openPayouts.length ? ' · open payouts: ' + x.openPayouts.map(function(p){ return money(p.amountMinor, p.currency) + ' ' + p.status; }).join(', ') : '') }),
+          h('div', { class: 'row', style: 'gap:6px;margin-top:8px;flex-wrap:wrap' }, [ref, note,
+            h('button', { class: 'btn small', text: 'Mark paid (paid by hand)', onclick: function(ev){ if (ref.value.trim().length < 4) { toast('Enter the bank transfer reference', true); return; } if (!confirm('Mark ' + money(x.readyMinor, x.currency) + ' to ' + (x.beneficiaryName || 'the beneficiary') + ' as PAID with reference ' + ref.value.trim() + '?')) return; act('POST', '/admin/api/fundme/due/' + x.fundraiserId + '/paid', function(){ return { reference: ref.value.trim(), note: note.value.trim() }; }, 'Marked paid — beneficiary notified', function(){ go('Due this run'); })(ev); } }),
+            h('button', { class: 'btn small ghost', text: 'Donations', onclick: function(){ go('Donations', { fundraiserId: x.fundraiserId }); } }),
+            x.kycStatus !== 'approved' ? h('button', { class: 'btn small ghost', text: 'KYC', onclick: function(){ go('KYC', { status: x.kycStatus === 'none' ? 'pending_review' : x.kycStatus }); } }) : '',
+          ]),
+        ]));
+      });
+    }).catch(fail(el));
+  };
+
+  // ── KYC (payout identity checks — Fund Me payouts AND gift-earnings withdrawals) ─────────────────────────────
+  R['KYC'] = function(el, preset){
+    var status = preset.status || 'pending_review';
+    var bar = h('div', { class: 'row', style: 'gap:6px;margin-bottom:8px' }); el.appendChild(bar);
+    var list = h('div'); el.appendChild(list); loading(list);
+    api('GET', '/admin/api/fundme/kyc?status=' + status).then(function(d){
+      [['pending_review', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Rejected']].forEach(function(s){ bar.appendChild(h('button', { class: 'btn small' + (s[0] === status ? '' : ' ghost'), text: s[1] + (d.counts[s[0]] ? ' · ' + d.counts[s[0]] : ''), onclick: function(){ go('KYC', { status: s[0] }); } })); });
+      list.innerHTML = '';
+      list.appendChild(h('p', { class: 'meta', text: 'A payout (Fund Me) or gift-earnings withdrawal can only be approved for a member whose KYC is approved. The legal name must match the bank account name (same words, any order; middle names ignored).' }));
+      if (!d.items.length) { list.appendChild(h('div', { class: 'card', text: 'None.' })); return; }
+      d.items.forEach(function(k){
+        var note = h('input', { placeholder: 'Reason (to reject; the member sees it)', style: 'min-width:240px' });
+        list.appendChild(h('div', { class: 'card' }, [
+          h('div', { class: 'row' }, [h('b', { text: k.displayName + (k.handle ? ' @' + k.handle : '') }), chip(k.status === 'approved' ? 'verified' : k.status === 'rejected' ? 'failed' : 'under_review', k.statusLabel)]),
+          h('div', { class: 'meta', text: k.idTypeLabel + ' ' + k.idNumberMasked + ' · legal name “' + k.legalName + '” · ' + k.bankName + ' ' + k.accountNumberMasked + ' “' + k.accountName + '” ' + (k.nameResolved ? '(name from Paystack)' : '(name typed by the member — check it)') + ' · name match ' + (k.nameMatch ? 'yes' : 'NO') + ' · submitted ' + when(k.submittedAt) + (k.fundmeBank ? ' · Fund Me bank ' + k.fundmeBank.status.replace('_', ' ') + (k.fundmeBank.sameAccount ? ' (same account)' : ' (DIFFERENT account)') : '') + (k.reviewNote ? ' · note: ' + k.reviewNote : '') }),
+          h('div', { class: 'row', style: 'gap:6px;margin-top:8px;flex-wrap:wrap' }, [
+            k.status !== 'approved' ? h('button', { class: 'btn small', text: 'Approve', onclick: act('POST', '/admin/api/fundme/kyc/' + k.userId + '/approve', null, 'Approved', function(){ go('KYC', { status: status }); }) }) : '',
+            note,
+            h('button', { class: 'btn small danger', text: 'Reject', onclick: function(ev){ if (note.value.trim().length < 3) { toast('Add a reason', true); return; } act('POST', '/admin/api/fundme/kyc/' + k.userId + '/reject', function(){ return { reason: note.value.trim() }; }, 'Rejected', function(){ go('KYC', { status: status }); })(ev); } }),
+            h('button', { class: 'btn small ghost', text: 'Reveal ID + account (logged)', onclick: function(ev){ act('POST', '/admin/api/fundme/kyc/' + k.userId + '/reveal', null, 'Revealed', function(r){ ev.target.replaceWith(h('b', { text: r.idType.toUpperCase() + ' ' + r.idNumber + ' · account ' + r.accountNumber })); })(ev); } }),
+          ]),
+        ]));
+      });
+    }).catch(fail(list));
+  };
 
   // ── Payout queue ─────────────────────────────────────────────────────────────────────────────────────────────
   R['Payout queue'] = function(el){

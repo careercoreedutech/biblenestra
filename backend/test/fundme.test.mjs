@@ -401,6 +401,17 @@ const setRule = async (key, value) => { const r = await call('admin', 'PUT', '/a
 const publishOps = async (fid) => (await env.__db.query(`SELECT COUNT(*)::int AS n FROM wallet_ops WHERE ref = $1`, [`fundme_publish:${fid}`]))[0].n;
 const donationRow = async (id) => (await env.__db.query('SELECT * FROM donations WHERE id = $1', [id]))[0];
 const adm = (method, path, b) => call('admin', method, path, b);
+// The money-flow tests below check exact ledger amounts, so they switch every fee off; the fee tests set their own.
+const FEE_RULES = { fundme_fee_bps: 0, fundme_paystack_fee_bps: 0, fundme_paystack_fee_flat_minor: 0, fundme_vat_bps: 0 };
+const zeroFees = async () => { for (const [k, v] of Object.entries(FEE_RULES)) await setRule(k, v); };
+// Payout KYC (lib/kyc.js): submit as the member, approve as staff
+async function approvedKyc(name, { bankCode = '058', accountNumber = '0123456789', legalName = 'Nkem Obi', e } = {}) {
+  const s = await call(name, 'PUT', '/payout-kyc', { idType: 'nin', idNumber: '12345678901', legalName, bankCode, accountNumber, accountName: legalName }, {}, e);
+  assert.equal(s.status, 200, JSON.stringify(s.json));
+  const a = await adm('POST', `/admin/api/fundme/kyc/${await idOf(name)}/approve`);
+  assert.equal(a.status, 200, JSON.stringify(a.json));
+  return a.json;
+}
 
 test('admin script for "Donations & payouts" is a plain string', () => {
   assert.ok(!FUNDME_MONEY_ADMIN_SCRIPT.includes('`') && !FUNDME_MONEY_ADMIN_SCRIPT.includes('${'));
@@ -478,8 +489,9 @@ test('publishing limits (per day, per 30 days, active) are admin-configurable', 
   await adm('POST', `/admin/api/fundme/${b.id}/reject`, { reason: 'Fix the photo' });
   await setRule('fundme_max_requests_per_day', 1);
   assert.equal((await call('lena', 'POST', `/fundraisers/${b.id}/submit`)).status, 200);
-  await setRule('fundme_max_requests_per_day', 2);
-  await setRule('fundme_max_active_requests', 3);
+  await setRule('fundme_max_requests_per_day', 0);
+  await setRule('fundme_max_requests_per_month', 0);
+  await setRule('fundme_max_active_requests', 0);
   assert.equal((await adm('PUT', '/admin/api/fundme/rules', { key: 'fundme_max_requests_per_day', value: -1 })).json.code, 'BAD_CONFIG');
   assert.equal((await adm('PUT', '/admin/api/fundme/rules', { key: 'gift_commission_bps', value: 1 })).json.code, 'BAD_CONFIG');
   assert.equal((await call('lena', 'PUT', '/admin/api/fundme/rules', { key: 'fundme_fee_bps', value: 0 })).status, 403);
@@ -584,7 +596,7 @@ const PSK = 'sk_live_fundme_secret';
 const PSK_TEST = 'sk_test_fundme_secret'; // Paystack test keys: donations are marked is_test (never real money)
 const penv = (extra = {}) => ({ ...env, PAYMENTS_MODE: '', PAYSTACK_SECRET_KEY: PSK, ...extra });
 const sign = (raw, key = PSK) => createHmac('sha512', key).update(raw).digest('hex');
-const paystack = { verify: {}, transfers: [] };
+const paystack = { verify: {}, transfers: [], initialized: {} };
 function mockPaystack() {
   const real = globalThis.fetch;
   globalThis.fetch = async (url, opts = {}) => {
@@ -594,7 +606,8 @@ function mockPaystack() {
     const json = (data) => new Response(JSON.stringify({ status: true, message: 'ok', data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (u.endsWith('/transaction/initialize')) {
       const b = JSON.parse(opts.body);
-      assert.ok(b.email && b.amount > 0 && b.reference && b.currency === 'NGN');
+      assert.ok(b.email && b.amount > 0 && b.reference && ['NGN', 'USD'].includes(b.currency));
+      paystack.initialized[b.reference] = b;
       return json({ authorization_url: `https://checkout.paystack.com/${b.reference}`, access_code: 'ac_1', reference: b.reference });
     }
     const m = u.match(/\/transaction\/verify\/(.+)$/);
@@ -624,6 +637,7 @@ let NG; let D1; let D2;
 test('Paystack donations: hosted checkout, signature check, server-side verify before recording, idempotent', async () => {
   const restore = mockPaystack();
   try {
+    await zeroFees();
     NG = await liveFundraiser('nkem', { currency: 'NGN', goalMinor: 50000000 });
     const E = penv();
     const info = (await call('uche', 'GET', `/fundraisers/${NG.id}`, undefined, {}, E)).json;
@@ -687,9 +701,13 @@ test('Paystack donations: hosted checkout, signature check, server-side verify b
     paystack.verify[D5] = { status: 'failed' };
     await env.__db.query(`UPDATE donations SET created_at = now() - interval '1 minute' WHERE id = $1`, [D5]);
     assert.equal((await call(null, 'GET', `/f/${NG.slug}/donations/${D5}`, undefined, {}, E)).json.settlementStatus, 'failed');
-    // Paystack is NGN-only here
+    // Paystack is NGN-only here: a GBP request still takes donations — converted to NGN at the admin rate and charged in NGN
     const gbp = await liveFundraiser('walt');
-    assert.equal((await call('uche', 'POST', `/f/${gbp.slug}/donations`, { amount_minor: 1000, email: 'u@example.com' }, {}, E)).json.code, 'CURRENCY_NOT_SUPPORTED');
+    const gd = await call('uche', 'POST', `/f/${gbp.slug}/donations`, { amount_minor: 1000, email: 'u@example.com' }, {}, E);
+    assert.equal(gd.status, 201, JSON.stringify(gd.json));
+    const gr = await donationRow(gd.json.donationId);
+    assert.deepEqual([gr.original_currency, Number(gr.original_amount_minor), gr.charge_currency, Number(gr.charge_amount_minor), gr.currency], ['GBP', 1000, 'NGN', 1000 * FM.FX_SEED.GBP, 'NGN']);
+    assert.equal((await call('uche', 'POST', `/f/${gbp.slug}/donations`, { amount_minor: 1000, currency: 'JPY', email: 'u@example.com' }, {}, E)).json.code, 'CURRENCY_NOT_SUPPORTED');
     // testers can make test donations even when Paystack is on; others can't
     const TE = penv({ WALLET_TEST_PURCHASES: 'true', WALLET_TESTERS: 'tessa' });
     const td = await call('tessa', 'POST', `/f/${NG.slug}/donations`, { amount_minor: 100000, provider: 'test' }, {}, TE);
@@ -709,7 +727,7 @@ test('verify → hold → approve → payout needs a verified bank account → p
   // forbidden transition over HTTP
   assert.equal((await adm('POST', `/admin/api/fundme/donations/${D1}/approve`)).json.code, 'BAD_STATUS');
   assert.equal((await adm('POST', `/admin/api/fundme/donations/${D1}/verify`)).json.donation.status, 'verified');
-  assert.equal((await adm('POST', `/admin/api/fundme/donations/${D1}/approve`)).json.code, 'ON_HOLD', 'default 3-day hold');
+  assert.equal((await adm('POST', `/admin/api/fundme/donations/${D1}/approve`)).json.code, 'ON_HOLD', 'default 7-day hold');
   await setRule('fundme_payout_hold_days', 0);
   assert.equal((await adm('POST', `/admin/api/fundme/donations/${D1}/approve`)).json.donation.status, 'approved_for_payout');
   const det = (await adm('GET', `/admin/api/fundme/donations/${D1}`)).json;
@@ -735,6 +753,9 @@ test('verify → hold → approve → payout needs a verified bank account → p
   assert.equal((await adm('POST', `/admin/api/fundme/bank-accounts/${nkemId}/verify`)).json.account.status, 'verified');
   assert.equal((await adm('POST', `/admin/api/fundme/bank-accounts/${nkemId}/reveal`)).json.accountNumber, '0123456789');
   assert.ok((await env.__db.query(`SELECT 1 FROM admin_actions WHERE action = 'fundme.bank.reveal'`)).length === 1, 'reveals are logged');
+  // payout KYC: no payout until the beneficiary's identity check is approved
+  assert.equal((await adm('POST', '/admin/api/fundme/payouts', { fundraiserId: NG.id })).json.code, 'KYC_REQUIRED');
+  await approvedKyc('nkem');
   // minimum payout
   await setRule('fundme_min_payout_minor', { NGN: 100000000, GBP: 1000, USD: 1000, EUR: 1000 });
   assert.equal((await adm('POST', '/admin/api/fundme/payouts', { fundraiserId: NG.id })).json.code, 'BELOW_MINIMUM');
@@ -765,6 +786,8 @@ test('verify → hold → approve → payout needs a verified bank account → p
   assert.equal((await adm('POST', `/admin/api/fundme/payouts/${P.id}/paid`, { reference: 'GTB-1' })).json.code, 'BAD_STATUS');
   assert.equal((await adm('POST', `/admin/api/fundme/payouts/${P.id}/clear`)).json.code, 'NO_PAYOUT_ACCOUNT');
   await adm('POST', `/admin/api/fundme/bank-accounts/${nkemId}/verify`);
+  assert.equal((await adm('POST', `/admin/api/fundme/payouts/${P.id}/clear`)).json.code, 'KYC_BANK_MISMATCH', 'the new account wasn’t checked in KYC');
+  await approvedKyc('nkem', { bankCode: '044', accountNumber: '9876543210' });
   assert.equal((await adm('POST', `/admin/api/fundme/payouts/${P.id}/clear`)).json.payout.status, 'approved');
   // mark paid with the bank reference
   assert.equal((await adm('POST', `/admin/api/fundme/payouts/${P.id}/paid`, {})).json.code, 'REFERENCE_REQUIRED');
@@ -887,4 +910,265 @@ test('Paystack test keys (sk_test_…) mark donations as test money, never real'
     const live = await call('uche', 'POST', `/f/${fr.slug}/donations`, { amount_minor: 300000, email: 'uche@example.com' }, {}, penv());
     assert.equal((await donationRow(live.json.donationId)).is_test, false, 'live keys stay real');
   } finally { restore(); }
+});
+
+// =====================================================================================================================
+// CLIENT ANSWERS (2026-11-21): defaults, fees + VAT, any currency, payout KYC, monthly payouts, no refunds to donors
+// =====================================================================================================================
+import * as KYC from '../src/lib/kyc.js';
+const DEF = Object.fromEntries(Object.entries(FM.FUNDME_RULES).map(([k, r]) => [k, r.dflt]));
+
+test('client-answer defaults: hold 7 days, no publishing limits, gift cap 500, 0.2% fee, monthly payouts on day 1', () => {
+  assert.deepEqual([DEF.fundme_payout_hold_days, DEF.fundme_max_requests_per_day, DEF.fundme_max_requests_per_month, DEF.fundme_max_active_requests], [7, 0, 0, 0]);
+  assert.deepEqual([DEF.fundme_credit_gift_max, DEF.fundme_fee_bps], [500, 20]);
+  assert.match(FM.FUNDME_RULES.fundme_fee_bps.label, /client said 0\.2% — confirm whether 2%/);
+  assert.deepEqual([DEF.fundme_paystack_fee_bps, DEF.fundme_paystack_fee_flat_minor, DEF.fundme_paystack_fee_flat_from_minor, DEF.fundme_paystack_fee_cap_minor, DEF.fundme_vat_bps], [150, 10000, 250000, 200000, 750]);
+  assert.deepEqual(DEF.fundme_payout_schedule, { mode: 'monthly', day: 1 });
+  for (const c of ['USD', 'GBP', 'EUR', 'CAD', 'GHS', 'KES', 'ZAR']) assert.ok(DEF.fundme_fx_ngn_per_unit[c] > 0, c);
+  assert.match(FM.FUNDME_RULES.fundme_fx_ngn_per_unit.label, /keep these current/);
+});
+
+test('fee maths: fees taken from the gift, or covered by the donor (beneficiary gets the full gift)', () => {
+  // ₦10,000, not covered: 0.2% = ₦20 · Paystack 1.5% + ₦100 = ₦250 · VAT 7.5% of ₦270 = ₦20.25
+  const out = FM.feeBreakdown(DEF, 1000000, { coverFees: false });
+  assert.deepEqual([out.platformFeeMinor, out.processingFeeMinor, out.vatMinor, out.totalMinor, out.netMinor], [2000, 25000, 2025, 1000000, 970975]);
+  // ₦10,000, covered: the donor pays ₦10,295.01 and the beneficiary gets exactly ₦10,000
+  const cov = FM.feeBreakdown(DEF, 1000000, { coverFees: true });
+  assert.deepEqual([cov.totalMinor, cov.netMinor, cov.platformFeeMinor, cov.processingFeeMinor, cov.vatMinor], [1029501, 1000000, 2000, 25443, 2058]);
+  assert.equal(cov.processingFeeMinor, FM.processingFeeEstimate(DEF, cov.totalMinor), 'the Paystack fee is on what is actually charged');
+  assert.equal(cov.vatMinor, FM.vatOn(DEF, cov.platformFeeMinor + cov.processingFeeMinor));
+  // no ₦100 flat fee under ₦2,500; the ₦2,000 cap on big gifts
+  assert.equal(FM.processingFeeEstimate(DEF, 249999), 3750);
+  assert.equal(FM.processingFeeEstimate(DEF, 250000), 3750 + 10000);
+  assert.equal(FM.processingFeeEstimate(DEF, 50000000), 200000);
+  const big = FM.feeBreakdown(DEF, 50000000, { coverFees: true });
+  assert.deepEqual([big.processingFeeMinor, big.netMinor], [200000, 50000000]);
+  assert.equal(big.totalMinor, 50000000 + 100000 + 200000 + FM.vatOn(DEF, 300000));
+  // covering crosses the ₦2,500 threshold: the flat fee is included, the beneficiary still gets the gift
+  const edge = FM.feeBreakdown(DEF, 247000, { coverFees: true });
+  assert.ok(edge.totalMinor >= 250000 && edge.netMinor === 247000 && edge.processingFeeMinor === FM.processingFeeEstimate(DEF, edge.totalMinor));
+  // every covered gift from ₦5 to ₦100,000: net === gift and total = gift + fees
+  for (let g = 500; g <= 10000000; g = Math.ceil(g * 1.37) + 7) {
+    const b = FM.feeBreakdown(DEF, g, { coverFees: true });
+    assert.equal(b.netMinor, g, `gift ${g}`);
+    assert.equal(b.totalMinor, g + b.feesMinor, `gift ${g}`);
+  }
+  // fees switched off → nothing changes
+  const zero = FM.feeBreakdown({ ...DEF, fundme_fee_bps: 0, fundme_paystack_fee_bps: 0, fundme_paystack_fee_flat_minor: 0, fundme_vat_bps: 0 }, 123456, { coverFees: true });
+  assert.deepEqual([zero.totalMinor, zero.netMinor, zero.feesMinor], [123456, 123456, 0]);
+});
+
+test('currency conversion: charge in the donor’s currency when Paystack lists it, else NGN at the admin rate', () => {
+  // $20 to an NGN request, Paystack NGN-only → converted at ₦1,500 and charged in NGN; both amounts kept
+  const a = FM.donationQuote(DEF, { amountMinor: 2000, currency: 'USD', coverFees: false, chargeCurrencies: ['NGN'], fundraiserCurrency: 'NGN' });
+  assert.deepEqual([a.giftNgnMinor, a.chargeCurrency, a.chargeAmountMinor, a.converted, a.fxRate, a.chargeFxRate], [3000000, 'NGN', 3000000, true, 1500, 1]);
+  assert.equal(a.netMinor, 3000000 - a.feesMinor);
+  assert.equal(a.raisedMinor, 3000000, 'NGN request counts the gift in NGN');
+  // a GBP request counts the gift in GBP (3,000,000 kobo / 1950)
+  assert.equal(FM.donationQuote(DEF, { amountMinor: 2000, currency: 'USD', coverFees: false, fundraiserCurrency: 'GBP' }).raisedMinor, Math.round(3000000 / 1950));
+  // same currency as the request → the gift itself
+  assert.equal(FM.donationQuote(DEF, { amountMinor: 2000, currency: 'GBP', coverFees: true, fundraiserCurrency: 'GBP' }).raisedMinor, 2000);
+  // USD listed in PAYSTACK_CURRENCIES → charged in USD (rounded UP when covering), settled ≥ the NGN total
+  const u = FM.donationQuote(DEF, { amountMinor: 2000, currency: 'USD', coverFees: true, chargeCurrencies: ['NGN', 'USD'], fundraiserCurrency: 'NGN' });
+  assert.equal(u.chargeCurrency, 'USD');
+  assert.equal(u.chargeAmountMinor, Math.ceil(FM.feeBreakdown(DEF, 3000000, { coverFees: true }).totalMinor / 1500));
+  assert.ok(u.totalNgnMinor === u.chargeAmountMinor * 1500 && u.netMinor >= 3000000);
+  assert.equal(FM.donationQuote(DEF, { amountMinor: 2000, currency: 'USD', coverFees: false, chargeCurrencies: ['NGN', 'USD'] }).chargeAmountMinor, 2000, 'not covering: charged exactly the gift');
+  // KES (not in Paystack's list here) → NGN; JPY (no rate) → refused
+  const k = FM.donationQuote(DEF, { amountMinor: 100000, currency: 'KES', coverFees: true });
+  assert.deepEqual([k.chargeCurrency, k.giftNgnMinor, k.netMinor], ['NGN', Math.round(100000 * 11.6), Math.round(100000 * 11.6)]);
+  assert.throws(() => FM.donationQuote(DEF, { amountMinor: 1000, currency: 'JPY', coverFees: false }), (e) => e.code === 'CURRENCY_NOT_SUPPORTED');
+  assert.equal(FM.toNgnMinor(DEF, 1000, 'GBP'), 1950000);
+  assert.equal(FM.fromNgnMinor(DEF, 1950001, 'GBP', { up: true }), 1001);
+  // limits / presets for a currency without its own rules come from NGN's
+  const r = FM.donorCurrencyRules(DEF, 'ZAR', { NGN: { min: 50000, max: 500000000, presets: [200000, 500000] } });
+  assert.ok(r.min > 0 && r.max > r.min && r.presets.every((p) => p >= 100));
+});
+
+test('donating in USD with cover-the-fees: breakdown stored, Paystack charged in USD, verified amount checked, NGN ledger', async () => {
+  const restore = mockPaystack();
+  try {
+    await setRule('fundme_fee_bps', 20); await setRule('fundme_paystack_fee_bps', 150); await setRule('fundme_paystack_fee_flat_minor', 10000); await setRule('fundme_vat_bps', 750);
+    const fr = await liveFundraiser('osas', { currency: 'NGN', goalMinor: 90000000 });
+    const E = penv({ PAYSTACK_CURRENCIES: 'NGN,USD' });
+    const info = (await call('pia', 'GET', `/f/${fr.slug}.json`, undefined, {}, E)).json;
+    assert.equal(info.donationsOpen, true);
+    assert.equal(info.coverFeesDefault, true);
+    assert.match(info.refundPolicy, /non-refundable/);
+    assert.equal(info.donorCurrencies.find((x) => x.code === 'USD').chargedIn, 'USD');
+    assert.equal(info.donorCurrencies.find((x) => x.code === 'GBP').chargedIn, 'NGN');
+    const qt = (await call(null, 'GET', `/f/${fr.slug}/donation-quote?amountMinor=2000&currency=USD&coverFees=true`, undefined, {}, E)).json;
+    assert.deepEqual([qt.chargeCurrency, qt.netMinor, qt.ok], ['USD', qt.totalNgnMinor - qt.feesMinor, true]);
+    assert.ok(qt.netMinor >= 3000000);
+    const r = await call('pia', 'POST', `/f/${fr.slug}/donations`, { amount_minor: 2000, currency: 'USD', coverFees: true, email: 'pia@example.com' }, {}, E);
+    assert.equal(r.status, 201, JSON.stringify(r.json));
+    const id = r.json.donationId;
+    assert.deepEqual([paystack.initialized[id].currency, paystack.initialized[id].amount], ['USD', qt.chargeAmountMinor]);
+    let row = await donationRow(id);
+    assert.deepEqual([row.original_currency, Number(row.original_amount_minor), Number(row.fx_rate), row.charge_currency, Number(row.charge_amount_minor), row.cover_fees, row.currency],
+      ['USD', 2000, 1500, 'USD', qt.chargeAmountMinor, true, 'NGN']);
+    assert.deepEqual([Number(row.fee_minor), Number(row.processing_fee_minor), Number(row.vat_minor), Number(row.net_minor)], [qt.platformFeeMinor, qt.processingFeeMinor, qt.vatMinor, qt.netMinor]);
+    // verification checks the amount actually charged, in the charged currency
+    paystack.verify[id] = { status: 'success', amount: qt.chargeAmountMinor, currency: 'USD' };
+    const held0 = await bal('osas', 'donations_held_ngn');
+    const com0 = await bal('platform', 'commission_ngn');
+    await hook(charge(id), undefined, E);
+    row = await donationRow(id);
+    assert.deepEqual([row.settlement_status, Number(row.charge_amount_minor)], ['processing', qt.chargeAmountMinor]);
+    assert.equal(await bal('osas', 'donations_held_ngn'), held0 + qt.netMinor, 'the beneficiary is held the full gift (NGN)');
+    assert.equal(await bal('platform', 'commission_ngn'), com0 + qt.platformFeeMinor, 'only the BibleNestra fee is commission');
+    assert.equal((await call(null, 'GET', `/f/${fr.slug}.json`, undefined, {}, E)).json.raisedMinor, 3000000);
+    // receipt + admin show the breakdown and both currencies
+    const rc = (await call('pia', 'GET', `/fundme/donations/${id}/receipt`)).json;
+    assert.deepEqual([rc.original.currency, rc.charged.currency, rc.fees.vatMinor, rc.coverFees], ['USD', 'USD', qt.vatMinor, true]);
+    assert.ok(rc.breakdown.some((l) => /VAT/.test(l.label)) && /non-refundable/.test(rc.refundPolicy) && /non-refundable/.test(rc.note));
+    const ad = (await adm('GET', `/admin/api/fundme/donations/${id}`)).json.donation;
+    assert.deepEqual([ad.fees.processingMinor, ad.original.amountMinor, ad.charged.amountMinor], [qt.processingFeeMinor, 2000, qt.chargeAmountMinor]);
+    // charged in the wrong currency → under review, nothing recorded
+    const id2 = (await call('pia', 'POST', `/f/${fr.slug}/donations`, { amount_minor: 2000, currency: 'USD', email: 'pia@example.com' }, {}, E)).json.donationId;
+    paystack.verify[id2] = { status: 'success', amount: 2000, currency: 'NGN' };
+    await hook(charge(id2), undefined, E);
+    assert.deepEqual([(await donationRow(id2)).settlement_status, (await donationRow(id2)).received_at], ['under_review', null]);
+    // not covered, GBP converted to NGN: the fees come out of the gift
+    const id3 = (await call('pia', 'POST', `/f/${fr.slug}/donations`, { amount_minor: 1000, currency: 'GBP', email: 'pia@example.com' }, {}, E)).json.donationId;
+    const r3 = await donationRow(id3);
+    const b3 = FM.feeBreakdown(await W.getConfig(env), 1950000, { coverFees: false });
+    assert.deepEqual([r3.charge_currency, Number(r3.charge_amount_minor), Number(r3.net_minor), r3.cover_fees], ['NGN', 1950000, b3.netMinor, false]);
+    // refunds stay admin-only: the donor has no refund route
+    assert.ok([403, 404, 405].includes((await call('pia', 'POST', `/fundme/donations/${id}/refund`, {})).status));
+    assert.equal((await call('pia', 'POST', `/admin/api/fundme/donations/${id}/refund`, { reason: 'please' })).status, 403);
+  } finally { await zeroFees(); restore(); }
+});
+
+test('payout KYC: fuzzy name match, encrypted ID, staff approval, and the payout guard', async () => {
+  const m = KYC.namesMatch;
+  assert.ok(m('Nkem Obi', 'OBI NKEM'), 'any order, any case');
+  assert.ok(m('Nkem Adaeze Obi', 'OBI, NKEM'), 'middle name ignored');
+  assert.ok(m('Nkem Obi', 'OBI NKEM ADAEZE'));
+  assert.ok(m('Nkem Adaeze Obi', 'Nkem Chioma Obi'), 'different middle names');
+  assert.ok(m('Mrs. Ngozi Okonjo-Iweala', 'OKONJO IWEALA NGOZI'), 'titles and punctuation ignored');
+  assert.ok(m('Chloé Dúbois', 'chloe dubois'), 'accents ignored');
+  assert.ok(!m('Nkem Obi', 'Nkem Okafor'), 'different surname');
+  assert.ok(!m('Nkem Obi', 'Obi'), 'one word is not enough');
+  assert.ok(!m('John Smith', 'Jane Smith'));
+  assert.ok(!m('John Paul Smith', 'John Peter Mark Smith Jones'));
+  // guard
+  const quin = await idOf('quincy');
+  await assert.rejects(KYC.requireApprovedKyc(env, quin), (e) => e.code === 'KYC_REQUIRED' && e.details.kycStatus === 'none');
+  assert.equal((await call('quincy', 'GET', '/payout-kyc')).json.kyc.status, 'none');
+  // validation
+  const put = (b, e) => call('quincy', 'PUT', '/payout-kyc', { idType: 'bvn', idNumber: '22233344455', legalName: 'Quincy Adams', bankCode: '058', accountNumber: '0011223344', accountName: 'Quincy Adams', ...b }, {}, e);
+  assert.equal((await put({ idType: 'passport' })).json.code, 'BAD_ID_TYPE');
+  assert.equal((await put({ idNumber: '123' })).json.code, 'BAD_ID_NUMBER');
+  assert.equal((await put({ legalName: 'Quincy' })).json.code, 'BAD_LEGAL_NAME');
+  assert.equal((await put({ accountName: 'Somebody Else' })).json.code, 'NAME_MISMATCH');
+  // with Paystack keys the bank's own name is used: resolve-account says NKEM OBI → refused
+  const restore = mockPaystack();
+  try {
+    const mm = await put({}, penv());
+    assert.deepEqual([mm.status, mm.json.code, mm.json.accountName], [400, 'NAME_MISMATCH', 'NKEM OBI']);
+  } finally { restore(); }
+  const ok = await put({ accountName: 'ADAMS QUINCY' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.deepEqual([ok.json.kyc.status, ok.json.kyc.idNumberMasked, ok.json.kyc.nameMatch], ['pending_review', '•••• 4455', true]);
+  assert.ok(!JSON.stringify(ok.json).includes('22233344455') && !JSON.stringify(ok.json).includes('0011223344'));
+  const stored = (await env.__db.query('SELECT id_number_enc FROM payout_kyc WHERE user_id = $1', [quin]))[0];
+  assert.ok(stored.id_number_enc.startsWith('v1:') && !stored.id_number_enc.includes('22233344455'), 'ID number encrypted at rest');
+  assert.equal(await FM.decryptField(env, stored.id_number_enc), '22233344455');
+  assert.equal((await call('quincy', 'GET', '/fundme/payout-account')).json.account.last4, '3344', 'KYC keeps the Fund Me payout account in step');
+  await assert.rejects(KYC.requireApprovedKyc(env, quin), (e) => e.code === 'KYC_REQUIRED' && e.details.kycStatus === 'pending_review');
+  // staff only; reject needs a reason; approve verifies the same Fund Me account; reveals are logged
+  assert.equal((await call('quincy', 'POST', `/admin/api/fundme/kyc/${quin}/approve`)).status, 403);
+  assert.ok((await adm('GET', '/admin/api/fundme/kyc')).json.items.some((k) => k.userId === quin));
+  assert.equal((await adm('POST', `/admin/api/fundme/kyc/${quin}/reject`, {})).json.code, 'REASON_REQUIRED');
+  assert.equal((await adm('POST', `/admin/api/fundme/kyc/${quin}/reject`, { reason: 'Photo of ID unreadable' })).json.kyc.status, 'rejected');
+  await assert.rejects(KYC.requireApprovedKyc(env, quin), (e) => e.details.kycStatus === 'rejected');
+  await put({ accountName: 'ADAMS QUINCY' });
+  const ap = (await adm('POST', `/admin/api/fundme/kyc/${quin}/approve`)).json;
+  assert.deepEqual([ap.kyc.status, ap.bankVerified], ['approved', true]);
+  assert.equal((await KYC.requireApprovedKyc(env, quin)).status, 'approved');
+  assert.equal((await adm('POST', `/admin/api/fundme/kyc/${quin}/reveal`)).json.idNumber, '22233344455');
+  assert.ok((await env.__db.query(`SELECT 1 FROM admin_actions WHERE action = 'kyc.reveal'`)).length === 1);
+  assert.ok((await call('quincy', 'GET', '/me/notifications')).json.items.some((n) => /Identity check approved/.test(n.title)));
+  // the payout guard: approved KYC AND the payout account is the KYC-checked one
+  await FM.assertPayoutKyc(env, quin);
+  await call('quincy', 'PUT', '/fundme/payout-account', { bankCode: '044', accountNumber: '5566778899', accountName: 'Quincy Adams' });
+  await assert.rejects(FM.assertPayoutKyc(env, quin), (e) => e.code === 'KYC_BANK_MISMATCH');
+});
+
+test('monthly payouts: run dates, what is due, the cron approves once, staff mark paid by hand', async () => {
+  // pure date logic (UTC): run on day 1; a donation is due in the first run on/after the end of its 7-day hold
+  const cfg = { ...DEF };
+  assert.equal(FM.nextRunDate(cfg, new Date('2026-11-21T10:00:00Z')).toISOString(), '2026-12-01T00:00:00.000Z');
+  assert.equal(FM.nextRunDate(cfg, new Date('2026-12-01T18:00:00Z')).toISOString(), '2026-12-01T00:00:00.000Z', 'the run day itself');
+  assert.equal(FM.nextRunDate({ ...cfg, fundme_payout_schedule: { mode: 'monthly', day: 15 } }, new Date('2026-12-20T00:00:00Z')).toISOString(), '2027-01-15T00:00:00.000Z', 'over the year end');
+  assert.ok(FM.dueInRun(cfg, new Date('2026-11-21T00:00:00Z'), new Date('2026-12-01T00:00:00Z')), 'hold ends Nov 28 → due Dec 1');
+  assert.ok(!FM.dueInRun(cfg, new Date('2026-11-25T12:00:00Z'), new Date('2026-12-01T00:00:00Z')), 'hold ends Dec 2 → next run');
+  assert.equal(FM.runForDonation(cfg, new Date('2026-11-25T12:00:00Z')).toISOString().slice(0, 10), '2027-01-01');
+  assert.equal(FM.runForDonation(cfg, new Date('2026-11-24T00:00:00Z')).toISOString().slice(0, 10), '2026-12-01');
+  assert.ok(!FM.dueInRun(cfg, null, new Date()));
+  // HTTP: real (Paystack) donations for a new beneficiary
+  const restore = mockPaystack();
+  try {
+    await setRule('fundme_payout_hold_days', 7);
+    const fr = await liveFundraiser('rita', { currency: 'NGN', goalMinor: 90000000 });
+    const ids = [];
+    for (const amt of [400000, 250000, 300000]) {
+      const id = await paystackDonation('sola', fr, amt);
+      paystack.verify[id] = { status: 'success', amount: amt };
+      await hook(charge(id));
+      ids.push(id);
+    }
+    await adm('POST', `/admin/api/fundme/donations/${ids[0]}/verify`);
+    await adm('POST', `/admin/api/fundme/donations/${ids[1]}/verify`);
+    // ids[0] (verified) and ids[2] (still being checked) are past the hold; ids[1]'s hold ends long after the next run
+    await env.__db.query(`UPDATE donations SET received_at = now() - interval '40 days' WHERE id = ANY($1::uuid[])`, [[ids[0], ids[2]]]);
+    await env.__db.query(`UPDATE donations SET received_at = now() + interval '60 days' WHERE id = $1`, [ids[1]]);
+    const due = (await adm('GET', '/admin/api/fundme/due')).json;
+    assert.deepEqual([due.schedule, due.monthly, due.runDate], ['monthly', true, FM.nextRunDate(DEF).toISOString().slice(0, 10)]);
+    let row = due.items.find((x) => x.fundraiserId === fr.id);
+    assert.deepEqual([row.readyMinor, row.readyCount, row.checkingMinor, row.payable], [400000, 1, 300000, false]);
+    assert.ok(row.blockers.includes('No KYC'));
+    const tot = due.totals.find((t) => t.currency === 'NGN');
+    assert.ok(tot.readyMinor >= 400000 && tot.checkingMinor >= 300000);
+    assert.equal((await call('rita', 'GET', '/admin/api/fundme/due')).status, 403);
+    // KYC + the same bank account → payable
+    await approvedKyc('rita', { legalName: 'Rita Eze', accountNumber: '1029384756' });
+    row = (await adm('GET', '/admin/api/fundme/due')).json.items.find((x) => x.fundraiserId === fr.id);
+    assert.deepEqual([row.kycStatus, row.bank.status, row.payable], ['approved', 'verified', true]);
+    // the cron claims the month's run once and approves what is verified and past its hold
+    const run = await FM.runFundmePayoutCron(env);
+    assert.ok(run.approved >= 1, JSON.stringify(run));
+    assert.equal((await donationRow(ids[0])).settlement_status, 'approved_for_payout');
+    assert.equal((await donationRow(ids[1])).settlement_status, 'verified', 'not past its hold');
+    assert.deepEqual(await FM.runFundmePayoutCron(env), { skipped: 'done' });
+    const ev = (await adm('GET', `/admin/api/fundme/donations/${ids[0]}`)).json.history.at(-1);
+    assert.deepEqual([ev.actor, /monthly payout run/.test(ev.reason)], ['system', true]);
+    // on-demand schedule: the cron does nothing
+    await setRule('fundme_payout_schedule', { mode: 'on_demand', day: 1 });
+    assert.deepEqual(await FM.runFundmePayoutCron(env), { skipped: 'on_demand' });
+    await setRule('fundme_payout_schedule', { mode: 'monthly', day: 1 });
+    assert.equal((await adm('PUT', '/admin/api/fundme/rules', { key: 'fundme_payout_schedule', value: { mode: 'weekly', day: 1 } })).json.code, 'BAD_CONFIG');
+    assert.equal((await adm('PUT', '/admin/api/fundme/rules', { key: 'fundme_payout_schedule', value: { mode: 'monthly', day: 31 } })).json.code, 'BAD_CONFIG');
+    // staff paid by hand → payout paid with the reference, donation paid, ledger moved
+    assert.equal((await adm('POST', `/admin/api/fundme/due/${fr.id}/paid`, {})).json.code, 'REFERENCE_REQUIRED');
+    const held = await bal('rita', 'donations_held_ngn');
+    const pd = await adm('POST', `/admin/api/fundme/due/${fr.id}/paid`, { reference: 'GTB-RUN-0001' });
+    assert.equal(pd.status, 200, JSON.stringify(pd.json));
+    assert.deepEqual([pd.json.payout.status, pd.json.payout.reference, pd.json.payout.amountMinor], ['paid', 'GTB-RUN-0001', 400000]);
+    assert.equal((await donationRow(ids[0])).settlement_status, 'paid');
+    assert.equal(await bal('rita', 'donations_held_ngn'), held - 400000);
+    assert.ok(!(await adm('GET', '/admin/api/fundme/due')).json.items.some((x) => x.fundraiserId === fr.id && x.readyMinor > 0));
+    // the organiser sees the schedule and which run each held donation is in
+    const mv = (await call('rita', 'GET', `/fundme/fundraisers/${fr.id}/money`)).json;
+    assert.deepEqual([mv.rules.payoutSchedule, mv.kyc.status, mv.currency], ['monthly', 'approved', 'NGN']);
+    assert.ok(mv.donations.find((x) => x.id === ids[1]).payoutRun);
+    assert.match((await call('rita', 'GET', '/fundme/rules')).json.explain.join(' '), /once a month/);
+    assert.equal((await adm('GET', '/admin/api/fundme/reconciliation')).json.ok, true);
+  } finally { await setRule('fundme_payout_hold_days', 0); restore(); }
+});
+
+test('admin script stays a plain string with the new views', () => {
+  assert.ok(!FUNDME_MONEY_ADMIN_SCRIPT.includes('`') && !FUNDME_MONEY_ADMIN_SCRIPT.includes('${'));
+  for (const v of ['Due this run', 'KYC']) assert.ok(FUNDME_MONEY_ADMIN_SCRIPT.includes("'" + v + "'"), v);
 });
