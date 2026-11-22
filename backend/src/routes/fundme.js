@@ -23,6 +23,7 @@ import { getConfig, getBalance, rateLimit } from '../lib/wallet.js';
 import { isOn } from '../lib/play.js';
 import { formatMoney, percentOf } from '../lib/money.js';
 import { renderFundraiserPage, renderTestCheckout, renderMessagePage } from '../lib/fundmePage.js';
+import { fxAttribution } from '../lib/fxLive.js'; // LIVE FX: attribution required where the rates are used
 import { FUNDME_ADMIN_SCRIPT } from '../lib/fundmeAdmin.js';
 import { registerAdminScript } from './admin.js';
 
@@ -177,6 +178,7 @@ async function donateInfo(c, f) {
     maxMinor: r.max,
     donorCurrencies: currencies,
     defaultDonorCurrency: f.currency,
+    fxAttribution: await fxAttribution(c.env), // { label: 'Rates by Exchange Rate API', url, updatedAt } while the rates are live, else null
     coverFeesDefault: true,
     fees: {
       platformBps: cfg.fundme_fee_bps, processingBps: cfg.fundme_paystack_fee_bps, processingFlatMinor: cfg.fundme_paystack_fee_flat_minor,

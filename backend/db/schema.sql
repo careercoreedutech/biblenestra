@@ -2753,3 +2753,40 @@ CREATE INDEX IF NOT EXISTS admin_actions_staff ON admin_actions (staff_id, creat
 -- usd_ngn_rate 1500, gift_admins_can_receive on) are code defaults in wallet_config, so no rows are written here.
 ALTER TABLE gift_sends DROP CONSTRAINT IF EXISTS gift_sends_context_type_check;
 ALTER TABLE gift_sends ADD CONSTRAINT gift_sends_context_type_check CHECK (context_type IN ('chat','profile','live','post','support'));
+
+-- ---------- LIVE FX + DOJAH IDENTITY ----------
+-- Live exchange rates (lib/fxLive.js): the 15-minute cron refreshes wallet_config.fundme_fx_ngn_per_unit from
+-- open.er-api.com at most every 6 hours while fundme_fx_auto is on. One status row: when the table last changed and
+-- from where ('exchangerate-api' or 'manual'), the provider's own timestamps, the end-of-life notice (time_eol_unix),
+-- the last attempt / error, and the currencies the 25% guard refused (flagged: [{currency, stored, fetched, changePct}]).
+CREATE TABLE IF NOT EXISTS fx_rate_status (
+  id                      text PRIMARY KEY CHECK (id = 'fundme'),
+  source                  text CHECK (source IS NULL OR source IN ('exchangerate-api','manual')),
+  rates_updated_at        timestamptz,
+  provider_updated_at     timestamptz,
+  provider_next_update_at timestamptz,
+  provider_eol_at         timestamptz,
+  last_attempt_at         timestamptz,
+  last_success_at         timestamptz,
+  last_error              text CHECK (char_length(last_error) <= 300),
+  flagged                 jsonb NOT NULL DEFAULT '[]'::jsonb,
+  updated_at              timestamptz NOT NULL DEFAULT now()
+);
+-- Payout KYC: optional Dojah BVN / NIN lookup (lib/dojah.js). Only the outcome is kept: never the returned photo or
+-- record. id_check_status: 'matched' (the ID's name matches the legal name AND the bank account name) or 'not_checked'
+-- (Dojah not set up, national_id, or the check failed; staff review by hand). Rows from before this block: not_checked.
+ALTER TABLE payout_kyc ADD COLUMN IF NOT EXISTS id_verified       boolean NOT NULL DEFAULT false;
+ALTER TABLE payout_kyc ADD COLUMN IF NOT EXISTS id_check_provider text CHECK (id_check_provider IS NULL OR id_check_provider IN ('dojah'));
+ALTER TABLE payout_kyc ADD COLUMN IF NOT EXISTS id_check_status   text NOT NULL DEFAULT 'not_checked' CHECK (id_check_status IN ('matched','not_checked'));
+ALTER TABLE payout_kyc ADD COLUMN IF NOT EXISTS id_check_note     text CHECK (char_length(id_check_note) <= 300);
+ALTER TABLE payout_kyc ADD COLUMN IF NOT EXISTS id_checked_at     timestamptz;
+-- Find Love Verified badge: optional BVN / NIN selfie match by Dojah. Only the ID type, the last 4 digits, the
+-- confidence and the match are kept (never the number, the returned photo or the record). dojah_quick = Dojah matched
+-- and the advisory AI check wasn't negative: shown as "Dojah matched" for a quick admin decision (never auto-approved).
+ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_id_type    text CHECK (dojah_id_type IS NULL OR dojah_id_type IN ('bvn','nin'));
+ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_id_last4   text CHECK (dojah_id_last4 IS NULL OR dojah_id_last4 ~ '^[0-9]{4}$');
+ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_status     text CHECK (dojah_status IS NULL OR dojah_status IN ('matched','no_match','error'));
+ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_confidence numeric;
+ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_match      boolean;
+ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_note       text CHECK (char_length(dojah_note) <= 300);
+ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_quick      boolean NOT NULL DEFAULT false;

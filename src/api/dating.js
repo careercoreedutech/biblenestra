@@ -81,7 +81,8 @@ export const dating = {
   verification: (api) => api.request('GET', '/dating/verification'),
   startVerification: (api) => api.request('POST', '/dating/verification/start'),
   uploadVerification: (api, kind, photo) => uploadVerificationImage(api.request, kind, photo),
-  submitVerification: (api, idType) => after(api.request('POST', '/dating/verification/submit', { idType })),
+  // extra: optional { dojahIdType: 'bvn' | 'nin', dojahIdNumber } for the automatic selfie ↔ ID photo check (when offered)
+  submitVerification: (api, idType, extra = null) => after(api.request('POST', '/dating/verification/submit', { idType, ...(extra || {}) })),
 };
 
 /** Take a photo with the camera now (no gallery: the verification selfie must be live). → { uri, width, height, mimeType } | null */

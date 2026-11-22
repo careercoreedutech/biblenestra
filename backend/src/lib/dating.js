@@ -21,6 +21,7 @@ import { mediaUrl } from './shape.js';
 import { notifyUser } from '../hub.js';
 import { sendNotification } from './push.js';
 import { checkPhoto, readObjectBytes, verificationPrecheck, GESTURES } from './datingAi.js'; // CLIENT ANSWERS: AI photo check + verification pre-check
+import { dojahConfigured, verifySelfie } from './dojah.js'; // DOJAH: optional BVN / NIN selfie match for the Verified badge
 
 // ─── coin kinds (labels in wallet history / admin) ─────────────────────────────────────────────────────────────────
 export const COIN_KINDS = {
@@ -61,6 +62,9 @@ export const DEFAULT_RULES = {
 };
 const posInt = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
 registerConfig('dating_prices', DEFAULT_PRICES, (v) => !!v && typeof v === 'object' && Object.keys(DEFAULT_PRICES).every((k) => v[k] === undefined || posInt(v[k], 1, 1e6)));
+// Dojah selfie ↔ BVN/NIN photo match threshold (50–100; Dojah's default 90). Used only when DOJAH_* keys are set.
+export const DOJAH_THRESHOLD_DEFAULT = 90;
+registerConfig('dating_dojah_threshold', DOJAH_THRESHOLD_DEFAULT, (v) => Number.isInteger(v) && v >= 50 && v <= 100);
 registerConfig('dating_rules', DEFAULT_RULES, (v) => !!v && typeof v === 'object'
   && ['dailySwipes', 'plusDailySwipes', 'extraSwipes', 'freeMessagesPerAd', 'maxAdUnlocks', 'messagesPerBundle', 'likesUnlockHours', 'adNonceMinutes', 'adMinWatchSec', 'adClaimsPerHour', 'undoMinutes', 'maxPhotos', 'batch', 'plusBatch', 'autoHideReports', 'chatRetentionDays']
     .every((k) => v[k] === undefined || posInt(v[k], 0, 100000))
@@ -1014,6 +1018,8 @@ export async function verificationShape(env, userId) {
     id: v.id, status: expired ? 'expired' : v.status, code: v.status === 'draft' ? v.code : null, gesture: v.gesture, gestureLabel: (GESTURES[v.gesture] || {}).label || v.gesture,
     expiresAt: iso(v.expires_at), hasSelfie: !!v.selfie_key, hasId: !!v.id_key, idType: v.id_type, submittedAt: iso(v.submitted_at), decidedAt: iso(v.decided_at),
     rejectReason: v.status === 'rejected' ? (v.reject_reason || null) : null,
+    idCheckAvailable: dojahConfigured(env), // the app then offers the optional BVN / NIN field
+    idCheck: v.dojah_id_type ? { idType: v.dojah_id_type, last4: v.dojah_id_last4 || null } : null, // never the result (that is for admins)
   };
 }
 
@@ -1073,10 +1079,23 @@ export async function uploadVerificationImage(env, user, { kind, contentType, by
   return verificationShape(env, user.id);
 }
 
-/** Submit for review: needs both images and the ID type; runs the advisory AI pre-check. */
-export async function submitVerification(env, user, { idType }) {
+/**
+ * Submit for review: needs both images and the ID type; runs the advisory AI pre-check. Optionally (when Dojah is
+ * configured) the member adds a BVN or NIN: Dojah compares the live selfie with that ID's photo. Only the ID type, the
+ * last 4 digits, the confidence and the match are stored. A Dojah match with an AI check that isn't negative is marked
+ * "Dojah matched" (dojah_quick) for a quick admin decision — it is NEVER approved automatically.
+ */
+export async function submitVerification(env, user, { idType, dojahIdType = null, dojahIdNumber = null }) {
   const p = await needProfile(env, user, { active: false });
   if (!ID_TYPES[idType]) throw bad(`idType must be one of ${Object.keys(ID_TYPES).join(', ')}`, 'BAD_ID_TYPE');
+  let dojahReq = null;
+  const rawNum = String(dojahIdNumber || '').replace(/[\s-]+/g, '');
+  if (rawNum && dojahConfigured(env)) {
+    const t = String(dojahIdType || '').toLowerCase();
+    if (!['bvn', 'nin'].includes(t)) throw bad('Choose BVN or NIN for the automatic ID check', 'BAD_ID_CHECK_TYPE');
+    if (!/^[0-9]{11}$/.test(rawNum)) throw bad(`A ${t.toUpperCase()} is 11 digits`, 'BAD_ID_NUMBER');
+    dojahReq = { idType: t, idNumber: rawNum };
+  }
   const v = await openDraft(env, user.id);
   if (!v) throw new ApiError(409, 'VERIFICATION_EXPIRED', 'Your code expired. Start again to get a new one.');
   if (!v.selfie_key || !v.id_key) throw bad('Add your selfie and a photo of your ID first', 'VERIFICATION_INCOMPLETE');
@@ -1093,7 +1112,34 @@ export async function submitVerification(env, user, { idType }) {
   }
   await q(env, `UPDATE dating_verifications SET ai_status = $2, ai_confidence = $3, ai_note = $4, ai_details = $5::jsonb, updated_at = now() WHERE id = $1`,
     [v.id, pre.status, pre.confidence, String(pre.note || '').slice(0, 2000), pre.details ? JSON.stringify(pre.details) : null]);
+  if (dojahReq) {
+    const dj = await dojahSelfieCheck(env, v, dojahReq, pre);
+    await q(env, `UPDATE dating_verifications SET dojah_id_type = $2, dojah_id_last4 = $3, dojah_status = $4, dojah_confidence = $5, dojah_match = $6,
+        dojah_note = $7, dojah_quick = $8, updated_at = now() WHERE id = $1`,
+      [v.id, dojahReq.idType, dojahReq.idNumber.slice(-4), dj.status, dj.confidence, dj.match, dj.note.slice(0, 300), dj.quick]);
+  }
   return verificationShape(env, user.id);
+}
+
+/** The Dojah selfie match for one submitted verification → { status, match, confidence, note, quick }. Never throws. */
+async function dojahSelfieCheck(env, v, { idType, idNumber }, pre) {
+  const T = idType.toUpperCase();
+  const th = Number((await getConfig(env)).dating_dojah_threshold) || DOJAH_THRESHOLD_DEFAULT;
+  let r;
+  try {
+    const selfie = await readObjectBytes(env, v.selfie_key);
+    if (!selfie) throw Object.assign(new Error('selfie not readable'), { code: 'SELFIE_MISSING' });
+    r = await verifySelfie(env, { idType, idNumber, selfie, threshold: th });
+  } catch (e) {
+    return { status: 'error', match: null, confidence: null, quick: false, note: `Dojah ${T} check failed (${String((e && e.code) || 'error').slice(0, 40)}). Review the images yourself.` };
+  }
+  const conf = r.confidence == null ? 'n/a' : String(r.confidence);
+  const aiNegative = pre && pre.status === 'done' && pre.confidence === 'low';
+  const quick = r.match === true && !aiNegative;
+  const note = r.match
+    ? `Dojah: the selfie matches the ${T} photo (confidence ${conf}, threshold ${th}).${aiNegative ? ' The AI pre-check was negative, so it is not marked for quick approval.' : ''}`
+    : `Dojah: the selfie does NOT match the ${T} photo (confidence ${conf}, threshold ${th}).`;
+  return { status: r.match ? 'matched' : 'no_match', match: r.match, confidence: r.confidence, note, quick };
 }
 
 /** A private verification image (R2 object) — the caller has already checked who may see it. */

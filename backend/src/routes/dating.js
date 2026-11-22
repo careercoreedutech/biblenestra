@@ -5,7 +5,8 @@ import { Hono } from 'hono';
 import { q, one } from '../lib/db.js';
 import { body, bad, notFound, uuidParam, isUuid, str } from '../lib/http.js';
 import { requireAdmin, audit, registerAdminScript } from './admin.js';
-import { setConfig, rateLimit, KINDS } from '../lib/wallet.js';
+import { setConfig, getConfig, rateLimit, KINDS } from '../lib/wallet.js';
+import { dojahConfigured } from '../lib/dojah.js'; // DOJAH: Verified badge selfie match (optional)
 import * as D from '../lib/dating.js';
 import { DATING_ADMIN_SCRIPT } from '../lib/datingAdminPage.js';
 
@@ -104,7 +105,11 @@ datingApp.post('/dating/verification/upload', async (c) => {
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   return c.json({ verification: await D.uploadVerificationImage(c.env, c.get('user'), { kind: c.req.query('kind'), contentType: c.req.header('Content-Type'), bytes }) }, 201);
 });
-datingApp.post('/dating/verification/submit', async (c) => c.json({ verification: await D.submitVerification(c.env, c.get('user'), { idType: (await body(c)).idType }) }));
+datingApp.post('/dating/verification/submit', async (c) => {
+  const b = await body(c);
+  // dojahIdType / dojahIdNumber: optional BVN or NIN for the Dojah selfie match (only used when Dojah is configured)
+  return c.json({ verification: await D.submitVerification(c.env, c.get('user'), { idType: b.idType, dojahIdType: b.dojahIdType, dojahIdNumber: b.dojahIdNumber }) });
+});
 // The member's own images while the request is open (they are deleted after the decision). Never cached publicly.
 datingApp.get('/dating/verification/file/:kind', async (c) => {
   const me = c.get('user');
@@ -365,6 +370,8 @@ adminDating.get('/admin/api/dating/verifications', async (c) => {
   return c.json({ items: rows.map((r) => ({
     id: r.id, status: r.status, code: r.code, gesture: r.gesture, idType: r.id_type, idTypeLabel: D.ID_TYPES[r.id_type] || r.id_type,
     ai: { status: r.ai_status, confidence: r.ai_confidence, note: r.ai_note }, submittedAt: r.submitted_at, decidedAt: r.decided_at, rejectReason: r.reject_reason,
+    // Dojah selfie ↔ BVN/NIN photo match (advisory; quick = "Dojah matched", an admin still decides)
+    dojah: r.dojah_status ? { status: r.dojah_status, idType: r.dojah_id_type, last4: r.dojah_id_last4, confidence: r.dojah_confidence == null ? null : Number(r.dojah_confidence), match: r.dojah_match, note: r.dojah_note, quick: !!r.dojah_quick } : null,
     hasSelfie: !!r.selfie_key, hasId: !!r.id_key, filesDeletedAt: r.files_deleted_at,
     profile: { firstName: r.first_name, gender: r.gender, age: r.age, verified: !!r.profile_verified, photos: (typeof r.photos === 'string' ? JSON.parse(r.photos) : r.photos || []).map(abs) },
     user: userOf(r),
@@ -384,11 +391,17 @@ adminDating.post('/admin/api/dating/verifications/:id', async (c) => {
   return c.json({ ok: true, ...r });
 });
 
-adminDating.get('/admin/api/dating/config', async (c) => c.json(await D.datingConfig(c.env)));
+const withDojah = async (env, cfg) => ({ ...cfg, dojah: { configured: dojahConfigured(env), threshold: (await getConfig(env)).dating_dojah_threshold } });
+adminDating.get('/admin/api/dating/config', async (c) => c.json(await withDojah(c.env, await D.datingConfig(c.env))));
 adminDating.put('/admin/api/dating/config', async (c) => {
   const me = c.get('user');
   const b = await body(c);
-  if (!['dating_prices', 'dating_rules'].includes(b.key)) throw bad('key must be dating_prices or dating_rules', 'BAD_CONFIG');
+  if (b.key === 'dating_dojah_threshold') {
+    await setConfig(c.env, b.key, b.value, me.id); // integer 50–100 (validated)
+    await audit(c.env, me, 'dating.config', 'wallet_config', b.key, { value: b.value });
+    return c.json(await withDojah(c.env, await D.datingConfig(c.env)));
+  }
+  if (!['dating_prices', 'dating_rules'].includes(b.key)) throw bad('key must be dating_prices, dating_rules or dating_dojah_threshold', 'BAD_CONFIG');
   const base = b.key === 'dating_prices' ? D.DEFAULT_PRICES : D.DEFAULT_RULES;
   const value = b.value && typeof b.value === 'object' ? Object.fromEntries(Object.entries(b.value).filter(([k]) => k in base)) : null;
   await setConfig(c.env, b.key, value, me.id);

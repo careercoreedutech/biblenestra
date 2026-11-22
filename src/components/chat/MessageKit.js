@@ -4,9 +4,10 @@
 //   <ComposerBanner>       "Replying to …" / "Editing message" above the composer
 //   <PinnedBar>            newest pinned message; tap to jump, cycles through up to 3 pins
 //   useMessageActions()    wires all of the above to the store for one thread (scope)
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { Icon } from '../Icons';
 import { AnimatedModal, FadeInUp, PressScale, ScaleIn } from '../Motion';
@@ -93,6 +94,9 @@ function LinkedText({ text, style, linkStyle, onLongPress }) {
 }
 
 // ---------- bubble ----------
+// FIND LOVE: optional bubble colours for one screen (null everywhere else → the default indigo / white bubbles).
+//   { mine: ['#a', '#b'] gradient stops, theirs: '#bg', theirsBorder: '#line' }
+export const BubbleTheme = createContext(null);
 // status: 'sending'|'sent'|'delivered'|'read'|'failed' (CHAT 7.3; older callers pass nothing → m.status is used)
 // grouped: another bubble from the same person follows (tighter corner); animate=false skips the entry animation
 export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, onOpenReply, onLayout, onRetry, status: statusIn, grouped, animate = true, children }) {
@@ -105,6 +109,8 @@ export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, 
     ? (m.deletedByModerator ? 'Removed by a group admin' : mine ? 'You deleted this message' : 'This message was deleted')
     : null;
   const reactions = m.deleted ? [] : (m.reactions || []);
+  const theme = useContext(BubbleTheme);
+  const themed = theme && !m.deleted ? (mine ? { backgroundColor: theme.mine[1], borderColor: theme.mine[1], overflow: 'hidden' } : { backgroundColor: theme.theirs, borderColor: theme.theirsBorder }) : null;
   return (
     <View onLayout={onLayout} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '84%' }}>
       <Wrap {...wrapProps}>
@@ -115,9 +121,10 @@ export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, 
           accessibilityHint={failed ? 'Not sent. Tap to send again' : 'Press and hold for reply, react, forward, copy, edit, pin or delete. Swipe right to reply'}
           style={({ pressed }) => [
             styles.msg, mine && styles.msgMine, grouped && (mine ? styles.groupedMine : styles.groupedTheirs), m.deleted && styles.msgDeleted, m.deleted && mine && styles.msgDeletedMine,
-            failed && styles.msgFailed, highlighted && styles.msgHighlight, pressed && { opacity: 0.92 },
+            themed, failed && styles.msgFailed, highlighted && styles.msgHighlight, pressed && { opacity: 0.92 },
           ]}
         >
+          {themed && mine ? <LinearGradient colors={theme.mine} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} pointerEvents="none" /> : null}
           {showSender && !mine ? <Text style={styles.msgFrom}>{m.from}</Text> : null}
           {m.forwarded && !m.deleted ? <Text style={[styles.fwd, mine && { color: 'rgba(255,255,255,0.75)' }]}>↪ Forwarded</Text> : null}
           {m.reply && !m.deleted ? (

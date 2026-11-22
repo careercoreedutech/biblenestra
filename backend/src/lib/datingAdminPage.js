@@ -177,7 +177,14 @@ export const DATING_ADMIN_SCRIPT = `
           out.appendChild(h('div', { class: 'card' }, [
             h('b', { text: (r.profile.firstName || '?') + ', ' + (r.profile.age == null ? '?' : r.profile.age) + ' · ' + (r.profile.gender || '') + ' · ' + r.status }),
             h('div', { class: 'meta', text: 'Account: ' + (r.user ? (r.user.name || '') + (r.user.handle ? ' @' + r.user.handle : '') + ' · ' + r.user.id : '-') + ' · submitted ' + when(r.submittedAt) + (r.decidedAt ? ' · decided ' + when(r.decidedAt) : '') }),
-            h('div', { style: 'margin:8px 0;padding:8px;border-radius:8px;border:1px solid ' + tint }, [h('b', { text: 'AI pre-check: ' + conf }), h('div', { class: 'meta', text: (r.ai && r.ai.note) || 'No AI note.' })]),
+            r.dojah && r.dojah.quick ? h('div', { style: 'margin-top:6px' }, [h('span', { class: 'chip', style: 'background:var(--primary);color:#fff;padding:2px 8px;border-radius:999px;font-weight:700', text: 'Dojah matched' }), h('span', { class: 'meta', text: ' Quick check: Dojah matched the selfie to the ID photo and the AI check is not negative. You still decide.' })]) : null,
+            h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;align-items:stretch' }, [
+              h('div', { style: 'flex:1;min-width:240px;margin:8px 0;padding:8px;border-radius:8px;border:1px solid ' + tint }, [h('b', { text: 'AI pre-check: ' + conf }), h('div', { class: 'meta', text: (r.ai && r.ai.note) || 'No AI note.' })]),
+              r.dojah ? h('div', { style: 'flex:1;min-width:240px;margin:8px 0;padding:8px;border-radius:8px;border:1px solid ' + (r.dojah.match === true ? 'var(--primary)' : r.dojah.status === 'error' ? 'var(--gold)' : 'var(--neg)') }, [
+                h('b', { text: 'Dojah ' + String(r.dojah.idType || '').toUpperCase() + ' •••• ' + (r.dojah.last4 || '') + ': ' + (r.dojah.status === 'matched' ? 'match' : r.dojah.status === 'no_match' ? 'NO match' : 'not checked') + (r.dojah.confidence != null ? ' (confidence ' + r.dojah.confidence + ')' : '') }),
+                h('div', { class: 'meta', text: r.dojah.note || '' }),
+              ]) : null,
+            ]),
             r.rejectReason ? h('div', { class: 'meta', text: 'Rejected: ' + r.rejectReason }) : null,
             pics, acts,
           ]));
@@ -241,6 +248,17 @@ export const DATING_ADMIN_SCRIPT = `
     await load(el, '/admin/api/dating/config', function(d){
       el.appendChild(h('p', { class: 'meta', text: 'Coin prices for each Find Love feature and the free-tier rules. Changes apply at once (no app release). Every change is logged.' }));
       el.appendChild(h('p', { class: 'meta', text: 'Safety rules: photoReview "ai" (live at once unless the AI flags it; if the AI is down the photo waits for you), "pre" (every photo waits for you) or "post" (live at once, reviewed afterwards) · autoHideReports: hide a profile from discovery after reports from this many different members (0 = off) · showSocialToVerified: in a dating chat, show the other person’s social profile only if they are verified · chatRetentionDays: delete messages of closed dating chats after this many days (0 = keep; reports are always kept) · verificationMinutes: how long a verification code stays valid.' }));
+      if (d.dojah) {
+        var thr = h('input', { type: 'number', min: '50', max: '100', value: String(d.dojah.threshold), style: 'width:90px' });
+        el.appendChild(h('div', { class: 'card' }, [
+          h('b', { text: 'Dojah selfie match (Verified badge)' }),
+          h('div', { class: 'meta', text: d.dojah.configured ? 'Dojah is set up: members can add a BVN or NIN and Dojah compares their live selfie with that ID photo. A match marks the request “Dojah matched” for a quick decision; nothing is approved automatically.' : 'Dojah is not set up (Worker secrets DOJAH_APP_ID and DOJAH_SECRET_KEY). The BVN / NIN option stays hidden in the app.' }),
+          h('div', { class: 'row', style: 'gap:6px;margin-top:6px;align-items:center' }, [h('span', { class: 'meta', text: 'dating_dojah_threshold (50–100, default 90)' }), thr, h('button', { class: 'btn small', text: 'Save', onclick: async function(){
+            var v = Number(thr.value); if (!(v >= 50 && v <= 100 && Math.round(v) === v)) { toast('Enter a whole number from 50 to 100', true); return; }
+            try { await api('PUT', '/admin/api/dating/config', { key: 'dating_dojah_threshold', value: v }); toast('Saved'); } catch (e) { toast(e.message, true); }
+          } })]),
+        ]));
+      }
       [['dating_prices', 'Prices (Dating Coins)', d.prices], ['dating_rules', 'Rules', d.rules]].forEach(function(s){
         var ta = h('textarea', { style: 'width:100%;min-height:220px;font-family:monospace;font-size:12px' });
         ta.value = JSON.stringify(s[2], null, 2);

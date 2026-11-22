@@ -10,13 +10,20 @@
 // requireApprovedKyc(env, userId) is the guard: payouts / withdrawals are approved only for status 'approved'.
 // Submitting KYC also keeps the Fund Me payout account in step (same bank), and approving KYC verifies that account when
 // it is the same one, so a beneficiary fills in one form.
+// ID check (lib/dojah.js): for a BVN or NIN, when Dojah is configured, the ID record is looked up and its name (first,
+// middle, last) must fuzzy-match BOTH the legal name and the bank account name (namesMatch), else the submission is
+// refused (ID_NAME_MISMATCH; the record's name is never shown or stored). A match stores id_verified + provider + a
+// masked note. Dojah not configured, national_id, or a Dojah error → 'not_checked' and the usual manual staff review.
+// Staff still approve every KYC; the admin KYC review shows the ID check result.
 import { q, one } from './db.js';
 import { ApiError, bad } from './http.js';
 import { paystackConfigured, resolveAccount } from './paystack.js';
+import { dojahConfigured, lookupId, fullName } from './dojah.js';
 import { encryptField, decryptField, bankList, saveBankAccount } from './fundmeMoney.js';
 
 export const KYC_ID_TYPES = { bvn: 'BVN (Bank Verification Number)', nin: 'NIN (National Identification Number)', national_id: 'Other national ID' };
 export const KYC_LABEL = { none: 'Not submitted', pending_review: 'Being checked', approved: 'Approved', rejected: 'Not approved — please resubmit' };
+export const ID_CHECK_LABEL = { matched: 'ID record matches (Dojah)', not_checked: 'Not checked automatically — check the ID by hand' };
 
 // ─── name matching ────────────────────────────────────────────────────────────────────────────────────────────────
 const TITLES = new Set(['mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'chief', 'alhaji', 'alhaja', 'pastor', 'rev', 'revd', 'engr', 'sir', 'madam', 'mallam', 'barr', 'hon']);
@@ -49,8 +56,9 @@ export function kycShape(k, { admin = false } = {}) {
     idType: k.id_type, idTypeLabel: KYC_ID_TYPES[k.id_type] || k.id_type, idNumberMasked: `•••• ${k.id_last4}`,
     legalName: k.legal_name, bankCode: k.bank_code, bankName: k.bank_name, accountNumberMasked: `•••• ${k.account_last4}`, last4: k.account_last4,
     accountName: k.account_name, nameResolved: !!k.name_resolved, nameMatch: !!k.name_match, reviewNote: k.review_note || null,
-    submittedAt: iso(k.submitted_at), reviewedAt: iso(k.reviewed_at),
-    ...(admin ? { userId: k.user_id, idCountry: k.id_country, reviewedBy: k.reviewed_by || null } : {}),
+    submittedAt: iso(k.submitted_at), reviewedAt: iso(k.reviewed_at), idVerified: !!k.id_verified,
+    ...(admin ? { userId: k.user_id, idCountry: k.id_country, reviewedBy: k.reviewed_by || null,
+      idCheck: { status: k.id_check_status || 'not_checked', label: ID_CHECK_LABEL[k.id_check_status || 'not_checked'], provider: k.id_check_provider || null, verified: !!k.id_verified, note: k.id_check_note || null, checkedAt: iso(k.id_checked_at) } } : {}),
   };
 }
 export const getKyc = (env, userId) => one(env, 'SELECT * FROM payout_kyc WHERE user_id = $1', [userId]);
@@ -109,22 +117,49 @@ export async function submitKyc(c, me, b = {}) {
     e.details = { accountName: resolved ? accountName : null };
     throw e;
   }
+  const check = await idCheck(env, idType, idNumber, legal, accountName); // throws ID_NAME_MISMATCH / ID_NOT_FOUND
   const [idEnc, accEnc] = [await encryptField(env, idNumber), await encryptField(env, num)];
   await q(env, `INSERT INTO payout_kyc (user_id, id_type, id_country, id_number_enc, id_last4, legal_name, bank_code, bank_name, account_number_enc, account_last4,
-        account_name, name_resolved, name_match, status, submitted_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, 'pending_review', now(), now())
+        account_name, name_resolved, name_match, status, submitted_at, updated_at, id_verified, id_check_provider, id_check_status, id_check_note, id_checked_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, 'pending_review', now(), now(), $13, $14, $15, $16, $17)
     ON CONFLICT (user_id) DO UPDATE SET id_type = EXCLUDED.id_type, id_country = EXCLUDED.id_country, id_number_enc = EXCLUDED.id_number_enc,
       id_last4 = EXCLUDED.id_last4, legal_name = EXCLUDED.legal_name, bank_code = EXCLUDED.bank_code, bank_name = EXCLUDED.bank_name,
       account_number_enc = EXCLUDED.account_number_enc, account_last4 = EXCLUDED.account_last4, account_name = EXCLUDED.account_name,
       name_resolved = EXCLUDED.name_resolved, name_match = true, status = 'pending_review', review_note = NULL, reviewed_by = NULL, reviewed_at = NULL,
-      submitted_at = now(), updated_at = now()`,
-  [me.id, idType, country, idEnc, idNumber.slice(-4), legal, code, bank.name, accEnc, num.slice(-4), accountName, resolved]);
+      submitted_at = now(), updated_at = now(), id_verified = EXCLUDED.id_verified, id_check_provider = EXCLUDED.id_check_provider,
+      id_check_status = EXCLUDED.id_check_status, id_check_note = EXCLUDED.id_check_note, id_checked_at = EXCLUDED.id_checked_at`,
+  [me.id, idType, country, idEnc, idNumber.slice(-4), legal, code, bank.name, accEnc, num.slice(-4), accountName, resolved,
+    check.verified, check.provider, check.status, check.note, check.checkedAt]);
   // keep the Fund Me payout account on the same bank account (only when it differs: saving resets its review)
   const fa = await one(env, 'SELECT bank_code, account_number_enc FROM fundme_bank_accounts WHERE user_id = $1', [me.id]);
   let same = false;
   if (fa && fa.bank_code === code) { try { same = (await decryptField(env, fa.account_number_enc)) === num; } catch (e) { same = false; } }
   if (!same) await saveBankAccount(c, me, { bankCode: code, accountNumber: num, accountName });
   return kycShape(await getKyc(env, me.id));
+}
+
+// ─── automatic ID check (Dojah) ───────────────────────────────────────────────────────────────────────────────────
+const initials = (n) => [n.firstName, n.middleName, n.lastName].filter(Boolean).map((w) => `${w[0].toUpperCase()}.`).join(' ');
+/**
+ * → { verified, provider, status: 'matched' | 'not_checked', note, checkedAt }. Throws (and nothing is stored) when the
+ * ID record's name doesn't match the legal name AND the bank account name, or the ID number has no record.
+ * Never stores or returns the record itself: the note has the record name's initials only.
+ */
+export async function idCheck(env, idType, idNumber, legalName, accountName) {
+  const skip = (note, provider = null) => ({ verified: false, provider, status: 'not_checked', note, checkedAt: null });
+  if (!['bvn', 'nin'].includes(idType)) return skip('Other national ID: not checked automatically.');
+  if (!dojahConfigured(env)) return skip('Automatic ID check not set up (Dojah keys missing).');
+  const label = idType.toUpperCase();
+  let rec;
+  try { rec = await lookupId(env, idType, idNumber); } catch (e) {
+    if (e && e.code === 'ID_NOT_FOUND') throw new ApiError(400, 'ID_NOT_FOUND', `We couldn’t find a ${label} record for that number — check it and try again.`);
+    return skip(`Automatic ID check failed (${String((e && e.code) || 'error').slice(0, 40)}). Check the ID by hand.`, 'dojah');
+  }
+  const idName = fullName(rec);
+  if (!namesMatch(idName, legalName) || !namesMatch(idName, accountName)) {
+    throw new ApiError(400, 'ID_NAME_MISMATCH', `The name on your ${label} record doesn’t match your legal name and your bank account name. Enter your name exactly as it is on your ${label} and use an account in that name.`);
+  }
+  return { verified: true, provider: 'dojah', status: 'matched', note: `${label} record (${initials(rec)}) matches the legal name and the bank account name.`, checkedAt: new Date() };
 }
 
 /** Does the member's Fund Me payout account point at the KYC-approved bank account? */

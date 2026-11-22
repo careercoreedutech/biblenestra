@@ -39,8 +39,8 @@ const pint = (min, max) => (v) => Number.isInteger(v) && v >= min && v <= max;
 const perCur = (max) => (v) => !!v && typeof v === 'object' && !Array.isArray(v)
   && Object.keys(v).every((k) => MONEY_CURRENCIES.includes(k)) && Object.values(v).every((n) => Number.isInteger(n) && n >= 0 && n <= max);
 // FX rate table: NGN per 1 unit of each currency (minor units convert 1:1 — all these currencies have 2 decimals).
-// GBP, USD and EUR are required (Fund Me requests can be in them). Staff MUST keep these current (Admin › Rules):
-// they are not live rates. Seeded 2026-11-21 as rough values.
+// GBP, USD and EUR are required (Fund Me requests can be in them). Seeded 2026-11-21 as rough values; with
+// fundme_fx_auto on (default) the cron keeps them live from open.er-api.com (lib/fxLive.js), else staff edit them.
 export const FX_SEED = { USD: 1500, GBP: 1950, EUR: 1700, CAD: 1080, GHS: 125, KES: 11.6, ZAR: 85 };
 const fxCheck = (v) => !!v && typeof v === 'object' && !Array.isArray(v) && ['USD', 'GBP', 'EUR'].every((k) => k in v)
   && Object.entries(v).every(([k, n]) => /^[A-Z]{3}$/.test(k) && k !== 'NGN' && typeof n === 'number' && Number.isFinite(n) && n > 0 && n < 1e7);
@@ -55,7 +55,7 @@ export const FUNDME_RULES = {
   fundme_auto_verify: { dflt: false, check: (v) => typeof v === 'boolean', label: 'Verify donations automatically when no check flagged them (off = an admin verifies each one)' },
   fundme_payout_hold_days: { dflt: 7, check: pint(0, 365), label: 'Days a received donation is held before it can be approved for payout (client: 7)' },
   fundme_min_payout_minor: { dflt: { NGN: 100000, GBP: 1000, USD: 1000, EUR: 1000 }, check: perCur(1e14), label: 'Minimum payout (minor units). PROPOSAL ₦1,000, client to confirm the amount' },
-  fundme_fee_bps: { dflt: 20, check: pint(0, 3000), label: 'BibleNestra fee on each donation, in basis points (20 = 0.2%). The client said 0.2% — confirm whether 2% (200)' },
+  fundme_fee_bps: { dflt: 200, check: pint(0, 3000), label: 'BibleNestra fee on each donation, in basis points (200 = 2%, confirmed by the client)' },
   fundme_fee_fixed_minor: { dflt: { NGN: 0, GBP: 0, USD: 0, EUR: 0 }, check: perCur(1e9), label: 'Fixed BibleNestra fee per donation (minor units; only NGN is used now)' },
   fundme_credit_gift_max: { dflt: 500, check: pint(1, 100000), label: 'Most Fund Me credits one gift can send (client: 500)' },
   // ── fees the donor can cover (client W4). All in NGN kobo: donations are settled in NGN. ──
@@ -65,7 +65,8 @@ export const FUNDME_RULES = {
   fundme_paystack_fee_cap_minor: { dflt: 200000, check: pint(0, 1e10), label: 'Paystack fee cap, kobo (200000 = ₦2,000; 0 = no cap)' },
   fundme_vat_bps: { dflt: 750, check: pint(0, 5000), label: 'VAT on the fees (BibleNestra fee + Paystack fee), basis points (750 = 7.5%)' },
   // ── donations in any currency (client W5) ──
-  fundme_fx_ngn_per_unit: { dflt: FX_SEED, check: fxCheck, label: 'Exchange rates: NGN per 1 unit of each currency. NOT live — staff must keep these current. USD, GBP and EUR are required' },
+  fundme_fx_ngn_per_unit: { dflt: FX_SEED, check: fxCheck, label: 'Exchange rates: NGN per 1 unit of each currency. USD, GBP and EUR are required; add any other 3-letter code to accept it. While fundme_fx_auto is on, these are refreshed from live rates every 6 hours and a value you type here is OVERWRITTEN on the next refresh (turn auto off to keep your own rates)' },
+  fundme_fx_auto: { dflt: true, check: (v) => typeof v === 'boolean', label: 'Live exchange rates: refresh the table above from open.er-api.com (Exchange Rate API) at most every 6 hours. A rate that moved more than 25% is NOT applied and is flagged here instead' },
   // ── payout schedule (client W6) ──
   // one object (the wallet core's config store can't hold a bare JSON string): { mode: 'monthly' | 'on_demand', day: 1–28 }
   fundme_payout_schedule: { dflt: { mode: 'monthly', day: 1 }, check: (v) => !!v && typeof v === 'object' && ['monthly', 'on_demand'].includes(v.mode) && Number.isInteger(v.day) && v.day >= 1 && v.day <= 28 && Object.keys(v).length === 2,

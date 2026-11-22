@@ -651,6 +651,11 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
                   ))}
                 </View>
               ) : null}
+              {f.fxAttribution ? (
+                <Pressable onPress={() => { WebBrowser.openBrowserAsync(f.fxAttribution.url).catch(() => {}); }} accessibilityRole="link" accessibilityLabel={f.fxAttribution.label} hitSlop={8} style={{ alignSelf: 'flex-start', marginTop: 6 }}>
+                  <Text style={styles.fxAttr}>{f.fxAttribution.label}</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
           <View style={styles.presets}>
@@ -1299,6 +1304,7 @@ const styles = StyleSheet.create({
   curBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   curBtnText: { color: colors.fg, fontSize: 13, fontWeight: '600' },
   curList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  fxAttr: { color: colors.muted, fontSize: 11, textDecorationLine: 'underline' }, // LIVE FX: "Rates by Exchange Rate API" (required attribution)
   curChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   curChipText: { color: colors.fg, fontSize: 13, fontWeight: '700' },
   quoteBox: { marginTop: 12, padding: 12, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 4 },

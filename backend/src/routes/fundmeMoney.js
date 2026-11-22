@@ -33,6 +33,7 @@ import { getKyc, kycShape, submitKyc, reviewKyc, revealKycId, KYC_ID_TYPES } fro
 import { paystackConfigured, resolveAccount } from '../lib/paystack.js';
 import { isOn } from '../lib/play.js';
 import { FUNDME_MONEY_ADMIN_SCRIPT } from '../lib/fundmeMoneyAdmin.js';
+import { fxStatus, fxAttribution, refreshFxRates, noteManualFx, FX_REFRESH_HOURS, FX_MAX_MOVE, FX_API_URL } from '../lib/fxLive.js';
 
 registerAdminScript(FUNDME_MONEY_ADMIN_SCRIPT); // "Donations & payouts" section in Admin › Wallets & payments
 
@@ -84,7 +85,7 @@ fundmeMoney.get('/fundme/rules', async (c) => {
     feeBps: cfg.fundme_fee_bps, feeFixedMinor: cfg.fundme_fee_fixed_minor, holdDays: cfg.fundme_payout_hold_days, minPayoutMinor: cfg.fundme_min_payout_minor,
     publishCredits: cfg.fundme_publish_credits, paystack: paystackConfigured(c.env), autoPayouts: isOn(c.env.FUNDME_AUTO_PAYOUTS),
     processingFeeBps: cfg.fundme_paystack_fee_bps, processingFlatMinor: cfg.fundme_paystack_fee_flat_minor, processingFlatFromMinor: cfg.fundme_paystack_fee_flat_from_minor,
-    processingCapMinor: cfg.fundme_paystack_fee_cap_minor, vatBps: cfg.fundme_vat_bps, fxNgnPerUnit: fxRates(cfg),
+    processingCapMinor: cfg.fundme_paystack_fee_cap_minor, vatBps: cfg.fundme_vat_bps, fxNgnPerUnit: fxRates(cfg), fxAttribution: await fxAttribution(c.env),
     payoutSchedule: payoutMode(cfg), payoutDay: payoutDay(cfg), nextPayoutRun: payoutMode(cfg) === 'monthly' ? nextRunDate(cfg).toISOString().slice(0, 10) : null,
     refundPolicy: NON_REFUNDABLE,
     explain: [
@@ -497,6 +498,7 @@ fundmeMoney.get('/admin/api/fundme/rules', async (c) => {
   const cfg = await getConfig(c.env);
   return c.json({
     rules: Object.entries(FUNDME_RULES).map(([key, r]) => ({ key, value: cfg[key], default: r.dflt, label: r.label })).concat([{ key: 'fundme_publish_credits', value: cfg.fundme_publish_credits, default: 1, label: 'Credits used to publish one request (wallet core setting)' }]),
+    fx: { auto: cfg.fundme_fx_auto === true, refreshHours: FX_REFRESH_HOURS, maxMovePct: FX_MAX_MOVE * 100, api: FX_API_URL, ...(await fxStatus(c.env)) },
     env: { paystack: paystackConfigured(c.env), autoPayouts: isOn(c.env.FUNDME_AUTO_PAYOUTS), testDonations: isOn(c.env.WALLET_TEST_PURCHASES) || String(c.env.PAYMENTS_MODE || '').toLowerCase() === 'test' },
   });
 });
@@ -507,7 +509,18 @@ fundmeMoney.put('/admin/api/fundme/rules', async (c) => {
   if (!(b.key in FUNDME_RULES) && b.key !== 'fundme_publish_credits') throw bad('Not a Fund Me rule', 'BAD_CONFIG');
   const before = (await getConfig(c.env))[b.key];
   await setConfig(c.env, b.key, b.value, me.id);
+  if (b.key === 'fundme_fx_ngn_per_unit') await noteManualFx(c.env); // overwritten by the next live refresh while fundme_fx_auto is on
   await audit(c.env, me, 'fundme.rules.set', 'config', b.key, { before, after: b.value });
   return c.json({ ok: true, key: b.key, value: (await getConfig(c.env))[b.key] });
+});
+
+// Live exchange rates: "Refresh now" (skips the 6-hour throttle; the 25% guard still applies). POST → 'manage' permission.
+fundmeMoney.post('/admin/api/fundme/fx/refresh', async (c) => {
+  const me = c.get('user');
+  await rateLimit(c.env, 'fx_refresh_now', 6, 3600); // the free API is rate-limited
+  const r = await refreshFxRates(c.env, { force: true });
+  await audit(c.env, me, 'fundme.fx.refresh', 'config', 'fundme_fx_ngn_per_unit', { ok: r.ok, applied: r.applied, flagged: r.flagged.map((f) => f.currency), error: r.error || null });
+  const cfg = await getConfig(c.env);
+  return c.json({ ...r, rates: cfg.fundme_fx_ngn_per_unit, fx: { auto: cfg.fundme_fx_auto === true, ...(await fxStatus(c.env)) } });
 });
 

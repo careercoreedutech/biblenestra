@@ -30,6 +30,7 @@ import social from './routes/social.js'; // SOCIAL (round 3)
 import { fundme, fundmePublic } from './routes/fundme.js'; // FUND ME (round 3)
 import { fundmeMoney } from './routes/fundmeMoney.js'; // FUND ME MONEY: credits, gifting credits, donations held by BibleNestra, payouts, admin "Donations & payouts"
 import { runFundmePayoutCron } from './lib/fundmeMoney.js'; // FUND ME: monthly payout run (approves donations due in the run)
+import { runFxCron } from './lib/fxLive.js'; // FUND ME: live exchange rates (open.er-api.com, at most every 6 hours while fundme_fx_auto is on)
 import recordings from './routes/recordings.js'; // DISCOVER TOOLS (round 3)
 import reminders from './routes/reminders.js'; // DISCOVER TOOLS (round 3)
 import youtube from './routes/youtube.js'; // DISCOVER TOOLS (round 3)
@@ -243,6 +244,7 @@ export default {
     runWalletCron(env).catch((e) => console.error('wallet cron failed', e)), // WALLET CORE: expire ended dating subscriptions
     runPaystackCron(env).catch((e) => console.error('paystack cron failed', e)), // PAYSTACK: card renewals, renewal reminders, Plus expiry
     runFundmePayoutCron(env).catch((e) => console.error('fundme payout run failed', e)), // FUND ME: monthly payout run (staff still pay by hand)
+    runFxCron(env).catch((e) => console.error('fx refresh failed', e)), // FUND ME: live exchange rates (6-hour throttle, 25% guard, old rates kept on failure)
     runDatingCron(env).catch((e) => console.error('dating cron failed', e)), // FIND LOVE: delete closed dating chats' messages after rules.chatRetentionDays (small batches)
   ])),
 };

@@ -484,7 +484,12 @@ test('a plain like never changes your position in someone’s stack (no leak of 
 // "already true" checks (18+, man/woman, no refund on a declined request, verification not needed to message).
 // env.AI is always a stub here: the "image" bytes are a short tag the stub reads to decide its answer.
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-const tagOf = (input) => Buffer.from(Uint8Array.from(input.image || [])).toString();
+const tagOf = (input) => {
+  // Llama 4 Scout gets the image as a data: URL inside the message content; the other models get `image` bytes
+  const part = (input.messages || []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((p) => p.type === 'image_url');
+  if (part) return Buffer.from(part.image_url.url.split(',')[1], 'base64').toString();
+  return Buffer.from(Uint8Array.from(input.image || [])).toString();
+};
 function aiEnv(answer, calls = []) {
   return { ...env, AI: { run: async (model, input) => { calls.push(model); const a = await answer(tagOf(input), model, input); if (a instanceof Error) throw a; return a; } } };
 }
@@ -517,7 +522,7 @@ test('AI photo check: clean → live at once; flagged → hidden + admin queue w
   assert.equal(ok.status, 201); assert.equal(ok.json.review, 'live');
   assert.deepEqual([(await photo(ok.json.id)).status, (await photo(ok.json.id)).ai_verdict, (await photo(ok.json.id)).reviewed_by], ['approved', 'clean', null]);
   assert.ok((await stack('sam')).includes(ids.ruth), 'live at once');
-  assert.equal(calls[0], '@cf/meta/llama-3.2-11b-vision-instruct');
+  assert.equal(calls[0], '@cf/meta/llama-4-scout-17b-16e-instruct');
   // flagged → pending + ai_flagged + reason, hidden, listed first in the admin queue
   const nude = await add('NUDE');
   assert.equal(nude.json.review, 'flagged');
@@ -539,7 +544,7 @@ test('AI photo check: clean → live at once; flagged → hidden + admin queue w
   assert.equal(boom.json.review, 'pending');
   const bp = await photo(boom.json.id);
   assert.deepEqual([bp.status, bp.ai_verdict, bp.ai_flagged], ['pending', 'error', false]);
-  assert.deepEqual(calls, ['@cf/meta/llama-3.2-11b-vision-instruct', '@cf/llava-hf/llava-1.5-7b-hf']);
+  assert.deepEqual(calls, ['@cf/meta/llama-4-scout-17b-16e-instruct', '@cf/meta/llama-3.2-11b-vision-instruct', '@cf/llava-hf/llava-1.5-7b-hf']);
   await call('ruth', 'DELETE', `/dating/profile/photos/${boom.json.id}`);
   // a reply that is not the strict JSON, or JSON with a missing flag → pending (fail closed)
   const junk = await add('JUNK');

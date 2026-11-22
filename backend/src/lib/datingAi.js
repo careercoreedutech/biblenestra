@@ -8,11 +8,23 @@
 //   the ID photo and the main profile photo separately and compares what they report (the code written on paper, the
 //   gesture, apparent gender and age, name and birth year on the ID). It is not a biometric face match; an admin decides.
 //
-// Models: env.DATING_VISION_MODEL first, then Llama 3.2 11B Vision, then LLaVA 1.5. Both take the image as an array of
-// 8-bit integers (`image: [...bytes]`). Llama 3.2 Vision needs Meta's licence accepted once per Cloudflare account
-// (send { prompt: 'agree' } to the model once, e.g. from the Workers AI playground); until then it errors and LLaVA
-// answers instead.
-export const VISION_MODELS = ['@cf/meta/llama-3.2-11b-vision-instruct', '@cf/llava-hf/llava-1.5-7b-hf'];
+// Models: env.DATING_VISION_MODEL first, then Llama 4 Scout (image as a data: URL), then Llama 3.2 11B Vision, then
+// LLaVA 1.5 (both take `image: [...bytes]`). Llama 3.2 Vision needs Meta's licence accepted once per account; it is only
+// a fallback now.
+// Llama 4 Scout comes first: it needs no licence step, and was checked on the production account on 2026-11-21. It takes
+// the image as an OpenAI-style data: URL inside the message content, not as an `image` byte array.
+export const VISION_MODELS = ['@cf/meta/llama-4-scout-17b-16e-instruct', '@cf/meta/llama-3.2-11b-vision-instruct', '@cf/llava-hf/llava-1.5-7b-hf'];
+const usesImageUrl = (model) => /llama-4/i.test(model);
+function toBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function imageMime(bytes) {
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png';
+  if (bytes[0] === 0x52 && bytes[1] === 0x49) return 'image/webp';
+  return 'image/jpeg';
+}
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024; // the app sends ≤ 1600 px JPEGs (~0.3 MB); anything huge goes to a human
 const TIMEOUT_MS = 25000;
 
@@ -57,8 +69,12 @@ export async function runVisionJson(env, bytes, prompt, { maxTokens = 300, timeo
   const image = Array.from(bytes);
   const models = [...new Set([env.DATING_VISION_MODEL, ...VISION_MODELS].filter(Boolean))];
   let lastErr = null;
+  let dataUrl = null;
   for (const model of models) {
-    const input = /llava/i.test(model)
+    if (usesImageUrl(model) && !dataUrl) dataUrl = `data:${imageMime(bytes)};base64,${toBase64(bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes))}`;
+    const input = usesImageUrl(model)
+      ? { messages: [{ role: 'system', content: 'You are a careful image safety reviewer. Reply with one JSON object only.' }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: dataUrl } }] }], max_tokens: maxTokens, temperature: 0 }
+      : /llava/i.test(model)
       ? { image, prompt, max_tokens: maxTokens }
       : { messages: [{ role: 'system', content: 'You are a careful image safety reviewer. Reply with one JSON object only.' }, { role: 'user', content: prompt }], image, max_tokens: maxTokens, temperature: 0 };
     try {

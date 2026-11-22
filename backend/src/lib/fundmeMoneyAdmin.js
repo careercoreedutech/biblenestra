@@ -159,13 +159,14 @@ async function downloadCsv(path, toast){
     api('GET', '/admin/api/fundme/kyc?status=' + status).then(function(d){
       [['pending_review', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Rejected']].forEach(function(s){ bar.appendChild(h('button', { class: 'btn small' + (s[0] === status ? '' : ' ghost'), text: s[1] + (d.counts[s[0]] ? ' · ' + d.counts[s[0]] : ''), onclick: function(){ go('KYC', { status: s[0] }); } })); });
       list.innerHTML = '';
-      list.appendChild(h('p', { class: 'meta', text: 'A payout (Fund Me) or gift-earnings withdrawal can only be approved for a member whose KYC is approved. The legal name must match the bank account name (same words, any order; middle names ignored).' }));
+      list.appendChild(h('p', { class: 'meta', text: 'A payout (Fund Me) or gift-earnings withdrawal can only be approved for a member whose KYC is approved. The legal name must match the bank account name (same words, any order; middle names ignored). With Dojah set up, a BVN or NIN is looked up first and its name must match both; “Not checked automatically” means check the ID by hand. You still approve every one.' }));
       if (!d.items.length) { list.appendChild(h('div', { class: 'card', text: 'None.' })); return; }
       d.items.forEach(function(k){
         var note = h('input', { placeholder: 'Reason (to reject; the member sees it)', style: 'min-width:240px' });
         list.appendChild(h('div', { class: 'card' }, [
           h('div', { class: 'row' }, [h('b', { text: k.displayName + (k.handle ? ' @' + k.handle : '') }), chip(k.status === 'approved' ? 'verified' : k.status === 'rejected' ? 'failed' : 'under_review', k.statusLabel)]),
           h('div', { class: 'meta', text: k.idTypeLabel + ' ' + k.idNumberMasked + ' · legal name “' + k.legalName + '” · ' + k.bankName + ' ' + k.accountNumberMasked + ' “' + k.accountName + '” ' + (k.nameResolved ? '(name from Paystack)' : '(name typed by the member — check it)') + ' · name match ' + (k.nameMatch ? 'yes' : 'NO') + ' · submitted ' + when(k.submittedAt) + (k.fundmeBank ? ' · Fund Me bank ' + k.fundmeBank.status.replace('_', ' ') + (k.fundmeBank.sameAccount ? ' (same account)' : ' (DIFFERENT account)') : '') + (k.reviewNote ? ' · note: ' + k.reviewNote : '') }),
+          k.idCheck ? h('div', { class: 'row', style: 'gap:6px;margin-top:6px;flex-wrap:wrap' }, [chip(k.idCheck.status === 'matched' ? 'verified' : 'under_review', 'ID check: ' + k.idCheck.label), h('span', { class: 'meta', text: (k.idCheck.note || '') + (k.idCheck.checkedAt ? ' · checked ' + when(k.idCheck.checkedAt) : '') })]) : '',
           h('div', { class: 'row', style: 'gap:6px;margin-top:8px;flex-wrap:wrap' }, [
             k.status !== 'approved' ? h('button', { class: 'btn small', text: 'Approve', onclick: act('POST', '/admin/api/fundme/kyc/' + k.userId + '/approve', null, 'Approved', function(){ go('KYC', { status: status }); }) }) : '',
             note,
@@ -354,12 +355,39 @@ async function downloadCsv(path, toast){
     draw(); load();
   };
 
+  // ── Live exchange rates (lib/fxLive.js): status, flagged currencies, Refresh now ─────────────────────────────
+  function fxCard(fx, rules){
+    var row = null; (rules || []).forEach(function(r){ if (r.key === 'fundme_fx_ngn_per_unit') row = r; });
+    var table = row && row.value ? row.value : {};
+    var src = fx.source === 'exchangerate-api' ? 'live (Exchange Rate API, open.er-api.com)' : fx.source === 'manual' ? 'typed by staff' : 'seeded defaults (never refreshed yet)';
+    var kids = [
+      h('div', { class: 'row' }, [h('b', { text: 'Exchange rates' }), chip(fx.auto ? 'verified' : 'under_review', fx.auto ? 'auto refresh on' : 'auto refresh off')]),
+      h('div', { class: 'meta', text: 'Source: ' + src + ' · rates last updated ' + when(fx.ratesUpdatedAt) + ' · provider published ' + when(fx.providerUpdatedAt) + ' (next ' + when(fx.providerNextUpdateAt) + ') · last attempt ' + when(fx.lastAttemptAt) + ' · last success ' + when(fx.lastSuccessAt) }),
+      h('div', { class: 'meta', text: fx.auto ? 'Auto is on: the cron refreshes these at most every ' + fx.refreshHours + ' hours, so a rate you type by hand is overwritten on the next refresh. A rate that moved more than ' + fx.maxMovePct + '% is not applied and is listed below.' : 'Auto is off: the rates below are only what staff type. Turn fundme_fx_auto on to keep them live.' }),
+      h('div', { class: 'meta', text: 'Current: ' + Object.keys(table).map(function(k){ return k + ' ₦' + Number(table[k]).toLocaleString(undefined, { maximumFractionDigits: 4 }); }).join(' · ') }),
+    ];
+    if (fx.lastError) kids.push(h('div', { class: 'meta', style: 'color:var(--neg)', text: 'Last refresh failed: ' + fx.lastError }));
+    if (fx.eolAt) kids.push(h('div', { class: 'meta', style: 'color:var(--neg);font-weight:700', text: 'Warning: the rate API says this endpoint reaches end of life on ' + when(fx.eolAt) + '. Plan another rate source.' }));
+    (fx.flagged || []).forEach(function(f){
+      var txt = f.reason === 'moved_over_25pct' ? f.currency + ': fetched ₦' + f.fetched + ' moved ' + f.changePct + '% from the stored ₦' + f.stored + ' — NOT applied, old rate kept. Check it and apply by hand if it is right.' : f.currency + ': no usable rate in the API reply (' + f.reason + ') — old rate kept.';
+      var line = [h('span', { class: 'chip neg', text: 'flagged' }), h('span', { class: 'meta', text: txt })];
+      if (f.fetched) line.push(h('button', { class: 'btn small ghost', text: 'Use ₦' + f.fetched, onclick: act('PUT', '/admin/api/fundme/rules', function(){ var v = {}; Object.keys(table).forEach(function(k){ v[k] = table[k]; }); v[f.currency] = f.fetched; return { key: 'fundme_fx_ngn_per_unit', value: v }; }, 'Saved', function(){ go('Rules'); }) }));
+      kids.push(h('div', { class: 'row', style: 'gap:6px;margin-top:4px;flex-wrap:wrap' }, line));
+    });
+    kids.push(h('div', { class: 'row', style: 'gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center' }, [
+      h('button', { class: 'btn small', text: 'Refresh now', onclick: act('POST', '/admin/api/fundme/fx/refresh', null, 'Rates checked', function(r){ if (r && r.ok === false) toast(r.error || 'Refresh failed', true); go('Rules'); }) }),
+      h('a', { href: 'https://www.exchangerate-api.com', target: '_blank', rel: 'noopener', class: 'meta', text: 'Rates by Exchange Rate API' }),
+    ]));
+    return h('div', { class: 'card' }, kids);
+  }
+
   // ── Rules ────────────────────────────────────────────────────────────────────────────────────────────────────
   R['Rules'] = function(el){
     loading(el);
     api('GET', '/admin/api/fundme/rules').then(function(d){
       el.innerHTML = '';
       el.appendChild(h('div', { class: 'card meta', text: 'Paystack: ' + (d.env.paystack ? 'connected' : 'not set up (donations off unless test mode)') + ' · automatic payouts (FUNDME_AUTO_PAYOUTS): ' + (d.env.autoPayouts ? 'on' : 'off — pay by bank transfer and enter the reference') + ' · test donations: ' + (d.env.testDonations ? 'on for testers' : 'off') }));
+      if (d.fx) el.appendChild(fxCard(d.fx, d.rules));
       d.rules.forEach(function(r){
         var input = h('input', { value: JSON.stringify(r.value), style: 'min-width:260px;font-family:monospace' });
         el.appendChild(h('div', { class: 'card' }, [

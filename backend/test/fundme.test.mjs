@@ -918,43 +918,44 @@ test('Paystack test keys (sk_test_…) mark donations as test money, never real'
 import * as KYC from '../src/lib/kyc.js';
 const DEF = Object.fromEntries(Object.entries(FM.FUNDME_RULES).map(([k, r]) => [k, r.dflt]));
 
-test('client-answer defaults: hold 7 days, no publishing limits, gift cap 500, 0.2% fee, monthly payouts on day 1', () => {
+test('client-answer defaults: hold 7 days, no publishing limits, gift cap 500, 2% fee, monthly payouts on day 1', () => {
   assert.deepEqual([DEF.fundme_payout_hold_days, DEF.fundme_max_requests_per_day, DEF.fundme_max_requests_per_month, DEF.fundme_max_active_requests], [7, 0, 0, 0]);
-  assert.deepEqual([DEF.fundme_credit_gift_max, DEF.fundme_fee_bps], [500, 20]);
-  assert.match(FM.FUNDME_RULES.fundme_fee_bps.label, /client said 0\.2% — confirm whether 2%/);
+  assert.deepEqual([DEF.fundme_credit_gift_max, DEF.fundme_fee_bps], [500, 200]);
+  assert.match(FM.FUNDME_RULES.fundme_fee_bps.label, /200 = 2%/);
   assert.deepEqual([DEF.fundme_paystack_fee_bps, DEF.fundme_paystack_fee_flat_minor, DEF.fundme_paystack_fee_flat_from_minor, DEF.fundme_paystack_fee_cap_minor, DEF.fundme_vat_bps], [150, 10000, 250000, 200000, 750]);
   assert.deepEqual(DEF.fundme_payout_schedule, { mode: 'monthly', day: 1 });
   for (const c of ['USD', 'GBP', 'EUR', 'CAD', 'GHS', 'KES', 'ZAR']) assert.ok(DEF.fundme_fx_ngn_per_unit[c] > 0, c);
-  assert.match(FM.FUNDME_RULES.fundme_fx_ngn_per_unit.label, /keep these current/);
+  assert.match(FM.FUNDME_RULES.fundme_fx_ngn_per_unit.label, /OVERWRITTEN on the next refresh/); assert.equal(DEF.fundme_fx_auto, true);
 });
 
 test('fee maths: fees taken from the gift, or covered by the donor (beneficiary gets the full gift)', () => {
+  const D20 = { ...DEF, fundme_fee_bps: 20 }; // the maths below was worked out at 0.2%; the live default is now 2%
   // ₦10,000, not covered: 0.2% = ₦20 · Paystack 1.5% + ₦100 = ₦250 · VAT 7.5% of ₦270 = ₦20.25
-  const out = FM.feeBreakdown(DEF, 1000000, { coverFees: false });
+  const out = FM.feeBreakdown(D20, 1000000, { coverFees: false });
   assert.deepEqual([out.platformFeeMinor, out.processingFeeMinor, out.vatMinor, out.totalMinor, out.netMinor], [2000, 25000, 2025, 1000000, 970975]);
   // ₦10,000, covered: the donor pays ₦10,295.01 and the beneficiary gets exactly ₦10,000
-  const cov = FM.feeBreakdown(DEF, 1000000, { coverFees: true });
+  const cov = FM.feeBreakdown(D20, 1000000, { coverFees: true });
   assert.deepEqual([cov.totalMinor, cov.netMinor, cov.platformFeeMinor, cov.processingFeeMinor, cov.vatMinor], [1029501, 1000000, 2000, 25443, 2058]);
-  assert.equal(cov.processingFeeMinor, FM.processingFeeEstimate(DEF, cov.totalMinor), 'the Paystack fee is on what is actually charged');
-  assert.equal(cov.vatMinor, FM.vatOn(DEF, cov.platformFeeMinor + cov.processingFeeMinor));
+  assert.equal(cov.processingFeeMinor, FM.processingFeeEstimate(D20, cov.totalMinor), 'the Paystack fee is on what is actually charged');
+  assert.equal(cov.vatMinor, FM.vatOn(D20, cov.platformFeeMinor + cov.processingFeeMinor));
   // no ₦100 flat fee under ₦2,500; the ₦2,000 cap on big gifts
-  assert.equal(FM.processingFeeEstimate(DEF, 249999), 3750);
-  assert.equal(FM.processingFeeEstimate(DEF, 250000), 3750 + 10000);
-  assert.equal(FM.processingFeeEstimate(DEF, 50000000), 200000);
-  const big = FM.feeBreakdown(DEF, 50000000, { coverFees: true });
+  assert.equal(FM.processingFeeEstimate(D20, 249999), 3750);
+  assert.equal(FM.processingFeeEstimate(D20, 250000), 3750 + 10000);
+  assert.equal(FM.processingFeeEstimate(D20, 50000000), 200000);
+  const big = FM.feeBreakdown(D20, 50000000, { coverFees: true });
   assert.deepEqual([big.processingFeeMinor, big.netMinor], [200000, 50000000]);
-  assert.equal(big.totalMinor, 50000000 + 100000 + 200000 + FM.vatOn(DEF, 300000));
+  assert.equal(big.totalMinor, 50000000 + 100000 + 200000 + FM.vatOn(D20, 300000));
   // covering crosses the ₦2,500 threshold: the flat fee is included, the beneficiary still gets the gift
-  const edge = FM.feeBreakdown(DEF, 247000, { coverFees: true });
-  assert.ok(edge.totalMinor >= 250000 && edge.netMinor === 247000 && edge.processingFeeMinor === FM.processingFeeEstimate(DEF, edge.totalMinor));
+  const edge = FM.feeBreakdown(D20, 247000, { coverFees: true });
+  assert.ok(edge.totalMinor >= 250000 && edge.netMinor === 247000 && edge.processingFeeMinor === FM.processingFeeEstimate(D20, edge.totalMinor));
   // every covered gift from ₦5 to ₦100,000: net === gift and total = gift + fees
   for (let g = 500; g <= 10000000; g = Math.ceil(g * 1.37) + 7) {
-    const b = FM.feeBreakdown(DEF, g, { coverFees: true });
+    const b = FM.feeBreakdown(D20, g, { coverFees: true });
     assert.equal(b.netMinor, g, `gift ${g}`);
     assert.equal(b.totalMinor, g + b.feesMinor, `gift ${g}`);
   }
   // fees switched off → nothing changes
-  const zero = FM.feeBreakdown({ ...DEF, fundme_fee_bps: 0, fundme_paystack_fee_bps: 0, fundme_paystack_fee_flat_minor: 0, fundme_vat_bps: 0 }, 123456, { coverFees: true });
+  const zero = FM.feeBreakdown({ ...D20, fundme_fee_bps: 0, fundme_paystack_fee_bps: 0, fundme_paystack_fee_flat_minor: 0, fundme_vat_bps: 0 }, 123456, { coverFees: true });
   assert.deepEqual([zero.totalMinor, zero.netMinor, zero.feesMinor], [123456, 123456, 0]);
 });
 

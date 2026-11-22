@@ -170,6 +170,7 @@ export function renderFundraiserPage(f, { nonce, result, pageUrl }) {
       <div class="err" id="err" role="alert"></div>
       <button class="btn btn-primary" id="give" type="submit" style="width:100%">Donate</button>
       <p style="color:#6B6255;font-size:12.5px;margin:10px 0 0">${esc(f.heldByBibleNestra || '')} ${esc(f.currency !== 'NGN' ? 'Charged in Naira at our rate when your currency isn’t available. ' : '')}${esc(f.refundPolicy || '')}</p>
+      ${f.fxAttribution ? `<p class="fx-attr" style="color:#A1978A;font-size:11.5px;margin:6px 0 0"><a href="${esc(f.fxAttribution.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(f.fxAttribution.label)}</a></p>` : ''}
     </form>`;
   } else if (f.status === 'live' && !f.paymentsReady) {
     donate = '<div id="donate" class="closed card"><div class="eyebrow">Give</div><div class="serif">' + esc(f.closedMessage || 'Donations aren’t switched on yet') + '</div><p style="color:#6B6255;margin:6px 0 0">Online giving is being set up. Please check back shortly — and share this page in the meantime.</p></div>';
