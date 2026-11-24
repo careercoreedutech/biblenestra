@@ -66,7 +66,8 @@ import { MediaLibraryScreen, MediaListScreen, MediaUploadScreen, BookReaderScree
 import { AudioPlayerProvider } from './src/audio/Player'; // MEDIA LIBRARY: global audio player (continuous playback)
 import { LibraryMiniBar } from './src/components/MiniPlayer'; // MEDIA LIBRARY
 import NotificationSettingsScreen from './src/screens/NotificationSettingsScreen'; // NOTIFICATIONS: Settings › Notifications › Daily moments
-import { MembershipsScreen, MembershipScreen, MembershipReviewsScreen, MembershipHomeScreen, MyChannelsScreen } from './src/screens/MembershipScreens'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
+import { MembershipsScreen, MembershipScreen, MembershipReviewsScreen, MembershipHomeScreen, MyChannelsScreen, MembershipLibraryScreen } from './src/screens/MembershipScreens'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
+import { MembershipMediaScreen, MembershipMembersScreen, MembershipAdminsScreen, MembershipSettingsScreen, MembershipWelcomeGate } from './src/screens/MembershipGroupScreens'; // MEMBERSHIP GROUPS: MASTER CLASS + EXECUTIVE CLASS
 import { WalletScreen } from './src/screens/WalletScreen'; // WALLET CORE: separate wallets, Buy sheets, history, Dating Plus / VIP
 import { DatingProfileEditScreen, DatingProfileViewScreen, DatingChatScreen, DatingPlansScreen, DatingBoostScreen, DatingSettingsScreen, DatingVerifyScreen } from './src/screens/FindLoveScreens'; // FIND LOVE: profile, chat, plans, boost, safety, verification
 import { GiftStoreScreen, GiftHistoryScreen, GiftEarningsScreen } from './src/screens/GiftScreens'; // VIRTUAL GIFTS & STARS: store, history, earnings
@@ -136,6 +137,7 @@ const ROUTES = {
 if (__DEV__) ROUTES.SignInPreview = SignInPreviewScreen;
 ROUTES.InviteFriends = InviteFriendsScreen; // CHAT LIMITS
 Object.assign(ROUTES, { Memberships: MembershipsScreen, Membership: MembershipScreen, MembershipReviews: MembershipReviewsScreen, MembershipHome: MembershipHomeScreen, MyChannels: MyChannelsScreen }); // MEMBERSHIPS & PAID CHANNELS
+Object.assign(ROUTES, { MembershipLibrary: MembershipLibraryScreen, MembershipMedia: MembershipMediaScreen, MembershipMembers: MembershipMembersScreen, MembershipAdmins: MembershipAdminsScreen, MembershipSettings: MembershipSettingsScreen }); // MEMBERSHIP GROUPS
 ROUTES.Wallet = WalletScreen; // WALLET CORE
 Object.assign(ROUTES, { FundMeCredits: FundMeCreditsScreen, FundMeGiftCredits: FundMeGiftCreditsScreen, FundMeMoney: FundMeMoneyScreen, FundMePayoutAccount: FundMePayoutAccountScreen, FundMeMyDonations: FundMeMyDonationsScreen, FundMeReceipt: FundMeReceiptScreen, PayoutKyc: PayoutKycScreen }); // FUND ME MONEY (+ payout KYC)
 Object.assign(ROUTES, { GiftStore: GiftStoreScreen, GiftHistory: GiftHistoryScreen, GiftEarnings: GiftEarningsScreen }); // VIRTUAL GIFTS & STARS
@@ -297,6 +299,7 @@ function Root() {
         <NowPlayingSheet />
         {onboardedAtLaunch.current ? <EngagementPopup /> : null}{/* not on the very first launch: new users reach Today in few taps */}
         <ChatLimitHost />{/* CHAT LIMITS: subscription prompt when a free user hits the 5-chat limit */}
+        <MembershipWelcomeGate />{/* MEMBERSHIP GROUPS: a new member's welcome pop-up, once per group */}
       </View>
     </SafeAreaView>
   );

@@ -17,6 +17,9 @@ import { LIBRARY_VIEWER_HTML } from '../lib/libraryViewer.js';
 import { MUTE_DURATIONS, mutedSql, muteShape } from '../lib/chatMute.js'; // CHAT GAPS: timed mute
 import { previewsFor, firstLinkUrl } from '../lib/linkPreviews.js'; // CHAT GAPS: link cards in the Links tab
 import { groupInviteUrl } from './chatGaps.js'; // CHAT GAPS: /g/<code> landing page that opens the app
+import { historyHiddenSql } from '../lib/messages.js'; // MEMBERSHIP GROUPS: "history from join time" for new members
+import { membershipSendGuard, shareToExecutive } from '../lib/membershipGroups.js'; // MEMBERSHIP GROUPS: forwards into MASTER CLASS follow the publish rule
+import { membershipInvitePreview, membershipInviteJoin } from '../lib/memberships.js'; // MEMBERSHIP GROUPS: invite links grant access the membership way
 
 const chatGroups = new Hono();
 const parse = (v) => (v == null ? null : typeof v === 'string' ? JSON.parse(v) : v);
@@ -268,7 +271,7 @@ chatGroups.post('/conversations/:id/invite', async (c) => {
 
 async function inviteFor(env, code) {
   if (!/^[A-Za-z0-9]{6,32}$/.test(code)) return null;
-  return one(env, `SELECT i.code, c.id, c.title, c.description, c.avatar_key, c.settings, c.kind,
+  return one(env, `SELECT i.code, i.created_by, c.id, c.title, c.description, c.avatar_key, c.settings, c.kind, c.membership_id,
       (SELECT COUNT(*)::int FROM conversation_members m WHERE m.conversation_id = c.id) AS members
     FROM conversation_invites i JOIN conversations c ON c.id = i.conversation_id
     WHERE i.code = $1 AND i.revoked_at IS NULL`, [code]);
@@ -279,6 +282,8 @@ chatGroups.get('/invites/:code', async (c) => {
   const me = c.get('user');
   const inv = await inviteFor(c.env, c.req.param('code'));
   if (!inv) throw notFound('This invite link was reset or doesn’t exist');
+  // MEMBERSHIP GROUPS: a group's invite link → { kind: 'membership', membershipId, free, ... } (paid ones open the membership page)
+  if (inv.membership_id) return c.json(await membershipInvitePreview(c, inv, me));
   const mem = await one(c.env, 'SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [inv.id, me.id]);
   const req = await one(c.env, `SELECT status FROM conversation_join_requests WHERE conversation_id = $1 AND user_id = $2`, [inv.id, me.id]);
   const banned = !mem && !!(await one(c.env, 'SELECT 1 FROM conversation_bans WHERE conversation_id = $1 AND user_id = $2', [inv.id, me.id])); // CHAT GAPS
@@ -295,6 +300,8 @@ chatGroups.post('/invites/:code/join', async (c) => {
   const me = c.get('user');
   const inv = await inviteFor(c.env, c.req.param('code'));
   if (!inv) throw notFound('This invite link was reset or doesn’t exist');
+  // MEMBERSHIP GROUPS: free + open → joined; free + approval → request; paid → { status: 'membership' } (open its page)
+  if (inv.membership_id) { const r = await membershipInviteJoin(c, inv, me); return c.json(r.body, r.status); }
   if (await one(c.env, 'SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [inv.id, me.id])) {
     return c.json({ status: 'member', conversationId: inv.id });
   }
@@ -406,6 +413,7 @@ chatGroups.get('/conversations/:id/media', async (c) => {
       FROM messages m JOIN users u ON u.id = m.sender_id
       WHERE m.conversation_id = $1 AND NOT m.deleted AND ${where}
         AND NOT EXISTS (SELECT 1 FROM message_hides h WHERE h.message_id = m.id AND h.user_id = $2)
+        AND NOT ${historyHiddenSql('m', '$2')}
       ORDER BY m.created_at DESC LIMIT 200`, vals);
   let items = rows.map((r) => {
     const meta = parse(r.meta) || {};
@@ -434,7 +442,8 @@ chatGroups.get('/conversations/:id/media/counts', async (c) => {
   const me = c.get('user');
   const convId = uuidParam(c, 'id');
   await groupContext(c.env, convId, me.id);
-  const rows = await q(c.env, `SELECT kind, meta, body FROM messages WHERE conversation_id = $1 AND NOT deleted AND (kind IN ('image','video','voice','file') OR body ~* 'https?://')`, [convId]);
+  const rows = await q(c.env, `SELECT m.kind, m.meta, m.body FROM messages m WHERE m.conversation_id = $1 AND NOT m.deleted AND (m.kind IN ('image','video','voice','file') OR m.body ~* 'https?://')
+    AND NOT ${historyHiddenSql('m', '$2')}`, [convId, me.id]);
   const counts = { photos: 0, videos: 0, docs: 0, audio: 0, links: 0, files: 0 };
   for (const r of rows) {
     if (r.kind === 'image') counts.photos++;
@@ -481,9 +490,14 @@ chatGroups.post('/uploads/chat-file', async (c) => {
 chatGroups.post('/messages/:id/forward', async (c) => {
   const me = c.get('user');
   const id = uuidParam(c, 'id');
-  const src = await one(c.env, 'SELECT * FROM messages WHERE id = $1', [id]);
+  let src = await one(c.env, 'SELECT * FROM messages WHERE id = $1', [id]);
   if (!src || src.deleted) throw notFound('Message not found');
   if (!(await one(c.env, 'SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [src.conversation_id, me.id]))) throw notFound('Message not found');
+  // MEMBERSHIP GROUPS: forwarding a shared post forwards its MASTER CLASS original (the reference itself is empty)
+  if (src.kind === 'shared_post') {
+    src = src.shared_from ? await one(c.env, 'SELECT * FROM messages WHERE id = $1', [src.shared_from]) : null;
+    if (!src || src.deleted) throw notFound('This post was deleted');
+  }
   if (src.kind === 'system') throw bad('System messages can’t be forwarded', 'NOT_ALLOWED');
   const meta0 = parse(src.meta) || {};
   if (meta0.gift) throw bad('Coin gifts can’t be forwarded', 'NOT_ALLOWED');
@@ -494,7 +508,9 @@ chatGroups.post('/messages/:id/forward', async (c) => {
   const out = [];
   for (const convId of targets) {
     const ctx = await groupContext(c.env, convId, me.id).catch(() => null);
-    if (!ctx || !permissionsFor(ctx).canSend) { out.push({ conversationId: convId, ok: false, code: 'NOT_ALLOWED' }); continue; }
+    // MEMBERSHIP GROUPS: same rules as sending (MASTER CLASS publishers only, EXECUTIVE CLASS settings / mute)
+    const mg = ctx ? await membershipSendGuard(c.env, convId, me, { kind: src.kind }).catch(() => false) : null;
+    if (!ctx || mg === false || (!mg && !permissionsFor(ctx).canSend)) { out.push({ conversationId: convId, ok: false, code: 'NOT_ALLOWED' }); continue; }
     if (ctx.conv.kind === 'dm') {
       const blocked = await one(c.env, `SELECT 1 FROM conversation_members m JOIN blocks b ON (b.blocker_id = m.user_id AND b.blocked_id = $2) OR (b.blocker_id = $2 AND b.blocked_id = m.user_id)
         WHERE m.conversation_id = $1 AND m.user_id <> $2`, [convId, me.id]);
@@ -518,6 +534,7 @@ chatGroups.post('/messages/:id/forward', async (c) => {
       um AS (UPDATE conversation_members SET last_read_at = now(), last_sent_at = now() WHERE conversation_id = $1 AND user_id = $2)
       SELECT id FROM ins`, [convId, me.id, src.kind, src.body, mediaKey, JSON.stringify(meta), src.link_url || null]);
     const msg = await loadMessage(c.env, row.id, me.id);
+    if (mg && mg.section === 'master') await shareToExecutive(c.env, mg.m, { id: row.id, sender_id: me.id, kind: src.kind }); // MEMBERSHIP GROUPS
     const others = await q(c.env, `SELECT user_id, ${mutedSql('m')} AS muted FROM conversation_members m WHERE conversation_id = $1 AND user_id <> $2`, [convId, me.id]); // CHAT GAPS: timed mute
     for (const o of others) {
       await notifyUser(c.env, o.user_id, { type: 'message.new', conversationId: convId, message: { ...msg, isMe: false } }).catch(() => {});
@@ -590,6 +607,7 @@ async function searchMessages(c, convId) {
         AND (m.body ILIKE $2 OR (m.kind = 'file' AND m.meta->>'name' ILIKE $2))
         ${convId ? 'AND m.conversation_id = $3' : ''}
         AND NOT EXISTS (SELECT 1 FROM message_hides h WHERE h.message_id = m.id AND h.user_id = $1)
+        AND NOT ${historyHiddenSql('m', '$1')}
       ORDER BY m.created_at DESC LIMIT 60`, vals);
   return c.json({
     items: rows.map((r) => ({

@@ -16,6 +16,8 @@ import { firstLinkUrl, cachedPreview, scheduleLinkPreview } from '../lib/linkPre
 import { mutedSql } from '../lib/chatMute.js'; // CHAT GAPS: timed mute (expiry honoured everywhere)
 import { broadcastChange } from '../lib/messages.js';
 import { datingSendGuard } from '../lib/dating.js'; // FIND LOVE HOOK: dating-chat message allowance (see the marked call in the send route)
+import { historyHiddenSql } from '../lib/messages.js'; // MEMBERSHIP GROUPS: "history from join time" for new members
+import { membershipSendGuard, pushPlan, shareToExecutive, threadPermissions, MASTER } from '../lib/membershipGroups.js'; // MEMBERSHIP GROUPS: MASTER CLASS + EXECUTIVE CLASS rules
 
 const conversations = new Hono();
 
@@ -29,9 +31,17 @@ export function previewText(kind, text, meta) {
   const m = meta || {};
   if (kind === 'voice') return m.file ? `🎵 ${m.name || 'Audio'}` : `🎤 Voice note${m.durationMs ? ` (${fmtSecs(m.durationMs)})` : ''}`;
   if (kind === 'file') return `📄 ${m.name || 'Document'}`;
+  if (kind === 'shared_post') return sharedPreview(m); // MEMBERSHIP GROUPS: a MASTER CLASS post shared into EXECUTIVE CLASS
   if (kind === 'image') return text || '📷 Photo';
   if (kind === 'video') return text ? `🎥 ${text}` : '🎥 Video';
   return text || KIND_PREVIEW[kind] || '';
+}
+// MEMBERSHIP GROUPS: chat-list / push line for a shared post — "📣 MASTER CLASS: Week 2 is live" (meta = { shared })
+function sharedPreview(meta) {
+  const s = meta && meta.shared;
+  if (!s) return `📣 ${MASTER} post`;
+  if (s.deleted) return 'This post was deleted';
+  return `📣 ${MASTER}: ${previewText(s.kind, s.body || s.text || '', s.meta) || 'New post'}`;
 }
 const MAX_CHAT_GIFT = 10000;
 // A media message may only point at this chat's uploads (or the sender's own public uploads)
@@ -65,10 +75,14 @@ conversations.get('/conversations', async (c) => {
                'id', msg.id, 'kind', msg.kind, 'body', CASE WHEN msg.deleted THEN 'This message was deleted' ELSE msg.body END,
                'senderId', msg.sender_id, 'createdAt', msg.created_at, 'deleted', msg.deleted,
                'meta', CASE WHEN msg.deleted THEN NULL ELSE msg.meta END,
-               'senderName', (SELECT su.display_name FROM users su WHERE su.id = msg.sender_id)
+               'senderName', (SELECT su.display_name FROM users su WHERE su.id = msg.sender_id),
+               'shared', CASE WHEN msg.kind = 'shared_post' AND NOT msg.deleted THEN (SELECT json_build_object('kind', s.kind,
+                   'body', CASE WHEN s.deleted THEN '' ELSE s.body END, 'meta', CASE WHEN s.deleted THEN NULL ELSE s.meta END, 'deleted', s.deleted)
+                 FROM messages s WHERE s.id = msg.shared_from) END
              )
              FROM messages msg WHERE msg.conversation_id = c.id
                AND NOT EXISTS (SELECT 1 FROM message_hides h WHERE h.message_id = msg.id AND h.user_id = $1)
+               AND NOT ${historyHiddenSql('msg', '$1')}
              ORDER BY msg.created_at DESC LIMIT 1) AS last_message,
             (SELECT COUNT(*)::int FROM messages unread
              WHERE unread.conversation_id = c.id
@@ -138,7 +152,7 @@ conversations.get('/conversations', async (c) => {
       lastMessage: lastMsg ? {
         id: lastMsg.id,
         kind: lastMsg.kind,
-        text: lastMsg.deleted ? lastMsg.body : previewText(lastMsg.kind, lastMsg.body, lastMsg.meta),
+        text: lastMsg.deleted ? lastMsg.body : previewText(lastMsg.kind, lastMsg.body, lastMsg.kind === 'shared_post' ? { shared: lastMsg.shared || { deleted: true } } : lastMsg.meta),
         senderId: lastMsg.senderId,
         senderName: lastMsg.senderName || null,
         durationMs: lastMsg.meta && lastMsg.meta.durationMs ? lastMsg.meta.durationMs : undefined,
@@ -278,7 +292,10 @@ conversations.get('/conversations/:id/messages', async (c) => {
   // CHAT 7.3 / 7.4: the first page also carries receipts (ticks), who's typing, the other person's presence (DMs)
   // and what I may do here (group permissions) — so the 5 s polling fallback keeps all of it fresh too.
   const ctx = await groupContext(c.env, convId, me.id);
-  const permissions = permissionsFor(ctx);
+  let permissions = permissionsFor(ctx);
+  // MEMBERSHIP GROUPS: MASTER CLASS / EXECUTIVE CLASS rules (publish, pin, delete, comments, admin mute) for this viewer
+  const mgPerms = await threadPermissions(c.env, convId, me);
+  if (mgPerms) permissions = { ...permissions, ...mgPerms.permissions };
   const [receipts, typing] = await Promise.all([receiptsFor(c.env, convId, me.id), typingIn(c.env, convId, me.id)]);
   let presence = null;
   if (ctx.conv.kind === 'dm') {
@@ -287,7 +304,7 @@ conversations.get('/conversations/:id/messages', async (c) => {
     const mine = await one(c.env, 'SELECT last_seen_visibility FROM users WHERE id = $1', [me.id]);
     presence = presenceShape(other, mine && mine.last_seen_visibility);
   }
-  return c.json({ items, cursor: nextCursor, hasMore, pins, myRole, receipts, typing, presence, permissions, settings: ctx.settings });
+  return c.json({ items, cursor: nextCursor, hasMore, pins, myRole, receipts, typing, presence, permissions, settings: ctx.settings, ...(mgPerms ? { membershipGroup: mgPerms.group } : {}) });
 });
 
 // POST /conversations/:id/messages — send message
@@ -331,7 +348,10 @@ conversations.post('/conversations/:id/messages', async (c) => {
   ]);
 
   if (!convData || !convData.is_member) throw forbidden('Not a member of this conversation');
-  if (convData.kind === 'channel') {
+  // MEMBERSHIP GROUPS: MASTER CLASS = publishers only (never members); EXECUTIVE CLASS = who-can-send / media settings,
+  // admin mute, comments-off on shared posts. Null for every other conversation.
+  const mg = await membershipSendGuard(c.env, convId, me, { kind, replyTo });
+  if (convData.kind === 'channel' && !mg) {
     const mine = await one(c.env, 'SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [convId, me.id]);
     if (!mine || !['owner', 'admin'].includes(mine.role)) throw forbidden('Only the channel’s admins can post here', 'CHANNEL_ADMINS_ONLY');
   }
@@ -417,6 +437,8 @@ conversations.post('/conversations/:id/messages', async (c) => {
   );
 
   const formatted = replyTo ? await loadMessage(c.env, row.id, me.id) : messageShape(row, me.id);
+  // MEMBERSHIP GROUPS: every MASTER CLASS post appears in EXECUTIVE CLASS as a reference (not a copy)
+  if (mg && mg.section === 'master') await shareToExecutive(c.env, mg.m, row);
   if (linkUrl) {
     // a link someone already shared shows its card at once; a new one gets it a moment later (message.changed)
     const known = await cachedPreview(c.env, linkUrl);
@@ -428,6 +450,9 @@ conversations.post('/conversations/:id/messages', async (c) => {
   const mentioned = new Set(meta && Array.isArray(meta.mentions) ? meta.mentions.map(String) : []);
   const preview = previewText(kind, text, meta).slice(0, 100) || 'New message';
   const isGroupish = convData.kind !== 'dm';
+  // MEMBERSHIP GROUPS: each member's notification choice for this section (MASTER CLASS on/off, EXECUTIVE CLASS
+  // all / mentions only / off); null elsewhere → the normal chat rules
+  const mgPush = mg ? await pushPlan(c.env, mg, otherMembers.map((m) => m.user_id)) : null;
   // Notify all other members in parallel
   await Promise.all(
     otherMembers.map(async (m) => {
@@ -437,6 +462,20 @@ conversations.post('/conversations/:id/messages', async (c) => {
         message: { ...formatted, isMe: false }, // shaped for the recipient
       });
       const isMention = mentioned.has(m.user_id);
+      if (mgPush) {
+        const choice = mgPush.plan.get(m.user_id) || 'all';
+        const wanted = choice === 'all' ? (!m.muted || isMention) : choice === 'mentions' ? isMention : false;
+        if (wanted) {
+          await sendNotification(c, {
+            userId: m.user_id,
+            kind: 'group',
+            title: mgPush.title,
+            body: mg.section === 'master' ? `📣 New post: ${preview}` : isMention ? `${me.display_name} mentioned you: ${preview}` : `${me.display_name}: ${preview}`,
+            data: { conversationId: convId, messageId: row.id, threadId: `chat:${convId}`, membershipId: mg.m.id, section: mg.section, ...(isMention ? { mention: true } : {}) },
+          });
+        }
+        return;
+      }
       if (!m.muted || isMention) {
         // awaited: an un-awaited inbox insert can be dropped once the response has been sent.
         // data.threadId groups a chat's pushes together on the device (one conversation = one group).

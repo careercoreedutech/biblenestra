@@ -1,10 +1,11 @@
 // MEMBERSHIPS & PAID CHANNELS (brief section 8) — shared model helpers.
 //
 // One membership system shown in three places (Discover › Memberships, Paid Channels, My Channels). Each membership has
-// plans, subscriptions, reviews, promo codes, an ordered content library, and two conversations from the existing chat
-// system: a Broadcast Channel (conversations.kind = 'channel', only owner/admins post) and a Community group
-// (kind = 'group', every member chats). Both carry conversations.membership_id so the access guard
-// (routes/memberships.js → membershipChatGuard) can check the subscription on every chat request.
+// plans, subscriptions, reviews, promo codes, an ordered content library, and two sections from the existing chat
+// system: MASTER CLASS (conversations.kind = 'channel', the owner and admins who can publish post) and EXECUTIVE CLASS
+// (kind = 'group', members discuss; every MASTER CLASS post shows there as a shared reference). Both carry
+// conversations.membership_id so the access guard (routes/memberships.js → membershipChatGuard) can check the
+// subscription on every chat request. Group rules (admins, permissions, settings, welcome): lib/membershipGroups.js.
 //
 // PAYMENTS (brief 3.4): paid memberships bought inside the app must go through Google Play Billing / Apple IAP.
 // Providers here:
@@ -13,11 +14,15 @@
 //   'test' → only when MEMBERSHIP_TEST_CHECKOUT=true AND the user is an admin or listed in MEMBERSHIP_TESTERS.
 // No card numbers, bank details or crypto are ever collected or wired.
 import { q, one } from './db.js';
-import { ApiError, bad } from './http.js';
+import { ApiError, bad, forbidden } from './http.js';
+import { sendNotification } from './push.js';
 import { formatMoney, CURRENCY_SYMBOL } from './money.js';
 import { mediaUrl } from './shape.js';
 import { notifyUser } from '../hub.js';
 import { systemMessage } from './chatGroups.js';
+import {
+  masterTitle, executiveTitle, masterDescription, executiveDescription, ensurePrefs, groupSettingsOf, ALL_PERMISSIONS, EXECUTIVE,
+} from './membershipGroups.js';
 // Google Play Billing lives in ONE shared module (lib/play.js); these names are re-exported unchanged for the routes.
 import { isOn, isPlatformAdmin, playConfigured, PAYMENTS_SOON, paymentsNotConfigured, verifyPlayPurchase, testerAllowed, storeMethod } from './play.js';
 export { isOn, isPlatformAdmin, playConfigured, PAYMENTS_SOON, paymentsNotConfigured, verifyPlayPurchase };
@@ -261,13 +266,15 @@ export async function ensureConversations(env, m, actor) {
   if (!channelId) {
     const ch = await one(env, `INSERT INTO conversations (kind, title, description, created_by, is_public, membership_id, settings)
       VALUES ('channel', $1, $2, $3, false, $4, '{"sendMessages":"admins"}'::jsonb) RETURNING id`,
-    [`${m.title} · Channel`, `Announcements, lessons and videos for ${m.title} members`, ownerId, m.id]);
+    [masterTitle(m.title), masterDescription(m.title), ownerId, m.id]);
     channelId = ch.id;
   }
   if (!communityId) {
+    const gs = groupSettingsOf(m);
     const cm = await one(env, `INSERT INTO conversations (kind, title, description, created_by, is_public, membership_id, settings)
-      VALUES ('group', $1, $2, $3, false, $4, '{"sendMessages":"all","addMembers":"admins","editInfo":"admins"}'::jsonb) RETURNING id`,
-    [`${m.title} · Community`, `Ask questions, discuss lessons and share resources with other ${m.title} members`, ownerId, m.id]);
+      VALUES ('group', $1, $2, $3, false, $4, $5::jsonb) RETURNING id`,
+    [executiveTitle(m.title), executiveDescription(m.title), ownerId, m.id,
+      JSON.stringify({ sendMessages: gs.memberMessaging, addMembers: 'admins', editInfo: 'admins', approveJoins: gs.joinMode === 'approval' })]);
     communityId = cm.id;
   }
   await q(env, 'UPDATE memberships SET channel_id = $2, community_id = $3 WHERE id = $1', [m.id, channelId, communityId]);
@@ -279,6 +286,11 @@ export async function ensureConversations(env, m, actor) {
         ON CONFLICT (conversation_id, user_id) DO UPDATE SET role = CASE WHEN conversation_members.role = 'owner' THEN 'owner' ELSE 'admin' END`, [conv, actor.id]);
     }
   }
+  // MEMBERSHIP GROUPS: the publishing admin is a group admin with every permission (listed under Admins)
+  if (actor && actor.id !== ownerId) {
+    await q(env, `INSERT INTO membership_admins (membership_id, user_id, permissions, added_by) VALUES ($1, $2, $3::jsonb, $2)
+      ON CONFLICT (membership_id, user_id) DO NOTHING`, [m.id, actor.id, JSON.stringify(ALL_PERMISSIONS)]);
+  }
   const subs = await q(env, `SELECT user_id FROM membership_subscriptions WHERE membership_id = $1
       AND status IN ('active','trialing','cancelled') AND (expires_at IS NULL OR expires_at > now())`, [m.id]);
   const fresh = { ...m, channel_id: channelId, community_id: communityId };
@@ -289,6 +301,8 @@ export async function ensureConversations(env, m, actor) {
 /** Adds a subscriber to both conversations as 'member' (staff roles untouched; community bans respected). */
 export async function addToConversations(env, m, userId, { quiet = false } = {}) {
   const added = [];
+  // MEMBERSHIP GROUPS: first join time (history visibility) + welcome pop-up / notification prefs, once per member
+  if (m.channel_id || m.community_id) await ensurePrefs(env, m.id, userId);
   for (const conv of [m.channel_id, m.community_id].filter(Boolean)) {
     const r = await one(env, `INSERT INTO conversation_members (conversation_id, user_id, role)
         SELECT $1, $2, 'member' WHERE NOT EXISTS (SELECT 1 FROM conversation_bans b WHERE b.conversation_id = $1 AND b.user_id = $2)
@@ -298,7 +312,7 @@ export async function addToConversations(env, m, userId, { quiet = false } = {})
   for (const conv of added) await notifyUser(env, userId, { type: 'conversation.new', conversationId: conv }).catch(() => {});
   if (!quiet && m.community_id && added.includes(m.community_id)) {
     const u = await one(env, 'SELECT display_name FROM users WHERE id = $1', [userId]);
-    await systemMessage(env, m.community_id, userId, `${(u && u.display_name) || 'A new member'} joined the community`, { action: 'joined' }).catch(() => {});
+    await systemMessage(env, m.community_id, userId, `${(u && u.display_name) || 'A new member'} joined ${EXECUTIVE} 👋`, { action: 'joined' }).catch(() => {});
   }
   return added;
 }
@@ -380,6 +394,109 @@ export async function endSubscription(env, membership, userId, status = 'expired
   await removeFromConversations(env, membership, userId);
   await recomputeStats(env, membership.id);
   return row;
+}
+
+// ---------- MEMBERSHIP GROUPS: free groups, approval-based joining, invite links ----------
+/** The cheapest active plan priced 0 → the group can be joined without paying ('free' subscription). */
+export async function freePlanOf(env, m) {
+  return one(env, 'SELECT * FROM membership_plans WHERE membership_id = $1 AND active AND price_minor = 0 ORDER BY sort_order, created_at LIMIT 1', [m.id]);
+}
+export async function isBanned(env, m, userId) {
+  const convs = [m.channel_id, m.community_id].filter(Boolean);
+  if (!convs.length) return false;
+  return !!(await one(env, 'SELECT 1 FROM conversation_bans WHERE conversation_id = ANY($1::uuid[]) AND user_id = $2 LIMIT 1', [convs, userId]));
+}
+/** Join request status for approval-based groups (stored on EXECUTIVE CLASS, conversation_join_requests). */
+export async function joinRequestOf(env, m, userId) {
+  if (!m.community_id) return null;
+  const r = await one(env, 'SELECT status FROM conversation_join_requests WHERE conversation_id = $1 AND user_id = $2', [m.community_id, userId]);
+  return r ? r.status : null;
+}
+/**
+ * Before checkout / a free join: banned people can't come back; in an approval-based group someone new needs an
+ * approved request first (renewals and past members are not asked again). Staff skip this.
+ */
+export async function assertMayJoin(env, m, user, { staff = false } = {}) {
+  if (staff) return;
+  if (await isBanned(env, m, user.id)) throw forbidden('An admin removed you from this group, so you can’t join it again', 'BANNED');
+  if (groupSettingsOf(m).joinMode !== 'approval') return;
+  if (await subscriptionOf(env, m.id, user.id)) return;
+  const status = await joinRequestOf(env, m, user.id);
+  if (status === 'approved') return;
+  const e = new ApiError(403, 'APPROVAL_REQUIRED', status === 'pending' ? 'Your request to join is waiting for an admin' : 'This group approves new members first. Ask to join and an admin will let you in.');
+  e.details = { requestStatus: status };
+  throw e;
+}
+/** Asks to join an approval-based group; admins with "manage members" are told. → 'pending' */
+export async function requestToJoin(c, m, user) {
+  const env = c.env;
+  if (!m.community_id) throw bad('This group isn’t open yet', 'NOT_AVAILABLE');
+  if (await isBanned(env, m, user.id)) throw forbidden('An admin removed you from this group, so you can’t join it again', 'BANNED');
+  await q(env, `INSERT INTO conversation_join_requests (conversation_id, user_id) VALUES ($1, $2)
+    ON CONFLICT (conversation_id, user_id) DO UPDATE SET status = 'pending', created_at = now(), decided_by = NULL
+    WHERE conversation_join_requests.status <> 'approved'`, [m.community_id, user.id]);
+  const admins = await q(env, `SELECT DISTINCT u FROM (
+      SELECT owner_id AS u FROM memberships WHERE id = $1 AND owner_id IS NOT NULL
+      UNION SELECT user_id FROM membership_admins WHERE membership_id = $1 AND (permissions->>'manageMembers')::boolean IS TRUE) x`, [m.id]);
+  for (const a of admins) {
+    await notifyUser(env, a.u, { type: 'group.joinRequest', conversationId: m.community_id, membershipId: m.id, userId: user.id }).catch(() => {});
+    await sendNotification(c, { userId: a.u, kind: 'group', title: m.title, body: `${user.display_name} asked to join`, data: { membershipId: m.id, conversationId: m.community_id, joinRequest: true } });
+  }
+  return (await joinRequestOf(env, m, user.id)) || 'pending';
+}
+/** Free group: activates a 'free' subscription on the free plan (approval / bans checked by the caller). */
+export async function joinFree(env, m, plan, userId) {
+  return activateSubscription(env, { membership: m, plan, userId, source: 'free', amountMinor: 0, currency: plan.currency });
+}
+
+/** GET /invites/:code for a membership group's link. */
+export async function membershipInvitePreview(c, inv, me) {
+  const env = c.env;
+  const m = await one(env, 'SELECT * FROM memberships WHERE id = $1', [inv.membership_id]);
+  if (!m || m.status !== 'published') return { kind: 'membership', unavailable: true, title: inv.title, conversationId: inv.id };
+  const sub = await subscriptionOf(env, m.id, me.id);
+  const plans = await q(env, 'SELECT * FROM membership_plans WHERE membership_id = $1 AND active ORDER BY sort_order, price_minor', [m.id]);
+  const card = cardShape(env, new URL(c.req.url).origin, m, plans);
+  const free = plans.some((p) => Number(p.price_minor) === 0);
+  return {
+    kind: 'membership',
+    membershipId: m.id,
+    slug: m.slug,
+    title: m.title,
+    description: m.headline || '',
+    coverUrl: card.coverUrl,
+    priceLabel: free ? 'Free' : card.priceLabel,
+    free,
+    membersCount: Number(m.member_count || 0),
+    approveJoins: groupSettingsOf(m).joinMode === 'approval',
+    isMember: hasAccess(sub),
+    requestStatus: await joinRequestOf(env, m, me.id),
+    banned: await isBanned(env, m, me.id),
+    conversationId: inv.id,
+  };
+}
+
+/**
+ * POST /invites/:code/join for a membership group's link — access always comes from the membership:
+ *   already a member → 'member' · free + open → joins now ('free' subscription) → 'member' (201)
+ *   free + approval → join request → 'requested' (202) · paid → 'membership' (200): the app opens the membership page.
+ */
+export async function membershipInviteJoin(c, inv, me) {
+  const env = c.env;
+  const m = await one(env, 'SELECT * FROM memberships WHERE id = $1', [inv.membership_id]);
+  if (!m || m.status !== 'published') throw bad('This group isn’t open to new members', 'NOT_AVAILABLE');
+  const base = { membershipId: m.id, slug: m.slug, conversationId: m.community_id, channelId: m.channel_id, communityId: m.community_id };
+  if (hasAccess(await subscriptionOf(env, m.id, me.id))) return { status: 200, body: { status: 'member', ...base } };
+  if (await isBanned(env, m, me.id)) throw forbidden('An admin removed you from this group, so you can’t join it again', 'BANNED');
+  const plan = await freePlanOf(env, m);
+  if (!plan) return { status: 200, body: { status: 'membership', ...base } };
+  if (groupSettingsOf(m).joinMode === 'approval' && (await joinRequestOf(env, m, me.id)) !== 'approved' && !(await subscriptionOf(env, m.id, me.id))) {
+    const status = await requestToJoin(c, m, me);
+    return { status: 202, body: { status: status === 'approved' ? 'approved' : 'requested', ...base } };
+  }
+  await q(env, 'UPDATE conversation_invites SET uses = uses + 1 WHERE code = $1', [inv.code]);
+  await joinFree(env, m, plan, me.id);
+  return { status: 201, body: { status: 'member', ...base } };
 }
 
 // ---------- payment providers ----------

@@ -2,8 +2,10 @@
 //   Discover › Memberships (MembershipsCatalog + "My Memberships" row) · Paid Channels (PaidChannelsRail, in place of the
 //   Fellowship section) · My Channels (MyChannelsScreen, where Clip Farm used to be in Socials).
 // Screens: MembershipsScreen (full catalogue) · MembershipScreen (product page, sticky Join → Choose a plan → Checkout)
-//          MembershipReviewsScreen · MembershipHomeScreen (Channel | Community | Library, locked "Renew" state when lapsed)
-//          MyChannelsScreen. Layout and flow follow the client's reference video; look and feel follow "Sanctuary Paper".
+//          MembershipReviewsScreen · MembershipHomeScreen (MASTER CLASS | EXECUTIVE CLASS + Library, Media, Members,
+//          Settings; locked "Renew" state when lapsed; once-only welcome pop-up) · MyChannelsScreen.
+//          Group admin screens (members, admins & permissions, settings, media): screens/MembershipGroupScreens.js.
+//          Layout and flow follow the client's reference video; look and feel follow "Sanctuary Paper".
 // Payments: Paystack (card, bank transfer, USSD) on Paystack's own page — src/billing/paystack.js; the server verifies
 // and grants access once. A test checkout appears for admins / testers. No card numbers are ever typed in the app.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -23,8 +25,9 @@ import { ChatScreen } from './ChatScreen';
 import {
   useMembershipCatalog, useMyMemberships, useMembership, membershipsChanged, getCheckout, quotePromo, submitCheckout, getHome,
   getLibrary, setLessonDone, getReviews, postReview, isMembershipRequired, friendly, ratingLabel, initialsOf, joinedLabel,
-  writtenLabel, untilLabel, newKey,
+  writtenLabel, untilLabel, newKey, joinFreeGroup, askToJoin, markWelcomeSeen, MASTER, EXECUTIVE,
 } from '../api/memberships';
+import { WelcomeModal } from './MembershipGroupScreens'; // MEMBERSHIP GROUPS: once-only welcome pop-up
 
 const SORTS = [
   { id: 'trending', label: 'Trending' },
@@ -338,6 +341,7 @@ export function ReviewRow({ r }) {
 export function MembershipScreen({ params = {} }) {
   const nav = useNav();
   const toast = useToast();
+  const api = useApi();
   const ref = params.id || params.slug;
   const { data: m, error, loaded, reload } = useMembership(ref);
   const [sheet, setSheet] = useState(null); // 'plans' | 'checkout'
@@ -360,12 +364,25 @@ export function MembershipScreen({ params = {} }) {
   const active = m.access && m.access.active;
   const lapsed = m.access && m.access.lapsed;
   const canOpen = active || m.isStaff;
-  const join = () => {
+  // MEMBERSHIP GROUPS: approval-based groups ask first (paid ones check out once approved); free groups join in one tap
+  const needsApproval = !canOpen && !lapsed && m.joinMode === 'approval' && m.joinRequest !== 'approved';
+  const pending = needsApproval && m.joinRequest === 'pending';
+  const join = async () => {
     if (canOpen) { nav.push('MembershipHome', { id: m.id, title: m.title }); return; }
     if (!m.purchasable) { toast.show('This membership isn’t taking new members right now', { icon: 'lock' }); return; }
+    if (pending) { toast.show('Your request is with the group admins. We’ll let you know.', { icon: 'clock' }); return; }
+    if (needsApproval || m.free) {
+      try {
+        const r = m.free ? await joinFreeGroup(api, m.id) : await askToJoin(api, m.id);
+        membershipsChanged(); reload();
+        if (r.status === 'member') { nav.push('MembershipHome', { id: m.id, title: m.title }); return; }
+        toast.show('Request sent · an admin will approve you soon', { icon: 'check' });
+      } catch (e) { toast.show(friendly(e), { tone: 'error' }); }
+      return;
+    }
     setSheet('plans');
   };
-  const joinLabel = canOpen ? 'Open membership' : lapsed ? 'Renew' : 'Join';
+  const joinLabel = canOpen ? 'Open group' : lapsed ? 'Renew' : pending ? 'Request sent · waiting for approval' : needsApproval ? 'Ask to join' : m.free ? 'Join for free' : 'Join';
 
   return (
     <View style={styles.page}>
@@ -457,7 +474,7 @@ export function MembershipScreen({ params = {} }) {
 
       {/* sticky Join */}
       <View style={styles.sticky}>
-        <PressScale onPress={join} scaleTo={0.98} style={[styles.joinBtn, lapsed && !canOpen && { backgroundColor: colors.terracotta }]} accessibilityRole="button" accessibilityLabel={joinLabel}>
+        <PressScale onPress={join} scaleTo={0.98} style={[styles.joinBtn, lapsed && !canOpen && { backgroundColor: colors.terracotta }, pending && { backgroundColor: colors.muted }]} accessibilityRole="button" accessibilityLabel={joinLabel}>
           <Text style={styles.joinText}>{joinLabel}</Text>
         </PressScale>
       </View>
@@ -766,7 +783,7 @@ export function MembershipReviewsScreen({ params = {} }) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Membership home: Channel | Community | Library (Telegram-like, brief 8.3)
+// Membership home: MASTER CLASS | EXECUTIVE CLASS + Library (Telegram-like, brief 8.3)
 // ---------------------------------------------------------------------------------------------------------------
 function LockedState({ m, lapsed, onRenew, onDetails }) {
   // ignore a tap that lands in the first moment (the tap that opened this screen must not also press Renew)
@@ -779,7 +796,7 @@ function LockedState({ m, lapsed, onRenew, onDetails }) {
       <ScaleIn style={styles.lockCard}>
         <View style={styles.lockIcon}><Icon name="lock" size={24} color={colors.primary} /></View>
         <Text style={styles.lockTitle}>{lapsed ? 'Your membership has ended' : 'Members only'}</Text>
-        <Text style={styles.lockBody}>{lapsed ? 'Renew to get back into the Channel, the Community and the Library. Your progress is saved.' : 'Join this membership to open its Channel, Community and Library.'}</Text>
+        <Text style={styles.lockBody}>{lapsed ? `Renew to get back into ${MASTER}, ${EXECUTIVE} and the Library. Your progress is saved.` : `Join this membership to open ${MASTER}, ${EXECUTIVE} and the Library.`}</Text>
         <PressScale onPress={renew} scaleTo={0.98} style={[styles.joinBtn, { alignSelf: 'stretch', marginTop: 16 }]} accessibilityRole="button">
           <Text style={styles.joinText}>{lapsed ? 'Renew' : 'Join'}</Text>
         </PressScale>
@@ -789,7 +806,7 @@ function LockedState({ m, lapsed, onRenew, onDetails }) {
   );
 }
 
-function LibraryView({ api, id }) {
+export function LibraryView({ api, id }) {
   const toast = useToast();
   const [lib, setLib] = useState(null);
   const [err, setErr] = useState(null);
@@ -842,18 +859,34 @@ function LibraryView({ api, id }) {
   );
 }
 
+// MEMBERSHIP GROUPS: the group home — MASTER CLASS | EXECUTIVE CLASS (Telegram's channel + linked discussion), with
+// Library, Media, Members and Settings one tap away, and the once-only welcome pop-up.
 export function MembershipHomeScreen({ params = {} }) {
   const nav = useNav();
   const api = useApi();
   const [home, setHome] = useState(null);
   const [err, setErr] = useState(null);
-  const [tab, setTab] = useState(params.tab || 'channel');
-  const load = () => getHome(api, params.id).then((d) => { setHome(d); setErr(null); }).catch(setErr);
+  const [tab, setTab] = useState(['community', 'executive'].includes(params.tab) ? 'executive' : 'master');
+  const [welcome, setWelcome] = useState(null);
+  const load = () => getHome(api, params.id).then((d) => { setHome(d); setErr(null); if (d.welcome && !params.welcomeShown) setWelcome(d.welcome); }).catch(setErr);
   useEffect(() => { load(); }, [params.id]);
+  useEffect(() => { if (params.tab === 'library') nav.push('MembershipLibrary', { id: params.id, title: params.title }); }, []);
   const detail = useMembership(params.id); // cover + title for the locked state too
   const m = (home && home.membership) || detail.data;
   const title = (m && m.title) || params.title || 'Membership';
   const locked = isMembershipRequired(err);
+  const closeWelcome = (to) => {
+    setWelcome(null);
+    markWelcomeSeen(api, params.id).catch(() => {});
+    if (to) setTab(to);
+  };
+  const role = home ? home.role : null;
+  const tools = home ? [
+    { id: 'library', icon: 'book', label: home.library.total ? `Library ${home.library.done}/${home.library.total}` : 'Library', go: () => nav.push('MembershipLibrary', { id: params.id, title }) },
+    { id: 'media', icon: 'image', label: 'Media', go: () => nav.push('MembershipMedia', { id: params.id, title, masterId: home.channelId, executiveId: home.communityId }) },
+    { id: 'members', icon: 'users', label: 'Members', go: () => nav.push('MembershipMembers', { id: params.id, title }) },
+    { id: 'settings', icon: home.isStaff ? 'settings' : 'bell', label: home.isStaff ? 'Settings' : 'Notifications', go: () => nav.push('MembershipSettings', { id: params.id, title }) },
+  ] : [];
 
   return (
     <View style={styles.page}>
@@ -863,7 +896,7 @@ export function MembershipHomeScreen({ params = {} }) {
         <Pressable style={{ flex: 1, minWidth: 0 }} onPress={() => nav.push('Membership', { id: params.id, title })} accessibilityRole="button" accessibilityLabel={`${title}. Membership details`}>
           <Text style={styles.homeTitle} numberOfLines={1}>{title}</Text>
           <Text style={[styles.homeSub, locked && { color: colors.terracotta }]} numberOfLines={1}>
-            {locked ? (err.data && err.data.lapsed ? 'Membership ended · Renew' : 'Members only') : home ? (home.isStaff ? 'You run this membership' : `Member · until ${untilLabel(home.access.expiresAt)}`) : 'Loading…'}
+            {locked ? (err.data && err.data.lapsed ? 'Membership ended · Renew' : 'Members only') : home ? (role === 'owner' ? 'You own this group' : home.isStaff ? 'You’re an admin' : `Member · until ${untilLabel(home.access.expiresAt)}`) : 'Loading…'}
           </Text>
         </Pressable>
         <Pressable onPress={() => nav.push('Membership', { id: params.id, title })} hitSlop={10} style={styles.topBtn} accessibilityLabel="Membership details"><Icon name="more" size={18} color={colors.fg} /></Pressable>
@@ -871,41 +904,63 @@ export function MembershipHomeScreen({ params = {} }) {
       {locked ? (
         <LockedState m={m || { coverUrl: null }} lapsed={!!(err.data && err.data.lapsed)} onRenew={() => nav.replace('Membership', { id: params.id, title, join: true })} onDetails={() => nav.replace('Membership', { id: params.id, title })} />
       ) : err ? (
-        <Empty title="Couldn’t open this membership" body={friendly(err)} action="Try again" onAction={load} />
+        <Empty title="Couldn’t open this group" body={friendly(err)} action="Try again" onAction={load} />
       ) : !home ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 50 }} />
       ) : (
         <>
-          <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.screen }}>
+          <View style={styles.groupBar}>
             <SegmentToggle
               value={tab}
               onChange={setTab}
-              options={[{ id: 'channel', label: 'Channel', icon: 'volume' }, { id: 'community', label: 'Community', icon: 'users' }, { id: 'library', label: 'Library', icon: 'book', badge: home.library.total ? `${home.library.done}/${home.library.total}` : null }]}
+              options={[{ id: 'master', label: MASTER, icon: 'volume' }, { id: 'executive', label: EXECUTIVE, icon: 'chat' }]}
             />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolRow}>
+              {tools.map((t) => (
+                <Pressable key={t.id} onPress={t.go} style={({ pressed }) => [styles.tool, pressed && { backgroundColor: colors.surfaceRaised }]} accessibilityRole="button" accessibilityLabel={t.label}>
+                  <Icon name={t.icon} size={13} color={colors.primary} />
+                  <Text style={styles.toolText}>{t.label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
           </View>
           <View style={{ flex: 1 }}>
-            {tab === 'channel' && home.channelId ? <ChatScreen key={`ch-${home.channelId}`} params={{ id: home.channelId, to: `${title} · Channel`, kind: 'channel', embedded: true }} /> : null}
-            {tab === 'community' && home.communityId ? <ChatScreen key={`cm-${home.communityId}`} params={{ id: home.communityId, to: `${title} · Community`, kind: 'group', embedded: true }} /> : null}
-            {tab === 'library' ? <LibraryView api={api} id={params.id} /> : null}
+            {tab === 'master' && home.channelId ? (
+              <ChatScreen key={`ms-${home.channelId}`} params={{ id: home.channelId, to: (home.sections && home.sections.master.title) || `${title} · ${MASTER}`, kind: 'channel', embedded: true, section: 'master', onOpenExecutive: () => setTab('executive') }} />
+            ) : null}
+            {tab === 'executive' && home.communityId ? (
+              <ChatScreen key={`ex-${home.communityId}`} params={{ id: home.communityId, to: (home.sections && home.sections.executive.title) || `${title} · ${EXECUTIVE}`, kind: 'group', embedded: true, section: 'executive', onOpenMaster: () => setTab('master') }} />
+            ) : null}
           </View>
         </>
       )}
+      <WelcomeModal visible={!!welcome} title={welcome && welcome.title} text={welcome && welcome.text} onMaster={() => closeWelcome('master')} onExecutive={() => closeWelcome('executive')} onClose={() => closeWelcome(null)} />
     </View>
   );
 }
 
+/** The group's ordered lessons (opened from the Library chip on the group home). */
+export function MembershipLibraryScreen({ params = {} }) {
+  const api = useApi();
+  return (
+    <Screen back title="Library" subtitle={params.title} scroll={false} padded={false}>
+      <LibraryView api={api} id={params.id} />
+    </Screen>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
-// My Channels (brief 8.3: where Clip Farm used to be) — the paid channels I belong to
+// My Channels (brief 8.3: where Clip Farm used to be) — the membership groups I belong to
 // ---------------------------------------------------------------------------------------------------------------
 export function MyChannelsScreen() {
   const nav = useNav();
   const mine = useMyMemberships();
   return (
-    <Screen back title="My Channels" subtitle="Paid channel communities you belong to">
-      {!mine.online ? <Notice text="Sign in to see the paid channels you belong to." /> : null}
+    <Screen back title="My Channels" subtitle="Membership groups you belong to">
+      {!mine.online ? <Notice text="Sign in to see the membership groups you belong to." /> : null}
       {mine.online && !mine.loaded ? <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} /> : null}
       {mine.loaded && !mine.items.length ? (
-        <Empty title="No paid channels yet" body="Join a membership to get its broadcast Channel, a Community of fellow members and a Library of lessons." action="Browse Paid Channels" onAction={() => nav.push('Memberships')} />
+        <Empty title="No membership groups yet" body={`Join a membership to open its ${MASTER} for lessons, its ${EXECUTIVE} to talk with other members, and a Library of lessons.`} action="Browse Paid Channels" onAction={() => nav.push('Memberships')} />
       ) : null}
       <View style={{ gap: 12 }}>
         {mine.items.map((m, i) => (
@@ -917,15 +972,18 @@ export function MyChannelsScreen() {
                   <Text style={styles.cardTitle} numberOfLines={1}>{m.title}</Text>
                   <Text style={[styles.small, !m.access.active && { color: colors.terracotta, fontWeight: '700' }]}>{m.access.active ? `Member · until ${untilLabel(m.access.expiresAt)}` : `Ended ${untilLabel(m.access.expiresAt)}`}</Text>
                 </View>
-                {!m.access.active ? <View style={styles.renewTag}><Text style={styles.renewText}>Renew</Text></View> : <Icon name="chevron-right" size={16} color={colors.faint} />}
+                {!m.access.active ? <View style={styles.renewTag}><Text style={styles.renewText}>Renew</Text></View> : m.welcomePending ? <View style={styles.newDot} accessibilityLabel="New" /> : <Icon name="chevron-right" size={16} color={colors.faint} />}
               </PressScale>
               {m.access.active ? (
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                  {[['channel', 'volume', 'Channel'], ['community', 'users', 'Community'], ['library', 'book', 'Library']].map(([t, icon, label]) => (
+                  {[['master', 'volume', MASTER], ['executive', 'chat', EXECUTIVE]].map(([t, icon, label]) => (
                     <Pressable key={t} onPress={() => nav.push('MembershipHome', { id: m.id, title: m.title, tab: t })} style={styles.myBtn} accessibilityRole="button" accessibilityLabel={`${m.title} ${label}`}>
-                      <Icon name={icon} size={13} color={colors.primary} /><Text style={styles.myBtnText}>{label}</Text>
+                      <Icon name={icon} size={13} color={colors.primary} /><Text style={styles.myBtnText} numberOfLines={1}>{label}</Text>
                     </Pressable>
                   ))}
+                  <Pressable onPress={() => nav.push('MembershipLibrary', { id: m.id, title: m.title })} style={styles.myIconBtn} accessibilityRole="button" accessibilityLabel={`${m.title} Library`}>
+                    <Icon name="book" size={15} color={colors.primary} />
+                  </Pressable>
                 </View>
               ) : null}
             </View>
@@ -1123,7 +1181,13 @@ const styles = StyleSheet.create({
   myRow: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 12, borderWidth: 1, borderColor: colors.border },
   myThumb: { width: 84, height: 48, borderRadius: radius.sm },
   myBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
-  myBtnText: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
+  myBtnText: { fontSize: 11.5, fontWeight: '800', color: colors.primary, letterSpacing: 0.2 },
+  myIconBtn: { width: 38, height: 34, borderRadius: radius.pill, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  newDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.gold },
+  groupBar: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 8, gap: 8, backgroundColor: colors.screen, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  toolRow: { gap: 8, paddingRight: 6 },
+  tool: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  toolText: { fontSize: 12.5, fontWeight: '700', color: colors.fg },
   renewTag: { backgroundColor: colors.terracottaFaint, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5 },
   renewText: { color: colors.terracotta, fontWeight: '800', fontSize: 12 },
 });

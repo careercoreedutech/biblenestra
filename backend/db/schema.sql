@@ -1467,7 +1467,7 @@ ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS last_sent_at timestamp
 -- { sendMessages: 'all'|'admins', addMembers: 'admins'|'all', editInfo: 'admins'|'all', approveJoins: bool, slowModeSec: int }
 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_kind_check;
-ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system','gift')); -- VIRTUAL GIFTS: 'gift' here too, so re-running this file on a database that already has gift messages never fails at this line
+ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system','gift','shared_post')); -- VIRTUAL GIFTS: 'gift' here too, so re-running this file on a database that already has gift messages never fails at this line (MEMBERSHIP GROUPS: 'shared_post' likewise)
 CREATE INDEX IF NOT EXISTS messages_conv_kind ON messages (conversation_id, kind, created_at DESC);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS presence_at timestamptz;                         -- "online" = seen in the last ~70 s
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_visibility text NOT NULL DEFAULT 'everyone';
@@ -2482,7 +2482,7 @@ CREATE INDEX IF NOT EXISTS live_sessions_status ON live_sessions (status, starte
 -- Chat gift bubbles: messages.kind 'gift'. Keeps EVERY earlier kind (text, image, voice, verse, prayer, event, video,
 -- file, system). Another stage adding a kind must DROP/ADD with this full list plus its own.
 ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_kind_check;
-ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system','gift'));
+ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system','gift','shared_post')); -- MEMBERSHIP GROUPS: 'shared_post' here too so a re-run never fails
 -- ===== END VIRTUAL GIFTS & STARS =====
 
 -- ===== PAYSTACK FOR EVERY PURCHASE (2026-11-21) =====
@@ -2539,7 +2539,7 @@ ALTER TABLE wallet_purchases ADD CONSTRAINT wallet_purchases_provider_check CHEC
 ALTER TABLE dating_subscriptions DROP CONSTRAINT IF EXISTS dating_subscriptions_provider_check;
 ALTER TABLE dating_subscriptions ADD CONSTRAINT dating_subscriptions_provider_check CHECK (provider IN ('play','apple','test','admin','paystack'));
 ALTER TABLE membership_subscriptions DROP CONSTRAINT IF EXISTS membership_subscriptions_source_check;
-ALTER TABLE membership_subscriptions ADD CONSTRAINT membership_subscriptions_source_check CHECK (source IN ('play','admin_grant','test','paystack'));
+ALTER TABLE membership_subscriptions ADD CONSTRAINT membership_subscriptions_source_check CHECK (source IN ('play','admin_grant','test','paystack','free')); -- MEMBERSHIP GROUPS: 'free' here too so a re-run never fails
 
 -- Renewal state (card: auto-renew with the saved authorisation; bank transfer / USSD: a reminder before the end).
 ALTER TABLE dating_subscriptions ADD COLUMN IF NOT EXISTS paystack_auth_id uuid REFERENCES paystack_authorizations(id) ON DELETE SET NULL;
@@ -2790,3 +2790,85 @@ ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_confidence numer
 ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_match      boolean;
 ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_note       text CHECK (char_length(dojah_note) <= 300);
 ALTER TABLE dating_verifications ADD COLUMN IF NOT EXISTS dojah_quick      boolean NOT NULL DEFAULT false;
+
+-- ---------- MEMBERSHIP GROUPS: MASTER CLASS + EXECUTIVE CLASS ----------
+-- Every membership group has two sections from the existing chat system, sharing ONE membership (subscriptions →
+-- lib/memberships.js syncAccess): MASTER CLASS = memberships.channel_id (kind 'channel': the owner and admins allowed
+-- to publish post there; members never can, the API refuses it) and EXECUTIVE CLASS = memberships.community_id
+-- (kind 'group': members discuss). lib/membershipGroups.js holds the rules.
+-- group_settings: { visibility: public|private, joinMode: open|approval, memberMessaging: all|admins,
+--   mediaUploads: all|admins, memberInvites: all|admins, history: all|since_join } (missing keys = the defaults).
+-- welcome_message: the owner's welcome pop-up text ({group} = the group name); NULL = the default text.
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS group_settings  jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS welcome_message text CHECK (welcome_message IS NULL OR char_length(welcome_message) <= 2000);
+-- Group admins and their permissions: one place, applied to both sections. Admins also hold role 'admin' in both
+-- conversations, so the chat's own role checks keep working. permissions: { publish, deleteMessages, pin,
+-- manageMembers, manageSettings, inviteMembers } (booleans). The owner (memberships.owner_id) has every permission and
+-- is never listed here.
+CREATE TABLE IF NOT EXISTS membership_admins (
+  membership_id uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permissions   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  added_by      uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (membership_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS membership_admins_user ON membership_admins (user_id);
+-- Per member, per group: when they first joined (history visibility "from join time"), when the welcome pop-up was
+-- seen (once, across devices), notification choices, and a time-limited mute in EXECUTIVE CLASS set by an admin.
+CREATE TABLE IF NOT EXISTS membership_member_prefs (
+  membership_id    uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  user_id          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  joined_at        timestamptz NOT NULL DEFAULT now(),
+  welcome_seen_at  timestamptz,
+  notify_master    boolean NOT NULL DEFAULT true,
+  notify_executive text NOT NULL DEFAULT 'all' CHECK (notify_executive IN ('all','mentions','off')),
+  muted_until      timestamptz,
+  muted_by         uuid REFERENCES users(id) ON DELETE SET NULL,
+  PRIMARY KEY (membership_id, user_id)
+);
+-- Existing members keep their real join time and are not shown the welcome pop-up for a group they are already in.
+INSERT INTO membership_member_prefs (membership_id, user_id, joined_at, welcome_seen_at)
+  SELECT m.id, cm.user_id, cm.joined_at, now()
+    FROM memberships m JOIN conversation_members cm ON cm.conversation_id = m.community_id
+  ON CONFLICT (membership_id, user_id) DO NOTHING;
+-- Existing conversation admins (e.g. the platform admin who published) become group admins with every permission.
+INSERT INTO membership_admins (membership_id, user_id, permissions)
+  SELECT m.id, cm.user_id, '{"publish":true,"deleteMessages":true,"pin":true,"manageMembers":true,"manageSettings":true,"inviteMembers":true}'::jsonb
+    FROM memberships m JOIN conversation_members cm ON cm.conversation_id = m.channel_id
+   WHERE cm.role = 'admin' AND cm.user_id IS DISTINCT FROM m.owner_id
+  ON CONFLICT (membership_id, user_id) DO NOTHING;
+-- MASTER CLASS → EXECUTIVE CLASS sharing: a 'shared_post' message is only a reference (shared_from → the original
+-- post). Its body / media / meta stay empty and the API joins the original at read time, so an edit shows at once and
+-- deleting the original tombstones the reference. "Comments off" lives on the original post (meta.commentsOff).
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS shared_from uuid REFERENCES messages(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS messages_shared_from ON messages (shared_from) WHERE shared_from IS NOT NULL;
+ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_kind_check;
+ALTER TABLE messages ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text','image','voice','verse','prayer','event','video','file','system','gift','shared_post'));
+-- Posts made in MASTER CLASS before this block get their EXECUTIVE CLASS reference too (at the post's own time;
+-- idempotent: a post that already has a reference, even a deleted one, is skipped).
+INSERT INTO messages (conversation_id, sender_id, kind, body, shared_from, created_at)
+  SELECT m.community_id, s.sender_id, 'shared_post', '', s.id, s.created_at
+    FROM memberships m JOIN messages s ON s.conversation_id = m.channel_id
+   WHERE m.community_id IS NOT NULL AND s.kind <> 'system' AND NOT s.deleted
+     AND NOT EXISTS (SELECT 1 FROM messages r WHERE r.shared_from = s.id);
+-- Free groups (a plan priced 0) are joined without a payment: source 'free'.
+ALTER TABLE membership_subscriptions DROP CONSTRAINT IF EXISTS membership_subscriptions_source_check;
+ALTER TABLE membership_subscriptions ADD CONSTRAINT membership_subscriptions_source_check CHECK (source IN ('play','admin_grant','test','paystack','free'));
+-- New default names. Only rows that still carry the old default are touched (a title or description someone changed
+-- by hand stays as it is).
+UPDATE conversations SET title = left(title, char_length(title) - char_length(' · Channel')) || ' · MASTER CLASS'
+ WHERE membership_id IS NOT NULL AND kind = 'channel' AND right(title, char_length(' · Channel')) = ' · Channel';
+UPDATE conversations SET title = left(title, char_length(title) - char_length(' · Community')) || ' · EXECUTIVE CLASS'
+ WHERE membership_id IS NOT NULL AND kind = 'group' AND right(title, char_length(' · Community')) = ' · Community';
+UPDATE conversations c SET description = 'Lessons, videos and learning materials for ' || m.title || ' members'
+  FROM memberships m
+ WHERE c.id = m.channel_id AND c.description = 'Announcements, lessons and videos for ' || m.title || ' members';
+UPDATE conversations c SET description = 'Ask questions, share ideas and discuss the lessons with other ' || m.title || ' members'
+  FROM memberships m
+ WHERE c.id = m.community_id AND c.description = 'Ask questions, discuss lessons and share resources with other ' || m.title || ' members';
+-- The old "X joined the community" lines in EXECUTIVE CLASS read with the new name.
+UPDATE messages msg SET body = left(msg.body, char_length(msg.body) - char_length(' joined the community')) || ' joined EXECUTIVE CLASS 👋'
+  FROM memberships m
+ WHERE msg.conversation_id = m.community_id AND msg.kind = 'system' AND right(msg.body, char_length(' joined the community')) = ' joined the community';

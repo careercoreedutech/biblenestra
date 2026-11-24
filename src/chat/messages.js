@@ -33,9 +33,18 @@ export function getScopeMsgs(s, scope) {
 
 const fmtSecs = (ms) => { const t = Math.max(0, Math.round((ms || 0) / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 // CHAT 7.3: one-line preview — "🎤 Voice note (0:42)", "📄 Notes.pdf", "🎥 Video"
-export const previewOf = (m) => (m.deleted ? 'This message was deleted' : m.text || (m.passage ? 'Shared a passage' : m.image ? '📷 Photo'
+export const previewOf = (m) => (m.deleted ? 'This message was deleted' : m.shared ? sharedPreviewOf(m.shared) : m.text || (m.passage ? 'Shared a passage' : m.image ? '📷 Photo'
   : m.video ? '🎥 Video' : m.file ? `📄 ${m.file.name || 'Document'}`
     : m.voice ? (m.voice.isFile ? `🎵 ${m.voice.name || 'Audio'}` : `🎤 Voice note${m.voice.durationMs ? ` (${fmtSecs(m.voice.durationMs)})` : ''}`) : m.audio ? 'Voice message' : ''));
+
+// MEMBERSHIP GROUPS: a MASTER CLASS post shared into EXECUTIVE CLASS — "📣 MASTER CLASS: Week 2 is live"
+function sharedPreviewOf(sh) {
+  if (!sh || sh.deleted) return 'This post was deleted';
+  const k = sh.kind;
+  const name = (sh.meta && sh.meta.name) || '';
+  const what = sh.text || (k === 'image' ? '📷 Photo' : k === 'video' ? '🎥 Video' : k === 'file' ? `📄 ${name || 'Document'}` : k === 'voice' ? (sh.meta && sh.meta.file ? `🎵 ${name || 'Audio'}` : '🎤 Voice note') : 'New post');
+  return `📣 MASTER CLASS: ${what}`;
+}
 
 // Google Meet links in messages ("Start a video call") — tappable to join
 export const MEET_LINK_RE = /https?:\/\/meet\.google\.com\/[a-z]{3,4}-[a-z]{4}-[a-z]{3,4}(\?[^\s]*)?/i;
@@ -159,6 +168,9 @@ export function mapServerMessage(m, prev) {
     reactions: m.reactions || [],
     linkPreview: !m.deleted && m.linkPreview ? m.linkPreview : undefined, // CHAT GAPS: { url, title, description, image, siteName }
     reply: m.reply ? { id: m.reply.id, from: m.reply.senderName || 'Message', text: m.reply.text, deleted: !!m.reply.deleted } : null,
+    // MEMBERSHIP GROUPS: the MASTER CLASS original behind a shared post (rendered by components/chat/SharedPost)
+    shared: !m.deleted && m.kind === 'shared_post' ? (m.shared || { deleted: true, commentsOff: true }) : undefined,
+    commentsOff: !m.deleted && meta.commentsOff ? true : undefined, // a MASTER CLASS post with comments switched off
   };
 }
 

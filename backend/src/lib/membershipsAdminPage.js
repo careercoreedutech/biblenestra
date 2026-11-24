@@ -45,6 +45,23 @@ function imagePicker(h){
     set: function(url){ file.value = ''; link.value = ''; if (url) { prev.src = url; prev.style.display = 'block'; } else { prev.style.display = 'none'; } },
   };
 }
+// MEMBERSHIP GROUPS: both sections with their activity + the group's main settings
+function sectionsLine(h, m){
+  var sx = m.sections || {};
+  var gs = m.groupSettings || {};
+  var ms = sx.master || {}, ex = sx.executive || {};
+  return h('div', { style: 'margin-top:8px;display:flex;gap:8px;flex-wrap:wrap' }, [
+    h('div', { class: 'card', style: 'margin:0;padding:8px 12px;background:var(--raised)' }, [
+      h('b', { text: 'MASTER CLASS' }),
+      h('div', { class: 'meta', text: (ms.posts || 0) + ' post' + (ms.posts === 1 ? '' : 's') + ' \u00B7 owner and admins who can publish post here' }),
+    ]),
+    h('div', { class: 'card', style: 'margin:0;padding:8px 12px;background:var(--raised)' }, [
+      h('b', { text: 'EXECUTIVE CLASS' }),
+      h('div', { class: 'meta', text: (ex.messages || 0) + ' message' + (ex.messages === 1 ? '' : 's') + ' \u00B7 members discuss every MASTER CLASS post' }),
+    ]),
+    h('div', { class: 'meta', style: 'align-self:center', text: (m.adminsCount || 0) + ' admin' + (m.adminsCount === 1 ? '' : 's') + ' \u00B7 ' + (gs.visibility === 'private' ? 'Private' : 'Public') + ' \u00B7 ' + (gs.joinMode === 'approval' ? 'Approval to join' : 'Open to join') + ' \u00B7 new members see ' + (gs.history === 'since_join' ? 'messages from their join time' : 'all history') }),
+  ]);
+}
 function fmtDate(s){ if (!s) return 'no end date'; try { return new Date(s).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return s; } }
 function chip(h, text, kind){ return h('span', { class: 'chip' + (kind ? ' ' + kind : ''), text: text }); }
 function stars(n){ var s = ''; for (var i = 1; i <= 5; i++) s += i <= n ? '\\u2605' : '\\u2606'; return s; }
@@ -59,7 +76,7 @@ window.registerAdminTab('Memberships', function(box, ctx){
   var h = ctx.h, api = ctx.api, toast = ctx.toast;
   var meta = { categories: [], flags: {} };
   box.appendChild(h('h2', { class: 'serif', text: 'Memberships & Paid Channels' }));
-  box.appendChild(h('p', { class: 'sub', text: 'One membership shows in Discover \\u203A Memberships, in Paid Channels and (for members) in My Channels. Each one gets a Broadcast Channel (only you and admins post) and a Community group (every member chats) the first time you publish it. Access is checked by the server on every channel, community and library request; when a membership lapses the person is removed within 15 minutes and renewing brings them back.' }));
+  box.appendChild(h('p', { class: 'sub', text: 'One membership group shows in Discover \\u203A Memberships, in Paid Channels and (for members) in My Channels. The first time you publish it, it gets two sections: MASTER CLASS (lessons, videos and files: only the owner and admins allowed to publish post there) and EXECUTIVE CLASS (members discuss; every MASTER CLASS post appears there automatically for comments). Access is checked by the server on every MASTER CLASS, EXECUTIVE CLASS and library request; when a membership lapses the person is removed within 15 minutes and renewing brings them back. Owners manage admins, permissions, members and group settings from the group in the app.' }));
   var flagsLine = h('div', { class: 'card', style: 'background:var(--raised)' });
   box.appendChild(flagsLine);
 
@@ -170,7 +187,7 @@ window.registerAdminTab('Memberships', function(box, ctx){
           h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [h('b', { text: m.title }), chip(h, m.status, statusKind), chip(h, m.category, 'mut'), m.hasPreview ? chip(h, 'Intro video', 'gold') : null]),
           h('div', { class: 'meta', style: 'margin-top:4px', text: (m.priceLabel || 'No active plan') + ' \\u00B7 ' + m.memberCount + ' members \\u00B7 \\u2605 ' + m.rating.avg.toFixed(2) + ' (' + m.rating.count + ') \\u00B7 owner ' + (m.owner ? m.owner.name : '\\u2014') }),
           h('div', { style: 'margin-top:4px', text: m.headline || '' }),
-          m.channelId ? h('div', { class: 'meta', style: 'margin-top:4px', text: 'Channel and Community created \\u2014 post in the Channel from the app (Chats) as the owner or an admin.' }) : h('div', { class: 'meta', style: 'margin-top:4px', text: 'Channel and Community are created when you publish.' }),
+          m.channelId ? sectionsLine(h, m) : h('div', { class: 'meta', style: 'margin-top:4px', text: 'MASTER CLASS and EXECUTIVE CLASS are created when you publish.' }),
           h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:10px' }, actions),
         ]),
       ]));
@@ -288,7 +305,7 @@ window.registerAdminTab('Memberships', function(box, ctx){
       catch (e) { toast(e.message, true); }
     };
     wrap.appendChild(h('b', { text: 'Grant access by hand' }));
-    wrap.appendChild(h('div', { class: 'meta', text: 'Adds the person to the Channel and Community right away (source: admin grant). Leave the date empty for no end date.' }));
+    wrap.appendChild(h('div', { class: 'meta', text: 'Adds the person to MASTER CLASS and EXECUTIVE CLASS right away (source: admin grant). Leave the date empty for no end date.' }));
     wrap.appendChild(h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:8px' }, [who, h('span', { class: 'meta', text: 'until' }), until, note, grant]));
     var table = h('div', { style: 'margin-top:12px' }, [h('div', { class: 'meta', text: 'Loading members\\u2026' })]);
     wrap.appendChild(table);
@@ -297,7 +314,7 @@ window.registerAdminTab('Memberships', function(box, ctx){
       if (!d.items.length) { table.appendChild(h('div', { class: 'meta', text: 'No members yet.' })); return; }
       d.items.forEach(function(s){
         var rev = h('button', { class: 'btn ghost small', text: 'Revoke' });
-        rev.onclick = async function(){ if (!confirm('Remove ' + s.user.name + '\\u2019s access now? They leave the Channel and Community.')) return; try { await api('POST', '/memberships/manage/' + m.id + '/revoke', { userId: s.user.id }); toast('Access removed'); await load(); open[m.id] = 'members'; draw(); } catch (e) { toast(e.message, true); } };
+        rev.onclick = async function(){ if (!confirm('Remove ' + s.user.name + '\\u2019s access now? They leave MASTER CLASS and EXECUTIVE CLASS.')) return; try { await api('POST', '/memberships/manage/' + m.id + '/revoke', { userId: s.user.id }); toast('Access removed'); await load(); open[m.id] = 'members'; draw(); } catch (e) { toast(e.message, true); } };
         table.appendChild(h('div', { style: 'border-top:1px solid var(--border);padding:8px 0' }, [
           h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [h('b', { text: s.user.name }), s.user.handle ? h('span', { class: 'meta', text: '@' + s.user.handle }) : null,
             chip(h, s.active ? s.rawStatus : s.status, s.active ? '' : 'neg'), chip(h, s.source.replace('_', ' '), 'mut'),

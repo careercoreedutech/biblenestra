@@ -125,7 +125,7 @@ export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, 
           ]}
         >
           {themed && mine ? <LinearGradient colors={theme.mine} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} pointerEvents="none" /> : null}
-          {showSender && !mine ? <Text style={styles.msgFrom}>{m.from}</Text> : null}
+          {showSender && !mine && !m.shared ? <Text style={styles.msgFrom}>{m.from}</Text> : null}{/* MEMBERSHIP GROUPS: a shared MASTER CLASS card names its author itself */}
           {m.forwarded && !m.deleted ? <Text style={[styles.fwd, mine && { color: 'rgba(255,255,255,0.75)' }]}>↪ Forwarded</Text> : null}
           {m.reply && !m.deleted ? (
             <Pressable onPress={() => onOpenReply && onOpenReply(m.reply.id)} onLongPress={onLongPress} delayLongPress={280} style={[styles.quote, mine && styles.quoteMine]} accessibilityLabel={`Replying to ${m.reply.from}`}>
@@ -181,7 +181,7 @@ function ActionRow({ icon, label, tint = colors.fg, onPress, sub }) {
   );
 }
 
-export function MessageActionsSheet({ visible, message, canEdit, canPin, canDeleteForEveryone, pinHint, onClose, onReact, onReply, onCopy, onEdit, onTogglePin, onDeleteMe, onDeleteEveryone, onForward }) {
+export function MessageActionsSheet({ visible, message, canEdit, canPin, canDeleteForEveryone, pinHint, onClose, onReact, onReply, onCopy, onEdit, onTogglePin, onDeleteMe, onDeleteEveryone, onForward, canReply = true, extra = [] }) {
   const [confirm, setConfirm] = useState(false);
   const m = message;
   const close = () => { setConfirm(false); onClose && onClose(); };
@@ -217,7 +217,9 @@ export function MessageActionsSheet({ visible, message, canEdit, canPin, canDele
                     ))}
                   </View>
                 ) : null}
-                {!m.deleted ? <ActionRow icon={<ReplyGlyph />} label="Reply" onPress={() => { close(); onReply(); }} /> : null}
+                {!m.deleted && canReply ? <ActionRow icon={<ReplyGlyph />} label="Reply" onPress={() => { close(); onReply(); }} /> : null}
+                {/* MEMBERSHIP GROUPS: e.g. "Turn comments off" on a MASTER CLASS post */}
+                {!m.deleted ? (extra || []).map((x) => <ActionRow key={x.label} icon={<Icon name={x.icon || 'chat'} size={17} color={colors.fg} />} label={x.label} sub={x.sub} onPress={() => { close(); x.onPress(); }} />) : null}
                 {!m.deleted && onForward && !m.gift && !m.system ? <ActionRow icon={<Icon name="share" size={17} color={colors.fg} />} label="Forward" onPress={() => { close(); onForward(); }} /> : null}
                 {!m.deleted && m.text ? <ActionRow icon={<CopyGlyph />} label="Copy text" onPress={() => { close(); onCopy(); }} /> : null}
                 {canEdit ? <ActionRow icon={<Icon name="edit" size={17} color={colors.fg} />} label="Edit" onPress={() => { close(); onEdit(); }} /> : null}
@@ -273,7 +275,7 @@ export function PinnedBar({ pins, onOpen, style }) {
 // ---------- hook: everything one thread needs ----------
 // opts: { scope, canPin, canModerate, isGroup, onSend(text, reply) }
 // CHAT 7.3: scrollToId(id) → boolean lets a virtualised list jump to a message; onForward(m) adds "Forward"
-export function useMessageActions({ scope, canPin = true, canModerate = false, isGroup = false, onSend, scrollToId, onForward }) {
+export function useMessageActions({ scope, canPin = true, canModerate = false, isGroup = false, onSend, scrollToId, onForward, canReplyTo, extraActions }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const [sheetFor, setSheetFor] = useState(null);
@@ -335,6 +337,8 @@ export function useMessageActions({ scope, canPin = true, canModerate = false, i
       canPin={canPin}
       pinHint={pins.length >= 3 ? 'Up to 3 pins — the oldest pin will be replaced.' : null}
       canDeleteForEveryone={canDeleteForEveryone(current)}
+      canReply={!canReplyTo || canReplyTo(current)}
+      extra={current && extraActions ? extraActions(current) : []}
       onClose={() => setSheetFor(null)}
       onReact={(e) => current && op({ id: current.id, op: 'react', emoji: e })}
       onReply={() => { if (!current) return; setEditing(null); setReplyTo(current.id); setFocusKey(Date.now()); }}
@@ -369,7 +373,11 @@ export function useMessageActions({ scope, canPin = true, canModerate = false, i
     tipVisible: !state.chatTipSeen,
     layoutFor: (id) => (e) => { positions.current[id] = e.nativeEvent.layout.y; },
     react: (m, emoji) => op({ id: m.id, op: 'react', emoji }),
-    reply: (m) => { if (!m || m.deleted) return; setEditing(null); setReplyTo(m.id); setFocusKey(Date.now()); },
+    reply: (m) => {
+      if (!m || m.deleted) return;
+      if (canReplyTo && !canReplyTo(m)) { toast.show('Comments are off for this post', { icon: 'lock' }); return; } // MEMBERSHIP GROUPS
+      setEditing(null); setReplyTo(m.id); setFocusKey(Date.now());
+    },
     composer: {
       onSend: send,
       prefill: editTarget ? editTarget.text : '',

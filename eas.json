@@ -26,9 +26,25 @@
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_YmVsb3ZlZC1mb3hob3VuZC04NDU1LmNsZXJrLmFjY291bnRzLmRldiQ",
         "EXPO_PUBLIC_ADS_MODE": "live"
       }
+    },
+    "testflight": {
+      "extends": "preview",
+      "distribution": "store",
+      "ios": {
+        "autoIncrement": true
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {},
+    "testflight": {
+      "ios": {
+        "appleTeamId": "KF466346KT",
+        "ascAppId": "6838407423",
+        "ascApiKeyPath": "C:/Users/somav/Downloads/AuthKey_RX5K4P27SM.p8",
+        "ascApiKeyIssuerId": "d9ac26ad-d67d-4a42-830f-5e73fe6ce84a",
+        "ascApiKeyId": "RX5K4P27SM"
+      }
+    }
   }
 }

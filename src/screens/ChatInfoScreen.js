@@ -565,6 +565,9 @@ export function JoinGroupScreen({ params = {} }) {
       const r = await api.request('POST', `/invites/${code}/join`);
       if (sync.refresh) await sync.refresh({ quiet: true });
       if (r.status === 'requested') { toast.show('Request sent · an admin will let you in', { icon: 'check' }); setPreview((x) => ({ ...x, requestStatus: 'pending' })); }
+      // MEMBERSHIP GROUPS: a paid group's link opens its membership page; a free one lands in the group
+      else if (r.status === 'membership') nav.replace('Membership', { id: r.membershipId, title: preview && preview.title });
+      else if (r.membershipId) nav.replace('MembershipHome', { id: r.membershipId, title: preview && preview.title });
       else nav.replace('Chat', { id: r.conversationId, to: preview && preview.title, kind: 'group' });
     } catch (e) { toast.show(errorMessage(e, 'Couldn’t join'), { tone: 'error' }); }
     setBusy(false);
@@ -576,11 +579,13 @@ export function JoinGroupScreen({ params = {} }) {
       {error ? <Notice tint={colors.negative} text={error} /> : null}
       {preview ? (
         <View style={[styles.card, { alignItems: 'center', gap: 8 }]}>
-          {preview.avatarUrl ? <SocialAvatar name={preview.title} uri={preview.avatarUrl} size={72} /> : <View style={styles.heroIcon}><Icon name="users" size={30} color={colors.primary} /></View>}
+          {preview.avatarUrl || preview.coverUrl ? <SocialAvatar name={preview.title} uri={preview.avatarUrl || preview.coverUrl} size={72} /> : <View style={styles.heroIcon}><Icon name="users" size={30} color={colors.primary} /></View>}
           <Text style={styles.heroTitle}>{preview.title}</Text>
-          <Text style={styles.heroSub}>Group · {preview.membersCount} members{preview.approveJoins ? ' · admin approval' : ''}</Text>
+          <Text style={styles.heroSub}>{preview.kind === 'membership' ? `Membership group · ${preview.priceLabel || ''}` : 'Group'} · {preview.membersCount} members{preview.approveJoins ? ' · admin approval' : ''}</Text>
           {preview.description ? <Text style={styles.heroDesc}>{preview.description}</Text> : null}
-          {preview.isMember ? <Button label="Open chat" onPress={() => nav.replace('Chat', { id: preview.conversationId, to: preview.title, kind: 'group' })} />
+          {preview.kind === 'membership' && preview.isMember ? <Button label="Open group" onPress={() => nav.replace('MembershipHome', { id: preview.membershipId, title: preview.title })} />
+            : preview.kind === 'membership' && !preview.free && !preview.banned ? <Button label="See plans and join" onPress={() => nav.replace('Membership', { id: preview.membershipId, title: preview.title })} />
+            : preview.isMember ? <Button label="Open chat" onPress={() => nav.replace('Chat', { id: preview.conversationId, to: preview.title, kind: 'group' })} />
             : preview.banned ? <Notice tint={colors.negative} text="An admin removed you from this group, so you can’t join it again." />
             : preview.requestStatus === 'pending' ? <Notice text="Your request is waiting for an admin." />
               : <Button label={busy ? 'Joining…' : preview.approveJoins ? 'Ask to join' : 'Join group'} disabled={busy} onPress={join} />}

@@ -34,6 +34,8 @@ import { dmScope, isServerId, mapServerMessage, fmtClock, presenceLabel, typingL
 import { PEOPLE } from '../data/seed';
 import { MuteSheet, isMutedNow, muteLabel } from '../components/chat/ChatGaps'; // CHAT GAPS: timed mute (8 hours / 1 week / always)
 import { GiftSheet, useIncomingGiftPlayer } from '../components/gifts'; // VIRTUAL GIFTS: Gifting Coin gifts in chats and groups
+import { SharedPost } from '../components/chat/SharedPost'; // MEMBERSHIP GROUPS: MASTER CLASS posts shown in EXECUTIVE CLASS
+import { setPostComments, mutedLabel } from '../api/memberships'; // MEMBERSHIP GROUPS
 
 const newLocalId = () => `m_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -89,7 +91,10 @@ export function ChatScreen({ params = {} }) {
   const canMessage = permissions ? permissions.canSend : !chat || chat.canMessage !== false;
   const isMod = permissions ? permissions.isModerator : ['owner', 'admin', 'moderator'].includes(role);
   const online = !!sync.online && !!convId;
-  const mediaOk = !!api.online && !!convId && canMessage;
+  // MEMBERSHIP GROUPS: which section this is (MASTER CLASS / EXECUTIVE CLASS) and the group's media rule
+  const group = (perms && perms.group) || (params.section ? { section: params.section } : null);
+  const section = group ? group.section : null;
+  const mediaOk = !!api.online && !!convId && canMessage && !(permissions && permissions.canSendMedia === false);
 
   const threadRef = useRef(null);
   const [forwarding, setForwarding] = useState(null);
@@ -122,11 +127,24 @@ export function ChatScreen({ params = {} }) {
     dispatch({ type: 'dm', cid: chat.id, with: chat.with || params.to, text, reply, localId: newLocalId() });
   }, [chat && chat.id, online, scope, state.user && state.user.displayName]);
 
+  // MEMBERSHIP GROUPS: comments on / off for a MASTER CLASS post; no replies to a shared post whose comments are off
+  const toggleComments = async (m) => {
+    try {
+      const r = await setPostComments(api, m.id, !!m.commentsOff);
+      toast.show(r.commentsOff ? 'Comments turned off for this post' : 'Comments turned on', { icon: r.commentsOff ? 'lock' : 'chat' });
+      const fresh = await api.request('GET', `/messages/${m.id}`);
+      upsert(mapServerMessage(fresh, m));
+    } catch (e) { toast.show(errorMessage(e, 'Couldn’t change comments'), { tone: 'error' }); }
+  };
   const actions = useMessageActions({
     scope,
     isGroup,
-    canPin: !isGroup || isMod || !sync.online,
-    canModerate: isMod,
+    canPin: permissions && permissions.canPin !== undefined ? permissions.canPin : (!isGroup || isMod || !sync.online),
+    canModerate: permissions && permissions.canDeleteOthers !== undefined ? permissions.canDeleteOthers : isMod,
+    canReplyTo: section === 'executive' ? (m) => !(m && m.shared && m.shared.commentsOff) : undefined,
+    extraActions: section === 'master' && permissions && permissions.canToggleComments
+      ? (m) => (m.system || !isServerId(m.id) ? [] : [{ label: m.commentsOff ? 'Turn comments on' : 'Turn comments off', sub: m.commentsOff ? 'Members can discuss it in EXECUTIVE CLASS again' : 'Nobody can reply to it in EXECUTIVE CLASS', icon: m.commentsOff ? 'chat' : 'lock', onPress: () => toggleComments(m) }])
+      : undefined,
     onSend,
     scrollToId: (id) => !!threadRef.current && threadRef.current.scrollToMessage(id),
     onForward: online ? (m) => (isServerId(m.id) ? setForwarding(m) : toast.show('Wait until it’s sent', { icon: 'clock' })) : undefined,
@@ -247,9 +265,11 @@ export function ChatScreen({ params = {} }) {
         {m.voice ? <AudioBubble voice={m.voice} request={request} mine={m.mine} /> : null}
         {m.gift ? <GiftCard gift={m.gift} mine={m.mine} from={m.from} /> : null}
         {m.text && !m.gift ? <MeetJoin text={m.text} mine={m.mine} /> : null}
+        {m.shared ? <SharedPost shared={m.shared} mine={m.mine} request={request} onView={setViewer} onOpenMaster={params.onOpenMaster} /> : null}
+        {m.commentsOff && !m.shared ? <Text style={[styles.commentsOff, m.mine && { color: 'rgba(255,255,255,0.75)' }]}>🔒 Comments off</Text> : null}
       </>
     );
-  }, [request]);
+  }, [request, params.onOpenMaster]);
   const retry = useCallback((m) => {
     if (m.uploading) { toast.show('Pick the file again to resend it', { icon: 'clock' }); return; }
     if (sync.retrySend) sync.retrySend(scope, m.id);
@@ -280,7 +300,8 @@ export function ChatScreen({ params = {} }) {
   const muted = online ? isMutedNow(chat) : (state.mutedChats || []).includes(chat.id);
   const typingText = typingLabel(typingNames, isGroup);
   const subtitle = typingText
-    || (isGroup ? `${chat.membersCount ? `${chat.membersCount} ${isChannel ? 'followers' : 'members'}` : isChannel ? 'Channel' : 'Group'}${muted ? ' · Muted' : ''}` : (presenceLabel(presence) || (muted ? 'Muted' : 'Tap for contact info')));
+    || (section ? `${section === 'master' ? 'MASTER CLASS' : 'EXECUTIVE CLASS'}${chat.membersCount ? ` · ${chat.membersCount} members` : ''}${muted ? ' · Muted' : ''}` // MEMBERSHIP GROUPS
+      : isGroup ? `${chat.membersCount ? `${chat.membersCount} ${isChannel ? 'followers' : 'members'}` : isChannel ? 'Channel' : 'Group'}${muted ? ' · Muted' : ''}` : (presenceLabel(presence) || (muted ? 'Muted' : 'Tap for contact info')));
   const openInfo = () => (convId ? nav.push('ChatInfo', { id: convId, to: chat.with }) : toast.show('Sign in to see chat info', { icon: 'lock' }));
   // CHAT GAPS: muting asks for how long (8 hours / 1 week / always); unmuting is one tap
   const toggleMute = async (duration) => {
@@ -378,9 +399,13 @@ export function ChatScreen({ params = {} }) {
           <View style={{ alignItems: 'center', paddingVertical: 10, gap: 8 }}>
             <View style={styles.encrypt}>
               <Icon name="lock" size={11} color={colors.muted} />
-              <Text style={styles.encryptText}>{isChannel ? 'Channel · only admins post' : isGroup ? 'Group chat · visible to its members' : 'Private chat · only the two of you see it'}</Text>
+              <Text style={styles.encryptText}>{section === 'master' ? 'MASTER CLASS · lessons, videos and learning materials' : section === 'executive' ? 'EXECUTIVE CLASS · members only discussion' : isChannel ? 'Channel · only admins post' : isGroup ? 'Group chat · visible to its members' : 'Private chat · only the two of you see it'}</Text>
             </View>
-            {!msgs.length ? <Empty title="No messages yet" body={canMessage ? `Say hello to ${chat.with}.` : null} /> : null}
+            {!msgs.length ? (section === 'master'
+              ? <Empty title="No posts yet" body={canMessage ? 'Share your first lesson, video or file. It also appears in EXECUTIVE CLASS for discussion.' : 'New lessons, videos and materials will appear here.'} />
+              : section === 'executive'
+                ? <Empty title="Start the conversation" body="Ask a question, share an idea or reply to a MASTER CLASS post." />
+                : <Empty title="No messages yet" body={canMessage ? `Say hello to ${chat.with}.` : null} />) : null}
             {msgs.length && actions.tipVisible ? <Text style={styles.tip}>Tip: swipe right on a message to reply · press and hold to react, forward, copy, edit, pin or delete.</Text> : null}
           </View>
         )}
@@ -415,7 +440,15 @@ export function ChatScreen({ params = {} }) {
       ) : (
         <View style={styles.locked}>
           <Icon name={isChannel ? 'volume' : 'lock'} size={18} color={colors.primary} />
-          <Text style={styles.lockedText}>{isChannel ? 'Only admins can post in this channel. You’ll see every new post here.' : 'Only admins can send messages in this group.'}</Text>
+          <Text style={styles.lockedText}>{section === 'master'
+            ? 'Only the teacher and admins post in MASTER CLASS. Comment on any post in EXECUTIVE CLASS.'
+            : section === 'executive' && group && group.mutedUntil
+              ? `${mutedLabel(group.mutedUntil)} by an admin. You can still read and react.`
+              : section === 'executive' ? 'Only admins can send messages in EXECUTIVE CLASS right now.'
+                : isChannel ? 'Only admins can post in this channel. You’ll see every new post here.' : 'Only admins can send messages in this group.'}</Text>
+          {section === 'master' && params.onOpenExecutive ? (
+            <Pressable onPress={params.onOpenExecutive} hitSlop={8} accessibilityRole="button"><Text style={styles.lockedLink}>Discuss</Text></Pressable>
+          ) : null}
         </View>
       )}
       {actions.sheet}
@@ -488,6 +521,8 @@ const styles = StyleSheet.create({
   composerWrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10, gap: 6, backgroundColor: colors.screen },
   locked: { flexDirection: 'row', alignItems: 'center', gap: 10, margin: 12, padding: 14, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   lockedText: { flex: 1, fontSize: 13.5, color: colors.muted },
+  lockedLink: { fontSize: 13.5, fontWeight: '800', color: colors.primary },
+  commentsOff: { fontSize: 11, color: colors.faint, marginTop: 4 },
   newHero: { alignItems: 'center', gap: 12, paddingVertical: 28 },
   newTitle: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg },
 });

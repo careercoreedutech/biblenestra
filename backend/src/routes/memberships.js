@@ -12,7 +12,11 @@
 //   POST   /memberships/:id/checkout            { planId, provider: 'paystack'|'test', answers[], promoCode, contact, email, idempotencyKey }
 //                                               paystack → 202 { checkout: { reference, url } } (then poll GET /payments/paystack/:reference)
 //   POST   /memberships/:id/cancel              → turn renewal off (access continues to the end date)
-//   GET    /memberships/:id/home                → channel + community ids, library summary (403 MEMBERSHIP_REQUIRED otherwise)
+//   GET    /memberships/:id/home                → MASTER CLASS + EXECUTIVE CLASS ids, my role, welcome pop-up, library summary
+//                                               (403 MEMBERSHIP_REQUIRED otherwise)
+//   MEMBERSHIP GROUPS (routes/membershipGroups.js): welcome pop-up, free join, join requests, members, admins &
+//   permissions, group settings, invite link, my notification choices — /memberships/welcome, /memberships/:id/join,
+//   /memberships/:id/join-request, /memberships/:id/welcome/seen, /memberships/:id/group/*
 //   GET    /memberships/:id/library             → ordered lessons + my progress (403 MEMBERSHIP_REQUIRED otherwise)
 //   POST   /memberships/:id/lessons/:lessonId/complete · DELETE (undo)
 // Manage (admins; also owners when MEMBERSHIPS_PUBLIC_CREATION=true):
@@ -38,11 +42,14 @@ import {
 import { MEMBERSHIPS_ADMIN_SCRIPT } from '../lib/membershipsAdminPage.js';
 import { startMembershipCheckout, paystackMethod, inAppEnabled } from '../lib/paystackCheckout.js';
 import { audit, registerAdminScript } from './admin.js';
+import { masterTitle, executiveTitle, groupSettingsOf, actorIn, welcomeText, prefsOf, MASTER, EXECUTIVE } from '../lib/membershipGroups.js'; // MEMBERSHIP GROUPS
+import { assertMayJoin, joinRequestOf, freePlanOf } from '../lib/memberships.js';
+import { mountGroupRoutes } from './membershipGroups.js'; // MEMBERSHIP GROUPS: /memberships/:id/group/* + welcome + joining
 
 registerAdminScript(MEMBERSHIPS_ADMIN_SCRIPT);
 
 const origin = (c) => new URL(c.req.url).origin;
-const RESERVED = ['manage', 'mine'];
+const RESERVED = ['manage', 'mine', 'welcome'];
 
 async function plansOf(env, ids, { all = false } = {}) {
   if (!ids.length) return [];
@@ -53,7 +60,7 @@ async function cards(env, o, rows) {
   return rows.map((r) => cardShape(env, o, r, plans.filter((p) => p.membership_id === r.id)));
 }
 const membershipRequired = (m, sub) => {
-  const e = forbidden(sub ? 'Your membership has ended. Renew to get back in.' : 'Join this membership to open its channel, community and library.', 'MEMBERSHIP_REQUIRED');
+  const e = forbidden(sub ? 'Your membership has ended. Renew to get back in.' : `Join this membership to open ${MASTER}, ${EXECUTIVE} and the library.`, 'MEMBERSHIP_REQUIRED');
   e.details = { membershipId: m.id, slug: m.slug, lapsed: !!sub };
   return e;
 };
@@ -75,9 +82,11 @@ async function visibleMembership(c, ref) {
 }
 
 /** Access check for library / home: staff always; members with an active subscription; else 403 MEMBERSHIP_REQUIRED. */
-async function requireAccess(c, m) {
+async function requireAccess(c, m, { groupStaff = true } = {}) {
   const me = c.get('user');
   if (canManage(c.env, me, m)) return { staff: true, sub: await subscriptionOf(c.env, m.id, me.id) };
+  // MEMBERSHIP GROUPS: the owner and group admins open the group without a subscription of their own
+  if (groupStaff && (await actorIn(c.env, m, me)).staff) return { staff: true, sub: await subscriptionOf(c.env, m.id, me.id) };
   await expireDue(c.env, { userId: me.id, membershipId: m.id });
   const sub = await subscriptionOf(c.env, m.id, me.id);
   if (!hasAccess(sub)) throw membershipRequired(m, sub);
@@ -91,7 +100,19 @@ async function requireAccess(c, m) {
 //   members pass only with an active subscription (lazy expiry here too) — re-added if they had been removed;
 //   everyone else gets 403 MEMBERSHIP_REQUIRED { membershipId, slug, lapsed } (and is removed if still listed).
 //   Invite links and manual adds are off for these conversations (access comes from the subscription).
+//   MEMBERSHIP GROUPS: the chat's generic member / role / ban / settings / invite / join-request routes are off too —
+//   the group's own screens (/memberships/:id/group/*) do these, so the owner can't be removed or demoted through them.
 // ======================================================================================================
+const MANAGED_ROUTES = [
+  ['POST', /\/(invite|members)$/],
+  ['POST', /\/members\/[^/]+\/role$/],
+  ['DELETE', /\/members\/[^/]+$/],
+  ['POST', /\/transfer$/],
+  ['PATCH', /\/settings$/],
+  ['PATCH', /^\/conversations\/[^/]+$/],
+  ['POST', /\/requests\/[^/]+$/],
+  ['DELETE', /\/bans\/[^/]+$/],
+];
 export async function membershipChatGuard(c, next) {
   const me = c.get('user');
   const id = c.req.param('id');
@@ -105,8 +126,8 @@ export async function membershipChatGuard(c, next) {
   if (!m) return next();
   const mem = await one(c.env, 'SELECT role FROM conversation_members WHERE conversation_id = $1 AND user_id = $2', [conv.id, me.id]);
   const staff = (mem && mem.role !== 'member') || isPlatformAdmin(me);
-  if (!isMsg && c.req.method === 'POST' && /\/(invite|members)$/.test(c.req.path)) {
-    throw forbidden('People join this membership’s channel and community by subscribing. Use “Grant access” in the admin Memberships tab.', 'MEMBERSHIP_MANAGED');
+  if (!isMsg && MANAGED_ROUTES.some(([method, re]) => c.req.method === method && re.test(c.req.path))) {
+    throw forbidden(`People join ${MASTER} and ${EXECUTIVE} through the membership. Manage members, admins and settings from the group’s own Members and Settings screens.`, 'MEMBERSHIP_MANAGED');
   }
   if (staff) return next();
   await expireDue(c.env, { userId: me.id, membershipId: m.id });
@@ -250,6 +271,14 @@ async function resolveUser(env, b) {
   return one(env, `SELECT * FROM users WHERE lower(handle) = $1 OR lower(display_name) = $1 OR clerk_id = $2 ORDER BY created_at LIMIT 1`, [h, `dev_${h}`]);
 }
 
+async function sectionStats(env, m) {
+  const count = async (id, extra = '') => (id ? (await one(env, `SELECT count(*)::int AS n FROM messages WHERE conversation_id = $1 AND NOT deleted AND kind <> 'system' ${extra}`, [id])).n : 0);
+  return {
+    master: { id: m.channel_id || null, name: MASTER, posts: await count(m.channel_id) },
+    executive: { id: m.community_id || null, name: EXECUTIVE, messages: await count(m.community_id, "AND kind <> 'shared_post'") },
+  };
+}
+
 async function manageShape(c, m) {
   const env = c.env;
   const plans = await plansOf(env, [m.id], { all: true });
@@ -274,6 +303,10 @@ async function manageShape(c, m) {
     lessons: lessons.map((l) => lessonShape(l)),
     channelId: m.channel_id || null,
     communityId: m.community_id || null,
+    // MEMBERSHIP GROUPS: the two sections by name (+ post / message counts for the admin tab)
+    sections: await sectionStats(env, m),
+    groupSettings: groupSettingsOf(m),
+    adminsCount: (await one(env, 'SELECT count(*)::int AS n FROM membership_admins WHERE membership_id = $1', [m.id])).n,
     subscribers: subs,
   };
 }
@@ -334,8 +367,8 @@ membershipsApp.patch('/memberships/manage/:id', async (c) => {
     JSON.stringify(f.questions), f.creatorName, f.creatorBio, f.sortOrder, ownerId]);
   // keep the two conversations' names in step with the membership title
   if (row.channel_id && row.title !== cur.title) {
-    await q(c.env, 'UPDATE conversations SET title = $2 WHERE id = $1', [row.channel_id, `${row.title} · Channel`]);
-    await q(c.env, 'UPDATE conversations SET title = $2 WHERE id = $1', [row.community_id, `${row.title} · Community`]);
+    await q(c.env, 'UPDATE conversations SET title = $2 WHERE id = $1', [row.channel_id, masterTitle(row.title)]);
+    await q(c.env, 'UPDATE conversations SET title = $2 WHERE id = $1', [row.community_id, executiveTitle(row.title)]);
   }
   await recomputeStats(c.env, row.id);
   if (isPlatformAdmin(me)) await audit(c.env, me, 'membership.update', 'membership', row.id, { title: row.title });
@@ -527,6 +560,9 @@ membershipsApp.post('/memberships/manage/expire-now', async (c) => {
   return c.json({ expired: await expireDue(c.env) });
 });
 
+// MEMBERSHIP GROUPS: registered before /memberships/:ref so /memberships/welcome isn't read as a slug
+mountGroupRoutes(membershipsApp, { visibleMembership, requireAccess, canManage, origin });
+
 // ======================================================================================================
 // App
 // ======================================================================================================
@@ -540,13 +576,14 @@ membershipsApp.get('/memberships', async (c) => {
     price_low: 'min_price ASC NULLS LAST, m.trending_score DESC',
     price_high: 'min_price DESC NULLS LAST, m.trending_score DESC',
   }[sort] || 'm.trending_score DESC, m.published_at DESC';
-  const where = `m.status = 'published' AND ($1 = '' OR m.category = $1) AND ($2 = '' OR m.title ILIKE $3 OR m.headline ILIKE $3 OR m.category ILIKE $3)`;
+  // MEMBERSHIP GROUPS: private groups are reachable by link only
+  const where = `m.status = 'published' AND COALESCE(m.group_settings->>'visibility', 'public') <> 'private' AND ($1 = '' OR m.category = $1) AND ($2 = '' OR m.title ILIKE $3 OR m.headline ILIKE $3 OR m.category ILIKE $3)`;
   const params = [category, term, `%${term.replace(/[%_]/g, '')}%`];
   const rows = await q(c.env, `SELECT m.*, (SELECT min(p.price_minor) FROM membership_plans p WHERE p.membership_id = m.id AND p.active) AS min_price
     FROM memberships m WHERE ${where} ORDER BY ${order} LIMIT 30 OFFSET ${offset}`, params);
   const total = await one(c.env, `SELECT count(*)::int AS n FROM memberships m WHERE ${where}`, params);
-  const cats = await q(c.env, `SELECT category, count(*)::int AS n FROM memberships WHERE status = 'published' GROUP BY category ORDER BY n DESC, category`);
-  const all = await one(c.env, `SELECT count(*)::int AS n FROM memberships WHERE status = 'published'`);
+  const cats = await q(c.env, `SELECT category, count(*)::int AS n FROM memberships WHERE status = 'published' AND COALESCE(group_settings->>'visibility', 'public') <> 'private' GROUP BY category ORDER BY n DESC, category`);
+  const all = await one(c.env, `SELECT count(*)::int AS n FROM memberships WHERE status = 'published' AND COALESCE(group_settings->>'visibility', 'public') <> 'private'`);
   return c.json({
     items: await cards(c.env, origin(c), rows),
     total: total.n,
@@ -558,13 +595,16 @@ membershipsApp.get('/memberships', async (c) => {
 membershipsApp.get('/memberships/mine', async (c) => {
   const me = c.get('user');
   await expireDue(c.env, { userId: me.id });
-  const rows = await q(c.env, `SELECT m.*, row_to_json(s.*) AS sub FROM membership_subscriptions s JOIN memberships m ON m.id = s.membership_id
+  const rows = await q(c.env, `SELECT m.*, row_to_json(s.*) AS sub,
+      (p.user_id IS NOT NULL AND p.welcome_seen_at IS NULL) AS welcome_pending
+    FROM membership_subscriptions s JOIN memberships m ON m.id = s.membership_id
+    LEFT JOIN membership_member_prefs p ON p.membership_id = m.id AND p.user_id = s.user_id
     WHERE s.user_id = $1 AND s.status <> 'refunded' AND m.status <> 'draft' ORDER BY s.updated_at DESC LIMIT 100`, [me.id]);
   const list = await cards(c.env, origin(c), rows);
   const items = rows.map((r, i) => {
     const sub = typeof r.sub === 'string' ? JSON.parse(r.sub) : r.sub;
     const access = accessShape(sub);
-    return { ...list[i], access, channelId: access.active ? r.channel_id : null, communityId: access.active ? r.community_id : null };
+    return { ...list[i], access, channelId: access.active ? r.channel_id : null, communityId: access.active ? r.community_id : null, welcomePending: access.active && !!r.welcome_pending };
   }).sort((a, b) => Number(b.access.active) - Number(a.access.active));
   return c.json({ items });
 });
@@ -577,7 +617,8 @@ membershipsApp.get('/memberships/:ref', async (c) => {
   const owner = m.owner_id ? await one(c.env, 'SELECT * FROM users WHERE id = $1', [m.owner_id]) : null;
   const sub = await subscriptionOf(c.env, m.id, me.id);
   const access = accessShape(sub);
-  const staff = canManage(c.env, me, m);
+  // MEMBERSHIP GROUPS: the group owner and its admins open the group from here too
+  const staff = canManage(c.env, me, m) || (await actorIn(c.env, m, me)).staff;
   const reviews = await q(c.env, `SELECT r.*, u.display_name, u.handle, u.avatar_url FROM membership_reviews r JOIN users u ON u.id = r.user_id
     WHERE r.membership_id = $1 AND NOT r.hidden ORDER BY r.created_at DESC LIMIT 5`, [m.id]);
   const mine = await one(c.env, `SELECT r.*, u.display_name, u.handle, u.avatar_url FROM membership_reviews r JOIN users u ON u.id = r.user_id
@@ -603,6 +644,11 @@ membershipsApp.get('/memberships/:ref', async (c) => {
     purchasable: m.status === 'published' && plans.length > 0,
     channelId: open ? m.channel_id : null,
     communityId: open ? m.community_id : null,
+    // MEMBERSHIP GROUPS: joining rules for the Join button
+    free: !!(await freePlanOf(c.env, m)),
+    joinMode: groupSettingsOf(m).joinMode,
+    visibility: groupSettingsOf(m).visibility,
+    joinRequest: await joinRequestOf(c.env, m, me.id),
   });
 });
 
@@ -726,6 +772,8 @@ membershipsApp.post('/memberships/:id/checkout', async (c) => {
   const m = await purchasable(c);
   const b = await body(c);
   const plan = await planFor(c.env, m, b.planId);
+  // MEMBERSHIP GROUPS: banned people can't buy their way back in; approval-based groups approve someone new first
+  await assertMayJoin(c.env, m, me, { staff: canManage(c.env, me, m) });
   const answers = checkAnswers(questionsOf(m), b.answers);
   if (!b.agree) throw bad('Please agree to the terms to continue', 'TERMS_REQUIRED');
   const promo = await promoFor(c.env, m, b.promoCode);
@@ -796,12 +844,24 @@ membershipsApp.get('/memberships/:id/home', async (c) => {
   const { sub, staff } = await requireAccess(c, m);
   if (!staff) await addToConversations(c.env, m, me.id, { quiet: true }); // self-heal if they were removed while active
   const lib = await libraryOf(c.env, m, me.id);
+  // MEMBERSHIP GROUPS: my place in the group, the two sections and the once-only welcome pop-up
+  const actor = await actorIn(c.env, m, me);
+  const prefs = await prefsOf(c.env, m.id, me.id);
+  const welcome = !staff && !actor.staff && prefs && !prefs.welcome_seen_at ? { title: m.title, text: welcomeText(m) } : null;
+  const groupStaff = staff || actor.staff;
   return c.json({
     membership: cardShape(c.env, origin(c), m, await plansOf(c.env, [m.id])),
-    access: staff && !hasAccess(sub) ? { ...accessShape(sub), status: 'staff', active: true, lapsed: false } : accessShape(sub),
-    isStaff: staff,
+    access: groupStaff && !hasAccess(sub) ? { ...accessShape(sub), status: 'staff', active: true, lapsed: false } : accessShape(sub),
+    isStaff: groupStaff,
+    role: actor.role === 'none' && staff ? 'admin' : actor.role,
+    permissions: actor.perms,
     channelId: m.channel_id,
     communityId: m.community_id,
+    sections: {
+      master: { id: m.channel_id, name: MASTER, title: masterTitle(m.title) },
+      executive: { id: m.community_id, name: EXECUTIVE, title: executiveTitle(m.title) },
+    },
+    welcome,
     library: lib.progress,
   });
 });

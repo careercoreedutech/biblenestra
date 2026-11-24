@@ -72,6 +72,38 @@ export const setLessonDone = (api, id, lessonId, done) => api.request(done ? 'PO
 export const getReviews = (api, id, offset = 0) => api.request('GET', `/memberships/${id}/reviews?offset=${offset}`);
 export const postReview = (api, id, rating, body, edit) => api.request(edit ? 'PATCH' : 'POST', edit ? `/memberships/${id}/reviews/mine` : `/memberships/${id}/reviews`, { rating, body });
 
+// MEMBERSHIP GROUPS — MASTER CLASS + EXECUTIVE CLASS (server: backend/src/routes/membershipGroups.js)
+export const MASTER = 'MASTER CLASS';
+export const EXECUTIVE = 'EXECUTIVE CLASS';
+export const getGroup = (api, id) => api.request('GET', `/memberships/${id}/group`);
+export const updateGroup = (api, id, body) => api.request('PATCH', `/memberships/${id}/group`, body);
+export const getGroupMembers = (api, id, { q = '', filter = 'all' } = {}) => api.request('GET', `/memberships/${id}/group/members?${new URLSearchParams({ q, filter }).toString()}`);
+export const memberAction = (api, id, userId, action, extra = {}) => api.request('POST', `/memberships/${id}/group/members/${userId}`, { action, ...extra });
+export const getGroupAdmins = (api, id) => api.request('GET', `/memberships/${id}/group/admins`);
+export const addGroupAdmin = (api, id, userId, permissions) => api.request('POST', `/memberships/${id}/group/admins`, { userId, permissions });
+export const setAdminPermissions = (api, id, userId, permissions) => api.request('PATCH', `/memberships/${id}/group/admins/${userId}`, { permissions });
+export const removeGroupAdmin = (api, id, userId) => api.request('DELETE', `/memberships/${id}/group/admins/${userId}`);
+export const getJoinRequests = (api, id) => api.request('GET', `/memberships/${id}/group/requests`);
+export const decideJoinRequest = (api, id, userId, approve) => api.request('POST', `/memberships/${id}/group/requests/${userId}`, { approve });
+export const getGroupInvite = (api, id, reset = false) => api.request('POST', `/memberships/${id}/group/invite`, reset ? { reset: true } : {});
+export const getGroupNotifications = (api, id) => api.request('GET', `/memberships/${id}/group/notifications`);
+export const setGroupNotifications = (api, id, body) => api.request('PUT', `/memberships/${id}/group/notifications`, body);
+export const markWelcomeSeen = (api, id) => api.request('POST', `/memberships/${id}/welcome/seen`);
+export const getPendingWelcome = (api) => api.request('GET', '/memberships/welcome');
+export const joinFreeGroup = (api, id) => api.request('POST', `/memberships/${id}/join`);
+export const askToJoin = (api, id) => api.request('POST', `/memberships/${id}/join-request`);
+export const setPostComments = (api, messageId, enabled) => api.request('POST', `/messages/${messageId}/comments`, { enabled });
+export const MUTE_CHOICES = [
+  { minutes: 60, label: '1 hour' },
+  { minutes: 8 * 60, label: '8 hours' },
+  { minutes: 24 * 60, label: '1 day' },
+  { minutes: 7 * 24 * 60, label: '1 week' },
+];
+export function mutedLabel(iso) {
+  if (!iso) return null;
+  try { return `Muted until ${new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`; } catch (e) { return 'Muted'; }
+}
+
 export const isMembershipRequired = (e) => !!e && e.code === 'MEMBERSHIP_REQUIRED';
 export const friendly = (e, fallback) => errorMessage(e, fallback);
 

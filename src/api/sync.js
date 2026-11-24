@@ -1232,7 +1232,7 @@ function OnlineSync({ api, children }) {
     live.setReceipts(conversationId, res.receipts);
     live.setTypingList(conversationId, res.typing || []);
     if (res.presence !== undefined) live.setPresence(conversationId, res.presence);
-    if (res.permissions) live.setPerms(conversationId, { permissions: res.permissions, settings: res.settings, myRole: res.myRole });
+    if (res.permissions) live.setPerms(conversationId, { permissions: res.permissions, settings: res.settings, myRole: res.myRole, group: res.membershipGroup || null }); // MEMBERSHIP GROUPS: section + my place in the group
     const items = (res.items || []).slice().reverse();
     const pins = res.pins || [];
     const pinAt = new Map(pins.map((p) => [p.id, Date.parse(p.pinnedAt) || 0]));
