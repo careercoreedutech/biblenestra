@@ -160,11 +160,12 @@ test('FX admin: Refresh now (fundme manage), manual edit → source manual and n
 });
 
 // ───────────────────────────────────────── Dojah adapter ─────────────────────────────────────────
-const DJ_TEST = { DOJAH_APP_ID: 'app_123', DOJAH_SECRET_KEY: 'test_sk_abc' };
-const DJ_LIVE = { DOJAH_APP_ID: 'app_123', DOJAH_SECRET_KEY: 'prod_sk_xyz' };
+const DJ_TEST = { DOJAH_APP_ID: 'app_123', DOJAH_SECRET_KEY: 'test_sk_abc', DOJAH_ENABLED: 'true' };
+const DJ_LIVE = { DOJAH_APP_ID: 'app_123', DOJAH_SECRET_KEY: 'prod_sk_xyz', DOJAH_ENABLED: 'true' };
 
 test('Dojah adapter: configured, sandbox vs production URL, headers without Bearer, nothing but names returned', async () => {
   assert.equal(DJ.dojahConfigured({}), false); assert.equal(DJ.dojahConfigured({ DOJAH_APP_ID: 'a' }), false); assert.equal(DJ.dojahConfigured(DJ_TEST), true);
+  assert.equal(DJ.dojahConfigured({ ...DJ_TEST, DOJAH_ENABLED: '' }), false, 'upcoming feature: keys alone do not switch it on');
   assert.equal(DJ.dojahBaseUrl(DJ_TEST), 'https://sandbox.dojah.io');
   assert.equal(DJ.dojahBaseUrl(DJ_LIVE), 'https://api.dojah.io');
   assert.equal(DJ.dojahBaseUrl({ ...DJ_LIVE, DOJAH_ENV: 'sandbox' }), 'https://sandbox.dojah.io');
@@ -215,7 +216,7 @@ test('KYC + Dojah: not configured → not checked (manual review, no call)', asy
   });
   const k = await one(env, 'SELECT * FROM payout_kyc WHERE user_id = $1', [await idOf('kyc_nc')]);
   assert.deepEqual([k.id_verified, k.id_check_status, k.id_check_provider, k.status], [false, 'not_checked', null, 'pending_review']);
-  assert.match(k.id_check_note, /not set up/);
+  assert.match(k.id_check_note, /upcoming feature/);
   // national_id is never sent to Dojah, even when configured
   const e = { ...env, ...DJ_TEST };
   await withFetch(() => { throw new Error('no network expected'); }, async (calls) => {

@@ -159,7 +159,7 @@ async function downloadCsv(path, toast){
     api('GET', '/admin/api/fundme/kyc?status=' + status).then(function(d){
       [['pending_review', 'Waiting'], ['approved', 'Approved'], ['rejected', 'Rejected']].forEach(function(s){ bar.appendChild(h('button', { class: 'btn small' + (s[0] === status ? '' : ' ghost'), text: s[1] + (d.counts[s[0]] ? ' · ' + d.counts[s[0]] : ''), onclick: function(){ go('KYC', { status: s[0] }); } })); });
       list.innerHTML = '';
-      list.appendChild(h('p', { class: 'meta', text: 'A payout (Fund Me) or gift-earnings withdrawal can only be approved for a member whose KYC is approved. The legal name must match the bank account name (same words, any order; middle names ignored). With Dojah set up, a BVN or NIN is looked up first and its name must match both; “Not checked automatically” means check the ID by hand. You still approve every one.' }));
+      list.appendChild(h('p', { class: 'meta', text: 'A payout (Fund Me) or gift-earnings withdrawal can only be approved for a member whose KYC is approved. The legal name must match the bank account name (same words, any order; middle names ignored). The automatic BVN / NIN lookup (Dojah) is an upcoming feature, so check every ID by hand. You still approve every one.' }));
       if (!d.items.length) { list.appendChild(h('div', { class: 'card', text: 'None.' })); return; }
       d.items.forEach(function(k){
         var note = h('input', { placeholder: 'Reason (to reject; the member sees it)', style: 'min-width:240px' });

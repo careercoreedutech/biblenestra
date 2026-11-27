@@ -24,7 +24,11 @@ export const DOJAH_PRODUCTION = 'https://api.dojah.io';
 export const DOJAH_SANDBOX = 'https://sandbox.dojah.io';
 const TIMEOUT_MS = 20000;
 
-export const dojahConfigured = (env) => !!(env && String(env.DOJAH_APP_ID || '').trim() && String(env.DOJAH_SECRET_KEY || '').trim());
+// UPCOMING FEATURE (2026-11-27): the automatic ID check is switched off until Dojah verifies the business and live keys
+// exist. It runs only when DOJAH_ENABLED is 'true' (or '1') AND both keys are set; otherwise every ID is checked by hand
+// and the app shows the BVN / NIN check as "Coming soon".
+export const dojahEnabled = (env) => ['true', '1'].includes(String((env && env.DOJAH_ENABLED) || '').trim().toLowerCase());
+export const dojahConfigured = (env) => !!(env && dojahEnabled(env) && String(env.DOJAH_APP_ID || '').trim() && String(env.DOJAH_SECRET_KEY || '').trim());
 export const dojahSandbox = (env) => String((env && env.DOJAH_SECRET_KEY) || '').trim().startsWith('test_') || String((env && env.DOJAH_ENV) || '').trim().toLowerCase() === 'sandbox';
 /** DOJAH_BASE_URL if set, else the sandbox for test keys / DOJAH_ENV=sandbox, else production. */
 export function dojahBaseUrl(env) {

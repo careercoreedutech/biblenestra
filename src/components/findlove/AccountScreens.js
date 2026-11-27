@@ -436,7 +436,12 @@ export function DatingVerifyScreen() {
                 <Choice items={['nin', 'bvn']} labels={{ nin: 'NIN', bvn: 'BVN' }} value={checkType} onChange={setCheckType} />
                 <Input value={checkNumber} onChangeText={(t) => setCheckNumber(t.replace(/\D/g, '').slice(0, 11))} placeholder={`Your 11-digit ${checkType.toUpperCase()} (optional)`} keyboardType="number-pad" maxLength={11} style={{ marginTop: 10 }} accessibilityLabel={`${checkType.toUpperCase()}, optional`} />
               </View>
-            ) : null}
+            ) : (
+              <View style={[s.fastCheck, { opacity: 0.8 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Icon name="sparkles" size={14} color={love.gold} /><Text style={s.fastTitle}>Faster check with BVN or NIN</Text><Text style={s.soon}>COMING SOON</Text></View>
+                <Text style={pst.hint}>Soon you'll be able to add your BVN or NIN so your selfie is matched with that record automatically. For now our team reviews your photos by hand.</Text>
+              </View>
+            )}
           </StepCard>
           <Text style={s.fine}>{privacy}</Text>
           <LoveButton label={busy === 'submit' ? 'Sending…' : 'Send for review'} icon="shield" onPress={submit} disabled={!!busy || !v.hasSelfie || !v.hasId || !idType || (!!checkNumber && checkNumber.length !== 11)} style={{ marginTop: 14 }} />
@@ -508,4 +513,5 @@ const s = StyleSheet.create({
   thumbDone: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(62,123,87,0.35)' },
   fastCheck: { marginTop: 16, padding: 14, borderRadius: 18, backgroundColor: '#FFFBF1', borderWidth: 1, borderColor: 'rgba(180,133,47,0.3)' },
   fastTitle: { fontSize: 14, fontWeight: '800', color: love.goldInk },
+  soon: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: '#fff', backgroundColor: love.gold, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, overflow: 'hidden', marginLeft: 'auto' },
 });

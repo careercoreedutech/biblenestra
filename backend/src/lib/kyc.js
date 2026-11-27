@@ -148,7 +148,7 @@ const initials = (n) => [n.firstName, n.middleName, n.lastName].filter(Boolean).
 export async function idCheck(env, idType, idNumber, legalName, accountName) {
   const skip = (note, provider = null) => ({ verified: false, provider, status: 'not_checked', note, checkedAt: null });
   if (!['bvn', 'nin'].includes(idType)) return skip('Other national ID: not checked automatically.');
-  if (!dojahConfigured(env)) return skip('Automatic ID check not set up (Dojah keys missing).');
+  if (!dojahConfigured(env)) return skip('Automatic ID check is an upcoming feature: check the ID by hand.');
   const label = idType.toUpperCase();
   let rec;
   try { rec = await lookupId(env, idType, idNumber); } catch (e) {

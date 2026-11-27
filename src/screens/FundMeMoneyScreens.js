@@ -569,6 +569,7 @@ export function PayoutKycScreen() {
           </View>
           <Text style={st.label}>{idType === 'bvn' ? 'BVN' : idType === 'nin' ? 'NIN' : 'ID number'}</Text>
           <Input value={idNumber} onChangeText={(t) => setIdNumber(idType === 'national_id' ? t.replace(/[^A-Za-z0-9]/g, '').slice(0, 30) : t.replace(/\D/g, '').slice(0, 11))} placeholder={idType === 'national_id' ? 'As printed on your ID' : '11 digits'} keyboardType={idType === 'national_id' ? 'default' : 'number-pad'} autoCapitalize="characters" />
+          <Text style={[st.short, { marginTop: 6 }]}>Instant BVN / NIN check is coming soon. For now our team checks your ID by hand before your first payout.</Text>
           <Text style={st.label}>Legal name</Text>
           <Input value={legal} onChangeText={setLegal} placeholder="As on your ID — first name and surname" maxLength={120} />
           <Text style={st.label}>Bank</Text>
