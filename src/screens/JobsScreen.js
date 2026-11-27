@@ -14,7 +14,7 @@ import { AnimatedModal, PressScale, FadeInUp, ScaleIn, Pop, Burst, AnimatedNumbe
 import ProfileButton from '../components/ProfileButton';
 import { useAds } from '../ads/Ads';
 import { AD_RULES } from '../ads/config';
-import { OpportunitiesEntryCard, CareerPrayerCard } from './OpportunitiesScreen'; // OPPORTUNITIES (+ daily career prayer, brief 12.4)
+import { CareerPrayerCard } from './OpportunitiesScreen'; // OPPORTUNITIES (+ daily career prayer, brief 12.4)
 
 const hasNumber = (v) => /\d/.test(String(v || ''));
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -432,10 +432,15 @@ export default function JobsScreen({ params = {} }) {
         </View>
       }
     >
-      {/* Opportunities worldwide (external listings) */}
-      <FadeInUp distance={10}>
-        <OpportunitiesEntryCard onPress={() => nav.push('Opportunities')} style={{ marginTop: 4, marginBottom: 14 }} />
-      </FadeInUp>
+      {/* Design .segment: Jobs (this screen) | Opportunities (worldwide external listings) */}
+      <View style={[styles.segment, { marginTop: 4, marginBottom: 14 }]} accessibilityRole="tablist">
+        <PressScale scaleTo={0.96} accessibilityRole="tab" accessibilityState={{ selected: true }} accessibilityLabel="Jobs" style={[styles.segmentBtn, styles.segmentBtnActive]}>
+          <Text style={[styles.segmentText, styles.segmentTextActive]}>Jobs</Text>
+        </PressScale>
+        <PressScale onPress={() => nav.replace('Opportunities')} scaleTo={0.96} accessibilityRole="tab" accessibilityState={{ selected: false }} accessibilityLabel="Opportunities" style={styles.segmentBtn}>
+          <Text style={styles.segmentText}>Opportunities</Text>
+        </PressScale>
+      </View>
 
       {/* Video hero (night surface) */}
       <View style={styles.jobsVideoHero}>
@@ -771,6 +776,16 @@ export default function JobsScreen({ params = {} }) {
           ) : null}
         </View>
       )}
+
+      {/* Design coin-bid banner: the bid price and the real coin balance; tap to open the wallet */}
+      <PressScale onPress={() => nav.push('Profile', { tab: 'Wallet & Gifts' })} scaleTo={0.985} accessibilityLabel="Kingdom coins and job bids" style={styles.coinBanner}>
+        <View style={styles.coinBannerIcon}><Icon name="coin" size={18} color={colors.goldLight} /></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.coinBannerTitle}>{BID_COST} Kingdom Coins per job bid</Text>
+          <Text style={styles.coinBannerSub}>You have {coins} coins. Earn more from games or rewarded moments.</Text>
+        </View>
+        <Icon name="chevron-right" size={15} color={colors.nightMuted} />
+      </PressScale>
 
       {/* Apply / Proposal Submission Modal */}
       <AnimatedModal visible={showApplyModal} onRequestClose={() => setShowApplyModal(false)}>
@@ -1517,7 +1532,11 @@ const styles = StyleSheet.create({
   categorySubText: { flex: 1, fontSize: 11.5, color: colors.faint },
   jobTitle: { fontFamily: fonts.serifBold, fontSize: 18.5, lineHeight: 24, letterSpacing: -0.3, color: colors.fg, marginTop: 10 },
   clientRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 },
-  clientAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  clientAvatar: { width: 34, height: 34, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }, // design job-list initials tile
+  coinBanner: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6, marginBottom: 8, padding: 16, borderRadius: radius.lg, backgroundColor: colors.night, ...shadow.md },
+  coinBannerIcon: { width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  coinBannerTitle: { fontFamily: 'DMSans-Bold', fontSize: 14, color: colors.nightFg },
+  coinBannerSub: { fontFamily: fonts.sans, fontSize: 12, color: colors.nightMuted, marginTop: 2 },
   clientAvatarText: { fontSize: 10.5, fontWeight: '700', color: colors.primary },
   clientText: { flexShrink: 1, fontSize: 12.5, color: colors.muted },
   clientName: { color: colors.fg, fontWeight: '600' },

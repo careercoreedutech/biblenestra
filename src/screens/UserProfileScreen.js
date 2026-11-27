@@ -23,6 +23,8 @@ import PeopleSheet from '../components/social/PeopleSheet';
 import { useOpenProfile, norm } from '../components/social/profileNav';
 import { timestampOf, relTime, passageLabel, formatCount } from '../components/social/shared';
 import { DesignBackground, resolveDesign } from '../components/social/TextPostCard';
+import { d, df, gradients, Grad, Tap } from '../design/sanctuary';
+import { DScreen } from '../design/profile/parts';
 
 const W = Math.min(Dimensions.get('window').width, 560);
 const TILE = Math.floor((W - 36 - 6) / 3);
@@ -190,6 +192,54 @@ export function ProfileHero({ name, handle, avatarUrl, bannerUrl, verified, head
   );
 }
 
+/**
+ * The design's editorial profile card (.profile-card--editorial): dark plum portrait, serif name, stats row.
+ * Children (the follow / message / gift actions) render below the card.
+ */
+function PortraitCard({ label, name, avatarLabel, avatarUrl, handle, verified, headline, bio, meta, stats, onEdit, children }) {
+  return (
+    <FadeInUp distance={10}>
+      <Grad colors={['#2B1B12', '#3D2415', '#6F3518']} style={pc.card}>
+        <View style={pc.glow} pointerEvents="none" />
+        <View style={pc.top}>
+          <Text style={pc.label}>{label}</Text>
+          {onEdit ? (
+            <Tap onPress={onEdit} style={pc.editBtn} accessibilityRole="button" accessibilityLabel="Edit profile">
+              <Icon name="edit" size={12} color="#FFFFFF" />
+              <Text style={pc.editText}>Edit</Text>
+            </Tap>
+          ) : null}
+        </View>
+        <View style={pc.avatarWrap}>
+          <SocialAvatar name={name} label={avatarLabel} uri={avatarUrl} size={78} />
+          {verified ? <View style={pc.tick}><Icon name="check" size={11} color={d.plum} strokeWidth={3} /></View> : null}
+        </View>
+        <Text style={pc.name} numberOfLines={2}>{name}</Text>
+        {handle ? <Text style={pc.handle}>{handle}</Text> : null}
+        {headline ? <Text style={pc.headline}>{headline}</Text> : null}
+        {bio ? <Text style={pc.bio}>{bio}</Text> : null}
+        {meta ? (
+          <View style={pc.metaRow}>
+            <Icon name="map-pin" size={13} color="#F5BC94" />
+            <Text style={pc.meta}>{meta}</Text>
+          </View>
+        ) : null}
+        {stats ? <View style={pc.stats}>{stats}</View> : null}
+      </Grad>
+      {children ? <View style={{ marginTop: 14 }}>{children}</View> : null}
+    </FadeInUp>
+  );
+}
+
+function PortraitStat({ value, label, onPress }) {
+  return (
+    <Tap onPress={onPress} disabled={!onPress} style={pc.stat} accessibilityLabel={`${value || 0} ${label}`}>
+      <Text style={pc.statValue}>{formatCount(value || 0)}</Text>
+      <Text style={pc.statLabel}>{label}</Text>
+    </Tap>
+  );
+}
+
 function Stat({ value, label, index, onPress }) {
   return (
     <FadeInUp index={index} delay={140} style={styles.stat}>
@@ -312,8 +362,8 @@ export default function UserProfileScreen({ params = {} }) {
     const church = sample && sample.creator ? sample.creator.church : '';
     const verified = !!(sample && (sample.authorVerified || (sample.creator && sample.creator.verified)));
     return (
-      <Screen back title={name} subtitle={params.handle || 'Profile'}>
-        <ProfileHero name={name} handle={params.handle} verified={verified} meta={church} avatarLabel={sample && sample.creator ? sample.creator.avatar : undefined}>
+      <DScreen back onBack={() => nav.pop()} title={name} subtitle={params.handle || 'Profile'} action={null}>
+        <PortraitCard label="Member profile" name={name} handle={params.handle} verified={verified} meta={church} avatarLabel={sample && sample.creator ? sample.creator.avatar : undefined}>
           <View style={styles.actions}>
             {params.handle ? (
               <Pop trigger={following} amount={1.08}>
@@ -324,10 +374,10 @@ export default function UserProfileScreen({ params = {} }) {
             <Button small kind="ghost" label="Message" icon={<Icon name="chat" size={13} color={colors.primary} />} onPress={() => nav.push('Chat', { to: name, userId: params.id || params.userId })} />
             <Button small kind="ghost" label="Gift" icon={<Icon name="gift" size={13} color={colors.rose} />} onPress={() => setGift(true)} />
           </View>
-        </ProfileHero>
+        </PortraitCard>
         <PostsSection items={localItems} onOpen={openPost} name={name} />
         <GiftSheet visible={gift} target={{ name }} onClose={() => setGift(false)} subtitle={`Bless ${name} with coins`} />
-      </Screen>
+      </DScreen>
     );
   }
 
@@ -383,16 +433,18 @@ export default function UserProfileScreen({ params = {} }) {
 
   const meta = [person.church, person.country].filter(Boolean).join('  ·  ');
   return (
-    <Screen back title={person.name} subtitle={person.handle || (person.kind !== 'person' ? person.kind[0].toUpperCase() + person.kind.slice(1) : 'Profile')}>
-      <ProfileHero name={person.name} handle={person.handle} avatarUrl={person.avatarUrl} bannerUrl={person.bannerUrl} verified={person.verified} headline={person.headline} meta={meta} bio={person.bio}
-        onEdit={person.isMe ? () => nav.push('EditProfile') : undefined}>
-        <View style={styles.stats}>
-          <Stat value={person.posts} label="Posts" index={0} />
-          <View style={styles.statRule} />
-          <Stat value={person.followers} label="Followers" index={1} onPress={() => setList('followers')} />
-          <View style={styles.statRule} />
-          <Stat value={person.following} label="Following" index={2} onPress={() => setList('following')} />
-        </View>
+    <DScreen back onBack={() => nav.pop()} title={person.name} subtitle={person.handle || (person.kind !== 'person' ? person.kind[0].toUpperCase() + person.kind.slice(1) : 'Profile')} action={null}>
+      <PortraitCard label={person.isMe ? 'Spiritual portrait' : 'Member profile'} name={person.name} avatarUrl={person.avatarUrl} handle={person.handle} verified={person.verified} headline={person.headline} meta={meta} bio={person.bio}
+        onEdit={person.isMe ? () => nav.push('EditProfile') : undefined}
+        stats={(
+          <>
+            <PortraitStat value={person.posts} label="Posts" />
+            <View style={styles.statRule} />
+            <PortraitStat value={person.followers} label="Followers" onPress={() => setList('followers')} />
+            <View style={styles.statRule} />
+            <PortraitStat value={person.following} label="Following" onPress={() => setList('following')} />
+          </>
+        )}>
         {person.isMe ? (
           <View style={styles.actions}>
             <Button small label="Edit profile" icon={<Icon name="edit" size={13} color="#FFFFFF" />} onPress={() => nav.push('EditProfile')} />
@@ -409,14 +461,35 @@ export default function UserProfileScreen({ params = {} }) {
             <GiftButton recipientId={person.id} name={person.name} context={{ type: 'profile', id: person.id }} label="Send a gift" disabled={person.blocked} />
           </View>
         )}
-      </ProfileHero>
+      </PortraitCard>
       <GiftWall userId={person.id} name={person.name} />{/* VIRTUAL GIFTS: gifts received wall */}
       <PostsSection items={posts.items} loading={posts.loading} hasMore={posts.more} onMore={() => loadPosts(posts.cursor)} onOpen={openPost} name={person.name} />
       <GiftSheet visible={gift} target={{ userId: person.id, name: person.name }} onClose={() => setGift(false)} subtitle={`Bless ${person.name} with coins`} />
       <FollowListSheet userId={person.id} which={list} name={person.name} onClose={() => setList(null)} />
-    </Screen>
+    </DScreen>
   );
 }
+
+const pc = StyleSheet.create({
+  card: { borderRadius: 26, padding: 20, minHeight: 300, overflow: 'hidden' },
+  glow: { position: 'absolute', width: 270, height: 270, right: -90, top: -95, borderRadius: 135, borderWidth: 42, borderColor: 'rgba(255,107,26,0.22)' },
+  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  label: { fontFamily: df.sansHeavy, fontSize: 8, letterSpacing: 1.6, color: '#EFB58F' },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)' },
+  editText: { fontFamily: df.sansBold, fontSize: 9, color: '#FFFFFF' },
+  avatarWrap: { alignSelf: 'flex-start', marginTop: 34, marginBottom: 14, width: 84, height: 84, borderRadius: 42, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 14, shadowOffset: { width: 0, height: 14 }, elevation: 6 },
+  tick: { position: 'absolute', right: 0, bottom: 2, width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFF5E9', borderWidth: 3, borderColor: '#4A2917', alignItems: 'center', justifyContent: 'center' },
+  name: { fontFamily: df.displayBold, fontSize: 30, lineHeight: 34, color: '#FFFFFF' },
+  handle: { fontFamily: df.sans, fontSize: 10, color: '#D3C1B4', marginTop: 4 },
+  headline: { fontFamily: df.sans, fontSize: 11, lineHeight: 16, color: '#D3C1B4', marginTop: 6, maxWidth: 280 },
+  bio: { fontFamily: df.displayItalic, fontSize: 13, lineHeight: 20, color: '#EADBCD', marginTop: 8, maxWidth: 300 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
+  meta: { fontFamily: df.sansBold, fontSize: 9, color: '#F5BC94' },
+  stats: { flexDirection: 'row', alignItems: 'center', marginTop: 22, paddingTop: 15, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)' },
+  stat: { flex: 1, alignItems: 'center' },
+  statValue: { fontFamily: df.displayBold, fontSize: 18, color: '#FFFFFF' },
+  statLabel: { fontFamily: df.sansBold, fontSize: 7, letterSpacing: 1, textTransform: 'uppercase', color: '#BDA99A', marginTop: 2 },
+});
 
 const styles = StyleSheet.create({
   hero: { backgroundColor: colors.surface, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', ...shadow.md },

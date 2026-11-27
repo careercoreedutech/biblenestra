@@ -9,6 +9,7 @@ import { Screen, Badge, Button, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
+import { useNav } from '../navigation';
 import { useToast, haptic } from '../components/Toast';
 import { AnimatedModal, FadeInUp, PressScale, ScaleIn, Pop } from '../components/Motion';
 import { errorMessage } from '../api/client';
@@ -118,6 +119,7 @@ function useOpenLink() {
 
 // ---------- screen ----------
 export function OpportunitiesScreen({ params = {} }) {
+  const nav = useNav();
   const api = useOpportunitiesApi();
   const { state, dispatch } = useStore();
   const toast = useToast();
@@ -370,6 +372,15 @@ export function OpportunitiesScreen({ params = {} }) {
   // ---------- header / footer / empty ----------
   const header = (
     <View>
+      {/* Design .segment at the top: Jobs | Opportunities (this screen). Jobs is the bidding board. */}
+      <View style={[styles.segment, { marginTop: 8 }]} accessibilityRole="tablist">
+        <PressScale onPress={() => nav.replace('Jobs')} scaleTo={0.96} accessibilityRole="tab" accessibilityState={{ selected: false }} accessibilityLabel="Jobs" style={styles.segmentBtn}>
+          <Text style={styles.segmentText}>Jobs</Text>
+        </PressScale>
+        <View style={[styles.segmentBtn, styles.segmentBtnOn]} accessibilityRole="tab" accessibilityState={{ selected: true }}>
+          <Text style={[styles.segmentText, { color: colors.primary, fontWeight: '700' }]}>Opportunities</Text>
+        </View>
+      </View>
       <FadeInUp distance={10} style={styles.hero}>
         <View style={styles.heroGlow} />
         <View style={styles.heroTop}>
@@ -1091,7 +1102,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chipActive: { backgroundColor: colors.fg, borderColor: colors.fg },
-  chipText: { fontFamily: fonts.sansMedium, fontSize: 12.5, fontWeight: '500', color: colors.muted },
+  chipText: { fontFamily: fonts.sansMedium, fontSize: 12.5, color: colors.muted },
   chipTextActive: { color: '#FFFFFF', fontWeight: '700' },
   chipCount: { minWidth: 20, paddingHorizontal: 6, height: 18, borderRadius: 9, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   chipCountActive: { backgroundColor: 'rgba(255,255,255,0.18)' },
@@ -1155,7 +1166,7 @@ const styles = StyleSheet.create({
   sourcePillText: { fontSize: 12.5, fontWeight: '700', color: colors.primaryInk, flexShrink: 1 },
   dirHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 10, marginBottom: 10 },
   dirHeadingTitle: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg, letterSpacing: -0.2 },
-  dirHeadingCount: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.faint, fontWeight: '600' },
+  dirHeadingCount: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.faint },
   dirHeadingBlurb: { fontSize: 12.5, color: colors.muted, lineHeight: 17.5, marginTop: 2 },
   dirCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: 14, marginBottom: 10, ...shadow.sm },
   dirName: { fontSize: 15.5, fontWeight: '700', color: colors.fg },
@@ -1297,7 +1308,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     ...shadow.sm,
   },
-  applyBtnText: { flexShrink: 1, fontFamily: fonts.sansMedium, fontSize: 14, fontWeight: '700', color: colors.primaryFg },
+  applyBtnText: { flexShrink: 1, fontFamily: fonts.sansMedium, fontSize: 14, color: colors.primaryFg },
   shareBtn: {
     width: 46,
     height: 46,

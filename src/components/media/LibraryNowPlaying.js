@@ -43,7 +43,7 @@ export default function LibraryNowPlaying() {
             <Pulse active={p.playing} min={0.985} max={1.015} duration={2400} style={styles.art}>
               {t.cover ? <Image source={{ uri: t.cover }} style={StyleSheet.absoluteFill} /> : (
                 <>
-                  <LinearGradient colors={['#3A3F86', '#1D1F45', '#2B1E3D']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+                  <LinearGradient colors={['#3C2518', '#2D1B10', '#7A3A17']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
                   <Icon name="headphones" size={64} color={colors.goldLight} />
                 </>
               )}

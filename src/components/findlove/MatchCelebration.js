@@ -75,7 +75,7 @@ export function MatchCelebration({ match, me, onChat, onClose }) {
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: a }]} accessibilityViewIsModal>
-        <LinearGradient colors={['#4A1326', '#2A0E1C', '#160710']} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={['#3C2518', '#2D1B10', '#1A110B']} style={StyleSheet.absoluteFill} />
         <Grain width={w} height={h} opacity={0.07} count={120} />
         <Glow size={w * 1.3} color={love.roseBright} opacity={0.4} style={{ top: h * 0.12, left: -w * 0.15 }} />
         <Glow size={w * 0.9} color={love.goldBright} opacity={0.18} style={{ top: -w * 0.3, right: -w * 0.3 }} />

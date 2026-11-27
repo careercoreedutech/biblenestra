@@ -10,21 +10,21 @@ export const ND = Platform.OS !== 'web'; // native driver where supported
 
 export const love = {
   // hero surfaces
-  plum: '#2A0E1C',
-  plumRaised: '#3B1528',
-  wine: '#6B1F37',
-  wineDeep: '#4A1326',
+  plum: '#2D1B10',
+  plumRaised: '#3C2518',
+  wine: '#8A451F',
+  wineDeep: '#3C2518',
   // accents
-  rose: '#B0475C',
-  roseBright: '#C9566E',
-  roseSoft: '#E7A3AE',
-  blush: '#F7E6E2',
-  blushDeep: '#EFD2CC',
-  blushLine: '#E8CFC8',
-  gold: '#B4852F',
-  goldBright: '#D9B061',
-  goldPale: '#F4E4C0',
-  goldInk: '#7A5815',
+  rose: '#ED5C12', // orange accent (kit: d.plum)
+  roseBright: '#FF9A53',
+  roseSoft: '#F7B98A',
+  blush: '#F6E4D2',
+  blushDeep: '#F4D8CB',
+  blushLine: '#EADFCE',
+  gold: '#A66D22',
+  goldBright: '#F4D88C',
+  goldPale: '#F6E4D2',
+  goldInk: '#6F4A12',
   // ink on dark
   onDark: '#FBF3EC',
   onDarkMuted: 'rgba(251,243,236,0.72)',
@@ -43,38 +43,38 @@ export const love = {
 
 // gradient stops (LinearGradient colors)
 export const grad = {
-  heart: ['#D35C75', '#9C2C48'],
-  wine: ['#7A2540', '#3E1022'],
-  plum: ['#3E1529', '#1E0A15'],
-  gold: ['#E9C67C', '#B4852F'],
-  goldSoft: ['#F8EBCB', '#EED7A2'],
+  heart: ['#FF8B3D', '#ED5C12'],
+  wine: ['#8A451F', '#2D1B10'],
+  plum: ['#3C2518', '#2D1B10'],
+  gold: ['#E4D18E', '#A66D22'],
+  goldSoft: ['#F6E4D2', '#F4D88C'],
   vip: ['#2B211A', '#0F0B09'],
-  rose: ['#C9566E', '#8E2A45'],
-  blush: ['#FBEFEC', '#F3DCD6'],
-  ring: ['#E9C67C', '#C9566E', '#7A2540'],
-  scrim: ['rgba(30,10,21,0)', 'rgba(30,10,21,0.35)', 'rgba(30,10,21,0.9)'],
-  scrimTop: ['rgba(30,10,21,0.45)', 'rgba(30,10,21,0)'],
+  rose: ['#FF9A53', '#C4501A'],
+  blush: ['#FFFAF2', '#F4D8CB'],
+  ring: ['#E4D18E', '#FF9A53', '#8A451F'],
+  scrim: ['rgba(40,26,17,0)', 'rgba(40,26,17,0.35)', 'rgba(40,26,17,0.9)'],
+  scrimTop: ['rgba(40,26,17,0.45)', 'rgba(40,26,17,0)'],
 };
 
 export const type = {
   display: { fontFamily: fonts.serifBold, color: love.ink, letterSpacing: -0.3 },
   italic: { fontFamily: fonts.serifItalic },
   boldItalic: { fontFamily: fonts.serifBoldItalic },
-  eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 1.6, textTransform: 'uppercase', color: love.rose },
+  eyebrow: { fontFamily: 'DMSans-Bold', fontSize: 10, lineHeight: 12, letterSpacing: 1.7, textTransform: 'uppercase', color: '#FF6B1A' },
 };
 
 export const lshadow = Platform.select({
   web: {
-    sm: { boxShadow: '0 2px 6px rgba(74,19,38,0.08)' },
-    md: { boxShadow: '0 10px 28px rgba(74,19,38,0.16), 0 2px 6px rgba(74,19,38,0.08)' },
-    glow: { boxShadow: '0 8px 22px rgba(176,71,92,0.38)' },
-    gold: { boxShadow: '0 8px 20px rgba(180,133,47,0.35)' },
+    sm: { boxShadow: '0 2px 6px rgba(60,37,24,0.08)' },
+    md: { boxShadow: '0 10px 28px rgba(60,37,24,0.16), 0 2px 6px rgba(60,37,24,0.08)' },
+    glow: { boxShadow: '0 8px 22px rgba(237,92,18,0.38)' },
+    gold: { boxShadow: '0 8px 20px rgba(166,109,34,0.35)' },
   },
   default: {
-    sm: { shadowColor: '#4A1326', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 },
-    md: { shadowColor: '#4A1326', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.18, shadowRadius: 18, elevation: 8 },
-    glow: { shadowColor: '#B0475C', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.38, shadowRadius: 14, elevation: 8 },
-    gold: { shadowColor: '#B4852F', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 },
+    sm: { shadowColor: '#3C2518', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 },
+    md: { shadowColor: '#3C2518', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.18, shadowRadius: 18, elevation: 8 },
+    glow: { shadowColor: '#ED5C12', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.38, shadowRadius: 14, elevation: 8 },
+    gold: { shadowColor: '#A66D22', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 6 },
   },
 });
 

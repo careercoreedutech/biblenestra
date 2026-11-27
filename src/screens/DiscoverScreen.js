@@ -9,6 +9,7 @@ import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNav } from '../navigation';
+import { DirectorySegment, MonthGrid } from '../design/discover/parts';
 import { CALENDAR, CHANNELS, COMMUNITY_CATEGORIES, PEOPLE, LIVE, CARE_OPTIONS, CHANNELS_DATA } from '../data/seed';
 import { refLabel, BOOKS } from '../data/bible';
 import { useToast, haptic } from '../components/Toast';
@@ -34,10 +35,56 @@ import { Composer } from '../components/chat/Composer'; // CHAT GAPS: …and the
 import { useLiveRooms, LiveGiftLayer, GoLiveRow } from '../components/gifts'; // VIRTUAL GIFTS: live gifting
 import { OpportunitiesEntryCard } from './OpportunitiesScreen'; // OPPORTUNITIES
 import { SegmentToggle, useSwipeTabs, MembershipsCatalog, MyMembershipsRow, PaidChannelsRail } from './MembershipScreens'; // MEMBERSHIPS (brief 8.2, 8.4, 8.5)
+import { PageHeader, SectionTitle, Grad, Tap, d, df } from '../design/sanctuary'; // DESIGN: Discover header, banner, tiles, section titles
 import { FindLoveTab } from './FindLoveScreens'; // FIND LOVE: replaces the "Coming soon" card (FindLoveSoon stays exported, unused)
 
 // ---------- Discover Hub (Sanctuary Paper) ----------
 const WISH_CATEGORIES = ['Healing', 'Guidance', 'Family', 'Financial Miracle', 'Salvation', 'Revival'];
+
+// Design .discover-quick tiles; routes are the app's own screens.
+const DISCOVER_TILES = [
+  { label: 'Prayer', sub: 'Be held', icon: 'prayer', to: 'PrayerWall', grad: ['#FF9450', '#E95A11'] },
+  { label: 'Chats', sub: 'Connect', icon: 'chat', to: 'ChatList', grad: ['#5F3A24', '#2D1D13'] },
+  { label: 'Record', sub: 'Capture', icon: 'mic', to: 'SermonStudio', grad: ['#EFCD80', '#AE7023'] },
+  { label: 'Learn', sub: 'Grow', icon: 'book', to: 'Learn', grad: ['#A9BD85', '#607346'] },
+  { label: 'Ask AI', sub: 'Understand', icon: 'sparkles', to: 'BibleChat', grad: ['#E9804F', '#A63D21'] },
+  { label: 'Library', sub: 'Return', icon: 'bookmark', to: 'Library', grad: ['#8C6A4D', '#4A3120'] },
+];
+
+// Design .hub-list tints (gold, plum, blue, rose, sage, ink), plus the spaces the old quick grid offered.
+const HUB_TONES = {
+  gold: { bg: '#F4D88C', fg: '#6F4A12' },
+  plum: { bg: '#F6E4D2', fg: '#FF6B1A' },
+  blue: { bg: '#DCE9F5', fg: '#365D82' },
+  rose: { bg: '#F4D8CB', fg: '#8A4027' },
+  sage: { bg: '#E7EAD7', fg: '#4B5B35' },
+  ink: { bg: '#281A11', fg: '#FFFFFF' },
+};
+const DISCOVER_HUBS = [
+  { label: 'Memberships', desc: 'Master Class & Executive Class', to: 'Memberships', crown: true, tone: 'gold' },
+  { label: 'Scripture Companion', desc: 'Personal scripture, context & prayer', to: 'Companion', icon: 'sparkles', tone: 'plum' },
+  { label: 'Contests', desc: 'Quiz, creative entries & prizes', to: 'Contests', icon: 'star', tone: 'gold' },
+  { label: 'Messages & Circles', desc: 'Direct chat, voice notes & groups', to: 'ChatList', icon: 'chat', tone: 'blue' },
+  { label: 'Churches & Believers', desc: 'Communities, people & wishes', to: 'Communities', icon: 'users', tone: 'sage' },
+  { label: 'Pastoral Care', desc: 'Confidential guidance', to: 'Care', icon: 'heart', tone: 'sage' },
+  { label: 'Fund Me', desc: 'Verified giving and fundraising', to: 'FundMe', icon: 'gift', tone: 'gold' },
+  { label: 'Jobs', desc: 'Work, grants & scholarships', to: 'Jobs', icon: 'briefcase', tone: 'blue' },
+  { label: 'Opportunities', desc: 'External listings and openings', to: 'Opportunities', icon: 'globe', tone: 'blue' },
+  { label: 'Calendar', desc: 'Personal, church & Christian observances', to: 'Calendar', icon: 'calendar', tone: 'ink' },
+  { label: 'Audio & Books', desc: 'Sermons, audiobooks & PDFs', to: 'MediaLibrary', icon: 'headphones', tone: 'sage' },
+  { label: 'Reminders', desc: 'Daily moments & quiet hours', to: 'Reminders', icon: 'bell', tone: 'rose' },
+  { label: 'Member Websites', desc: 'Trusted Christian destinations', to: 'Websites', icon: 'link', tone: 'ink' },
+].map((h) => ({ ...h, bg: HUB_TONES[h.tone].bg, fg: HUB_TONES[h.tone].fg }));
+
+// Crown is not in Icons.js: Lucide-style outline drawn inline with react-native-svg.
+function CrownGlyph({ size = 20, color = '#FFFFFF' }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
+    </Svg>
+  );
+}
+
 
 export default function DiscoverScreen() {
   const nav = useNav();
@@ -305,37 +352,39 @@ export default function DiscoverScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header: eyebrow date, serif title, coin chip, search */}
+      {/* Header: PageHeader "Discover" with search, coin chip and profile on the right */}
       <View style={styles.discoverTopBar}>
-        <View style={styles.discoverHeaderRow}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.discoverEyebrow} numberOfLines={1}>{dateEyebrow}</Text>
-            <Text style={styles.discoverTitle}>Discover</Text>
-          </View>
-          <ScaleIn delay={90}>
-            <PressScale onPress={() => nav.push('Search')} scaleTo={0.9} accessibilityRole="button" accessibilityLabel="Search" style={styles.discoverSearchIcon}>
-              <Icon name="search" size={17} color={colors.fg} />
-            </PressScale>
-          </ScaleIn>
-          <ScaleIn delay={120}>
-            <PressScale
-              onPress={() => nav.push('Profile', { tab: 'Wallet & Gifts' })}
-              accessibilityRole="button"
-              accessibilityLabel={`Wallet: ${state.coins ?? 0} coins`}
-              scaleTo={0.93}
-              style={styles.coinChip}
-            >
-              <Pop trigger={state.coins} style={styles.coinChipIcon}>
-                <Icon name="coin" size={13} color={colors.gold} strokeWidth={2.2} />
-              </Pop>
-              <AnimatedNumber value={state.coins ?? 0} style={styles.coinChipText} />
-              <Text style={styles.coinChipLabel}>coins</Text>
-            </PressScale>
-          </ScaleIn>
-          <ScaleIn delay={180} style={{ marginBottom: 2 }}>
-            <ProfileButton size={36} />
-          </ScaleIn>
-        </View>
+        <PageHeader
+          title="Discover"
+          subtitle="Everything in one place"
+          action={(
+            <View style={styles.discoverActions}>
+              <ScaleIn delay={90}>
+                <PressScale onPress={() => nav.push('Search')} scaleTo={0.9} accessibilityRole="button" accessibilityLabel="Search" style={styles.discoverSearchIcon}>
+                  <Icon name="search" size={17} color={colors.fg} />
+                </PressScale>
+              </ScaleIn>
+              <ScaleIn delay={120}>
+                <PressScale
+                  onPress={() => nav.push('Profile', { tab: 'Wallet & Gifts' })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Wallet: ${state.coins ?? 0} coins`}
+                  scaleTo={0.93}
+                  style={styles.coinChip}
+                >
+                  <Pop trigger={state.coins} style={styles.coinChipIcon}>
+                    <Icon name="coin" size={13} color={colors.gold} strokeWidth={2.2} />
+                  </Pop>
+                  <AnimatedNumber value={state.coins ?? 0} style={styles.coinChipText} />
+                  <Text style={styles.coinChipLabel}>coins</Text>
+                </PressScale>
+              </ScaleIn>
+              <ScaleIn delay={180} style={{ marginBottom: 2 }}>
+                <ProfileButton size={36} />
+              </ScaleIn>
+            </View>
+          )}
+        />
 
         {/* MEMBERSHIPS (brief 8.5): segmented toggle instead of the search bar; tap or swipe sideways to switch */}
         <SegmentToggle
@@ -357,35 +406,46 @@ export default function DiscoverScreen() {
         showsVerticalScrollIndicator={false}
         {...swipe.panHandlers}
       >
-        {/* Quick access to the app's main spaces */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -18, marginBottom: 0 }} contentContainerStyle={{ paddingHorizontal: 18, gap: 6 }}>
-          {[
-            { label: 'Prayer', icon: 'prayer', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('PrayerWall') },
-            { label: 'Chats', icon: 'chat', tint: colors.primary, bg: colors.cardIndigo, go: () => nav.push('ChatList') },
-            { label: 'Record', icon: 'mic', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('SermonStudio') },
-            { label: 'Audio & Books', icon: 'headphones', tint: colors.primary, bg: colors.cardIndigo, go: () => nav.push('MediaLibrary') }, // MEDIA LIBRARY: audio library + Christian books
-            { label: 'Contests', icon: 'star', tint: colors.gold, bg: colors.cardGold, go: () => nav.push('Contests') },
-            { label: 'Learn', icon: 'book', tint: colors.sage, bg: colors.cardSage, go: () => nav.push('Learn') },
-            { label: 'Ask AI', icon: 'sparkles', tint: colors.gold, bg: colors.cardGold, go: () => nav.push('BibleChat') },
-            { label: 'Calendar', icon: 'calendar', tint: colors.sky, bg: colors.cardSky, go: () => nav.push('Calendar') },
-            { label: 'Reminder', icon: 'bell', tint: colors.amber, bg: colors.cardGold, go: () => nav.push('Reminders') },
-            { label: 'Library', icon: 'bookmark', tint: colors.lavender, bg: colors.cardLavender, go: () => nav.push('Library') },
-            { label: 'Jobs', icon: 'briefcase', tint: colors.terracotta, bg: colors.cardRose, go: () => nav.push('Jobs') },
-            { label: 'Opportunities', icon: 'globe', tint: colors.sky, bg: colors.cardSky, go: () => nav.push('Opportunities') }, // OPPORTUNITIES
-            { label: 'Websites', icon: 'link', tint: colors.teal, bg: colors.cardTeal || colors.cardSky, go: () => nav.push('Websites') }, // MEMBER WEBSITES
-            { label: 'Care', icon: 'heart', tint: colors.teal, bg: colors.cardSage, go: () => nav.push('Care') },
-            { label: 'Fund Me', icon: 'gift', tint: colors.rose, bg: colors.cardRose, go: () => nav.push('FundMe') },
-          ].map((q, i) => (
-            <FadeInUp key={q.label} index={i} distance={10} stagger={40}>
-              <PressScale onPress={q.go} scaleTo={0.93} accessibilityRole="button" accessibilityLabel={q.label} style={[styles.quickItem, q.label.length > 9 && { width: 84 }]}>
-                <View style={[styles.quickIcon, { backgroundColor: q.bg }]}>
-                  <Icon name={q.icon} size={22} color={q.tint} />
+        {/* KINGDOM SPACE banner (design .explore-banner) */}
+        <Grad colors={['#3B2518', '#DB641D']} style={styles.exploreBanner}>
+          <View style={styles.exploreCrown} pointerEvents="none"><CrownGlyph size={75} color="rgba(255,255,255,0.12)" /></View>
+          <Text style={styles.exploreKicker}>KINGDOM SPACE</Text>
+          <Text style={styles.exploreTitle}>{'Every part of life,\nrooted in faith.'}</Text>
+        </Grad>
+
+        {/* Six quick tiles (design .discover-quick) */}
+        <View style={styles.quickGrid}>
+          {DISCOVER_TILES.map((t, i) => (
+            <FadeInUp key={t.label} index={i} distance={10} stagger={40} style={styles.quickTileWrap}>
+              <PressScale onPress={() => nav.push(t.to)} scaleTo={0.96} accessibilityRole="button" accessibilityLabel={t.label} style={styles.quickTile}>
+                <Grad colors={t.grad} style={styles.quickTileIcon}>
+                  <Icon name={t.icon} size={17} color="#FFFFFF" />
+                </Grad>
+                <View>
+                  <Text style={styles.quickTileTitle}>{t.label}</Text>
+                  <Text style={styles.quickTileSub}>{t.sub}</Text>
                 </View>
-                <Text style={styles.quickLabel} numberOfLines={1}>{q.label}</Text>
               </PressScale>
             </FadeInUp>
           ))}
-        </ScrollView>
+        </View>
+
+        {/* All spaces: the hub list (design .hub-list). Every space the old quick grid offered is here. */}
+        <SectionTitle eyebrow="All spaces" title="Explore BibleNestra" />
+        <View style={styles.hubList}>
+          {DISCOVER_HUBS.map((h) => (
+            <PressScale key={h.label} onPress={() => nav.push(h.to)} scaleTo={0.98} accessibilityRole="button" accessibilityLabel={h.label} style={styles.hubRow}>
+              <View style={[styles.hubIcon, { backgroundColor: h.bg }]}>
+                {h.crown ? <CrownGlyph size={20} color={h.fg} /> : <Icon name={h.icon} size={20} color={h.fg} />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.hubTitle}>{h.label}</Text>
+                <Text style={styles.hubDesc}>{h.desc}</Text>
+              </View>
+              <Icon name="chevron-right" size={16} color="#AAA6AD" />
+            </PressScale>
+          ))}
+        </View>
 
         {/* MEMBERSHIPS (brief 8.4): "My Memberships" row, then the catalogue (category tabs, N total + sort, big cards) */}
         <MyMembershipsRow nav={nav} style={{ marginTop: 18 }} />
@@ -1307,19 +1367,11 @@ function CloseButton({ onPress }) {
 }
 
 function SectionHead({ eyebrow, title, sub, action, onAction, style }) {
+  // Design .section-title (SectionTitle) for the header; the optional sub line sits under it.
   return (
-    <View style={[styles.sectionHead, style]}>
-      {eyebrow ? <Text style={styles.sectionEyebrow}>{eyebrow}</Text> : null}
-      <View style={styles.sectionTitleRow}>
-        <Text style={styles.sectionTitle} numberOfLines={2}>{title}</Text>
-        {action ? (
-          <Pressable onPress={onAction} hitSlop={10} style={({ pressed }) => [styles.sectionActionBtn, pressed && { opacity: 0.6 }]}>
-            <Text style={styles.sectionActionText}>{action}</Text>
-            <Icon name="chevron-right" size={12} color={colors.primary} strokeWidth={2.4} />
-          </Pressable>
-        ) : null}
-      </View>
-      {sub ? <Text style={styles.sectionSub}>{sub}</Text> : null}
+    <View style={style}>
+      <SectionTitle eyebrow={eyebrow} title={title} link={action} onLink={onAction} />
+      {sub ? <Text style={[styles.sectionSub, { marginTop: -6, marginBottom: 12 }]}>{sub}</Text> : null}
     </View>
   );
 }
@@ -1376,6 +1428,7 @@ export function CommunitiesScreen() {
   const list = state.communities.filter((c) => (cat === 'All' || c.category === cat || (cat === 'Regions' && c.region !== 'Global')) && (c.name + c.description + c.region).toLowerCase().includes(q.toLowerCase()));
   return (
     <Screen back title="Explore Communities">
+      <DirectorySegment active="Communities" />
       <View style={styles.searchField}>
         <Icon name="search" size={16} color={colors.muted} />
         <TextInput
@@ -1477,6 +1530,13 @@ export function GroupScreen({ params = {} }) {
   const msgs = groupMsgs[channel] || [];
   const canPost = g.joined === true;
   const muted = (state.mutedGroups || []).includes(g.id);
+  // Real next gathering for this group: the soonest upcoming event posted in it (none = neutral empty state)
+  const nextEv = (state.events || [])
+    .filter((e) => e.communityId === g.id && e.startsAt && e.startsAt >= Date.now())
+    .sort((a, b) => a.startsAt - b.startsAt)[0];
+  const groupNext = nextEv
+    ? { title: nextEv.title, when: new Date(nextEv.startsAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }
+    : null;
 
   const joinOrLeave = () => {
     dispatch({ type: 'join', id: g.id });
@@ -1533,16 +1593,14 @@ export function GroupScreen({ params = {} }) {
           </FadeInUp>
           <FadeInUp index={2}>
           <Section title="Members & roles">
-            <AvatarRow name="Pastor Tunde" title="Pastor Tunde" subtitle="Owner" />
-            <AvatarRow name="Amaka O." title="Amaka O." subtitle="Moderator" />
-            <AvatarRow name={state.user.displayName} title={state.user.displayName} subtitle={canPost ? 'Member' : g.joined === 'requested' ? 'Request pending' : 'Not a member'} />
+            <AvatarRow name={state.user.displayName} title={state.user.displayName} subtitle={g.myRole ? `${String(g.myRole).charAt(0).toUpperCase()}${String(g.myRole).slice(1)}` : canPost ? 'Member' : g.joined === 'requested' ? 'Request pending' : 'Not a member'} />
+            <Row title="Members" right={(g.members || 0).toLocaleString()} />
           </Section>
           </FadeInUp>
           <FadeInUp index={3}>
           <Section title="Group study settings">
             <Row title="Translation" right={state.translation} />
-            <Row title="Current plan" right="Matthew · weekly" />
-            <Row title="Meeting rhythm" right="Thursdays 19:00" />
+            <Row title="Next gathering" right={groupNext ? groupNext.title : 'None scheduled'} subtitle={groupNext ? groupNext.when : 'Events this group posts will appear here'} />
             <Row title="Live Bible study mode" subtitle="Synchronized passage, teacher controls" left={<Icon name="live" size={18} color={colors.primary} />} onPress={() => nav.push('Live')} />
           </Section>
           </FadeInUp>
@@ -1746,6 +1804,13 @@ export function CalendarScreen() {
   list.forEach((e) => { const m = e.date.slice(0, 7); (months[m] = months[m] || []).push(e); });
   const label = (m) => new Date(m + '-02').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const greeted = (id) => (state.feed || []).some((f) => f.greetingFor === id);
+  // Month grid: the shown month's events (from the list above) get a dot on their day; arrows step months
+  const today = new Date();
+  const [gridMonth, setGridMonth] = useState({ y: today.getFullYear(), m: today.getMonth() });
+  const shownKey = `${gridMonth.y}-${String(gridMonth.m + 1).padStart(2, '0')}`;
+  const gridDots = new Set(list.filter((e) => e.date.slice(0, 7) === shownKey).map((e) => Number(e.date.slice(8))));
+  const stepMonth = (delta) => setGridMonth((g) => { const x = new Date(g.y, g.m + delta, 1); return { y: x.getFullYear(), m: x.getMonth() }; });
+  const isTodayMonth = gridMonth.y === today.getFullYear() && gridMonth.m === today.getMonth();
 
   const rsvp = (e, going) => {
     dispatch({ type: 'rsvp', id: e.id });
@@ -1779,6 +1844,15 @@ export function CalendarScreen() {
     <Screen back title="Calendar" subtitle="Personal · church · community · Christian observances"
       right={<HeaderIconBtn label="New event" onPress={() => nav.push('Create', { kind: 'Event' })}><Glyph name="plus" size={17} color={colors.fg} /></HeaderIconBtn>}>
       <Pills items={['All', 'Mine', 'Church', 'Community', 'Observances']} value={filter} onChange={setFilter} />
+      <MonthGrid
+        year={gridMonth.y}
+        month={gridMonth.m}
+        label={new Date(gridMonth.y, gridMonth.m, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+        dotDays={gridDots}
+        selectedDay={isTodayMonth ? today.getDate() : null}
+        onPrev={() => stepMonth(-1)}
+        onNext={() => stepMonth(1)}
+      />
       {!Object.keys(months).length ? <ScaleIn key={filter} from={0.92}><Empty title="Nothing here yet" body="RSVP to church or community events and they will appear here." action="Show all events" onAction={() => setFilter('All')} /></ScaleIn> : null}
       {Object.keys(months).sort().map((m) => (
         <Section key={m} title={label(m)}>
@@ -1848,6 +1922,7 @@ export function PeopleScreen() {
 
   return (
     <Screen back title="Find Believers" subtitle="Christians open to fellowship and collaboration">
+      <DirectorySegment active="Find Believers" />
       <Pills small items={['All', 'Available now', 'Prayer', 'Bible study', 'Mentoring', 'Professional', 'Care']} value={f} onChange={setF} />
 
       {!list.length ? <ScaleIn key={f} from={0.92}><Empty title="No one matches this filter" body="Try another filter to see more believers." action="Show everyone" onAction={() => setF('All')} /></ScaleIn> : null}
@@ -2085,6 +2160,7 @@ export function WishesScreen() {
   return (
     <Screen back title="Make a Wish" subtitle="A prayer request, ministry goal, or need"
       right={<HeaderIconBtn label="New wish" onPress={() => nav.push('Create', { kind: 'Wish' })}><Glyph name="plus" size={17} color={colors.fg} /></HeaderIconBtn>}>
+      <DirectorySegment active="Wishes" />
       {!wishes.length ? <ScaleIn from={0.92}><Empty title="No wishes yet" body="Share a prayer request, ministry goal or need with your community." action="Make a wish" onAction={() => nav.push('Create', { kind: 'Wish' })} /></ScaleIn> : null}
       {wishes.map((w, i) => (
         <FadeInUp key={w.id} index={i} style={styles.card}>
@@ -2123,6 +2199,15 @@ export function WishesScreen() {
 
 // ---------- Live ----------
 const LIVE_PASSAGE = { l1: { bookId: 'MAT', chapter: 1 }, l2: { bookId: 'PSA', chapter: 121 } };
+// Design (LiveStudy .shared-passage): the synchronised passage card. Colours and fonts from the design kit.
+const liveDesign = StyleSheet.create({
+  passage: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 20, padding: 16, marginTop: 4 },
+  passageEyebrow: { fontFamily: df.sansHeavy, fontSize: 9, letterSpacing: 1.3, textTransform: 'uppercase', color: d.plum, marginBottom: 6 },
+  passageRef: { fontFamily: df.displayBold, fontSize: 20, color: d.ink },
+  passageSub: { fontFamily: df.sans, fontSize: 12, color: d.muted, marginTop: 4 },
+  passageOpen: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
+  passageOpenText: { fontFamily: df.sansBold, fontSize: 12, color: d.plum },
+});
 
 export function LiveScreen({ params = {} }) {
   const nav = useNav();
@@ -2198,7 +2283,15 @@ export function LiveScreen({ params = {} }) {
           </FadeInUp>
           <FadeInUp index={2}>
           <Section title="Live Bible study">
-            <Row title={`Synchronized passage: ${refLabel(passage.bookId, passage.chapter)}`} subtitle="Follow the teacher's highlights" left={<Icon name="book" size={17} color={colors.primary} />} onPress={() => nav.push('Bible', passage)} />
+            <Tap onPress={() => nav.push('Bible', passage)} accessibilityLabel={`Open ${refLabel(passage.bookId, passage.chapter)}`} style={liveDesign.passage}>
+              <Text style={liveDesign.passageEyebrow}>Synchronised passage</Text>
+              <Text style={liveDesign.passageRef}>{refLabel(passage.bookId, passage.chapter)}</Text>
+              <Text style={liveDesign.passageSub}>Follow the teacher's highlights</Text>
+              <View style={liveDesign.passageOpen}>
+                <Text style={liveDesign.passageOpenText}>Open passage</Text>
+                <Icon name="arrow-right" size={14} color={d.plum} />
+              </View>
+            </Tap>
           </Section>
           </FadeInUp>
           <FadeInUp index={3}>
@@ -2463,6 +2556,22 @@ const styles = StyleSheet.create({
   liveFeatureTitle: { fontFamily: fonts.serifBold, fontSize: 23, lineHeight: 28, color: colors.nightFg, marginTop: 4, letterSpacing: -0.3 },
   liveFeatureHost: { fontSize: 12.5, color: colors.nightMuted, marginTop: 6 },
   liveFeaturePlay: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
+  discoverActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  exploreBanner: { height: 185, borderRadius: 26, padding: 23, justifyContent: 'space-between', overflow: 'hidden', marginTop: 4 },
+  exploreCrown: { position: 'absolute', right: 18, top: 18 },
+  exploreKicker: { color: '#F5C9AA', fontSize: 9, letterSpacing: 1.4, fontWeight: '800' },
+  exploreTitle: { fontFamily: 'Playfair-SemiBold', fontSize: 27, lineHeight: 30, color: '#FFFFFF', marginTop: 7 },
+  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 14 },
+  quickTileWrap: { width: '31.5%', marginBottom: 7 },
+  quickTile: { height: 96, borderRadius: 18, padding: 10, justifyContent: 'space-between', backgroundColor: '#FFFAF2', borderWidth: 1, borderColor: '#EADFCE', overflow: 'hidden' },
+  quickTileIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 7, shadowOffset: { width: 0, height: 4 } },
+  quickTileTitle: { fontFamily: 'Playfair-SemiBold', fontSize: 11, color: '#281A11' },
+  quickTileSub: { fontSize: 9, color: '#7C6C60', marginTop: 1 },
+  hubList: { marginTop: 4 },
+  hubRow: { height: 74, borderBottomWidth: 1, borderBottomColor: '#EADFCE', flexDirection: 'row', alignItems: 'center', gap: 12 },
+  hubIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  hubTitle: { fontFamily: 'Playfair-SemiBold', fontSize: 14, color: '#281A11' },
+  hubDesc: { fontSize: 11, color: '#7C6C60', marginTop: 2 },
   quickItem: { width: 68, alignItems: 'center' },
   quickIcon: { width: 56, height: 56, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(59,47,30,0.06)' },
   quickLabel: { fontSize: 11.5, fontWeight: '600', color: colors.fg, marginTop: 7 },

@@ -8,13 +8,14 @@ import { useNav } from '../../navigation';
 import { fonts } from '../../theme';
 import { love, grad, type, lshadow, ND } from './theme';
 import { Crown, Glow, LoveArt, Filigree } from './illustrations';
+import { PageHeader, k as kit, d as dk } from '../../design/sanctuary';
 
 const GRADS = { primary: grad.heart, gold: grad.gold, dark: grad.vip, wine: grad.wine, rose: grad.rose };
 
 /** Primary call to action. kind: primary (heart gradient) | gold | dark | wine | ghost | soft | danger */
 export function LoveButton({ label, onPress, kind = 'primary', icon, small, disabled, style, accessibilityLabel, right }) {
   const g = GRADS[kind];
-  const fg = kind === 'glass' ? love.onDark : kind === 'white' ? love.wine : kind === 'ghost' ? love.wine : kind === 'soft' ? love.wine : kind === 'gold' ? '#2A1A05' : kind === 'dark' ? love.goldBright : '#FFFFFF';
+  const fg = kind === 'glass' ? love.onDark : kind === 'white' ? love.wine : kind === 'ghost' ? love.wine : kind === 'soft' ? love.wine : kind === 'gold' ? '#6F4A12' : kind === 'dark' ? love.goldBright : '#FFFFFF';
   const h = small ? 40 : 52;
   const inner = (
     <View style={[st.btnInner, { minHeight: h, paddingHorizontal: small ? 14 : 18 }]}>
@@ -27,7 +28,7 @@ export function LoveButton({ label, onPress, kind = 'primary', icon, small, disa
     <PressScale onPress={onPress} disabled={disabled} scaleTo={0.97} accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} accessibilityState={{ disabled: !!disabled }}
       style={[st.btn, { borderRadius: h / 2 }, g && kind !== 'dark' && !disabled && (kind === 'gold' ? lshadow.gold : lshadow.glow),
         kind === 'ghost' && st.btnGhost, kind === 'glass' && st.btnGlass, kind === 'white' && st.btnWhite, kind === 'soft' && st.btnSoft, kind === 'danger' && { backgroundColor: love.danger },
-        kind === 'dark' && { borderWidth: 1, borderColor: 'rgba(217,176,97,0.55)' }, disabled && { opacity: 0.45 }, style]}>
+        kind === 'dark' && { borderWidth: 1, borderColor: 'rgba(244,216,140,0.55)' }, disabled && { opacity: 0.45 }, style]}>
       {g ? <LinearGradient colors={g} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, { borderRadius: h / 2 }]} /> : null}
       {inner}
     </PressScale>
@@ -49,7 +50,7 @@ export function LoveChip({ icon, label, tone = 'light', style }) {
   const t = {
     light: [love.card, love.blushLine, love.ink, love.rose],
     glass: ['rgba(255,255,255,0.16)', 'rgba(255,255,255,0.28)', '#FFFFFF', '#FFFFFF'],
-    gold: [love.goldPale, 'rgba(180,133,47,0.35)', love.goldInk, love.gold],
+    gold: [love.goldPale, 'rgba(166,109,34,0.35)', love.goldInk, love.gold],
     rose: [love.blush, love.blushLine, love.wine, love.rose],
     wine: [love.wine, love.wine, '#FFFFFF', love.goldBright],
   }[tone];
@@ -87,7 +88,7 @@ export function RingAvatar({ uri, size = 64, ring = 3, colors: c = grad.ring, ga
 export function PlanBadge({ plan, onPress }) {
   const label = plan === 'vip' ? 'VIP' : plan === 'plus' ? 'Plus' : 'Free';
   const body = plan === 'vip' ? (
-    <LinearGradient colors={grad.vip} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[st.plan, { borderColor: 'rgba(217,176,97,0.6)' }]}>
+    <LinearGradient colors={grad.vip} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[st.plan, { borderColor: 'rgba(244,216,140,0.6)' }]}>
       <Crown size={14} /><Text style={[st.planText, { color: love.goldBright }]}>VIP</Text>
     </LinearGradient>
   ) : plan === 'plus' ? (
@@ -129,17 +130,13 @@ export function LoveTabs({ value, onChange, options }) {
   }, [idx, tabW]);
   return (
     <View style={st.tabs} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityRole="tablist">
-      {tabW ? (
-        <Animated.View style={[st.tabPill, { width: tabW, transform: [{ translateX: x }] }]}>
-          <LinearGradient colors={grad.wine} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, { borderRadius: 999 }]} />
-        </Animated.View>
-      ) : null}
+      {tabW ? <Animated.View style={[st.tabPill, { width: tabW, transform: [{ translateX: x }] }]} /> : null}
       {options.map((o) => {
         const on = o.id === value;
         return (
           <Pressable key={o.id} onPress={() => onChange(o.id)} style={st.tab} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={o.count ? `${o.label}, ${o.count}` : o.label}>
             <Text style={[st.tabText, on && st.tabTextOn]} numberOfLines={1}>{o.label}</Text>
-            {o.count ? <View style={[st.tabCount, on && { backgroundColor: love.goldBright }]}><Text style={[st.tabCountText, on && { color: love.plum }]}>{o.count > 99 ? '99+' : o.count}</Text></View> : null}
+            {o.count ? <View style={[st.tabCount, on && { backgroundColor: dk.plum }]}><Text style={[st.tabCountText, { color: on ? '#FFFFFF' : dk.ink }]}>{o.count > 99 ? '99+' : o.count}</Text></View> : null}
           </Pressable>
         );
       })}
@@ -156,12 +153,7 @@ export function LoveScreen({ title, eyebrow = 'Find Love', right, children, scro
       <Glow size={420} color={love.roseSoft} opacity={0.35} style={{ top: -230, right: -140 }} />
       <Glow size={300} color={love.goldPale} opacity={0.6} style={{ top: -170, left: -120 }} />
       <View style={st.top}>
-        <RoundBtn icon="chevron-left" label="Back" onPress={onBack || (() => nav.pop())} size={44} />
-        <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 6 }}>
-          {eyebrow ? <Text style={[type.eyebrow, { fontSize: 10 }]} numberOfLines={1}>{eyebrow}</Text> : null}
-          {title ? <Text style={st.topTitle} numberOfLines={1}>{title}</Text> : null}
-        </View>
-        <View style={{ minWidth: 44, alignItems: 'flex-end' }}>{right || null}</View>
+        <PageHeader title={title || ''} subtitle={eyebrow || undefined} back onBack={onBack || (() => nav.pop())} action={right || null} />
       </View>
       <Body style={{ flex: 1 }} {...(scroll ? { contentContainerStyle: [st.pad, contentStyle], keyboardShouldPersistTaps: 'handled', showsVerticalScrollIndicator: false } : {})}>
         {scroll ? children : <View style={[{ flex: 1 }, contentStyle]}>{children}</View>}
@@ -178,8 +170,8 @@ export function SectionCard({ eyebrow, title, hint, right, children, style, tone
       {eyebrow || title || right ? (
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
           <View style={{ flex: 1 }}>
-            {eyebrow ? <Text style={type.eyebrow}>{eyebrow}</Text> : null}
-            {title ? <Text style={st.sectionTitle}>{title}</Text> : null}
+            {eyebrow ? <Text style={kit.sectionEyebrow}>{eyebrow}</Text> : null}
+            {title ? <Text style={kit.sectionH2}>{title}</Text> : null}
           </View>
           {right || null}
         </View>
@@ -268,18 +260,18 @@ export function Choice({ items, value, onChange, multi, labels }) {
 
 export const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: love.paper, overflow: 'hidden' },
-  top: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, minHeight: 64, paddingVertical: 8 },
+  top: { paddingHorizontal: 18, paddingTop: 6 },
   topTitle: { fontFamily: fonts.serifBold, fontSize: 21, color: love.ink, letterSpacing: -0.3, marginTop: 1 },
   pad: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 56 },
   btn: { overflow: 'hidden', justifyContent: 'center', alignSelf: 'stretch' },
   btnInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8 },
   btnText: { fontSize: 15.5, fontWeight: '800', letterSpacing: 0.2, textAlign: 'center', flexShrink: 1 },
-  btnGhost: { borderWidth: 1.5, borderColor: 'rgba(107,31,55,0.28)', backgroundColor: 'rgba(255,255,255,0.7)' },
+  btnGhost: { borderWidth: 1.5, borderColor: 'rgba(138,69,31,0.28)', backgroundColor: 'rgba(255,255,255,0.7)' },
   btnSoft: { backgroundColor: love.blush },
   btnWhite: { backgroundColor: '#FFFFFF' },
   btnGlass: { borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.32)', backgroundColor: 'rgba(255,255,255,0.07)' },
-  cost: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 3, paddingRight: 7, height: 20, borderRadius: 10, backgroundColor: love.goldPale, borderWidth: 1, borderColor: 'rgba(180,133,47,0.45)' },
-  costDark: { backgroundColor: 'rgba(30,10,21,0.85)', borderColor: 'rgba(217,176,97,0.6)' },
+  cost: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 3, paddingRight: 7, height: 20, borderRadius: 10, backgroundColor: love.goldPale, borderWidth: 1, borderColor: 'rgba(166,109,34,0.45)' },
+  costDark: { backgroundColor: 'rgba(40,26,17,0.85)', borderColor: 'rgba(244,216,140,0.6)' },
   costCoin: { width: 14, height: 14, borderRadius: 7, backgroundColor: love.gold, alignItems: 'center', justifyContent: 'center' },
   costCoinText: { color: '#FFF6E0', fontSize: 8, fontWeight: '900', marginTop: -1 },
   costText: { fontSize: 11, fontWeight: '900', color: love.goldInk },
@@ -288,14 +280,14 @@ export const st = StyleSheet.create({
   plan: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, height: 34, borderRadius: 17, borderWidth: 1, overflow: 'hidden' },
   planText: { fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
   round: { backgroundColor: love.card, borderWidth: 1, borderColor: love.blushLine, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', ...lshadow.sm },
-  roundDark: { backgroundColor: 'rgba(30,10,21,0.45)', borderColor: 'rgba(255,255,255,0.25)' },
-  tabs: { flexDirection: 'row', padding: 4, borderRadius: 999, backgroundColor: love.card, borderWidth: 1, borderColor: love.blushLine, ...lshadow.sm },
-  tabPill: { position: 'absolute', top: 4, bottom: 4, left: 4, borderRadius: 999, overflow: 'hidden' },
+  roundDark: { backgroundColor: 'rgba(40,26,17,0.45)', borderColor: 'rgba(255,255,255,0.25)' },
+  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: love.line },
+  tabPill: { position: 'absolute', bottom: -1, left: 0, height: 2, borderRadius: 2, backgroundColor: dk.plum },
   tab: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  tabText: { fontFamily: fonts.serifBold, fontSize: 16, color: love.wine },
-  tabTextOn: { color: '#FFFFFF' },
-  tabCount: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: love.blush, alignItems: 'center', justifyContent: 'center' },
-  tabCountText: { fontSize: 11, fontWeight: '900', color: love.wine },
+  tabText: { fontFamily: 'DMSans-Bold', fontSize: 13, color: love.muted },
+  tabTextOn: { color: dk.plum },
+  tabCount: { minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 6, backgroundColor: love.blush, alignItems: 'center', justifyContent: 'center' },
+  tabCountText: { fontSize: 10, fontFamily: 'DMSans-Bold' },
   section: { backgroundColor: love.card, borderRadius: 24, borderWidth: 1, borderColor: love.blushLine, padding: 18, marginTop: 14, ...lshadow.sm },
   sectionTitle: { fontFamily: fonts.serifBold, fontSize: 21, color: love.ink, marginTop: 2, letterSpacing: -0.2 },
   hint: { fontSize: 12.5, color: love.muted, marginTop: 4, lineHeight: 18 },

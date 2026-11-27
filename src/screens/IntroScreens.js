@@ -1,90 +1,159 @@
-// First-run onboarding (brief §4): logo splash → four swipeable value slides → sign-in.
-//   Each slide follows the client's reference: the top ~60% is a full-bleed photo of a person standing on a
-//   solid colour (the photo's own studio background is recoloured to the slide colour), with thick white ring
-//   outlines partly off the edges; then a white card with rounded top corners overlapping the photo —
-//   pagination dots (active = pill in the slide colour), a short bold title, a two-line body, "Skip"
-//   bottom-left and a round arrow button in the slide colour bottom-right. Nothing else.
-//   Skip (or the arrow on the last slide) → the sign-in screen (online mode) or straight into the app (local mode).
-//   Shown once per install; returning users go straight to Today.
-// Copy, colours and photos live in src/data/onboarding.js.
+// First-run welcome journey, rebuilt in the Figma design (Splash + Welcome in routes.tsx).
+//   Splash: full-bleed chapel photo, "Your sacred everyday", "Faith, beautifully woven into life.",
+//   and the "Enter your sanctuary" button. Then the four onboarding slides (photo card with the image meta
+//   chip, the verse chip, the orange round icon, dots, circle continue button and Skip).
+//   Skip → onDone('skip'); the last slide's button → onDone('done'). Shown once per install
+//   (INTRO_KEY), and returning users go straight into the app.
+// The slide copy and photos live in this file (the design's images, from src/design/sanctuary.js).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { colors } from '../theme';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Icon } from '../components/Icons';
 import { PressScale } from '../components/Motion';
 import { SplashView } from '../components/BrandLogo';
-import { ONBOARDING_SLIDES } from '../data/onboarding';
+import { d, df, images, fillImage, Eyebrow } from '../design/sanctuary';
 
 export const INTRO_KEY = 'biblenestra:introSeen:v1';
-const SLIDES = ONBOARDING_SLIDES;
-const OVERLAP = 34; // how far the white card runs up over the photo
 
-// Thick white ring outlines, partly cropped by the edges of the colour area (as in the reference).
-// Kept to the edges so they frame the person rather than cross the face.
-function Rings({ w, h }) {
-  const t = Math.max(8, Math.round(w * 0.032)); // ring thickness
-  const ring = (key, d, cx, cy, bw = t) => (
-    <View key={key} style={[styles.ring, { width: d, height: d, borderRadius: d / 2, left: cx - d / 2, top: cy - d / 2, borderWidth: bw }]} />
-  );
+const SLIDES = [
+  {
+    kicker: 'Study the Word',
+    title: 'Read beyond the words on the page.',
+    body: 'Compare translations, hear the Word, explore original language, and keep every insight.',
+    icon: 'book',
+    image: images.scriptureStudy,
+    note: '90+ translations · Deep study',
+  },
+  {
+    kicker: 'Your Scripture Companion',
+    title: 'Find wisdom for what you are carrying.',
+    body: 'Receive real scripture, thoughtful context, encouragement, and a personal prayer.',
+    icon: 'sparkles',
+    image: images.companion,
+    note: 'Scripture-led · Personal · Private',
+  },
+  {
+    kicker: 'Meet fellow believers',
+    title: 'Never carry a prayer alone.',
+    body: 'Share in fellowship, receive care, and encourage believers around the world.',
+    icon: 'prayer',
+    image: images.fellowship,
+    note: 'Prayer · Fellowship · Care',
+  },
+  {
+    kicker: 'Daily Bread',
+    title: 'Begin every day anchored in grace.',
+    body: 'A quiet daily space for scripture, guided reflection, gratitude, and prayer.',
+    icon: 'sun',
+    image: images.chapel,
+    note: 'Verse · Reading · Prayer · Reflect',
+  },
+];
+
+const VERSE = { text: '“Abide in me, and I in you.”', ref: 'John 15:4' };
+
+// .brand-mark: the outlined sparkle symbol with the wordmark (white on the splash)
+function BrandMark({ light }) {
+  const c = light ? '#FFFFFF' : d.ink;
   return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {ring('a', w * 0.7, w * -0.06, h * 0.1)}
-      {ring('b', w * 0.46, w * 1.04, h * 0.5)}
-      {ring('c', w * 0.13, w * 0.86, h * 0.13, Math.round(t * 0.7))}
-      {ring('d', w * 0.3, w * -0.02, h * 0.8, Math.round(t * 0.85))}
-    </View>
-  );
-}
-
-function Dots({ count, active, color }) {
-  return (
-    <View style={styles.dots} accessibilityLabel={`Screen ${active + 1} of ${count}`}>
-      {Array.from({ length: count }, (_, i) => (
-        <View key={i} style={[styles.dot, i === active && [styles.dotOn, { backgroundColor: color }]]} />
-      ))}
-    </View>
-  );
-}
-
-// Card metrics: room for everything the card can hold (2-line title, 3-line body) is reserved up front,
-// so on short phones the photo gives way and the text never clips.
-function cardMetrics(height, insetBottom) {
-  const compact = height < 720;
-  const m = compact
-    ? { padTop: 20, gapTitle: 14, title: 25, titleLH: 30, gapBody: 8, body: 14.5, bodyLH: 21, btn: 56, gapFoot: 14 }
-    : { padTop: 26, gapTitle: 18, title: 28, titleLH: 34, gapBody: 10, body: 15.5, bodyLH: 23, btn: 64, gapFoot: 18 };
-  m.padBottom = Math.max(insetBottom, 14) + (compact ? 6 : 10);
-  m.need = m.padTop + 8 + m.gapTitle + m.titleLH * 2 + m.gapBody + m.bodyLH * 3 + m.gapFoot + m.btn + m.padBottom;
-  return m;
-}
-
-function Slide({ s, index, width, height, insetBottom, onSkip, onNext, last }) {
-  const m = cardMetrics(height, insetBottom);
-  const topH = Math.round(Math.min(height * 0.6, height - m.need)); // where the card starts
-  const [failed, setFailed] = useState(false);
-  const photo = typeof s.photo === 'string' ? { uri: s.photo } : s.photo;
-  return (
-    <View style={{ width, height, backgroundColor: '#FFFFFF', overflow: 'hidden' }} accessibilityLabel={`${index + 1} of ${SLIDES.length}: ${s.title}`}>
-      <View style={[styles.top, { height: topH + OVERLAP, backgroundColor: s.color }]}>
-        {photo && !failed ? (
-          <Image source={photo} onError={() => setFailed(true)} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width, height: topH + OVERLAP }} accessibilityIgnoresInvertColors />
-        ) : null}
-        {s.ringsInPhoto ? null : <Rings w={width} h={topH + OVERLAP} />}
+    <View style={styles.brandRow} accessibilityLabel="BibleNestra">
+      <View style={[styles.brandSymbol, { borderColor: c }]}>
+        <Icon name="sparkles" size={17} color={c} strokeWidth={1.9} />
       </View>
-      <View style={[styles.card, { top: topH, paddingTop: m.padTop, paddingBottom: m.padBottom }]}>
-        <Dots count={SLIDES.length} active={index} color={s.color} />
-        <Text style={[styles.title, { marginTop: m.gapTitle, fontSize: m.title, lineHeight: m.titleLH }]} numberOfLines={2} accessibilityRole="header">{s.title}</Text>
-        <Text style={[styles.body, { marginTop: m.gapBody, fontSize: m.body, lineHeight: m.bodyLH }]} numberOfLines={3}>{s.body}</Text>
-        <View style={{ flex: 1, minHeight: m.gapFoot }} />
-        <View style={styles.footer}>
-          <PressScale onPress={onSkip} hitSlop={14} accessibilityRole="button" accessibilityLabel="Skip the introduction">
-            <Text style={styles.skip}>Skip</Text>
-          </PressScale>
-          <PressScale onPress={onNext} scaleTo={0.92} style={[styles.next, { width: m.btn, height: m.btn, borderRadius: m.btn / 2, backgroundColor: s.color }]} accessibilityRole="button" accessibilityLabel={last ? 'Get started' : 'Next'}>
-            <Icon name="arrow-right" size={m.btn > 60 ? 26 : 23} color="#FFFFFF" strokeWidth={2.6} />
+      <Text style={[styles.brandText, { color: c }]}>BibleNestra</Text>
+    </View>
+  );
+}
+
+function Splash({ onEnter }) {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const titleSize = Math.min(66, Math.max(44, Math.round(width * 0.12))); // clamp(44px, 12vw, 66px) of the design
+  return (
+    <View style={[styles.splash, { width, height }]}>
+      <StatusBar style="light" />
+      <Image style={fillImage} source={images.chapel} resizeMode="cover" accessibilityLabel="A peaceful chapel at dawn" />
+      <LinearGradient
+        colors={['rgba(25,20,48,0.18)', 'rgba(15,12,30,0.06)', 'rgba(20,16,41,0.88)']}
+        locations={[0, 0.35, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={[styles.splashTop, { paddingTop: insets.top + 18 }]}><BrandMark light /></View>
+      <View style={[styles.splashCopy, { bottom: insets.bottom + 30 }]}>
+        <Eyebrow light>Your sacred everyday</Eyebrow>
+        <Text style={[styles.splashTitle, { fontSize: titleSize, lineHeight: Math.round(titleSize * 1.08), letterSpacing: -titleSize * 0.03 }]}>Faith, beautifully{'\n'}woven into life.</Text>
+        <Text style={styles.splashBody}>Read deeply. Pray freely. Grow together.</Text>
+        <PressScale onPress={onEnter} scaleTo={0.97} style={styles.lightButton} accessibilityRole="button" accessibilityLabel="Enter your sanctuary">
+          <Text style={styles.lightButtonText}>Enter your sanctuary</Text>
+          <Icon name="arrow-right" size={18} color={d.ink} strokeWidth={2} />
+        </PressScale>
+      </View>
+    </View>
+  );
+}
+
+function Slide({ s, index, width, height, insets, onSkip, onNext }) {
+  const last = index === SLIDES.length - 1;
+  const compact = height < 720;
+  // The copy block (eyebrow, title, body, dots and button) and the header are fixed-size, so the photo takes what is left.
+  const fixedH = insets.top + 14 + insets.bottom + 18 + 44 + 8 + (compact ? 238 : 268);
+  const visualH = Math.round(Math.min(430, Math.max(230, height - fixedH)));
+  const imgW = Math.min(width * 0.82, 350);
+  const imgH = Math.min(visualH - 24, 430);
+  return (
+    <View style={[styles.slide, { width, height, paddingTop: insets.top + 14, paddingBottom: insets.bottom + 18 }]} accessibilityLabel={`${index + 1} of ${SLIDES.length}: ${s.title}`}>
+      <View style={styles.head}>
+        <BrandMark />
+        <TouchableOpacity onPress={onSkip} hitSlop={12} accessibilityRole="button" accessibilityLabel="Skip the introduction">
+          <Text style={styles.skip}>Skip</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={[styles.visual, { height: visualH }]}>
+        <View style={[styles.photoWrap, { width: imgW, height: imgH }]}>
+          <Image style={fillImage} source={s.image} resizeMode="cover" accessibilityIgnoresInvertColors />
+          <LinearGradient
+            colors={['rgba(35,20,11,0.05)', 'rgba(35,20,11,0)', 'rgba(35,20,11,0.82)']}
+            locations={[0, 0.45, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.photoMeta}>
+            <View style={styles.photoKicker}>
+              <Icon name={s.icon} size={15} color="#FFFFFF" strokeWidth={1.9} />
+              <Text style={styles.photoKickerText}>{s.kicker}</Text>
+            </View>
+            <Text style={styles.photoNote}>{s.note}</Text>
+          </View>
+        </View>
+
+        <View style={styles.verseChip}>
+          <Icon name="sparkles" size={14} color={d.plum} strokeWidth={1.9} />
+          <Text style={styles.verseText}>{VERSE.text}</Text>
+          <Text style={styles.verseRef}>{VERSE.ref}</Text>
+        </View>
+
+        <View style={styles.roundIcon}>
+          <Icon name={s.icon} size={30} color="#FFFFFF" strokeWidth={1.7} />
+        </View>
+      </View>
+
+      <View style={styles.copy}>
+        <Eyebrow>{s.kicker}</Eyebrow>
+        <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={2}>{s.title}</Text>
+        <Text style={styles.body} numberOfLines={3}>{s.body}</Text>
+        <View style={styles.stepRow}>
+          <View style={styles.dots} accessibilityLabel={`Screen ${index + 1} of ${SLIDES.length}`}>
+            {SLIDES.map((_, i) => <View key={i} style={[styles.dot, i === index && styles.dotOn]} />)}
+          </View>
+          <PressScale onPress={onNext} scaleTo={0.92} style={styles.circleButton} accessibilityRole="button" accessibilityLabel={last ? 'Get started' : 'Continue'}>
+            <Icon name="arrow-right" size={24} color="#FFFFFF" strokeWidth={2.2} />
           </PressScale>
         </View>
       </View>
@@ -96,10 +165,12 @@ export function IntroView({ onDone }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef(null);
+  const [stage, setStage] = useState('splash'); // splash | slides
   const [page, setPage] = useState(0);
   const target = useRef(null);
   const targetTimer = useRef(null);
   useEffect(() => () => clearTimeout(targetTimer.current), []);
+
   const goTo = (i) => {
     const next = Math.max(0, Math.min(SLIDES.length - 1, i));
     target.current = next;
@@ -117,9 +188,12 @@ export function IntroView({ onDone }) {
     const p = Math.round(x / Math.max(width, 1));
     if (p !== page && p >= 0 && p < SLIDES.length) setPage(p);
   };
+
+  if (stage === 'splash') return <Splash onEnter={() => setStage('slides')} />;
+
   return (
     <View style={styles.root}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -132,13 +206,12 @@ export function IntroView({ onDone }) {
       >
         {SLIDES.map((s, i) => (
           <Slide
-            key={s.id}
+            key={s.kicker}
             s={s}
             index={i}
             width={width}
             height={height}
-            insetBottom={insets.bottom}
-            last={i === SLIDES.length - 1}
+            insets={insets}
             onSkip={() => onDone('skip')}
             onNext={() => (i === SLIDES.length - 1 ? onDone('done') : goTo(i + 1))}
           />
@@ -154,7 +227,7 @@ function devPreview() {
   try { return new URLSearchParams(window.location.search).get('preview'); } catch (e) { return null; }
 }
 
-// Wraps the app: logo splash while the flag is read, the slides on first launch, then the children.
+// Wraps the app: logo splash while the flag is read, the welcome journey on first launch, then the children.
 export function IntroGate({ children }) {
   const [seen, setSeen] = useState(null); // null while reading storage (the splash shows meanwhile)
   useEffect(() => {
@@ -162,7 +235,6 @@ export function IntroGate({ children }) {
     AsyncStorage.getItem(INTRO_KEY)
       .then((v) => {
         if (!alive) return;
-        if (v !== '1') SLIDES.forEach((s) => { if (typeof s.photo === 'string') Image.prefetch(s.photo).catch(() => {}); });
         setSeen(v === '1');
       })
       .catch(() => { if (alive) setSeen(true); }); // storage unavailable: never block the app
@@ -175,37 +247,73 @@ export function IntroGate({ children }) {
   const preview = devPreview();
   if (preview === 'signin') { const { SignInPreviewScreen } = require('./SignInScreen'); return <SignInPreviewScreen />; } // eslint-disable-line global-require
   if (preview === 'welcome') { const { WelcomeSetupView } = require('./WelcomeSetupScreen'); return <WelcomeSetupView onDone={() => {}} />; } // eslint-disable-line global-require
-  if (preview === 'splash') return <SplashView />;
+  if (preview === 'splash') return <Splash onEnter={() => {}} />;
   if (seen === null) return <SplashView />;
   if (!seen) return <IntroView onDone={finish} />;
   return children;
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#FFFFFF' },
-  top: { position: 'absolute', left: 0, right: 0, top: 0, overflow: 'hidden' },
-  ring: { position: 'absolute', borderColor: '#FFFFFF' },
-  card: {
-    position: 'absolute', left: 0, right: 0, bottom: 0, // starts OVERLAP dp above the end of the colour area
-    backgroundColor: '#FFFFFF', borderTopLeftRadius: 34, borderTopRightRadius: 34,
-    paddingHorizontal: 28,
+  root: { flex: 1, backgroundColor: d.ivory },
+
+  // Splash
+  splash: { backgroundColor: '#1C1430', overflow: 'hidden' },
+  splashTop: { paddingHorizontal: 24, paddingTop: 30 },
+  splashCopy: { position: 'absolute', left: 24, right: 24, bottom: 42 },
+  splashTitle: { color: '#FFFFFF', fontFamily: df.display, fontSize: 52, lineHeight: 58, letterSpacing: -1.6, marginTop: 16, marginBottom: 16 },
+  splashBody: { color: 'rgba(255,255,255,0.76)', fontFamily: df.sans, fontSize: 16, lineHeight: 22, marginBottom: 28 },
+  lightButton: { height: 56, borderRadius: 18, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  lightButtonText: { color: d.ink, fontFamily: df.sansBold, fontSize: 15 },
+
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  brandSymbol: { width: 34, height: 34, borderWidth: 1, borderTopLeftRadius: 17, borderTopRightRadius: 17, borderBottomRightRadius: 17, borderBottomLeftRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  brandText: { fontFamily: df.sansBold, fontSize: 17, letterSpacing: -0.4 },
+
+  // Slides
+  slide: { backgroundColor: d.ivory, paddingHorizontal: 24 },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  skip: { color: d.plum, fontFamily: df.sansBold, fontSize: 13, paddingVertical: 6 },
+  visual: { position: 'relative', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  photoWrap: {
+    overflow: 'hidden', borderTopLeftRadius: 38, borderTopRightRadius: 38, borderBottomRightRadius: 38, borderBottomLeftRadius: 12,
+    borderWidth: 7, borderColor: 'rgba(255,255,255,0.72)', backgroundColor: '#E8DCCB', transform: [{ rotate: '-2deg' }],
     ...Platform.select({
-      web: { boxShadow: '0 -8px 24px rgba(21,23,43,0.08)' },
-      default: { shadowColor: '#15172B', shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 8 },
+      web: { boxShadow: '0 28px 60px rgba(57,32,18,0.22)' },
+      default: { shadowColor: '#392012', shadowOffset: { width: 0, height: 28 }, shadowOpacity: 0.22, shadowRadius: 30, elevation: 12 },
     }),
   },
-  dots: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#E4E1DA' },
-  dotOn: { width: 26 },
-  title: { fontWeight: '800', letterSpacing: -0.5, color: colors.fg },
-  body: { color: '#85807A' },
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  skip: { fontSize: 16, fontWeight: '600', color: '#8E887C', paddingVertical: 8, paddingRight: 12 },
-  next: {
-    alignItems: 'center', justifyContent: 'center',
+  photoMeta: { position: 'absolute', left: 18, right: 18, bottom: 17 },
+  photoKicker: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  photoKickerText: { color: '#FFFFFF', fontFamily: df.display, fontSize: 18, lineHeight: 23 },
+  photoNote: { color: '#EAD9CC', fontFamily: df.sansBold, fontSize: 10, letterSpacing: 1.1, textTransform: 'uppercase', marginTop: 5 },
+  verseChip: {
+    position: 'absolute', zIndex: 3, left: 0, bottom: '3%', width: 165, padding: 13, borderRadius: 16,
+    backgroundColor: 'rgba(255,250,242,0.92)', borderWidth: 1, borderColor: '#FFFFFF', transform: [{ rotate: '3deg' }],
     ...Platform.select({
-      web: { boxShadow: '0 8px 18px rgba(21,23,43,0.18)' },
-      default: { shadowColor: '#15172B', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.18, shadowRadius: 12, elevation: 6 },
+      web: { boxShadow: '0 13px 28px rgba(55,31,17,0.15)' },
+      default: { shadowColor: '#371F11', shadowOffset: { width: 0, height: 13 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 6 },
+    }),
+  },
+  verseText: { color: d.ink, fontFamily: df.displayItalic, fontSize: 12, lineHeight: 16, marginTop: 5 },
+  verseRef: { color: d.muted, fontFamily: df.sansBold, fontSize: 10, marginTop: 4 },
+  roundIcon: {
+    position: 'absolute', zIndex: 4, right: '1%', bottom: '4%', width: 64, height: 64,
+    borderTopLeftRadius: 20, borderTopRightRadius: 20, borderBottomRightRadius: 20, borderBottomLeftRadius: 6,
+    backgroundColor: d.plum, borderWidth: 3, borderColor: 'rgba(255,255,255,0.7)', alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '6deg' }],
+  },
+  copy: { marginTop: 'auto' },
+  title: { color: d.ink, fontFamily: df.display, fontSize: 30, lineHeight: 36, letterSpacing: -1, marginTop: 12, marginBottom: 2 },
+  titleCompact: { fontSize: 26, lineHeight: 32 },
+  body: { color: d.muted, fontFamily: df.sans, fontSize: 14, lineHeight: 22 },
+  stepRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 28 },
+  dots: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#D6D1C7' },
+  dotOn: { width: 30, backgroundColor: d.plum },
+  circleButton: {
+    width: 58, height: 58, borderRadius: 29, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center',
+    ...Platform.select({
+      web: { boxShadow: '0 12px 24px rgba(255,107,26,0.22)' },
+      default: { shadowColor: d.plum, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 8 },
     }),
   },
 });

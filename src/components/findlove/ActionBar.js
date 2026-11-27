@@ -12,7 +12,7 @@ const STYLES = {
   pass: { g: null, bg: love.card, icon: 'x', color: love.pass, border: love.blushLine },
   super: { g: grad.gold, icon: 'star', color: '#FFFFFF', fill: true },
   like: { g: grad.heart, icon: 'heart', color: '#FFFFFF', fill: true },
-  priority: { g: grad.plum, icon: 'sparkles', color: love.goldBright, border: 'rgba(217,176,97,0.6)' },
+  priority: { g: grad.plum, icon: 'sparkles', color: love.goldBright, border: 'rgba(244,216,140,0.6)' },
   undo: { g: null, bg: love.card, icon: 'repost', color: love.gold, border: love.blushLine },
 };
 

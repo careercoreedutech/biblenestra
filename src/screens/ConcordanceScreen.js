@@ -6,7 +6,8 @@
 //   bundled KJV offline.
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Screen } from '../components/ui';
+import { KitScreen } from '../design/bible/parts';
+import { d } from '../design/sanctuary';
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useNav } from '../navigation';
@@ -109,7 +110,7 @@ export default function ConcordanceScreen({ params = {} }) {
   ) : null;
 
   return (
-    <Screen back title="Concordance & Lexicon" subtitle="Strong's Greek & Hebrew · in-app" scroll={false} padded={false}>
+    <KitScreen title="Concordance & Lexicon" subtitle="Strong's Greek & Hebrew · in-app" scroll={false}>
       <View style={styles.searchWrap}>
         <View style={styles.searchBar}>
           <Icon name="search" size={16} color={colors.muted} />
@@ -304,13 +305,13 @@ export default function ConcordanceScreen({ params = {} }) {
       </View>
         )}
       />
-    </Screen>
+    </KitScreen>
   );
 }
 
 const styles = StyleSheet.create({
   searchWrap: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 6 },
-  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 16, height: 46, ...shadow.sm },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 15, paddingHorizontal: 14, height: 48 },
   searchInput: { flex: 1, fontSize: 14.5, color: colors.fg, outlineStyle: 'none' },
   clearBtn: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   verseBox: { marginHorizontal: 18, marginTop: 8, padding: 14, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
@@ -329,7 +330,7 @@ const styles = StyleSheet.create({
   lemmaText: { fontSize: 13, color: colors.muted, marginTop: 4 },
   countText: { fontSize: 11.5, color: colors.faint, marginTop: 3 },
   offline: { fontSize: 13, lineHeight: 19, color: colors.muted, marginTop: 8 },
-  detailCard: { padding: 18, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
+  detailCard: { padding: 18, borderRadius: 20, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   backLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10 },
   backLinkText: { fontSize: 12.5, fontWeight: '600', color: colors.primary },
   detailLemma: { fontFamily: fonts.serif, fontSize: 34, color: colors.fg },

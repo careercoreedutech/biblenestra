@@ -23,19 +23,31 @@ export const FONT_ASSETS = {
   EBGaramond: require('@expo-google-fonts/eb-garamond/400Regular/EBGaramond_400Regular.ttf'),
   Inter: require('@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf'),
   AtkinsonHyperlegible: require('@expo-google-fonts/atkinson-hyperlegible/400Regular/AtkinsonHyperlegible_400Regular.ttf'),
+  // FIGMA DESIGN (design-figma): Playfair Display for headings, DM Sans for interface text
+  Playfair: require('@expo-google-fonts/playfair-display/400Regular/PlayfairDisplay_400Regular.ttf'),
+  'Playfair-Italic': require('@expo-google-fonts/playfair-display/400Regular_Italic/PlayfairDisplay_400Regular_Italic.ttf'),
+  'Playfair-SemiBold': require('@expo-google-fonts/playfair-display/600SemiBold/PlayfairDisplay_600SemiBold.ttf'),
+  'Playfair-Bold': require('@expo-google-fonts/playfair-display/700Bold/PlayfairDisplay_700Bold.ttf'),
+  'Playfair-SemiBoldItalic': require('@expo-google-fonts/playfair-display/600SemiBold_Italic/PlayfairDisplay_600SemiBold_Italic.ttf'),
+  DMSans: require('@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf'),
+  'DMSans-Medium': require('@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf'),
+  'DMSans-SemiBold': require('@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf'),
+  'DMSans-Bold': require('@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf'),
+  'DMSans-ExtraBold': require('@expo-google-fonts/dm-sans/800ExtraBold/DMSans_800ExtraBold.ttf'),
 };
 
 const systemSerif = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia, serif' });
 
 export const fonts = {
-  serif: 'Newsreader',
-  serifItalic: 'Newsreader-Italic',
-  serifMedium: 'Newsreader-Medium',
-  serifBold: 'Newsreader-SemiBold',
-  serifBoldItalic: 'Newsreader-SemiBoldItalic',
-  display: 'Newsreader-SemiBold',
-  sans: Platform.select({ ios: 'System', android: undefined, default: undefined }),
-  sansMedium: Platform.select({ ios: 'System', android: undefined, default: undefined }),
+  // FIGMA DESIGN: headings in Playfair Display, interface text in DM Sans (scripture keeps the reader font)
+  serif: 'Playfair',
+  serifItalic: 'Playfair-Italic',
+  serifMedium: 'Playfair-SemiBold',
+  serifBold: 'Playfair-Bold',
+  serifBoldItalic: 'Playfair-SemiBoldItalic',
+  display: 'Playfair-Bold',
+  sans: 'DMSans',
+  sansMedium: 'DMSans-Medium',
   fallbackSerif: systemSerif,
 };
 
@@ -57,41 +69,41 @@ export function readerFontFamily(key) {
 
 export const colors = {
   // Surfaces
-  screen: '#F6F2EA',        // warm parchment canvas
-  surface: '#FFFFFF',       // cards
-  raised: '#F0EBE1',        // inputs, chips, quiet fills
-  surfaceRaised: '#E9E2D5', // pressed fills, containers
-  active: '#E9E2D5',
-  sunken: '#EDE7DC',
+  screen: '#F8F1E7',        // warm parchment canvas
+  surface: '#FFFAF2',       // cards
+  raised: '#F3E9DC',        // inputs, chips, quiet fills
+  surfaceRaised: '#EFE3D3', // pressed fills, containers
+  active: '#EFE3D3',
+  sunken: '#F1E7DA',
 
   // Lines
-  border: '#E7DFD1',
-  borderStrong: '#D6CBB8',
-  rule: '#EFE9DE',
-  tabLine: '#E7DFD1',
+  border: '#EADFCE',
+  borderStrong: '#DCCDB8',
+  rule: '#F0E6D8',
+  tabLine: '#EADFCE',
 
   // Ink
-  fg: '#1C1915',            // headings & primary text
-  muted: '#6B6255',         // secondary text
-  faint: '#A1978A',         // captions, timestamps
-  passage: '#2A251E',       // scripture body
+  fg: '#281A11',            // headings & primary text
+  muted: '#7C6C60',         // secondary text
+  faint: '#A8998B',         // captions, timestamps
+  passage: '#2E2016',       // scripture body
 
-  // Brand — royal indigo + burnished gold
-  primary: '#2E3A87',
-  primaryBg: '#2E3A87',
+  // Brand — FIGMA DESIGN: ember orange on warm ivory (was royal indigo)
+  primary: '#FF6B1A',
+  primaryBg: '#FF6B1A',
   primaryFg: '#FFFFFF',
-  primarySoft: '#E7E9F5',
-  primaryInk: '#232C6B',
-  primaryInvertedBg: '#1C1915',
-  primaryInvertedFg: '#F6F2EA',
-  forest: '#2E3A87',        // legacy alias → primary action colour
+  primarySoft: '#FFE9DA',
+  primaryInk: '#C24E0E',
+  primaryInvertedBg: '#281A11',
+  primaryInvertedFg: '#F8F1E7',
+  forest: '#FF6B1A',        // legacy alias → primary action colour
 
   // Night (heroes, player bars, immersive surfaces)
-  night: '#15172B',
-  nightRaised: '#20233D',
+  night: '#2A1B12',
+  nightRaised: '#3B2619',
   nightBorder: 'rgba(255,255,255,0.10)',
-  nightFg: '#F4EFE6',
-  nightMuted: 'rgba(244,239,230,0.66)',
+  nightFg: '#FFF6EC',
+  nightMuted: 'rgba(255,246,236,0.68)',
 
   gold: '#A87A27',
   goldLight: '#D4A852',
@@ -99,7 +111,7 @@ export const colors = {
   goldFaint: 'rgba(168,122,39,0.12)',
 
   // Supporting palette (muted, harmonised with parchment)
-  indigo: '#3F4BA8',
+  indigo: '#8A451F',
   terracotta: '#B45D3A',
   terracottaFaint: 'rgba(180,93,58,0.12)',
   slate: '#56606E',
@@ -115,12 +127,12 @@ export const colors = {
   skyFaint: 'rgba(53,109,156,0.12)',
 
   // Soft card tints
-  cardGold: '#F5EBD7',
-  cardSage: '#E4ECE2',
-  cardRose: '#F5E3E2',
-  cardLavender: '#ECE6F3',
+  cardGold: '#F8EBC4',
+  cardSage: '#E7EAD7',
+  cardRose: '#F4D8CB',
+  cardLavender: '#F6E4D2',
   cardSky: '#E2EBF3',
-  cardIndigo: '#E7E9F5',
+  cardIndigo: '#FFE9DA',
 
   // Status
   positive: '#3E7B57',
@@ -130,14 +142,14 @@ export const colors = {
   negative: '#B83A3A',
   negativeFaint: 'rgba(184,58,58,0.11)',
 
-  shadowColor: '#3B2F1E',
+  shadowColor: '#362012',
 
   // Compatibility aliases used across screens
-  accent: '#2E3A87',
-  lineLight: '#EFE9DE',
+  accent: '#FF6B1A',
+  lineLight: '#F0E6D8',
   yellow: '#A87A27',
-  glossBorder: '#E7DFD1',
-  subtle: '#6B6255',
+  glossBorder: '#EADFCE',
+  subtle: '#7C6C60',
 };
 
 export const radius = { xs: 6, sm: 10, md: 14, lg: 18, xl: 24, pill: 999 };
@@ -147,15 +159,15 @@ export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 28 };
 export const shadow = {
   sm: Platform.select({
     web: { boxShadow: '0 1px 2px rgba(59,47,30,0.06), 0 1px 1px rgba(59,47,30,0.04)' },
-    default: { shadowColor: '#3B2F1E', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 1 },
+    default: { shadowColor: '#362012', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 1 },
   }),
   md: Platform.select({
     web: { boxShadow: '0 6px 18px rgba(59,47,30,0.08), 0 1px 3px rgba(59,47,30,0.05)' },
-    default: { shadowColor: '#3B2F1E', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+    default: { shadowColor: '#362012', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
   }),
   lg: Platform.select({
-    web: { boxShadow: '0 14px 34px rgba(21,23,43,0.18)' },
-    default: { shadowColor: '#15172B', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.18, shadowRadius: 22, elevation: 8 },
+    web: { boxShadow: '0 14px 34px rgba(54,32,18,0.18)' },
+    default: { shadowColor: '#362012', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.18, shadowRadius: 22, elevation: 8 },
   }),
 };
 
@@ -172,9 +184,9 @@ export const type = {
 export const readerThemes = {
   paper: {
     key: 'paper', label: 'Paper', dark: false,
-    bg: '#F6F2EA', surface: '#FFFFFF', chip: '#FFFFFF', border: '#E7DFD1', borderStrong: '#D6CBB8',
-    fg: '#1C1915', passage: '#2A251E', muted: '#6B6255', faint: '#A1978A',
-    accent: '#2E3A87', accentSoft: '#E7E9F5', gold: '#A87A27', sel: '#F5EBD7', raised: '#F0EBE1',
+    bg: '#F8F1E7', surface: '#FFFAF2', chip: '#FFFAF2', border: '#EADFCE', borderStrong: '#DCCDB8',
+    fg: '#281A11', passage: '#2E2016', muted: '#7C6C60', faint: '#A8998B',
+    accent: '#FF6B1A', accentSoft: '#FFE9DA', gold: '#A87A27', sel: '#F8EBC4', raised: '#F3E9DC',
   },
   sepia: {
     key: 'sepia', label: 'Sepia', dark: false,
@@ -184,9 +196,9 @@ export const readerThemes = {
   },
   night: {
     key: 'night', label: 'Night', dark: true,
-    bg: '#101221', surface: '#1A1D33', chip: '#1A1D33', border: '#272B45', borderStrong: '#343957',
-    fg: '#EDE7DB', passage: '#D9D2C4', muted: '#9C98AA', faint: '#6C697D',
-    accent: '#AEB8FF', accentSoft: '#262B4F', gold: '#D4A852', sel: 'rgba(212,168,82,0.17)', raised: '#22263F',
+    bg: '#1C120C', surface: '#2A1B12', chip: '#2A1B12', border: '#3B2A1E', borderStrong: '#4A3526',
+    fg: '#F3E9DC', passage: '#E2D6C6', muted: '#A9998A', faint: '#7A6A5C',
+    accent: '#FF9A53', accentSoft: '#4A2A16', gold: '#D4A852', sel: 'rgba(212,168,82,0.17)', raised: '#33221A',
   },
 };
 

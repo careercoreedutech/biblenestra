@@ -3,6 +3,8 @@ import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-nati
 import { useToast } from '../components/Toast';
 import { PressScale, FadeInUp, ScaleIn, Shimmer } from '../components/Motion';
 import { Icon } from '../components/Icons';
+import { d, df, gradients, Grad, Tap, SectionTitle, IconButton } from '../design/sanctuary';
+import { KitScreen } from '../design/bible/parts';
 import { Screen, Section, Row, Pill, Pills, Button, Input, Tag, Badge, Notice, Empty, Divider, NightGlow } from '../components/ui';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
@@ -50,7 +52,7 @@ export function StudyScreen({ params }) {
   const [showIntro, setShowIntro] = useState(false);
 
   return (
-    <Screen back title="Scripture Study" subtitle={refLabel(params.bookId, params.chapter, params.verse)}>
+    <KitScreen title="Scripture Study" subtitle={refLabel(params.bookId, params.chapter, params.verse)}>
       {verse ? (
         <FadeInUp style={styles.verseQuoteBox}><NightGlow />
           <Text style={styles.quoteMark}>“</Text>
@@ -105,7 +107,7 @@ export function StudyScreen({ params }) {
       </FadeInUp>
 
       <Button label="Ask AI Bible Intelligence" onPress={() => nav.push('BibleChat', { context: params })} style={{ marginTop: 24 }} />
-    </Screen>
+    </KitScreen>
   );
 }
 
@@ -237,7 +239,7 @@ export function FactbookScreen({ params }) {
   };
   const list = entries[`${params.bookId}:${params.chapter}`] || [];
   return (
-    <Screen back title="Factbook" subtitle={refLabel(params.bookId, params.chapter)}>
+    <KitScreen title="Factbook" subtitle={refLabel(params.bookId, params.chapter)}>
       <Notice tint={colors.teal} text="Distinguishes biblical facts, historical archeology, and licensed theological notes." />
       {list.map((e, i) => (
         <FadeInUp key={e.name} index={i} distance={10}>
@@ -251,7 +253,7 @@ export function FactbookScreen({ params }) {
         </FadeInUp>
       ))}
       {!list.length ? <Empty title="No Factbook pages for this chapter yet" /> : null}
-    </Screen>
+    </KitScreen>
   );
 }
 
@@ -287,7 +289,68 @@ export function LibraryScreen() {
   };
 
   return (
-    <Screen back title="Study Library" subtitle={sync.status === 'saved' ? 'Saved on this device' : sync.status === 'syncing' ? 'Saving…' : 'Couldn’t save — retrying'}>
+    <KitScreen title="Your library" subtitle="Everything worth keeping" action={<IconButton icon="search" label="Search" onPress={() => nav.push('Search', {})} />}>
+      {/* .library-grid: counters from real data; a card opens its shelf below */}
+      <View style={styles.libGrid}>
+        {[
+          { icon: 'bookmark', label: 'Saved verses', count: state.bookmarks.length, bg: d.lavender, fg: d.plumDark, tab: 'Bookmarks' },
+          { icon: 'edit', label: 'Study notes', count: state.notes.length, bg: d.gold, fg: d.goldDark, tab: 'Notes' },
+          { icon: 'mic', label: 'Sermons', count: (state.recordings || []).length, bg: d.rose, fg: d.roseDark, tab: 'Recordings' },
+          { icon: 'sparkles', label: 'Saved answers', count: state.savedAnswers.length, bg: d.sage, fg: d.sageDark, tab: 'Saved answers' },
+        ].map((c) => (
+          <Tap key={c.label} onPress={() => setTab(c.tab)} style={[styles.libCard, { backgroundColor: c.bg }]} accessibilityLabel={`${c.label}, ${c.count}`}>
+            <View style={styles.libCardTop}>
+              <Icon name={c.icon} size={20} color={c.fg} />
+              <Icon name="chevron-right" size={15} color={c.fg} />
+            </View>
+            <View>
+              <Text style={[styles.libLabel, { color: c.fg }]}>{c.label}</Text>
+              <Text style={[styles.libCount, { color: c.fg }]}>{String(c.count).padStart(2, '0')}</Text>
+            </View>
+          </Tap>
+        ))}
+      </View>
+      <Text style={styles.libSync}>{sync.status === 'saved' ? 'Saved on this device' : sync.status === 'syncing' ? 'Saving…' : 'Couldn’t save — retrying'}</Text>
+
+      {/* Recent sermons: the real recordings from Sermon Studio */}
+      <SectionTitle eyebrow="Continue listening" title="Recent sermons" link="See all" onLink={() => nav.push('SermonStudio')} />
+      {(state.recordings || []).length ? (state.recordings || []).slice(0, 2).map((r) => (
+        <Tap key={r.id} onPress={() => nav.push('SermonStudio')} style={styles.sermonRow} accessibilityLabel={`Open ${r.title}`}>
+          <View style={styles.sermonPlay}><Icon name="play" size={14} color="#FFFFFF" fill="solid" /></View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.sermonKicker} numberOfLines={1}>{String(r.privacy || 'Sermon').toUpperCase()}</Text>
+            <Text style={styles.sermonTitle} numberOfLines={1}>{r.title}</Text>
+            <Text style={styles.sermonMeta} numberOfLines={1}>{r.duration} · {r.status}</Text>
+          </View>
+        </Tap>
+      )) : <Text style={styles.libEmpty}>No sermons recorded yet.</Text>}
+
+      {/* Your shelf: saved answers laid out as book spines */}
+      <SectionTitle eyebrow="Books & studies" title="Your shelf" />
+      {state.savedAnswers.length ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shelf}>
+          {state.savedAnswers.slice(0, 8).map((a, i) => (
+            <Tap key={a.id} onPress={() => { setTab('Saved answers'); setOpenAnswer(a.id); }} style={styles.spine} accessibilityLabel={a.question}>
+              <Grad colors={[gradients.orange, gradients.ink, gradients.gold][i % 3]} style={styles.spineFill}>
+                <Text style={styles.spineTitle} numberOfLines={4}>{a.question}</Text>
+                <Text style={styles.spineSmall} numberOfLines={1}>{String((a.blocks && a.blocks[0] && a.blocks[0].type) || 'Saved').toUpperCase()}</Text>
+              </Grad>
+            </Tap>
+          ))}
+        </ScrollView>
+      ) : <Text style={styles.libEmpty}>Save an answer from Bible Chat or a word study and it will sit on your shelf.</Text>}
+
+      {/* .upload-card: real route, Sermon Studio */}
+      <Tap onPress={() => nav.push('SermonStudio')} style={styles.uploadCard} accessibilityLabel="Record a sermon or teaching">
+        <View style={styles.uploadPlus}><Icon name="plus" size={16} color={d.plum} /></View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.uploadTitle}>Record a sermon or teaching</Text>
+          <Text style={styles.uploadSub}>Sermon Studio · saved to your library</Text>
+        </View>
+        <Icon name="chevron-right" size={15} color={d.muted} />
+      </Tap>
+
+      <SectionTitle eyebrow="Everything saved" title="Browse your library" />
       <Pills
         items={['Continue', 'Notes', 'Highlights', 'Bookmarks', 'Saved answers', 'Recordings']}
         value={tab}
@@ -431,13 +494,13 @@ export function LibraryScreen() {
 
       <Divider />
       <Row title="Export study archive" subtitle="Share your notes, highlights and bookmarks" left={<Icon name="share" size={18} color={colors.primary} />} onPress={exportArchive} />
-    </Screen>
+    </KitScreen>
   );
 }
 
 const styles = StyleSheet.create({
   verseQuoteBox: { overflow: 'hidden',
-    backgroundColor: colors.night,
+    backgroundColor: '#3C2518',
     borderRadius: radius.lg,
     paddingHorizontal: 20,
     paddingTop: 16,
@@ -479,5 +542,26 @@ const styles = StyleSheet.create({
   wordValue: { fontSize: 14, lineHeight: 20, color: colors.fg },
   contextBox: { marginTop: 14, backgroundColor: colors.primarySoft, borderRadius: radius.sm, padding: 12 },
   contextText: { fontSize: 13, lineHeight: 19, color: colors.primaryInk, fontWeight: '600' },
+  libGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 14 },
+  libCard: { width: '48.4%', height: 130, borderRadius: 20, padding: 15, justifyContent: 'space-between' },
+  libCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  libLabel: { fontFamily: df.sans, fontSize: 10.5 },
+  libCount: { fontFamily: df.displayBold, fontSize: 26, lineHeight: 30, marginTop: 2 },
+  libSync: { fontFamily: df.sans, fontSize: 10, color: d.muted, marginTop: 8, textAlign: 'center' },
+  libEmpty: { fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: d.muted, marginVertical: 6 },
+  sermonRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 17, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, marginBottom: 7 },
+  sermonPlay: { width: 42, height: 42, borderRadius: 14, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  sermonKicker: { fontFamily: df.sansBold, fontSize: 8, letterSpacing: 1.3, color: d.plum },
+  sermonTitle: { fontFamily: df.displayBold, fontSize: 14, color: d.ink, marginTop: 2 },
+  sermonMeta: { fontFamily: df.sans, fontSize: 9.5, color: d.muted, marginTop: 2 },
+  shelf: { flexDirection: 'row', gap: 10, paddingVertical: 4 },
+  spine: { width: 120, height: 150, borderRadius: 8, borderTopRightRadius: 18, borderBottomRightRadius: 18, overflow: 'hidden' },
+  spineFill: { flex: 1, padding: 12, justifyContent: 'space-between' },
+  spineTitle: { fontFamily: df.displayBold, fontSize: 13, lineHeight: 17, color: '#FFFFFF' },
+  spineSmall: { fontFamily: df.sansBold, fontSize: 8, letterSpacing: 1.4, color: '#F5CFB1' },
+  uploadCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, marginTop: 14 },
+  uploadPlus: { width: 36, height: 36, borderRadius: 12, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  uploadTitle: { fontFamily: df.sansBold, fontSize: 12, color: d.ink },
+  uploadSub: { fontFamily: df.sans, fontSize: 10, color: d.muted, marginTop: 2 },
   suggestLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.gold, marginTop: 18, marginBottom: 10 },
 });

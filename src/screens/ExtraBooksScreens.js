@@ -1,10 +1,12 @@
 // "Beyond the 66": deuterocanonical and extra-biblical books (public-domain translations, from the
 // Scrollmapper project). Library → book → chapter reader. The reader follows the Bible reader's
 // settings (theme, font, text size, line spacing) and remembers where you stopped in each book.
+// The library is laid out like the Bible home (src/screens/BibleHomeScreen.js): search, "Continue reading"
+// card, collection sections with book rows. The reader keeps its own reader themes.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Screen, Empty, Notice } from '../components/ui';
+import { Empty, Notice } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { FadeInUp } from '../components/Motion';
 import { useToast } from '../components/Toast';
@@ -13,6 +15,8 @@ import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { EXTRA_BOOKS, EXTRA_COLLECTIONS, extraBook } from '../data/extraBooks';
 import { useExtraBook, chapterLabel } from '../bible/extraLoader';
+import { d, df, gradients, Grad, Tap, Eyebrow, SectionTitle } from '../design/sanctuary';
+import { DScreen } from '../design/profile/parts';
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -25,41 +29,63 @@ export function ExtraBooksScreen() {
   const term = q.trim().toLowerCase();
   const matches = (b) => !term || b.name.toLowerCase().includes(term) || b.note.toLowerCase().includes(term);
   const continueBooks = EXTRA_BOOKS.filter((b) => recent[b.id] != null).slice(0, 3);
+  const [first, ...others] = continueBooks;
+  const progress = (b, n) => Math.max(1, Math.round(((b.chapters.indexOf(n) + 1) / b.chapters.length) * 100));
 
   return (
-    <Screen back title="Beyond the 66" subtitle={`${EXTRA_BOOKS.length} ancient books`}>
+    <DScreen back onBack={() => nav.pop()} title="Beyond the 66" subtitle={`${EXTRA_BOOKS.length} ancient books`}>
       <FadeInUp>
-        <View style={styles.hero}>
-          <Text style={styles.heroEyebrow}>APOCRYPHA · DEUTEROCANON · EARLY WRITINGS</Text>
-          <Text style={styles.heroTitle}>Books beyond the Protestant canon</Text>
-          <Text style={styles.heroBody}>
-            Tobit, Maccabees, Enoch, Jubilees, Jasher, the Shepherd of Hermas and more — read for centuries by Jews and
-            Christians. They help us understand the world of the Bible.
-          </Text>
-        </View>
+        <Eyebrow>Apocrypha · deuterocanon · early writings</Eyebrow>
+        <Text style={styles.heroTitle}>Books beyond the Protestant canon</Text>
+        <Text style={styles.heroBody}>
+          Tobit, Maccabees, Enoch, Jubilees, Jasher, the Shepherd of Hermas and more — read for centuries by Jews and
+          Christians. They help us understand the world of the Bible.
+        </Text>
       </FadeInUp>
 
       <Notice text="These books are not part of the 66-book Bible most Protestant churches use. Some are Scripture in Catholic, Orthodox or Ethiopian churches; others are historical writings. Read them alongside the Bible, testing everything by God’s Word." />
 
+      {/* .search box */}
       <View style={styles.searchBox}>
-        <Icon name="search" size={16} color={colors.muted} />
+        <Icon name="search" size={16} color={d.muted} />
         <TextInput
           value={q}
           onChangeText={setQ}
           placeholder="Find a book (Enoch, Tobit, Maccabees…)"
-          placeholderTextColor={colors.faint}
+          placeholderTextColor="#AA9A8C"
           style={styles.searchInput}
           accessibilityLabel="Find a book"
         />
-        {q ? <Pressable onPress={() => setQ('')} hitSlop={8} accessibilityLabel="Clear"><Icon name="x" size={14} color={colors.muted} /></Pressable> : null}
+        {q ? <Pressable onPress={() => setQ('')} hitSlop={8} accessibilityLabel="Clear"><Icon name="x" size={14} color={d.muted} /></Pressable> : null}
       </View>
 
-      {!term && continueBooks.length ? (
-        <View style={{ marginTop: 18 }}>
-          <Text style={styles.sectionTitle}>Continue reading</Text>
-          {continueBooks.map((b) => (
-            <BookRow key={b.id} book={b} sub={`Chapter ${chapterLabel(recent[b.id])}`} onPress={() => nav.push('ExtraBook', { id: b.id, chapter: recent[b.id] })} />
-          ))}
+      {!term && first ? (
+        <View>
+          {/* .continue-card */}
+          <Grad colors={gradients.ink} style={styles.continueCard}>
+            <View style={styles.continueText}>
+              <Eyebrow light>Continue reading</Eyebrow>
+              <Text style={styles.continueTitle}>{first.name}</Text>
+              <Text style={styles.continueMeta}>{`Chapter ${chapterLabel(recent[first.id])} of ${first.chapters.length} · ${progress(first, recent[first.id])}% complete`}</Text>
+              <Tap onPress={() => nav.push('ExtraBook', { id: first.id, chapter: recent[first.id] })} style={styles.continueLink} accessibilityLabel={`Continue ${first.name}`}>
+                <Text style={styles.continueLinkText}>Continue</Text>
+                <Icon name="arrow-right" size={16} color="#FFCDA9" />
+              </Tap>
+            </View>
+            {/* .book-art */}
+            <View style={styles.bookArt}>
+              <Text style={styles.bookArtNumber}>{chapterLabel(recent[first.id])}</Text>
+              <Text style={styles.bookArtName} numberOfLines={1}>{first.name.toUpperCase()}</Text>
+            </View>
+          </Grad>
+          {others.length ? (
+            <View style={{ marginTop: 6 }}>
+              <SectionTitle eyebrow="In progress" title="Also reading" />
+              {others.map((b) => (
+                <BookRow key={b.id} book={b} sub={`Chapter ${chapterLabel(recent[b.id])}`} onPress={() => nav.push('ExtraBook', { id: b.id, chapter: recent[b.id] })} />
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -67,12 +93,14 @@ export function ExtraBooksScreen() {
         const books = EXTRA_BOOKS.filter((b) => b.collection === col.id && matches(b));
         if (!books.length) return null;
         return (
-          <View key={col.id} style={{ marginTop: 22 }}>
-            <Text style={styles.sectionTitle}>{col.name}</Text>
+          <View key={col.id}>
+            <SectionTitle eyebrow={plural(books.length, 'book', 'books')} title={col.name} />
             <Text style={styles.sectionNote}>{col.note}</Text>
-            {books.map((b) => (
-              <BookRow key={b.id} book={b} sub={b.note} onPress={() => nav.push('ExtraBook', { id: b.id, chapter: recent[b.id] })} />
-            ))}
+            <View style={styles.bookList}>
+              {books.map((b) => (
+                <BookRow key={b.id} book={b} sub={b.note} onPress={() => nav.push('ExtraBook', { id: b.id, chapter: recent[b.id] })} />
+              ))}
+            </View>
           </View>
         );
       })}
@@ -82,21 +110,21 @@ export function ExtraBooksScreen() {
         Texts: public-domain translations (King James Apocrypha 1611, R. H. Charles, Ante-Nicene Fathers and others), prepared by
         the open-source Scrollmapper project. Modern copyrighted translations are not included.
       </Text>
-    </Screen>
+    </DScreen>
   );
 }
 
 function BookRow({ book, sub, onPress }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { opacity: 0.8 }]} accessibilityRole="button" accessibilityLabel={`Open ${book.name}`}>
-      <View style={styles.rowIcon}><Text style={styles.rowIconText}>{book.id.slice(0, 3)}</Text></View>
+    <Tap onPress={onPress} style={styles.bookRow} accessibilityRole="button" accessibilityLabel={`Open ${book.name}`}>
+      <Text style={styles.bookCode}>{book.id.slice(0, 3)}</Text>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.rowTitle} numberOfLines={1}>{book.name}</Text>
         <Text style={styles.rowSub} numberOfLines={2}>{sub}</Text>
         <Text style={styles.rowMeta}>{plural(book.chapters.length, 'chapter', 'chapters')} · {book.translation}</Text>
       </View>
-      <Icon name="chevron-right" size={16} color={colors.faint} />
-    </Pressable>
+      <Icon name="chevron-right" size={16} color={d.muted} />
+    </Tap>
   );
 }
 
@@ -146,7 +174,7 @@ export function ExtraBookScreen({ params = {} }) {
   };
 
   if (!meta) {
-    return <Screen back title="Book"><Empty title="Book not found" action="All books" onAction={() => nav.replace ? nav.replace('ExtraBooks') : nav.pop()} /></Screen>;
+    return <DScreen back onBack={() => nav.pop()} title="Book"><Empty title="Book not found" action="All books" onAction={() => nav.replace ? nav.replace('ExtraBooks') : nav.pop()} /></DScreen>;
   }
 
   return (
@@ -210,7 +238,7 @@ export function ExtraBookScreen({ params = {} }) {
                   accessibilityHint="Tap to select, long-press to share"
                 >
                   <Text style={[styles.verseText, { color: t.passage, fontSize: fs, lineHeight: Math.round(fs * spacing), fontFamily }]}>
-                    {vn > 0 ? <Text style={[styles.vnum, { color: on ? t.accent : t.gold }]}>{vn}{' '} </Text> : null}
+                    {vn > 0 ? <Text style={[styles.vnum, { color: on ? t.accent : t.gold }]}>{vn}{' '} </Text> : null}
                     {text}
                   </Text>
                   {on ? (
@@ -249,21 +277,27 @@ export function ExtraBookScreen({ params = {} }) {
 }
 
 const styles = StyleSheet.create({
-  hero: { backgroundColor: colors.night || '#15172B', borderRadius: 20, padding: 20, marginBottom: 14 },
-  heroEyebrow: { color: colors.goldLight || '#D9B36A', fontSize: 10.5, fontWeight: '800', letterSpacing: 1 },
-  heroTitle: { color: '#FFFFFF', fontFamily: fonts.display, fontSize: 24, marginTop: 8 },
-  heroBody: { color: 'rgba(255,255,255,0.78)', fontSize: 14, lineHeight: 20, marginTop: 8 },
-  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingHorizontal: 14, height: 44, borderRadius: 14, backgroundColor: colors.raised, borderWidth: 1, borderColor: colors.border },
-  searchInput: { flex: 1, fontSize: 15, color: colors.fg, paddingVertical: 0 },
-  sectionTitle: { fontFamily: fonts.display, fontSize: 19, color: colors.fg },
-  sectionNote: { fontSize: 13, color: colors.muted, marginTop: 4, marginBottom: 8, lineHeight: 18 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 12, marginTop: 8, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  rowIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.primarySoft || '#E7E9F5', alignItems: 'center', justifyContent: 'center' },
-  rowIconText: { fontSize: 11.5, fontWeight: '800', color: colors.primary },
-  rowTitle: { fontSize: 15.5, fontWeight: '700', color: colors.fg },
-  rowSub: { fontSize: 13, color: colors.muted, marginTop: 2, lineHeight: 18 },
-  rowMeta: { fontSize: 11.5, color: colors.faint, marginTop: 4 },
-  footer: { fontSize: 12, color: colors.faint, lineHeight: 17, marginTop: 26 },
+  heroTitle: { fontFamily: df.displayBold, fontSize: 26, lineHeight: 30, color: d.ink, marginTop: 8 },
+  heroBody: { fontFamily: df.sans, fontSize: 11, lineHeight: 17, color: d.muted, marginTop: 8, marginBottom: 14 },
+  searchBox: { height: 48, borderRadius: 15, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, marginTop: 4 },
+  searchInput: { flex: 1, fontFamily: df.sans, fontSize: 13, color: d.ink, paddingVertical: 0 },
+  continueCard: { marginTop: 14, minHeight: 200, borderRadius: 25, padding: 22, overflow: 'hidden', flexDirection: 'row', justifyContent: 'space-between' },
+  continueText: { flex: 1, paddingRight: 118 },
+  continueTitle: { fontFamily: df.displayBold, fontSize: 25, lineHeight: 28, color: '#FFFFFF', marginTop: 12, marginBottom: 10 },
+  continueMeta: { fontFamily: df.sans, fontSize: 11, color: '#B6A092' },
+  continueLink: { marginTop: 20, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  continueLinkText: { fontFamily: df.sansBold, fontSize: 12, color: '#FFCDA9' },
+  bookArt: { position: 'absolute', right: 20, top: 22, bottom: 22, width: 92, borderRadius: 8, backgroundColor: '#E87525', borderTopRightRadius: 18, borderBottomRightRadius: 18, alignItems: 'center', justifyContent: 'center', shadowColor: '#3C2416', shadowOffset: { width: -8, height: 0 }, shadowOpacity: 1, shadowRadius: 0, elevation: 4 },
+  bookArtNumber: { fontFamily: df.display, fontSize: 36, color: '#FFFFFF' },
+  bookArtName: { fontFamily: df.sansBold, fontSize: 9, letterSpacing: 1.2, color: '#F5CFB1', marginTop: 2, maxWidth: 80 },
+  sectionNote: { fontFamily: df.sans, fontSize: 10, lineHeight: 15, color: d.muted, marginBottom: 6 },
+  bookList: { marginTop: 4 },
+  bookRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: d.line },
+  bookCode: { width: 34, fontFamily: df.sansHeavy, fontSize: 10, color: d.plum },
+  rowTitle: { fontFamily: df.displayBold, fontSize: 15, color: d.ink },
+  rowSub: { fontFamily: df.sans, fontSize: 10, lineHeight: 15, color: d.muted, marginTop: 2 },
+  rowMeta: { fontFamily: df.sans, fontSize: 9, color: d.muted, marginTop: 3 },
+  footer: { fontFamily: df.sans, fontSize: 10, lineHeight: 15, color: d.muted, marginTop: 26 },
 
   readerWrap: { flex: 1 },
   readerTop: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },

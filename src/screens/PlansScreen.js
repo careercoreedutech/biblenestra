@@ -1,20 +1,21 @@
-// BibleNestra Plus plans (yearly preselected, best value; weekly). Prices come from the server (admin-set, Naira).
+// BibleNestra Plus plans, rebuilt in the Figma design (Plans in extendedScreens.tsx): the plus hero, the
+// benefit list, the plan options and the Paystack checkout. Prices come from the server (admin-set, Naira).
 // Shown once after onboarding as a gate (`gate` prop, with "Continue free"), and any time from
 // Profile → Account → Plan (the "Plans" route). Payment: Paystack (card, bank transfer, USSD) via src/billing —
 // without Paystack keys, Subscribe explains that subscriptions open soon and nothing is charged.
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, fonts, radius, shadow } from '../theme';
-import { NightGlow, Screen, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
-import { FadeInUp, PressScale, Pulse, ScaleIn } from '../components/Motion';
+import { FadeInUp, PressScale } from '../components/Motion';
 import { useStore } from '../store';
 import { useToast } from '../components/Toast';
 import { usePlus, buy, restore, cancelPlus } from '../billing';
 import { paystackMessage, paystackError } from '../billing/paystack';
 import { useApi } from '../api/auth';
 import { useSync } from '../api/sync';
+import { useNav } from '../navigation';
+import { d, df, k, Grad, Tap, PageHeader } from '../design/sanctuary';
 
 const BENEFITS = [
   { icon: 'quiz', title: 'No ads in your games', body: 'Play every round without video ads between questions.' },
@@ -22,30 +23,21 @@ const BENEFITS = [
   { icon: 'heart', title: 'Keep BibleNestra free', body: 'Scripture, prayer and community stay free for everyone.' },
 ];
 
-function PlanCard({ plan, selected, onPress }) {
+function PlanCard({ plan, selected, onPress, flex }) {
   return (
     <PressScale
       onPress={onPress}
       scaleTo={0.98}
-      style={[styles.plan, selected && styles.planOn]}
+      style={[styles.plan, selected && styles.planOn, { flex }]}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
       accessibilityLabel={`${plan.label}, ${plan.priceText} ${plan.perText}${plan.badge ? `, ${plan.badge}` : ''}`}
     >
-      <View style={[styles.radio, selected && styles.radioOn]}>
-        {selected ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} /> : null}
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={styles.planTop}>
-          <Text style={styles.planLabel}>{plan.label}</Text>
-          {plan.badge ? <View style={styles.badge}><Text style={styles.badgeText}>{plan.badge}</Text></View> : null}
-        </View>
-        <Text style={styles.planNote}>{plan.note}</Text>
-      </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <Text style={styles.planPrice}>{plan.priceText}</Text>
-        <Text style={styles.planPer}>{plan.perText}</Text>
-      </View>
+      {plan.badge ? <View style={styles.badge}><Text style={styles.badgeText}>{plan.badge}</Text></View> : null}
+      <Text style={styles.planLabel}>{plan.label}</Text>
+      <Text style={styles.planPrice}>{plan.priceText}</Text>
+      <Text style={styles.planPer}>{plan.perText}</Text>
+      {plan.note ? <Text style={styles.planNote}>{plan.note}</Text> : null}
     </PressScale>
   );
 }
@@ -112,19 +104,12 @@ function PlansContent({ gate, onDone }) {
   if (state.premium) {
     return (
       <View style={styles.wrap}>
-        <View style={styles.hero}>
-          <NightGlow intensity={1.1} />
-          <View style={styles.heroInner}>
-            <View style={styles.orb}><Icon name="star" size={30} color={colors.goldLight} strokeWidth={1.8} /></View>
-            <Text style={styles.heroEyebrow}>BibleNestra Plus</Text>
-            <Text style={styles.heroTitle}>Thank you for supporting BibleNestra</Text>
-            <Text style={styles.heroSub}>Your games are ad-free and your profile shows a Plus badge.</Text>
-            {sub && sub.hasAccess ? <Text style={styles.heroSub}>{sub.renewsOn ? `Renews on ${dateText(sub.renewsOn)} by card.` : `Plus runs until ${dateText(sub.accessUntil)}. Renew from here before then.`}</Text> : null}
-          </View>
-        </View>
+        <PlusHero label="BibleNestra Plus" title="Thank you for supporting BibleNestra" body="Your games are ad-free and your profile shows a Plus badge.">
+          {sub && sub.hasAccess ? <Text style={styles.heroSub}>{sub.renewsOn ? `Renews on ${dateText(sub.renewsOn)} by card.` : `Plus runs until ${dateText(sub.accessUntil)}. Renew from here before then.`}</Text> : null}
+        </PlusHero>
         {sub && sub.renewsOn ? (
-          <PressScale onPress={onCancel} style={styles.restoreBtn} accessibilityRole="button" accessibilityLabel="Cancel renewal">
-            <Text style={styles.restoreText}>Cancel renewal</Text>
+          <PressScale onPress={onCancel} style={styles.outlineBtn} accessibilityRole="button" accessibilityLabel="Cancel renewal">
+            <Text style={styles.outlineText}>Cancel renewal</Text>
           </PressScale>
         ) : null}
         {gate ? <PrimaryCta label="Continue" onPress={() => onDone && onDone('premium')} /> : null}
@@ -135,68 +120,76 @@ function PlansContent({ gate, onDone }) {
   return (
     <View style={styles.wrap}>
       <FadeInUp distance={10}>
-        <View style={styles.hero}>
-          <NightGlow intensity={1.1} />
-          <View style={styles.heroInner}>
-            <ScaleIn from={0.7} delay={80}>
-              <View style={styles.orbWrap}>
-                <Pulse min={0.94} max={1.06} duration={2400} style={styles.orbHalo} />
-                <View style={styles.orb}><Icon name="star" size={30} color={colors.goldLight} strokeWidth={1.8} /></View>
-              </View>
-            </ScaleIn>
-            <Text style={styles.heroEyebrow}>BibleNestra Plus</Text>
-            <Text style={styles.heroTitle}>Go ad-free and support the ministry</Text>
-            <Text style={styles.heroSub}>Everything you've seen stays free. Plus removes the ads and helps keep it that way.</Text>
-          </View>
-        </View>
+        <PlusHero label="Plus supporter" title="Go ad-free and support the ministry" body="Everything you've seen stays free. Plus removes the ads and helps keep it that way." />
       </FadeInUp>
 
       <View style={styles.benefits}>
         {BENEFITS.map((b, i) => (
           <FadeInUp key={b.title} index={i} delay={120} distance={8} duration={340}>
             <View style={styles.benefit}>
-              <View style={styles.benefitIcon}><Icon name={b.icon} size={17} color={colors.primary} strokeWidth={2} /></View>
-              <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={styles.benefitIcon}><Icon name={b.icon} size={18} color={d.plum} strokeWidth={2} /></View>
+              <View style={styles.benefitText}>
                 <Text style={styles.benefitTitle}>{b.title}</Text>
                 <Text style={styles.benefitBody}>{b.body}</Text>
               </View>
+              <Icon name="check" size={16} color={d.sageDark} strokeWidth={2.4} />
             </View>
           </FadeInUp>
         ))}
       </View>
 
       <View style={styles.plans} accessibilityRole="radiogroup">
-        {PLANS.map((p) => <PlanCard key={p.id} plan={p} selected={p.id === choice} onPress={() => { setChoice(p.id); setNotice(null); }} />)}
+        {PLANS.map((p, i) => (
+          <PlanCard
+            key={p.id}
+            plan={p}
+            selected={p.id === choice}
+            flex={PLANS.length === 2 ? (i === 0 ? 1.2 : 1) : 1}
+            onPress={() => { setChoice(p.id); setNotice(null); }}
+          />
+        ))}
       </View>
 
       {notice ? (
         <FadeInUp distance={6} duration={260}>
           <View style={styles.notice}>
-            <Icon name="clock" size={16} color={colors.gold} />
+            <Icon name="clock" size={16} color={d.goldDark} />
             <Text style={styles.noticeText}>{notice}</Text>
           </View>
         </FadeInUp>
       ) : null}
 
       {needEmail ? (
-        <TextInput value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoComplete="email"
-          placeholderTextColor={colors.muted} accessibilityLabel="Email for your receipt"
-          style={{ marginTop: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: colors.fg, backgroundColor: colors.surface }} />
+        <View style={styles.emailWrap}>
+          <Text style={styles.emailLabel}>Receipt email</Text>
+          <TextInput value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoComplete="email"
+            placeholderTextColor={d.muted} accessibilityLabel="Email for your receipt" style={styles.emailInput} />
+        </View>
       ) : null}
       <PrimaryCta label={`Continue with ${plan.label} · ${plan.priceText} ${plan.perText}`} onPress={subscribe} busy={busy} />
-      {gate ? (
-        <PressScale onPress={() => onDone && onDone('free')} style={styles.freeBtn} accessibilityRole="button" accessibilityLabel="Continue free">
-          <Text style={styles.freeText}>Continue free</Text>
-        </PressScale>
-      ) : null}
 
       <Text style={styles.fine}>
-        {tester && !paystack ? 'Test purchase (admins and testers only) — no money moves. ' : ''}Paid securely through Paystack: card, bank transfer or USSD. Paid by card, Plus renews automatically until you cancel here; bank transfer and USSD don’t renew — we remind you before it ends.
+        {tester && !paystack ? 'Test purchase (admins and testers only) — no money moves. ' : ''}Secure checkout powered by Paystack: card, bank transfer or USSD. Paid by card, Plus renews automatically until you cancel here; bank transfer and USSD don’t renew — we remind you before it ends.
       </Text>
-      <PressScale onPress={onRestore} style={styles.restoreBtn} accessibilityRole="button" accessibilityLabel="Restore purchases">
-        <Text style={styles.restoreText}>Restore purchases</Text>
-      </PressScale>
+      <View style={styles.footRow}>
+        <PressScale onPress={onRestore} style={styles.outlineBtn} accessibilityRole="button" accessibilityLabel="Restore purchases">
+          <Text style={styles.outlineText}>Restore purchases</Text>
+        </PressScale>
+      </View>
     </View>
+  );
+}
+
+// .plus-hero: the dark brown card with the star mark and the serif title
+function PlusHero({ label, title, body, children }) {
+  return (
+    <Grad colors={['#25160D', '#5B2B13']} style={styles.hero}>
+      <View style={styles.heroStar}><Icon name="star" size={64} color="#F2C979" strokeWidth={1.6} /></View>
+      <Text style={styles.heroKicker}>{label}</Text>
+      <Text style={styles.heroTitle}>{title}</Text>
+      <Text style={styles.heroSub}>{body}</Text>
+      {children}
+    </Grad>
   );
 }
 
@@ -210,18 +203,35 @@ function PrimaryCta({ label, onPress, busy }) {
 
 // Route: Profile → Account → Plan
 export function PlansScreen() {
+  const nav = useNav();
   return (
-    <Screen back title="BibleNestra Plus" subtitle="Ad-free games · supporter badge">
-      <PlansContent />
-    </Screen>
+    <View style={k.screen}>
+      <View style={styles.headerWrap}>
+        <PageHeader title="BibleNestra Plus" subtitle="Go deeper" back onBack={() => nav.pop()} action={null} />
+      </View>
+      <ScrollView contentContainerStyle={[k.scroll, styles.routeScroll]} showsVerticalScrollIndicator={false}>
+        <PlansContent />
+      </ScrollView>
+    </View>
   );
 }
 
-// First-run gate after onboarding: shown once, with "Continue free".
+// First-run gate after onboarding: shown once, with "Continue free" in the header.
 export function PlansGate({ onDone }) {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.gateScroll} showsVerticalScrollIndicator={false}>
+      <View style={styles.headerWrap}>
+        <PageHeader
+          title="BibleNestra Plus"
+          subtitle="Go deeper"
+          action={(
+            <Tap onPress={() => onDone && onDone('free')} accessibilityLabel="Continue free" hitSlop={8} style={styles.headerFree}>
+              <Text style={styles.headerFreeText}>Continue free</Text>
+            </Tap>
+          )}
+        />
+      </View>
+      <ScrollView contentContainerStyle={[k.scroll, styles.gateScroll]} showsVerticalScrollIndicator={false}>
         <PlansContent gate onDone={onDone} />
       </ScrollView>
     </SafeAreaView>
@@ -229,46 +239,57 @@ export function PlansGate({ onDone }) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.screen },
-  gateScroll: { alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
-  wrap: { width: '100%', maxWidth: 520, alignSelf: 'center', paddingTop: 4 },
+  safe: { flex: 1, backgroundColor: d.ivory },
+  headerWrap: { paddingHorizontal: 18 },
+  routeScroll: { paddingTop: 4 },
+  gateScroll: { paddingTop: 4 },
+  wrap: { width: '100%', maxWidth: 520, alignSelf: 'center' },
 
-  hero: { borderRadius: 26, overflow: 'hidden', backgroundColor: colors.night, ...shadow.md },
-  heroInner: { alignItems: 'center', paddingHorizontal: 20, paddingTop: 22, paddingBottom: 22 },
-  orbWrap: { width: 92, height: 92, alignItems: 'center', justifyContent: 'center' },
-  orbHalo: { position: 'absolute', width: 92, height: 92, borderRadius: 46, backgroundColor: alpha('#D4A852', 0.14) },
-  orb: { width: 66, height: 66, borderRadius: 33, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1.5, borderColor: alpha('#D4A852', 0.55), alignItems: 'center', justifyContent: 'center' },
-  heroEyebrow: { marginTop: 12, fontSize: 11, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', color: colors.goldLight },
-  heroTitle: { marginTop: 6, fontFamily: fonts.serifBold, fontSize: 26, lineHeight: 31, letterSpacing: -0.4, color: colors.nightFg, textAlign: 'center' },
-  heroSub: { marginTop: 8, fontSize: 14, lineHeight: 20, color: colors.nightMuted, textAlign: 'center', maxWidth: 380 },
+  // Hero
+  hero: { borderRadius: 28, padding: 24, minHeight: 240, justifyContent: 'flex-end', overflow: 'hidden' },
+  heroStar: { position: 'absolute', right: 20, top: 20, opacity: 0.6 },
+  heroKicker: { color: '#F6C29E', fontFamily: df.sansHeavy, fontSize: 10, letterSpacing: 1.4, textTransform: 'uppercase' },
+  heroTitle: { color: '#FFFFFF', fontFamily: df.display, fontSize: 30, lineHeight: 36, letterSpacing: -0.8, marginTop: 8, marginBottom: 6, maxWidth: 300 },
+  heroSub: { color: '#D8C3B4', fontFamily: df.sans, fontSize: 13, lineHeight: 20, marginTop: 4 },
 
-  benefits: { marginTop: 18, gap: 12 },
-  benefit: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  benefitIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  benefitTitle: { fontSize: 15, fontWeight: '700', color: colors.fg },
-  benefitBody: { fontSize: 13, lineHeight: 18, color: colors.muted, marginTop: 1 },
+  // Benefits
+  benefits: { marginTop: 18 },
+  benefit: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 72, borderBottomWidth: 1, borderBottomColor: d.line },
+  benefitIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  benefitText: { flex: 1, minWidth: 0 },
+  benefitTitle: { color: d.ink, fontFamily: df.displayBold, fontSize: 15 },
+  benefitBody: { color: d.muted, fontFamily: df.sans, fontSize: 12, lineHeight: 17, marginTop: 2 },
 
-  plans: { marginTop: 20, gap: 10 },
-  plan: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.border, ...shadow.sm },
-  planOn: { borderColor: colors.primary, backgroundColor: '#FBFBFE' },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  radioOn: { borderColor: colors.primary, backgroundColor: colors.primary },
-  planTop: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  planLabel: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg },
-  badge: { paddingHorizontal: 8, height: 22, borderRadius: radius.pill, backgroundColor: colors.cardGold, justifyContent: 'center' },
-  badgeText: { fontSize: 11, fontWeight: '700', color: colors.goldMuted },
-  planNote: { fontSize: 13, color: colors.muted, marginTop: 2 },
-  planPrice: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg },
-  planPer: { fontSize: 12, color: colors.muted },
+  // Plan options
+  plans: { flexDirection: 'row', gap: 9, marginTop: 18 },
+  plan: { minHeight: 112, padding: 14, borderRadius: 18, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, justifyContent: 'flex-end' },
+  planOn: { borderWidth: 2, borderColor: d.plum, backgroundColor: '#FFF0E5' },
+  badge: { position: 'absolute', top: 10, left: 10, backgroundColor: d.plum, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3 },
+  badgeText: { color: '#FFFFFF', fontFamily: df.sansHeavy, fontSize: 9, letterSpacing: 0.6 },
+  planLabel: { color: d.muted, fontFamily: df.sansBold, fontSize: 11, marginBottom: 2 },
+  planPrice: { color: d.ink, fontFamily: df.displayBold, fontSize: 21, lineHeight: 26 },
+  planPer: { color: d.muted, fontFamily: df.sans, fontSize: 11, marginTop: 1 },
+  planNote: { color: d.muted, fontFamily: df.sans, fontSize: 11, marginTop: 2 },
 
-  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 14, padding: 12, borderRadius: radius.md, backgroundColor: colors.cardGold },
-  noticeText: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.fg },
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 14, padding: 12, borderRadius: 14, backgroundColor: d.lavender },
+  noticeText: { flex: 1, color: d.roseDark, fontFamily: df.sans, fontSize: 13, lineHeight: 18 },
+  emailWrap: { marginTop: 14 },
+  emailLabel: { color: '#4C3D32', fontFamily: df.sansBold, fontSize: 12, marginBottom: 8 },
+  emailInput: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.ivory, paddingHorizontal: 15, fontFamily: df.sans, fontSize: 14, color: d.ink },
 
-  cta: { marginTop: 18, height: 52, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, ...shadow.sm },
-  ctaText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-  freeBtn: { marginTop: 10, height: 46, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
-  freeText: { fontSize: 15, fontWeight: '700', color: colors.fg },
-  fine: { marginTop: 14, fontSize: 11.5, lineHeight: 16, color: colors.faint, textAlign: 'center' },
-  restoreBtn: { alignSelf: 'center', marginTop: 6, paddingVertical: 8, paddingHorizontal: 12 },
-  restoreText: { fontSize: 13, fontWeight: '600', color: colors.primary },
+  // CTA + footer
+  cta: { marginTop: 18, height: 56, borderRadius: 18, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18,
+    ...Platform.select({
+      web: { boxShadow: '0 14px 30px rgba(255,107,26,0.22)' },
+      default: { shadowColor: d.plum, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.22, shadowRadius: 22, elevation: 6 },
+    }),
+  },
+  ctaText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 15 },
+  fine: { marginTop: 14, color: d.muted, fontFamily: df.sans, fontSize: 11, lineHeight: 17, textAlign: 'center', paddingHorizontal: 10 },
+  footRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' },
+  outlineBtn: { height: 42, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: 'rgba(255,255,255,0.78)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, marginTop: 10, alignSelf: 'center' },
+  outlineText: { color: d.ink, fontFamily: df.sansBold, fontSize: 12 },
+
+  headerFree: { height: 36, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: d.line, backgroundColor: 'rgba(255,255,255,0.78)', alignItems: 'center', justifyContent: 'center' },
+  headerFreeText: { color: d.plum, fontFamily: df.sansBold, fontSize: 12 },
 });

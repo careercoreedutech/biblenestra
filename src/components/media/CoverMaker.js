@@ -22,7 +22,7 @@ import { AnimatedModal, PressScale } from '../Motion';
 let captureRef = null;
 try { captureRef = require('react-native-view-shot').captureRef; } catch (e) { captureRef = null; } // eslint-disable-line global-require
 
-export const COVER_COLORS = ['#2E3A87', '#15172B', '#A87A27', '#B0475C', '#4E7A5C', '#2C7672', '#6B52A3', '#B45D3A', '#356D9C', '#1C1915'];
+export const COVER_COLORS = ['#FF6B1A', '#2A1B12', '#A87A27', '#B0475C', '#4E7A5C', '#2C7672', '#6B52A3', '#B45D3A', '#356D9C', '#1C1915'];
 
 // shade(hex, amt): amt > 0 lightens, < 0 darkens
 function shade(hex, amt) {

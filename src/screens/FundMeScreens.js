@@ -2,15 +2,15 @@
 // donate, share), create/edit wizard (heading, goal, main photo, story with images, supporting photos & PDFs,
 // preview, submit for review) and the organiser's donations list.
 // Online: data from the Worker via ../api/fundme. Local mode: an on-device demo with sample fundraisers.
+// Look: the Figma design's Fund Me screens (FundMeHub, FundMeCreate, FundMeDetail) on the sanctuary kit.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Clipboard from 'expo-clipboard';
-import { Screen, Section, Button, Input, Badge, Notice, Empty, Eyebrow, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
-import { AnimatedModal, AnimatedBar, AnimatedNumber, Burst, FadeInUp, PressScale, ScaleIn, Shimmer } from '../components/Motion';
+import { AnimatedModal, AnimatedBar, AnimatedNumber, Burst, FadeInUp, Shimmer } from '../components/Motion';
 import { useToast } from '../components/Toast';
-import { colors, fonts, radius, shadow } from '../theme';
+import { colors } from '../theme';
 import { useNav, useIsFocused } from '../navigation';
 import { useStore } from '../store';
 import { errorMessage } from '../api/client';
@@ -24,11 +24,16 @@ import {
 import { FundMeCreditsCard } from './FundMeMoneyScreens';
 import { BuyCoinsSheet } from '../components/wallet';
 import { useApi } from '../api/auth';
+import { alpha } from '../components/ui';
+import { d, df, k, Tap, Grad, Eyebrow, IconButton, PageHeader, SectionTitle, fillImage } from '../design/sanctuary';
+import { DScreen, DCard, DInput, DLabel, DToggle } from '../design/profile/parts';
+import { FBtn, FNotice, FEmpty, FBadge, FKpi, FPdfTile } from '../design/fundme/parts';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const STATUS_TINT = {
   draft: colors.muted, pending_review: colors.gold, live: colors.positive, paused: colors.slate, closed: colors.slate, rejected: colors.negative,
 };
+const HERO = ['#F0D292', '#F7E8C7']; // the design's fund-hero gold
 const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '?';
 function timeAgo(iso) {
   if (!iso) return '';
@@ -50,7 +55,7 @@ function useReload(load) {
 }
 
 function StatusBadge({ status }) {
-  return <Badge label={STATUS_LABEL[status] || status} tint={STATUS_TINT[status] || colors.muted} />;
+  return <FBadge label={STATUS_LABEL[status] || status} tint={STATUS_TINT[status] || colors.muted} />;
 }
 
 function Progress({ f, big }) {
@@ -59,21 +64,21 @@ function Progress({ f, big }) {
     <View>
       {big ? (
         <>
-          <AnimatedNumber value={f.raisedMinor} style={styles.raisedBig} format={(n) => formatMoney(Math.round(n), f.currency)} />
-          <Text style={styles.ofGoal}>raised of {formatMoney(f.goalMinor, f.currency)} goal</Text>
+          <AnimatedNumber value={f.raisedMinor} style={s.raisedBig} format={(n) => formatMoney(Math.round(n), f.currency)} />
+          <Text style={s.ofGoal}>raised of {formatMoney(f.goalMinor, f.currency)} goal</Text>
         </>
       ) : null}
-      <AnimatedBar progress={pct} style={[styles.bar, big && styles.barBig]} fillStyle={styles.barFill} />
+      <AnimatedBar progress={pct} style={[s.bar, big && s.barBig]} fillStyle={s.barFill} />
       {big ? (
-        <View style={styles.statsRow}>
-          <Text style={styles.stat}><Text style={styles.statStrong}>{f.percent}%</Text> funded</Text>
-          <Text style={styles.stat}><Text style={styles.statStrong}>{f.donorsCount}</Text> {f.donorsCount === 1 ? 'donor' : 'donors'}</Text>
-          <Text style={styles.stat}><Text style={styles.statStrong}>{formatMoney(f.remainingMinor, f.currency)}</Text> to go</Text>
+        <View style={s.statsRow}>
+          <Text style={s.stat}><Text style={s.statStrong}>{f.percent}%</Text> funded</Text>
+          <Text style={s.stat}><Text style={s.statStrong}>{f.donorsCount}</Text> {f.donorsCount === 1 ? 'donor' : 'donors'}</Text>
+          <Text style={s.stat}><Text style={s.statStrong}>{formatMoney(f.remainingMinor, f.currency)}</Text> to go</Text>
         </View>
       ) : (
-        <View style={styles.cardMoneyRow}>
-          <Text style={styles.cardRaised}>{formatMoney(f.raisedMinor, f.currency)} <Text style={styles.cardOf}>of {formatMoney(f.goalMinor, f.currency)}</Text></Text>
-          <Text style={styles.cardPct}>{f.percent}%</Text>
+        <View style={s.cardMoneyRow}>
+          <Text style={s.cardRaised}>{formatMoney(f.raisedMinor, f.currency)} <Text style={s.cardOf}>of {formatMoney(f.goalMinor, f.currency)}</Text></Text>
+          <Text style={s.cardPct}>{f.percent}%</Text>
         </View>
       )}
     </View>
@@ -81,23 +86,45 @@ function Progress({ f, big }) {
 }
 
 function Thumb({ uri, style }) {
-  return uri ? <Image source={{ uri }} style={[styles.thumbBase, style]} /> : (
-    <View style={[styles.thumbBase, styles.thumbEmpty, style]}><Icon name="image" size={22} color={colors.faint} /></View>
+  return uri ? <Image source={{ uri }} style={[s.thumbBase, style]} /> : (
+    <View style={[s.thumbBase, s.thumbEmpty, style]}><Icon name="image" size={22} color={d.muted} /></View>
   );
 }
 
-function DiscoverCard({ f, onPress, index }) {
+// Big campaign card (.campaign-card) for the first live fundraiser
+function CampaignCard({ f, onPress, index }) {
   return (
     <FadeInUp index={index}>
-      <PressScale onPress={onPress} scaleTo={0.98} style={styles.dCard} accessibilityLabel={f.title}>
-        <Thumb uri={f.mainImageUrl} style={styles.dImage} />
-        <View style={{ padding: 14, gap: 6 }}>
-          <Text style={styles.dTitle} numberOfLines={2}>{f.title}</Text>
-          {f.owner ? <Text style={styles.dOwner} numberOfLines={1}>by {f.owner.displayName}</Text> : null}
-          {f.excerpt ? <Text style={styles.dExcerpt} numberOfLines={2}>{f.excerpt}</Text> : null}
-          <View style={{ marginTop: 4 }}><Progress f={f} /></View>
+      <Tap onPress={onPress} style={s.bigCard} accessibilityLabel={f.title}>
+        <Thumb uri={f.mainImageUrl} style={s.bigImg} />
+        <View style={s.bigBody}>
+          <Text style={s.kicker}>Reviewed</Text>
+          <Text style={s.bigTitle} numberOfLines={2}>{f.title}</Text>
+          {f.owner ? <Text style={s.owner} numberOfLines={1}>by {f.owner.displayName}</Text> : null}
+          {f.excerpt ? <Text style={s.excerpt} numberOfLines={2}>{f.excerpt}</Text> : null}
+          <View style={{ marginTop: 10 }}><Progress f={f} /></View>
+          <View style={s.footRow}>
+            <Text style={s.footL}>{f.percent}% funded</Text>
+            <Text style={s.footR}>{f.donorsCount} {f.donorsCount === 1 ? 'donor' : 'donors'}</Text>
+          </View>
         </View>
-      </PressScale>
+      </Tap>
+    </FadeInUp>
+  );
+}
+
+// Small campaign tile (.mini-campaigns) for the rest of the live list
+function MiniCard({ f, onPress, index }) {
+  return (
+    <FadeInUp index={index} style={s.miniWrap}>
+      <Tap onPress={onPress} style={s.mini} accessibilityLabel={f.title}>
+        <Thumb uri={f.mainImageUrl} style={s.miniImg} />
+        <View style={s.miniBody}>
+          <Text style={s.miniKicker}>Live</Text>
+          <Text style={s.miniTitle} numberOfLines={2}>{f.title}</Text>
+          <Progress f={f} />
+        </View>
+      </Tap>
     </FadeInUp>
   );
 }
@@ -105,16 +132,14 @@ function DiscoverCard({ f, onPress, index }) {
 function MineRow({ f, onPress, index }) {
   return (
     <FadeInUp index={index}>
-      <PressScale onPress={onPress} scaleTo={0.985} style={styles.mineRow} accessibilityLabel={f.title}>
-        <Thumb uri={f.mainImageUrl} style={styles.mineThumb} />
-        <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={styles.mineTitle} numberOfLines={1}>{f.title}</Text>
-          </View>
+      <Tap onPress={onPress} style={s.mineRow} accessibilityLabel={f.title}>
+        <Thumb uri={f.mainImageUrl} style={s.mineThumb} />
+        <View style={{ flex: 1, minWidth: 0, gap: 6 }}>
+          <Text style={s.mineTitle} numberOfLines={1}>{f.title}</Text>
           <View style={{ flexDirection: 'row' }}><StatusBadge status={f.status} /></View>
           <Progress f={f} />
         </View>
-      </PressScale>
+      </Tap>
     </FadeInUp>
   );
 }
@@ -132,88 +157,111 @@ export function FundMeHomeScreen() {
   const [more, setMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
+  const [credits, setCredits] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const [m, d] = await Promise.all([fm.mine(), fm.discover()]);
-      setMine(m.items); setLive(d.items); setCursor(d.cursor); setMore(!!d.hasMore); setError(null);
+      const [m, dis] = await Promise.all([fm.mine(), fm.discover()]);
+      setMine(m.items); setLive(dis.items); setCursor(dis.cursor); setMore(!!dis.hasMore); setError(null);
     } catch (e) { setError(errorMessage(e, 'Couldn’t load fundraisers')); }
+    if (!fm.demo) fm.credits().then((c) => setCredits(c.demo ? null : (c.available != null ? c.available : c.balance))).catch(() => setCredits(null));
   }, [fm]);
   useReload(load);
 
   const loadMore = async () => {
     if (!cursor || loadingMore) return;
     setLoadingMore(true);
-    try { const d = await fm.discover(cursor); setLive((l) => [...l, ...d.items]); setCursor(d.cursor); setMore(!!d.hasMore); } catch (e) { toast.show(errorMessage(e), { tone: 'error' }); }
+    try { const dis = await fm.discover(cursor); setLive((l) => [...l, ...dis.items]); setCursor(dis.cursor); setMore(!!dis.hasMore); } catch (e) { toast.show(errorMessage(e), { tone: 'error' }); }
     setLoadingMore(false);
   };
 
+  const [firstLive, ...restLive] = live || [];
+
   return (
-    <Screen title="Fund Me" back>
+    <DScreen
+      title="Fund Me"
+      subtitle="Verified generosity"
+      back
+      onBack={() => nav.pop()}
+      action={<IconButton icon="plus" label="Start a fundraiser" onPress={() => nav.push('FundraiserEdit', {})} />}
+    >
       <FadeInUp>
-        <View style={styles.hero}>
-          <View style={styles.heroGlow} />
-          <Eyebrow tint={colors.goldLight}>Fund Me</Eyebrow>
-          <Text style={styles.heroTitle}>Raise support for what matters</Text>
-          <Text style={styles.heroBody}>Hospital bills, school fees, ministry needs — share your story and receive gifts from people who care.</Text>
-          <PressScale onPress={() => nav.push('FundraiserEdit', {})} scaleTo={0.96} style={styles.heroBtn} accessibilityLabel="Start a fundraiser">
-            <Icon name="plus" size={16} color={colors.night} strokeWidth={2.4} />
-            <Text style={styles.heroBtnText}>Start a fundraiser</Text>
-          </PressScale>
-          <View style={styles.heroSteps}>
+        <Grad colors={HERO} style={s.hero}>
+          <View style={s.heroIcon}><Icon name="heart" size={20} color={d.goldDark} /></View>
+          <Text style={s.heroEyebrow}>Fund Me</Text>
+          <Text style={s.heroTitle}>Raise support for what matters</Text>
+          <Text style={s.heroBody}>Hospital bills, school fees, ministry needs — share your story and receive gifts from people who care.</Text>
+          <Tap onPress={() => nav.push('FundraiserEdit', {})} style={s.heroBtn} accessibilityLabel="Start a fundraiser">
+            <Icon name="plus" size={16} color="#FFFFFF" />
+            <Text style={s.heroBtnText}>Start a fundraiser</Text>
+          </Tap>
+          <View style={s.heroSteps}>
             {['Tell your story', 'We review it', 'Share your link'].map((t, i) => (
-              <View key={t} style={styles.heroStep}>
-                <Text style={styles.heroStepNum}>{i + 1}</Text>
-                <Text style={styles.heroStepText}>{t}</Text>
+              <View key={t} style={s.heroStep}>
+                <Text style={s.heroStepNum}>{i + 1}</Text>
+                <Text style={s.heroStepText}>{t}</Text>
               </View>
             ))}
           </View>
-        </View>
+        </Grad>
       </FadeInUp>
-      {fm.demo ? <View style={{ marginTop: 14 }}><Notice text="Demo mode — sample fundraisers on this device. Sign in online to raise real support." /></View> : null}
+
+      {fm.demo ? <View style={{ marginTop: 14 }}><FNotice text="Demo mode — sample fundraisers on this device. Sign in online to raise real support." /></View> : null}
+
       {!fm.demo ? (
         <FadeInUp index={1}>
-          <View style={styles.quickRow}>
+          <View style={s.stats}>
+            <View style={s.stat2}>
+              <Text style={s.stat2Num}>{credits === null ? '–' : credits}</Text>
+              <Text style={s.stat2Label}>Credits available</Text>
+            </View>
+            <View style={s.stat2}>
+              <Text style={s.stat2Num}>{mine === null ? '–' : mine.length}</Text>
+              <Text style={s.stat2Label}>My fundraisers</Text>
+            </View>
+          </View>
+          <View style={s.quickRow}>
             {[['heart', 'Credits', 'FundMeCredits'], ['gift', 'Send credits', 'FundMeGiftCredits'], ['check', 'My donations', 'FundMeMyDonations']].map(([icon, label, route]) => (
-              <PressScale key={route} onPress={() => nav.push(route)} scaleTo={0.95} style={styles.quick} accessibilityLabel={label}>
-                <Icon name={icon} size={17} color={colors.primary} />
-                <Text style={styles.quickText}>{label}</Text>
-              </PressScale>
+              <Tap key={route} onPress={() => nav.push(route)} style={s.quick} accessibilityLabel={label}>
+                <View style={s.quickIcon}><Icon name={icon} size={15} color={d.plum} /></View>
+                <Text style={s.quickText}>{label}</Text>
+              </Tap>
             ))}
           </View>
-          <Text style={[styles.muted, { marginTop: 10, fontSize: 12.5 }]}>{HELD_EXPLAINER}</Text>
+          <Text style={s.note}>{HELD_EXPLAINER}</Text>
         </FadeInUp>
       ) : null}
-      {error ? <View style={{ marginTop: 14 }}><Notice text={error} tint={colors.negative} /></View> : null}
+      {error ? <View style={{ marginTop: 14 }}><FNotice text={error} tone="danger" /></View> : null}
 
-      <Section title="My fundraisers" style={{ marginTop: 26 }}>
-        {mine === null ? <Skeleton rows={1} /> : mine.length ? (
-          <View style={{ gap: 10 }}>
-            {mine.map((f, i) => <MineRow key={f.id} f={f} index={i} onPress={() => nav.push('Fundraiser', { id: f.id })} />)}
-          </View>
-        ) : (
-          <View style={styles.emptyMine}>
-            <Text style={styles.emptyMineText}>You haven’t started a fundraiser yet.</Text>
-          </View>
-        )}
-      </Section>
+      <SectionTitle title="My fundraisers" />
+      {mine === null ? <Skeleton rows={1} /> : mine.length ? (
+        <View style={{ gap: 10 }}>
+          {mine.map((f, i) => <MineRow key={f.id} f={f} index={i} onPress={() => nav.push('Fundraiser', { id: f.id })} />)}
+        </View>
+      ) : (
+        <FEmpty title="You haven’t started a fundraiser yet." />
+      )}
 
-      <Section title="Discover fundraisers" style={{ marginTop: 26 }}>
-        {live === null ? <Skeleton rows={2} big /> : live.length ? (
-          <View style={{ gap: 14 }}>
-            {live.map((f, i) => <DiscoverCard key={f.id} f={f} index={i} onPress={() => nav.push('Fundraiser', { id: f.id })} />)}
-            {more ? <Button kind="ghost" label={loadingMore ? 'Loading…' : 'Show more'} onPress={loadMore} disabled={loadingMore} /> : null}
-          </View>
-        ) : <Empty title="No live fundraisers yet" body="When fundraisers are approved they appear here." />}
-      </Section>
-    </Screen>
+      <SectionTitle eyebrow="Urgent needs" title="Discover fundraisers" />
+      {live === null ? <Skeleton rows={2} big /> : live.length ? (
+        <View style={{ gap: 14 }}>
+          {firstLive ? <CampaignCard f={firstLive} index={0} onPress={() => nav.push('Fundraiser', { id: firstLive.id })} /> : null}
+          {restLive.length ? (
+            <View style={s.minis}>
+              {restLive.map((f, i) => <MiniCard key={f.id} f={f} index={i + 1} onPress={() => nav.push('Fundraiser', { id: f.id })} />)}
+            </View>
+          ) : null}
+          {more ? <FBtn kind="ghost" label={loadingMore ? 'Loading…' : 'Show more'} onPress={loadMore} disabled={loadingMore} /> : null}
+        </View>
+      ) : <FEmpty title="No live fundraisers yet" body="When fundraisers are approved they appear here." />}
+    </DScreen>
   );
 }
 
 function Skeleton({ rows = 1, big }) {
   return (
     <View style={{ gap: 12 }}>
-      {Array.from({ length: rows }, (_, i) => <Shimmer key={i} style={{ height: big ? 230 : 92, borderRadius: radius.lg }} />)}
+      {Array.from({ length: rows }, (_, i) => <Shimmer key={i} style={{ height: big ? 230 : 92, borderRadius: 20 }} />)}
     </View>
   );
 }
@@ -226,24 +274,24 @@ function FundraiserBody({ f, onImage, onDoc, showPrivate }) {
   const docs = (f.media || []).filter((m) => m.kind === 'pdf' && (showPrivate || m.visibility !== 'private'));
   return (
     <View>
-      <Text style={styles.h2}>Story</Text>
+      <SectionTitle title="Story" />
       {(f.story || []).length ? f.story.map((b, i) => (b.type === 'p' ? (
-        <Text key={i} style={styles.storyP}>{b.text}</Text>
+        <Text key={i} style={s.storyP}>{b.text}</Text>
       ) : (
         <Pressable key={i} onPress={() => onImage && onImage(b.url)} style={{ marginBottom: 16 }} accessibilityLabel="Open photo">
-          <Image source={{ uri: b.url }} style={styles.storyImg} />
-          {b.caption ? <Text style={styles.caption}>{b.caption}</Text> : null}
+          <Image source={{ uri: b.url }} style={s.storyImg} />
+          {b.caption ? <Text style={s.caption}>{b.caption}</Text> : null}
         </Pressable>
-      ))) : <Text style={styles.muted}>No story yet.</Text>}
+      ))) : <Text style={s.muted}>No story yet.</Text>}
 
       {images.length ? (
         <>
-          <Text style={styles.h2}>Photos</Text>
-          <View style={styles.grid}>
+          <SectionTitle title="Photos" />
+          <View style={s.grid}>
             {images.map((m) => (
-              <PressScale key={m.id || m.url} onPress={() => onImage && onImage(m.url)} scaleTo={0.95} style={styles.gridItem} accessibilityLabel={m.caption || 'Photo'}>
-                <Image source={{ uri: m.url }} style={styles.gridImg} />
-              </PressScale>
+              <Tap key={m.id || m.url} onPress={() => onImage && onImage(m.url)} style={s.gridItem} accessibilityLabel={m.caption || 'Photo'}>
+                <Image source={{ uri: m.url }} style={s.gridImg} />
+              </Tap>
             ))}
           </View>
         </>
@@ -251,17 +299,17 @@ function FundraiserBody({ f, onImage, onDoc, showPrivate }) {
 
       {docs.length ? (
         <>
-          <Text style={styles.h2}>Documents</Text>
+          <SectionTitle title="Documents" />
           <View style={{ gap: 8 }}>
             {docs.map((m) => (
-              <PressScale key={m.id || m.key || m.name} onPress={() => onDoc && onDoc(m)} scaleTo={0.98} style={styles.docRow} accessibilityLabel={m.caption || m.name || 'Document'}>
-                <View style={styles.docIcon}><Text style={styles.docIconText}>PDF</Text></View>
+              <Tap key={m.id || m.key || m.name} onPress={() => onDoc && onDoc(m)} style={s.docRow} accessibilityLabel={m.caption || m.name || 'Document'}>
+                <FPdfTile />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.docTitle} numberOfLines={1}>{m.caption || m.name || 'Document'}</Text>
-                  <Text style={styles.docSub} numberOfLines={1}>{m.name || 'Tap to open'}</Text>
+                  <Text style={s.docTitle} numberOfLines={1}>{m.caption || m.name || 'Document'}</Text>
+                  <Text style={s.docSub} numberOfLines={1}>{m.name || 'Tap to open'}</Text>
                 </View>
-                {showPrivate && m.visibility === 'private' ? <Badge label="Private" tint={colors.slate} /> : <Icon name="arrow-up-right" size={16} color={colors.faint} />}
-              </PressScale>
+                {showPrivate && m.visibility === 'private' ? <FBadge label="Private" tint={colors.slate} /> : <Icon name="arrow-up-right" size={16} color={d.muted} />}
+              </Tap>
             ))}
           </View>
         </>
@@ -274,24 +322,24 @@ function Donors({ f }) {
   const list = f.donations || [];
   return (
     <View>
-      <Text style={styles.h2}>Words of support{f.donorsCount ? <Text style={styles.h2Count}>  · {f.donorsCount}</Text> : null}</Text>
+      <SectionTitle eyebrow={f.donorsCount ? `${f.donorsCount} ${f.donorsCount === 1 ? 'donor' : 'donors'}` : undefined} title="Words of support" />
       {list.length ? (
-        <View style={styles.card}>
-          {list.map((d, i) => (
-            <FadeInUp key={`${d.createdAt}-${i}`} index={i} style={[styles.donor, i > 0 && styles.donorBorder]}>
-              <View style={[styles.avatar, d.anonymous && { backgroundColor: colors.primarySoft }]}>
-                {d.anonymous ? <Icon name="heart" size={14} color={colors.primary} /> : <Text style={styles.avatarText}>{initials(d.name)}</Text>}
+        <DCard style={s.donorCard}>
+          {list.map((x, i) => (
+            <FadeInUp key={`${x.createdAt}-${i}`} index={i} style={[s.donor, i > 0 && s.donorBorder]}>
+              <View style={[s.avatar, x.anonymous && { backgroundColor: d.lavender }]}>
+                {x.anonymous ? <Icon name="heart" size={14} color={d.plum} /> : <Text style={s.avatarText}>{initials(x.name)}</Text>}
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.donorName}>{d.name}</Text>
-                <Text style={styles.donorMeta}>{formatMoney(d.amountMinor, d.currency)} · {timeAgo(d.createdAt)}</Text>
-                {d.message ? <Text style={styles.donorMsg}>“{d.message}”</Text> : null}
+                <Text style={s.donorName}>{x.name}</Text>
+                <Text style={s.donorMeta}>{formatMoney(x.amountMinor, x.currency)} · {timeAgo(x.createdAt)}</Text>
+                {x.message ? <Text style={s.donorMsg}>“{x.message}”</Text> : null}
               </View>
             </FadeInUp>
           ))}
-        </View>
+        </DCard>
       ) : (
-        <View style={[styles.card, { padding: 16 }]}><Text style={styles.muted}>Be the first to give and leave a word of encouragement.</Text></View>
+        <DCard style={{ padding: 16 }}><Text style={s.muted}>Be the first to give and leave a word of encouragement.</Text></DCard>
       )}
     </View>
   );
@@ -299,10 +347,10 @@ function Donors({ f }) {
 
 function Lightbox({ uri, onClose }) {
   return (
-    <AnimatedModal visible={!!uri} onRequestClose={onClose} full dim="rgba(21,23,43,0.94)">
-      <Pressable style={styles.lightbox} onPress={onClose} accessibilityLabel="Close photo">
-        {uri ? <Image source={{ uri }} style={styles.lightboxImg} resizeMode="contain" /> : null}
-        <View style={styles.lightboxClose}><Icon name="x" size={18} color="#FFFFFF" /></View>
+    <AnimatedModal visible={!!uri} onRequestClose={onClose} full dim="rgba(40,26,17,0.94)">
+      <Pressable style={s.lightbox} onPress={onClose} accessibilityLabel="Close photo">
+        {uri ? <Image source={{ uri }} style={s.lightboxImg} resizeMode="contain" /> : null}
+        <View style={s.lightboxClose}><Icon name="x" size={18} color="#FFFFFF" /></View>
       </Pressable>
     </AnimatedModal>
   );
@@ -366,15 +414,15 @@ export function FundraiserScreen({ params = {} }) {
     const check = async () => {
       tries += 1;
       try {
-        const s = await fm.donationStatus(slug, donationId);
-        if (isReceived(s)) {
+        const st2 = await fm.donationStatus(slug, donationId);
+        if (isReceived(st2)) {
           clearInterval(poll.current);
           await load();
           setCelebrate((n) => n + 1);
           if (!fm.demo) setLastDonation(donationId);
           toast.show('Thank you! Your donation was received — BibleNestra holds it for the organiser', { icon: 'heart', haptic: 'success', duration: 4200 });
           fm.notifyChanged();
-        } else if (s.status === 'failed') {
+        } else if (st2.status === 'failed') {
           clearInterval(poll.current);
           toast.show('The payment didn’t go through — you haven’t been charged', { tone: 'error' });
         }
@@ -419,15 +467,15 @@ export function FundraiserScreen({ params = {} }) {
 
   if (!f) {
     return (
-      <Screen title="Fundraiser" back>
-        {error ? <Empty title="Fundraiser unavailable" body={error} action="Try again" onAction={load} /> : (
+      <DScreen title="Fundraiser" back onBack={() => nav.pop()}>
+        {error ? <FEmpty title="Fundraiser unavailable" body={error} action="Try again" onAction={load} /> : (
           <View style={{ gap: 14 }}>
-            <Shimmer style={{ height: 220, borderRadius: radius.lg }} />
+            <Shimmer style={{ height: 220, borderRadius: 24 }} />
             <Shimmer style={{ height: 28, width: '70%' }} />
-            <Shimmer style={{ height: 150, borderRadius: radius.lg }} />
+            <Shimmer style={{ height: 150, borderRadius: 20 }} />
           </View>
         )}
-      </Screen>
+      </DScreen>
     );
   }
 
@@ -436,104 +484,119 @@ export function FundraiserScreen({ params = {} }) {
   // Anyone but the organiser can send coins as a seed while the fundraiser is live
   const canGift = canDonate && !owner && !fm.demo && !!(f.owner && f.owner.id);
   const soon = canDonate && !f.paymentsReady;
+  // the donate bar (Share + Donate) is shown while donations are switched on
+  const showBar = canDonate && !soon;
   // the public page exists once approved (admin-paused pages are hidden)
   const isPublic = f.status === 'live' || (['paused', 'closed'].includes(f.status) && f.pausedBy !== 'admin' && (!owner || !!f.approvedAt || fm.demo));
 
   return (
-    <Screen
-      title={owner ? 'Your fundraiser' : 'Fundraiser'}
-      back
-      right={owner && f.status !== 'closed' ? (
-        <Pressable onPress={() => nav.push('FundraiserEdit', { id: f.id })} hitSlop={10} style={styles.headerBtn} accessibilityLabel="Edit fundraiser">
-          <Icon name="edit" size={18} color={colors.fg} />
-        </Pressable>
-      ) : null}
-    >
-      {banner ? (
-        <FadeInUp>
-          <View style={[styles.banner, { backgroundColor: alpha(banner[2], 0.1), borderLeftColor: banner[2] }]}>
-            <Text style={[styles.bannerTitle, { color: banner[2] }]}>{banner[0]}</Text>
-            <Text style={styles.bannerText}>{f.status === 'rejected' ? `Our team asked for changes: ${f.rejectReason || 'see your notifications'}. Edit and resubmit when ready.` : banner[1]}</Text>
+    <View style={k.screen}>
+      <ScrollView
+        contentContainerStyle={[k.scroll, { paddingTop: 8, paddingBottom: showBar ? 150 : 48 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <PageHeader
+          title={owner ? 'Your fundraiser' : 'Campaign'}
+          subtitle={STATUS_LABEL[f.status] || 'Fund Me'}
+          back
+          onBack={() => nav.pop()}
+          action={owner && f.status !== 'closed' ? (
+            <IconButton icon="edit" label="Edit fundraiser" onPress={() => nav.push('FundraiserEdit', { id: f.id })} />
+          ) : null}
+        />
+
+        {banner ? (
+          <FadeInUp>
+            <View style={[s.banner, { backgroundColor: alpha(banner[2], 0.1), borderLeftColor: banner[2] }]}>
+              <Text style={[s.bannerTitle, { color: banner[2] }]}>{banner[0]}</Text>
+              <Text style={s.bannerText}>{f.status === 'rejected' ? `Our team asked for changes: ${f.rejectReason || 'see your notifications'}. Edit and resubmit when ready.` : banner[1]}</Text>
+            </View>
+          </FadeInUp>
+        ) : null}
+        {f.testMode && canDonate && !fm.demo ? <View style={{ marginBottom: 12 }}><FNotice tone="plum" text="Test payments — donations use a simulated checkout. No real money moves." /></View> : null}
+
+        <FadeInUp index={1}>
+          <Pressable onPress={() => f.mainImageUrl && setLightbox(f.mainImageUrl)} accessibilityLabel="Open main photo">
+            <Thumb uri={f.mainImageUrl} style={s.cover} />
+          </Pressable>
+          {f.status === 'live' ? (
+            <View style={s.verified}>
+              <Icon name="shield" size={14} color={d.sageDark} />
+              <Text style={s.verifiedText}>Reviewed by our team before going live</Text>
+            </View>
+          ) : null}
+          <Text style={s.detailTitle}>{f.title}</Text>
+          <View style={s.orgRow}>
+            <View style={s.orgAvatar}><Text style={s.orgAvatarText}>{initials(f.owner && f.owner.displayName)}</Text></View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={s.orgSmall}>Organised by</Text>
+              <Text style={s.orgName} numberOfLines={1}>{owner ? (f.owner && f.owner.displayName && f.owner.displayName !== 'You' ? `${f.owner.displayName} (you)` : 'you') : f.owner && f.owner.displayName}</Text>
+            </View>
           </View>
         </FadeInUp>
-      ) : null}
-      {f.testMode && canDonate && !fm.demo ? <View style={{ marginBottom: 12 }}><Notice text="Test payments — donations use a simulated checkout. No real money moves." /></View> : null}
 
-      <FadeInUp index={1}>
-        <Pressable onPress={() => f.mainImageUrl && setLightbox(f.mainImageUrl)} accessibilityLabel="Open main photo">
-          <Thumb uri={f.mainImageUrl} style={styles.hero2} />
-        </Pressable>
-        <Eyebrow style={{ marginTop: 18 }}>Fundraiser</Eyebrow>
-        <Text style={styles.title}>{f.title}</Text>
-        <View style={styles.orgRow}>
-          <View style={styles.avatarSm}><Text style={styles.avatarSmText}>{initials(f.owner && f.owner.displayName)}</Text></View>
-          <Text style={styles.orgText}>Organised by <Text style={{ color: colors.fg, fontWeight: '700' }}>{owner ? (f.owner && f.owner.displayName && f.owner.displayName !== 'You' ? `${f.owner.displayName} (you)` : 'you') : f.owner && f.owner.displayName}</Text></Text>
-        </View>
-      </FadeInUp>
-
-      <FadeInUp index={2}>
-        <View style={[styles.card, styles.progressCard]}>
-          <Burst trigger={celebrate} count={14} radius={80} />
-          <Progress f={f} big />
-          {canDonate || isPublic ? (
-          <View style={styles.actions}>
-            {canDonate ? (
-              soon ? (
-                <View style={[styles.soon, { flex: 1 }]}><Text style={styles.soonText}>{f.closedMessage || 'Donations aren’t switched on yet'}</Text></View>
-              ) : (
-                <Button label="Donate" onPress={() => setDonateOpen(true)} style={{ flex: 1 }} icon={<Icon name="heart" size={16} color="#FFFFFF" />} />
-              )
+        <FadeInUp index={2}>
+          <DCard style={s.progressCard}>
+            <Burst trigger={celebrate} count={14} radius={80} />
+            <Progress f={f} big />
+            {!showBar && (canDonate || isPublic) ? (
+              <View style={s.actions}>
+                {canDonate && soon ? (
+                  <View style={[s.soon, { flex: 1 }]}><Text style={s.soonText}>{f.closedMessage || 'Donations aren’t switched on yet'}</Text></View>
+                ) : null}
+                {isPublic ? <FBtn kind="ghost" label="Share" onPress={share} style={{ flex: canDonate ? 0.8 : 1 }} icon={<Icon name="share" size={16} color={d.ink} />} /> : null}
+              </View>
             ) : null}
-            {isPublic ? <Button kind="ghost" label="Share" onPress={share} style={{ flex: canDonate ? 0.8 : 1 }} icon={<Icon name="share" size={16} color={colors.fg} />} /> : null}
-          </View>
-          ) : null}
-          {canGift ? (
-            <Button
-              kind="ghost"
-              label="Gift coins"
-              onPress={() => setGiftOpen(true)}
-              style={{ marginTop: 10 }}
-              icon={<Icon name="gift" size={16} color={colors.fg} />}
-            />
-          ) : null}
-          {isPublic ? (
-            <PressScale onPress={copyLink} scaleTo={0.98} style={styles.linkRow} accessibilityLabel="Copy link">
-              <Icon name="link" size={15} color={colors.primary} />
-              <Text style={styles.linkText} numberOfLines={1}>{f.url.replace(/^https?:\/\//, '')}</Text>
-              <Text style={styles.linkCopy}>Copy</Text>
-            </PressScale>
-          ) : null}
-          {!canDonate && !owner ? <Text style={[styles.muted, { marginTop: 10 }]}>{f.status === 'closed' ? 'This fundraiser has ended.' : 'Donations are paused for now.'}</Text> : null}
-          {canDonate && !fm.demo ? (
-            <View style={styles.heldNote}>
-              <Icon name="shield" size={14} color={colors.positive} />
-              <Text style={styles.heldNoteText}>{f.heldByBibleNestra || HELD_EXPLAINER}</Text>
-            </View>
-          ) : null}
-          {lastDonation ? <Button kind="ghost" small label="View your receipt" onPress={() => nav.push('FundMeReceipt', { donationId: lastDonation })} style={{ marginTop: 10 }} icon={<Icon name="check" size={14} color={colors.fg} />} /> : null}
-        </View>
-      </FadeInUp>
-
-      {owner ? (
-        <FadeInUp index={3}>
-          <View style={[styles.card, { padding: 14, marginTop: 14 }]}>
-            <Text style={styles.toolsTitle}>Organiser tools</Text>
-            <View style={styles.toolsGrid}>
-              {f.status !== 'closed' ? <Tool icon="edit" label="Edit" onPress={() => nav.push('FundraiserEdit', { id: f.id })} /> : null}
-              <Tool icon="users" label="Donations" onPress={() => nav.push('FundraiserDonations', { id: f.id, title: f.title, currency: f.currency })} />
-              {!fm.demo && f.approvedAt ? <Tool icon="coin" label="Payouts" onPress={() => nav.push('FundMeMoney', { id: f.id, title: f.title })} /> : null}
-              {['draft', 'rejected'].includes(f.status) ? <Tool icon="check" label={busy === 'submit' ? 'Submitting…' : 'Submit'} onPress={() => act('submit')} /> : null}
-              {f.status === 'live' ? <Tool icon="pause" label={busy === 'pause' ? 'Pausing…' : 'Pause'} onPress={() => act('pause')} /> : null}
-              {f.status === 'paused' && f.pausedBy !== 'admin' ? <Tool icon="play" label={busy === 'resume' ? 'Resuming…' : 'Resume'} onPress={() => act('resume')} /> : null}
-              {f.status !== 'closed' ? <Tool icon="x" label="Close" danger onPress={() => setConfirm('close')} /> : null}
-            </View>
-          </View>
-          {['draft', 'rejected', 'pending_review'].includes(f.status) && !fm.demo ? <FundMeCreditsCard style={{ marginTop: 12 }} refreshKey={f.status} /> : null}
+            {canGift ? (
+              <FBtn kind="ghost" label="Gift coins" onPress={() => setGiftOpen(true)} style={{ marginTop: 10 }} icon={<Icon name="gift" size={16} color={d.ink} />} />
+            ) : null}
+            {isPublic ? (
+              <Tap onPress={copyLink} style={s.linkRow} accessibilityLabel="Copy link">
+                <Icon name="link" size={15} color={d.plum} />
+                <Text style={s.linkText} numberOfLines={1}>{f.url.replace(/^https?:\/\//, '')}</Text>
+                <Text style={s.linkCopy}>Copy</Text>
+              </Tap>
+            ) : null}
+            {!canDonate && !owner ? <Text style={[s.muted, { marginTop: 10 }]}>{f.status === 'closed' ? 'This fundraiser has ended.' : 'Donations are paused for now.'}</Text> : null}
+            {canDonate && !fm.demo ? (
+              <View style={s.heldNote}>
+                <Icon name="shield" size={14} color={d.sageDark} />
+                <Text style={s.heldNoteText}>{f.heldByBibleNestra || HELD_EXPLAINER}</Text>
+              </View>
+            ) : null}
+            {lastDonation ? <FBtn kind="ghost" small label="View your receipt" onPress={() => nav.push('FundMeReceipt', { donationId: lastDonation })} style={{ marginTop: 10 }} icon={<Icon name="check" size={14} color={d.ink} />} /> : null}
+          </DCard>
         </FadeInUp>
-      ) : null}
 
-      <FundraiserBody f={f} onImage={setLightbox} onDoc={openDoc} showPrivate={owner} />
-      <Donors f={f} />
+        {owner ? (
+          <FadeInUp index={3}>
+            <DCard style={{ padding: 14, marginTop: 14 }}>
+              <Text style={s.toolsTitle}>Organiser tools</Text>
+              <View style={s.toolsGrid}>
+                {f.status !== 'closed' ? <Tool icon="edit" label="Edit" onPress={() => nav.push('FundraiserEdit', { id: f.id })} /> : null}
+                <Tool icon="users" label="Donations" onPress={() => nav.push('FundraiserDonations', { id: f.id, title: f.title, currency: f.currency })} />
+                {!fm.demo && f.approvedAt ? <Tool icon="coin" label="Payouts" onPress={() => nav.push('FundMeMoney', { id: f.id, title: f.title })} /> : null}
+                {['draft', 'rejected'].includes(f.status) ? <Tool icon="check" label={busy === 'submit' ? 'Submitting…' : 'Submit'} onPress={() => act('submit')} /> : null}
+                {f.status === 'live' ? <Tool icon="pause" label={busy === 'pause' ? 'Pausing…' : 'Pause'} onPress={() => act('pause')} /> : null}
+                {f.status === 'paused' && f.pausedBy !== 'admin' ? <Tool icon="play" label={busy === 'resume' ? 'Resuming…' : 'Resume'} onPress={() => act('resume')} /> : null}
+                {f.status !== 'closed' ? <Tool icon="x" label="Close" danger onPress={() => setConfirm('close')} /> : null}
+              </View>
+            </DCard>
+            {['draft', 'rejected', 'pending_review'].includes(f.status) && !fm.demo ? <FundMeCreditsCard style={{ marginTop: 12 }} refreshKey={f.status} /> : null}
+          </FadeInUp>
+        ) : null}
+
+        <FundraiserBody f={f} onImage={setLightbox} onDoc={openDoc} showPrivate={owner} />
+        <Donors f={f} />
+      </ScrollView>
+
+      {showBar ? (
+        <View style={s.donateBar}>
+          {isPublic ? <FBtn kind="ghost" label="Share" onPress={share} style={{ width: 96 }} icon={<Icon name="share" size={15} color={d.ink} />} /> : null}
+          <FBtn label="Donate" onPress={() => setDonateOpen(true)} style={{ flex: 1 }} icon={<Icon name="heart" size={16} color="#FFFFFF" />} />
+        </View>
+      ) : null}
 
       <Lightbox uri={lightbox} onClose={() => setLightbox(null)} />
       <GiftSheet
@@ -544,28 +607,28 @@ export function FundraiserScreen({ params = {} }) {
       />
       <DonateSheet visible={donateOpen} f={f} demo={fm.demo} defaultName={(state.user && state.user.displayName) || ''} onClose={() => setDonateOpen(false)} onDonate={donate} />
       <BuyCoinsSheet visible={buyCredits} wallet="fundme_credits" onClose={() => setBuyCredits(false)} onPurchased={() => { setBuyCredits(false); fm.notifyChanged(); }} />
-      <AnimatedModal visible={confirm === 'close'} onRequestClose={() => setConfirm(null)}>
+      <AnimatedModal visible={confirm === 'close'} onRequestClose={() => setConfirm(null)} dim="rgba(40,26,17,0.5)">
         <Pressable style={{ flex: 1 }} onPress={() => setConfirm(null)} />
-        <View style={styles.sheet}>
-          <View style={styles.grabber} />
-          <Text style={styles.sheetTitle}>Close this fundraiser?</Text>
-          <Text style={[styles.muted, { marginTop: 6, marginBottom: 18 }]}>Donations stop for good. The page stays up so supporters can still see what was raised.</Text>
-          <Button kind="danger" label={busy === 'close' ? 'Closing…' : 'Close fundraiser'} onPress={() => act('close')} disabled={busy === 'close'} />
-          <Button kind="ghost" label="Keep it open" onPress={() => setConfirm(null)} style={{ marginTop: 8 }} />
+        <View style={s.sheet}>
+          <View style={s.grabber} />
+          <Text style={s.sheetTitle}>Close this fundraiser?</Text>
+          <Text style={[s.muted, { marginTop: 6, marginBottom: 18 }]}>Donations stop for good. The page stays up so supporters can still see what was raised.</Text>
+          <FBtn kind="danger" label={busy === 'close' ? 'Closing…' : 'Close fundraiser'} onPress={() => act('close')} disabled={busy === 'close'} />
+          <FBtn kind="ghost" label="Keep it open" onPress={() => setConfirm(null)} style={{ marginTop: 8 }} />
         </View>
       </AnimatedModal>
-    </Screen>
+    </View>
   );
 }
 
 function Tool({ icon, label, onPress, danger }) {
   return (
-    <PressScale onPress={onPress} scaleTo={0.94} style={styles.tool} accessibilityLabel={label}>
-      <View style={[styles.toolIcon, danger && { backgroundColor: colors.negativeFaint }]}>
-        <Icon name={icon} size={17} color={danger ? colors.negative : colors.primary} />
+    <Tap onPress={onPress} style={s.tool} accessibilityLabel={label}>
+      <View style={[s.toolIcon, danger && { backgroundColor: '#F6E0DC' }]}>
+        <Icon name={icon} size={17} color={danger ? '#8A2F2F' : d.plum} />
       </View>
-      <Text style={[styles.toolLabel, danger && { color: colors.negative }]}>{label}</Text>
-    </PressScale>
+      <Text style={[s.toolLabel, danger && { color: '#8A2F2F' }]}>{label}</Text>
+    </Tap>
   );
 }
 
@@ -629,68 +692,68 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
   };
   const payLabel = quote ? (quote.converted ? `${quote.display.charged} (≈ ${quote.display.donorTotal})` : quote.display.charged) : amount && !Number.isNaN(amount) ? money(amount, cur) : '';
   return (
-    <AnimatedModal visible={visible} onRequestClose={onClose}>
+    <AnimatedModal visible={visible} onRequestClose={onClose} dim="rgba(40,26,17,0.5)">
       <Pressable style={{ flex: 1 }} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.grabber} />
+      <View style={s.sheet}>
+        <View style={s.grabber} />
         <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Eyebrow>Give</Eyebrow>
-          <Text style={styles.sheetTitle} numberOfLines={2}>{f.title}</Text>
+          <Text style={s.sheetTitle} numberOfLines={2}>{f.title}</Text>
           {options.length > 1 ? (
-            <View style={{ marginTop: 10 }}>
-              <PressScale onPress={() => setPickCur((v) => !v)} scaleTo={0.97} style={styles.curBtn} accessibilityLabel={`Currency ${cur}. Change`}>
-                <Text style={styles.curBtnText}>Give in {cur}{CURRENCY_NAME[cur] ? ` · ${CURRENCY_NAME[cur]}` : ''}</Text>
-                <Icon name={pickCur ? 'chevron-up' : 'chevron-down'} size={14} color={colors.muted} />
-              </PressScale>
+            <View style={{ marginTop: 12 }}>
+              <Tap onPress={() => setPickCur((v) => !v)} style={s.curBtn} accessibilityLabel={`Currency ${cur}. Change`}>
+                <Text style={s.curBtnText}>Give in {cur}{CURRENCY_NAME[cur] ? ` · ${CURRENCY_NAME[cur]}` : ''}</Text>
+                <Icon name={pickCur ? 'chevron-up' : 'chevron-down'} size={14} color={d.muted} />
+              </Tap>
               {pickCur ? (
-                <View style={styles.curList}>
+                <View style={s.curList}>
                   {options.map((o) => (
-                    <PressScale key={o.code} onPress={() => { setCur(o.code); setPickCur(false); }} scaleTo={0.93} style={[styles.curChip, o.code === cur && styles.presetOn]} accessibilityLabel={o.code}>
-                      <Text style={[styles.curChipText, o.code === cur && { color: '#FFFFFF' }]}>{o.code}</Text>
-                    </PressScale>
+                    <Tap key={o.code} onPress={() => { setCur(o.code); setPickCur(false); }} style={[s.curChip, o.code === cur && s.on]} accessibilityLabel={o.code}>
+                      <Text style={[s.curChipText, o.code === cur && { color: '#FFFFFF' }]}>{o.code}</Text>
+                    </Tap>
                   ))}
                 </View>
               ) : null}
               {f.fxAttribution ? (
                 <Pressable onPress={() => { WebBrowser.openBrowserAsync(f.fxAttribution.url).catch(() => {}); }} accessibilityRole="link" accessibilityLabel={f.fxAttribution.label} hitSlop={8} style={{ alignSelf: 'flex-start', marginTop: 6 }}>
-                  <Text style={styles.fxAttr}>{f.fxAttribution.label}</Text>
+                  <Text style={s.fxAttr}>{f.fxAttribution.label}</Text>
                 </Pressable>
               ) : null}
             </View>
           ) : null}
-          <View style={styles.presets}>
+          <View style={s.presets}>
             {presets.map((p) => {
               const on = !custom && preset === p;
               return (
-                <PressScale key={p} onPress={() => { setPreset(p); setCustom(''); }} scaleTo={0.93} style={[styles.preset, on && styles.presetOn]} accessibilityLabel={money(p, cur)}>
-                  <Text style={[styles.presetText, on && { color: '#FFFFFF' }]} numberOfLines={1} adjustsFontSizeToFit>{money(p, cur)}</Text>
-                </PressScale>
+                <Tap key={p} onPress={() => { setPreset(p); setCustom(''); }} style={[s.preset, on && s.on]} accessibilityLabel={money(p, cur)}>
+                  <Text style={[s.presetText, on && { color: '#FFFFFF' }]} numberOfLines={1} adjustsFontSizeToFit>{money(p, cur)}</Text>
+                </Tap>
               );
             })}
           </View>
-          <View style={styles.amountBox}>
-            <Text style={styles.amountSym}>{sym}</Text>
+          <View style={s.amountBox}>
+            <Text style={s.amountSym}>{sym}</Text>
             <TextInput
               value={custom}
               onChangeText={(t) => setCustom(t.replace(/[^\d.,]/g, ''))}
               placeholder="Other amount"
-              placeholderTextColor={colors.faint}
+              placeholderTextColor={d.muted}
               keyboardType="decimal-pad"
-              style={styles.amountInput}
+              style={s.amountInput}
               accessibilityLabel="Other amount"
             />
           </View>
           {!demo ? (
-            <View style={styles.anonRow}>
+            <View style={s.toggleRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.anonTitle}>Cover the fees</Text>
-                <Text style={styles.anonSub}>Adds the BibleNestra fee, the payment processing fee and VAT so the organiser gets your full gift. Untick and the fees come out of your gift.</Text>
+                <Text style={s.toggleTitle}>Cover the fees</Text>
+                <Text style={s.toggleSub}>Adds the BibleNestra fee, the payment processing fee and VAT so the organiser gets your full gift. Untick and the fees come out of your gift.</Text>
               </View>
-              <Switch value={cover} onValueChange={setCover} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" activeThumbColor="#FFFFFF" accessibilityLabel="Cover the fees" />
+              <DToggle value={cover} onChange={setCover} accessibilityLabel="Cover the fees" />
             </View>
           ) : null}
           {quote ? (
-            <View style={styles.quoteBox}>
+            <View style={s.quoteBox}>
               {[
                 ['Your gift', quote.display.gift],
                 ...(quote.currency !== 'NGN' ? [[`In Naira (₦${Number(quote.fxRate).toLocaleString()} per ${quote.currency})`, formatMoney(quote.giftNgnMinor, 'NGN')]] : []),
@@ -699,49 +762,49 @@ function DonateSheet({ visible, f, onClose, onDonate, defaultName, demo }) {
                 ['VAT on fees', quote.display.vat],
                 ['You pay', payLabel],
                 ['The organiser receives', quote.display.beneficiary],
-              ].map(([k, v], i) => (
-                <View key={k} style={[styles.quoteRow, i >= 5 && { marginTop: 4 }]}>
-                  <Text style={[styles.quoteKey, i >= 5 && { color: colors.fg, fontWeight: '700' }]}>{k}</Text>
-                  <Text style={[styles.quoteVal, i >= 5 && { fontWeight: '800' }]}>{v}</Text>
+              ].map(([kk, v], i) => (
+                <View key={kk} style={[s.quoteRow, i >= 5 && { marginTop: 4 }]}>
+                  <Text style={[s.quoteKey, i >= 5 && { color: d.ink, fontFamily: df.sansBold }]}>{kk}</Text>
+                  <Text style={[s.quoteVal, i >= 5 && { fontFamily: df.sansBold }]}>{v}</Text>
                 </View>
               ))}
-              {quote.converted ? <Text style={styles.quoteNote}>Charged in Naira at our rate — your bank shows about {quote.display.donorTotal}. {f.settlementNote || ''}</Text> : null}
+              {quote.converted ? <Text style={s.quoteNote}>Charged in Naira at our rate — your bank shows about {quote.display.donorTotal}. {f.settlementNote || ''}</Text> : null}
             </View>
           ) : null}
-          <Text style={styles.label}>Your name</Text>
-          <Input value={name} onChangeText={setName} placeholder="Name shown with your gift" maxLength={80} />
+          <DLabel>Your name</DLabel>
+          <DInput value={name} onChangeText={setName} placeholder="Name shown with your gift" maxLength={80} />
           {needsEmail ? (
             <>
-              <Text style={styles.label}>Email for your receipt</Text>
-              <Input value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" maxLength={200} />
+              <DLabel>Email for your receipt</DLabel>
+              <DInput value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" maxLength={200} />
             </>
           ) : null}
-          <Text style={styles.label}>Message (optional)</Text>
-          <Input value={message} onChangeText={setMessage} placeholder="Words of encouragement…" multiline maxLength={500} />
-          <View style={styles.anonRow}>
+          <DLabel>Message (optional)</DLabel>
+          <DInput value={message} onChangeText={setMessage} placeholder="Words of encouragement…" multiline maxLength={500} />
+          <View style={s.toggleRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.anonTitle}>Give anonymously</Text>
-              <Text style={styles.anonSub}>Your name is hidden on the public page (the organiser can still see it). Your gift still counts.</Text>
+              <Text style={s.toggleTitle}>Give anonymously</Text>
+              <Text style={s.toggleSub}>Your name is hidden on the public page (the organiser can still see it). Your gift still counts.</Text>
             </View>
-            <Switch value={anon} onValueChange={setAnon} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" activeThumbColor="#FFFFFF" accessibilityLabel="Give anonymously" />
+            <DToggle value={anon} onChange={setAnon} accessibilityLabel="Give anonymously" />
           </View>
           {f.canTestDonate ? (
-            <View style={styles.anonRow}>
+            <View style={s.toggleRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.anonTitle}>Test donation (testers)</Text>
-                <Text style={styles.anonSub}>Uses a simulated checkout. No real money moves.</Text>
+                <Text style={s.toggleTitle}>Test donation (testers)</Text>
+                <Text style={s.toggleSub}>Uses a simulated checkout. No real money moves.</Text>
               </View>
-              <Switch value={test} onValueChange={setTest} trackColor={{ true: colors.gold, false: colors.borderStrong }} thumbColor="#FFFFFF" activeThumbColor="#FFFFFF" accessibilityLabel="Test donation" />
+              <DToggle value={test} onChange={setTest} accessibilityLabel="Test donation" />
             </View>
           ) : null}
-          {err ? <Text style={styles.err}>{err}</Text> : null}
-          <Button
+          {err ? <Text style={s.err}>{err}</Text> : null}
+          <FBtn
             label={busy ? 'Starting checkout…' : payLabel ? `Donate ${payLabel}` : 'Donate'}
             onPress={submit}
             disabled={busy}
             style={{ marginTop: 14 }}
           />
-          <Text style={styles.sheetNote}>
+          <Text style={s.sheetNote}>
             {demo ? 'Demo mode — the gift is recorded on this device only. No money moves.'
               : f.testMode || test ? 'Test mode — you’ll see a simulated checkout. No real money moves.' : `You’ll pay on Paystack’s secure checkout. ${HELD_EXPLAINER}`}
             {demo ? '' : ` ${f.refundPolicy || 'Donations are non-refundable.'}`}
@@ -855,7 +918,7 @@ export function FundraiserEditScreen({ params = {} }) {
         nav.replace('Fundraiser', { id: saved.id });
       } catch (e) {
         toast.show(errorMessage(e, 'Couldn’t submit'), { tone: 'error', duration: 4200 });
-        if (e && e.code === 'INSUFFICIENT_BALANCE') { setBuyCredits(true); setCreditsKey((k) => k + 1); }
+        if (e && e.code === 'INSUFFICIENT_BALANCE') { setBuyCredits(true); setCreditsKey((x) => x + 1); }
       }
       setBusy(null);
     } else {
@@ -899,14 +962,14 @@ export function FundraiserEditScreen({ params = {} }) {
   });
   const addPdf = () => withUpload('pdf', async () => {
     if (media.filter((m) => m.kind === 'pdf').length >= 6) { toast.show('Up to 6 documents'); return; }
-    const d = await pickPdf();
-    if (!d) return;
-    const up = await fm.uploadPdf(d);
-    setMedia((ms) => [...ms, { kind: 'pdf', key: up.key, name: up.name || d.name, caption: (d.name || '').replace(/\.pdf$/i, ''), visibility: 'private' }]);
+    const dd = await pickPdf();
+    if (!dd) return;
+    const up = await fm.uploadPdf(dd);
+    setMedia((ms) => [...ms, { kind: 'pdf', key: up.key, name: up.name || dd.name, caption: (dd.name || '').replace(/\.pdf$/i, ''), visibility: 'private' }]);
   });
 
   const updBlock = (bidv, patch) => setBlocks((bs) => bs.map((b) => (b.id === bidv ? { ...b, ...patch } : b)));
-  const moveBlock = (i, d) => setBlocks((bs) => { const a = [...bs]; const j = i + d; if (j < 0 || j >= a.length) return a; [a[i], a[j]] = [a[j], a[i]]; return a; });
+  const moveBlock = (i, dir) => setBlocks((bs) => { const a = [...bs]; const j = i + dir; if (j < 0 || j >= a.length) return a; [a[i], a[j]] = [a[j], a[i]]; return a; });
   const removeBlock = (bidv) => setBlocks((bs) => (bs.length > 1 ? bs.filter((b) => b.id !== bidv) : [{ id: bid(), type: 'p', text: '' }]));
   const updMedia = (i, patch) => setMedia((ms) => ms.map((m, j) => (j === i ? { ...m, ...patch } : m)));
   const removeMedia = (i) => setMedia((ms) => ms.filter((_, j) => j !== i));
@@ -925,198 +988,214 @@ export function FundraiserEditScreen({ params = {} }) {
   }, [step, title, currency, goalMinor, main, blocks, media, existing]);
 
   if (!loaded) {
-    return <Screen title="Edit fundraiser" back><ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} /></Screen>;
+    return (
+      <View style={k.screen}>
+        <View style={s.wizHeader}><PageHeader title="Edit fundraiser" back onBack={() => nav.pop()} action={null} /></View>
+        <ActivityIndicator color={d.plum} style={{ marginTop: 40 }} />
+      </View>
+    );
   }
 
   const isNew = !id;
   const submitLabel = ['draft', 'rejected'].includes(status) ? (busy === 'submit' ? 'Submitting…' : 'Submit for review') : 'Save changes';
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.screen }}>
-      <Screen
-        title={isNew ? 'Start a fundraiser' : 'Edit fundraiser'}
-        back
-        scroll={false}
-        padded={false}
-        right={(
-          <Pressable onPress={() => save()} hitSlop={10} disabled={!!busy} style={styles.headerBtn} accessibilityLabel="Save draft">
-            <Text style={styles.headerSave}>{busy === 'save' ? 'Saving…' : 'Save'}</Text>
+    <View style={k.screen}>
+      <View style={s.wizHeader}>
+        <PageHeader
+          title={isNew ? 'Start a fundraiser' : 'Edit fundraiser'}
+          subtitle={`Step ${step + 1} of ${STEPS.length} · ${STEPS[step]}`}
+          back
+          onBack={() => nav.pop()}
+          action={(
+            <Tap onPress={() => save()} disabled={!!busy} style={s.saveBtn} accessibilityLabel="Save draft">
+              <Text style={s.saveText}>{busy === 'save' ? 'Saving…' : 'Save'}</Text>
+            </Tap>
+          )}
+        />
+      </View>
+      <View style={s.stepper}>
+        <View style={s.stepperRail} />
+        {STEPS.map((x, i) => (
+          <Pressable key={x} onPress={() => (i <= step || validateBasics()) && go(i)} style={s.stepItem} accessibilityLabel={`Step ${i + 1}: ${x}`}>
+            <View style={[s.stepDot, i <= step && s.stepDotOn]}>
+              {i < step ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} /> : <Text style={[s.stepNum, i <= step && { color: '#FFFFFF' }]}>{i + 1}</Text>}
+            </View>
+            <Text style={[s.stepLabel, i === step && { color: d.ink }]}>{x}</Text>
           </Pressable>
-        )}
-      >
-        <View style={styles.stepper}>
-          {STEPS.map((s, i) => (
-            <Pressable key={s} onPress={() => (i <= step || validateBasics()) && go(i)} style={styles.stepItem} accessibilityLabel={`Step ${i + 1}: ${s}`}>
-              <View style={[styles.stepDot, i <= step && styles.stepDotOn]}>
-                {i < step ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} /> : <Text style={[styles.stepNum, i <= step && { color: '#FFFFFF' }]}>{i + 1}</Text>}
-              </View>
-              <Text style={[styles.stepLabel, i === step && { color: colors.fg }]}>{s}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          {step === 0 ? (
-            <FadeInUp key="s0">
-              <Text style={styles.stepTitle}>What are you raising money for?</Text>
-              <Text style={styles.stepSub}>A clear heading helps people understand your need at a glance.</Text>
-              <Text style={styles.label}>Heading</Text>
-              <Input value={title} onChangeText={(t) => { setTitle(t); if (errors.title) setErrors({ ...errors, title: null }); }} placeholder="e.g. Help Me Pay My Hospital Bill" maxLength={120} />
-              {errors.title ? <Text style={styles.err}>{errors.title}</Text> : null}
-              <View style={styles.suggestRow}>
-                {['Help Me Pay My Hospital Bill', 'Support My Education', 'Support My Ministry'].map((s) => (
-                  <PressScale key={s} onPress={() => setTitle(s)} scaleTo={0.94} style={styles.suggest}><Text style={styles.suggestText}>{s}</Text></PressScale>
-                ))}
-              </View>
-              <Text style={[styles.label, { marginTop: 22 }]}>Currency</Text>
-              <View style={styles.curRow}>
-                {CURRENCIES.map((c) => (
-                  <PressScale key={c} disabled={moneyLocked} onPress={() => setCurrency(c)} scaleTo={0.94} style={[styles.cur, currency === c && styles.curOn, moneyLocked && currency !== c && { opacity: 0.4 }]} accessibilityLabel={CURRENCY_NAME[c]}>
-                    <Text style={[styles.curSym, currency === c && { color: '#FFFFFF' }]}>{SYMBOL[c]}</Text>
-                    <Text style={[styles.curCode, currency === c && { color: 'rgba(255,255,255,0.75)' }]}>{c}</Text>
-                  </PressScale>
-                ))}
-              </View>
-              <Text style={[styles.label, { marginTop: 18 }]}>Amount to raise</Text>
-              <View style={[styles.amountBox, moneyLocked && { opacity: 0.55 }]}>
-                <Text style={styles.amountSym}>{SYMBOL[currency]}</Text>
-                <TextInput
-                  value={goalText}
-                  editable={!moneyLocked}
-                  onChangeText={(t) => { setGoalText(t.replace(/[^\d.,]/g, '')); if (errors.goal) setErrors({ ...errors, goal: null }); }}
-                  placeholder="5,000"
-                  placeholderTextColor={colors.faint}
-                  keyboardType="decimal-pad"
-                  style={styles.amountInput}
-                  accessibilityLabel="Amount to raise"
-                />
-              </View>
-              {errors.goal ? <Text style={styles.err}>{errors.goal}</Text> : null}
-              {moneyLocked ? <Text style={styles.hint}>The goal and currency can’t change once a fundraiser is live.</Text> : (
-                !Number.isNaN(goalMinor) && goalMinor > 0 ? <Text style={styles.hint}>Your goal: {formatMoney(goalMinor, currency)}</Text> : null
-              )}
-            </FadeInUp>
-          ) : null}
+        ))}
+      </View>
+      <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ padding: 18, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        {step === 0 ? (
+          <FadeInUp key="s0">
+            <Text style={s.stepTitle}>What are you raising money for?</Text>
+            <Text style={s.stepSub}>A clear heading helps people understand your need at a glance.</Text>
+            <DLabel style={{ marginTop: 14 }}>Heading</DLabel>
+            <DInput value={title} onChangeText={(t) => { setTitle(t); if (errors.title) setErrors({ ...errors, title: null }); }} placeholder="e.g. Help Me Pay My Hospital Bill" maxLength={120} />
+            {errors.title ? <Text style={s.err}>{errors.title}</Text> : null}
+            <View style={s.suggestRow}>
+              {['Help Me Pay My Hospital Bill', 'Support My Education', 'Support My Ministry'].map((x) => (
+                <Tap key={x} onPress={() => setTitle(x)} style={s.suggest}><Text style={s.suggestText}>{x}</Text></Tap>
+              ))}
+            </View>
+            <DLabel style={{ marginTop: 22 }}>Currency</DLabel>
+            <View style={s.curRow}>
+              {CURRENCIES.map((c) => (
+                <Tap key={c} disabled={moneyLocked} onPress={() => setCurrency(c)} style={[s.cur, currency === c && s.on, moneyLocked && currency !== c && { opacity: 0.4 }]} accessibilityLabel={CURRENCY_NAME[c]}>
+                  <Text style={[s.curSym, currency === c && { color: '#FFFFFF' }]}>{SYMBOL[c]}</Text>
+                  <Text style={[s.curCode, currency === c && { color: 'rgba(255,255,255,0.8)' }]}>{c}</Text>
+                </Tap>
+              ))}
+            </View>
+            <DLabel style={{ marginTop: 18 }}>Amount to raise</DLabel>
+            <View style={[s.amountBox, moneyLocked && { opacity: 0.55 }]}>
+              <Text style={s.amountSym}>{SYMBOL[currency]}</Text>
+              <TextInput
+                value={goalText}
+                editable={!moneyLocked}
+                onChangeText={(t) => { setGoalText(t.replace(/[^\d.,]/g, '')); if (errors.goal) setErrors({ ...errors, goal: null }); }}
+                placeholder="5,000"
+                placeholderTextColor={d.muted}
+                keyboardType="decimal-pad"
+                style={s.amountInput}
+                accessibilityLabel="Amount to raise"
+              />
+            </View>
+            {errors.goal ? <Text style={s.err}>{errors.goal}</Text> : null}
+            {moneyLocked ? <Text style={s.hint}>The goal and currency can’t change once a fundraiser is live.</Text> : (
+              !Number.isNaN(goalMinor) && goalMinor > 0 ? <Text style={s.hint}>Your goal: {formatMoney(goalMinor, currency)}</Text> : null
+            )}
+            <FNotice icon="shield" text="Campaigns are reviewed before publishing. Supporting photos and PDFs can be added next." style={{ marginTop: 20 }} />
+          </FadeInUp>
+        ) : null}
 
-          {step === 1 ? (
-            <FadeInUp key="s1">
-              <Text style={styles.stepTitle}>Tell your story</Text>
-              <Text style={styles.stepSub}>Add a main photo, then explain what happened, what the money is for and how it will help. You can add photos between paragraphs.</Text>
-              <Text style={styles.label}>Main photo</Text>
-              <PressScale onPress={pickMain} scaleTo={0.98} style={styles.mainPick} accessibilityLabel={main ? 'Change main photo' : 'Add main photo'}>
-                {main ? <Image source={{ uri: main.url }} style={StyleSheet.absoluteFill} /> : null}
-                {busy === 'main' ? <ActivityIndicator color={main ? '#FFFFFF' : colors.primary} /> : (
-                  <View style={[styles.mainPickInner, main && styles.mainPickChange]}>
-                    <Icon name="image" size={main ? 15 : 22} color={main ? '#FFFFFF' : colors.primary} />
-                    <Text style={[styles.mainPickText, main && { color: '#FFFFFF' }]}>{main ? 'Change photo' : 'Add a main photo'}</Text>
+        {step === 1 ? (
+          <FadeInUp key="s1">
+            <Text style={s.stepTitle}>Tell your story</Text>
+            <Text style={s.stepSub}>Add a main photo, then explain what happened, what the money is for and how it will help. You can add photos between paragraphs.</Text>
+            <DLabel style={{ marginTop: 14 }}>Main photo</DLabel>
+            <Tap onPress={pickMain} style={s.mainPick} accessibilityLabel={main ? 'Change main photo' : 'Add main photo'}>
+              {main ? <Image source={{ uri: main.url }} style={s.mainImg} /> : null}
+              {busy === 'main' ? <ActivityIndicator color={main ? '#FFFFFF' : d.plum} /> : (
+                main ? (
+                  <View style={s.mainChange}>
+                    <Icon name="image" size={15} color="#FFFFFF" />
+                    <Text style={s.mainChangeText}>Change photo</Text>
+                  </View>
+                ) : (
+                  <View style={{ alignItems: 'center', gap: 6 }}>
+                    <Icon name="image" size={22} color={d.plum} />
+                    <Text style={s.pickTitle}>Add a cover photo</Text>
+                    <Text style={s.pickSub}>Clear, authentic images build trust.</Text>
+                  </View>
+                )
+              )}
+            </Tap>
+            <DLabel style={{ marginTop: 22 }}>Story</DLabel>
+            {blocks.map((b, i) => (
+              <View key={b.id} style={s.block}>
+                {b.type === 'p' ? (
+                  <DInput
+                    value={b.text}
+                    onChangeText={(t) => updBlock(b.id, { text: t })}
+                    placeholder={i === 0 ? 'Start with who you are and what happened…' : 'Continue your story…'}
+                    multiline
+                    maxLength={5000}
+                    style={{ minHeight: 110 }}
+                  />
+                ) : (
+                  <View style={s.blockImgWrap}>
+                    <Image source={{ uri: b.url }} style={s.blockImg} />
+                    <TextInput value={b.caption || ''} onChangeText={(t) => updBlock(b.id, { caption: t })} placeholder="Caption (optional)" placeholderTextColor={d.muted} style={s.captionInput} maxLength={200} />
                   </View>
                 )}
-              </PressScale>
-              <Text style={[styles.label, { marginTop: 22 }]}>Story</Text>
-              {blocks.map((b, i) => (
-                <View key={b.id} style={styles.block}>
-                  {b.type === 'p' ? (
-                    <Input
-                      value={b.text}
-                      onChangeText={(t) => updBlock(b.id, { text: t })}
-                      placeholder={i === 0 ? 'Start with who you are and what happened…' : 'Continue your story…'}
-                      multiline
-                      maxLength={5000}
-                      style={{ minHeight: 110 }}
-                    />
-                  ) : (
-                    <View style={styles.blockImgWrap}>
-                      <Image source={{ uri: b.url }} style={styles.blockImg} />
-                      <TextInput value={b.caption || ''} onChangeText={(t) => updBlock(b.id, { caption: t })} placeholder="Caption (optional)" placeholderTextColor={colors.faint} style={styles.captionInput} maxLength={200} />
+                <View style={s.blockTools}>
+                  <Pressable onPress={() => moveBlock(i, -1)} hitSlop={6} style={s.blockTool} accessibilityLabel="Move up"><Icon name="chevron-up" size={15} color={d.muted} /></Pressable>
+                  <Pressable onPress={() => moveBlock(i, 1)} hitSlop={6} style={s.blockTool} accessibilityLabel="Move down"><Icon name="chevron-down" size={15} color={d.muted} /></Pressable>
+                  <Pressable onPress={() => removeBlock(b.id)} hitSlop={6} style={s.blockTool} accessibilityLabel="Remove block"><Icon name="trash" size={14} color={d.muted} /></Pressable>
+                </View>
+              </View>
+            ))}
+            <View style={s.addRow}>
+              <FBtn kind="ghost" small label="Paragraph" icon={<Icon name="type" size={14} color={d.ink} />} onPress={() => setBlocks((bs) => [...bs, { id: bid(), type: 'p', text: '' }])} style={{ flex: 1 }} />
+              <FBtn kind="ghost" small label={busy === 'storyimg' ? 'Uploading…' : 'Image'} disabled={busy === 'storyimg'} icon={<Icon name="image" size={14} color={d.ink} />} onPress={addStoryImage} style={{ flex: 1 }} />
+            </View>
+            <Text style={s.hint}>{storyChars.toLocaleString()} / 20,000 characters</Text>
+          </FadeInUp>
+        ) : null}
+
+        {step === 2 ? (
+          <FadeInUp key="s2">
+            <Text style={s.stepTitle}>Supporting photos & documents</Text>
+            <Text style={s.stepSub}>Photos and documents (like a hospital report or school letter) help people trust your request.</Text>
+            <DLabel style={{ marginTop: 14 }}>Photos</DLabel>
+            <View style={s.grid}>
+              {media.map((m, i) => (m.kind === 'image' ? (
+                <View key={m.id || m.key} style={s.gridItem}>
+                  <Image source={{ uri: m.url }} style={s.gridImg} />
+                  <Pressable onPress={() => removeMedia(i)} hitSlop={6} style={s.gridRemove} accessibilityLabel="Remove photo"><Icon name="x" size={12} color="#FFFFFF" strokeWidth={2.6} /></Pressable>
+                </View>
+              ) : null))}
+              <Tap onPress={addPhotos} style={[s.gridItem, s.gridAdd]} accessibilityLabel="Add photos">
+                {busy === 'photos' ? <ActivityIndicator color={d.plum} /> : <><Icon name="plus" size={20} color={d.plum} /><Text style={s.gridAddText}>Add</Text></>}
+              </Tap>
+            </View>
+            <DLabel style={{ marginTop: 22 }}>Documents (PDF)</DLabel>
+            <FNotice tone="plum" text="Private documents are only seen by our review team. Make a document public to show it on your fundraiser page." />
+            <View style={{ gap: 10, marginTop: 12 }}>
+              {media.map((m, i) => (m.kind === 'pdf' ? (
+                <View key={m.id || m.key} style={s.docEdit}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <FPdfTile />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <TextInput value={m.caption || ''} onChangeText={(t) => updMedia(i, { caption: t })} placeholder="Document title" placeholderTextColor={d.muted} style={s.docTitleInput} maxLength={200} />
+                      <Text style={s.docSub} numberOfLines={1}>{m.name}</Text>
                     </View>
-                  )}
-                  <View style={styles.blockTools}>
-                    <Pressable onPress={() => moveBlock(i, -1)} hitSlop={6} style={styles.blockTool} accessibilityLabel="Move up"><Icon name="chevron-up" size={15} color={colors.muted} /></Pressable>
-                    <Pressable onPress={() => moveBlock(i, 1)} hitSlop={6} style={styles.blockTool} accessibilityLabel="Move down"><Icon name="chevron-down" size={15} color={colors.muted} /></Pressable>
-                    <Pressable onPress={() => removeBlock(b.id)} hitSlop={6} style={styles.blockTool} accessibilityLabel="Remove block"><Icon name="trash" size={14} color={colors.muted} /></Pressable>
+                    <Pressable onPress={() => removeMedia(i)} hitSlop={8} accessibilityLabel="Remove document"><Icon name="trash" size={16} color={d.muted} /></Pressable>
+                  </View>
+                  <View style={s.visRow}>
+                    <Icon name={m.visibility === 'public' ? 'globe' : 'lock'} size={14} color={m.visibility === 'public' ? d.sageDark : d.muted} />
+                    <Text style={s.visText}>{m.visibility === 'public' ? 'Public — shown on your page' : 'Private — review team only'}</Text>
+                    <DToggle value={m.visibility === 'public'} onChange={(v) => updMedia(i, { visibility: v ? 'public' : 'private' })} accessibilityLabel="Show document publicly" />
                   </View>
                 </View>
+              ) : null))}
+              <FBtn kind="ghost" label={busy === 'pdf' ? 'Uploading…' : 'Add a PDF document'} disabled={busy === 'pdf'} onPress={addPdf} icon={<Icon name="plus" size={15} color={d.ink} />} />
+            </View>
+          </FadeInUp>
+        ) : null}
+
+        {step === 3 ? (
+          <FadeInUp key="s3">
+            <Text style={s.stepTitle}>Preview</Text>
+            <Text style={s.stepSub}>This is how your public page will look.</Text>
+            <View style={s.checklist}>
+              {checklist.map(([label, ok]) => (
+                <View key={label} style={s.checkItem}>
+                  <View style={[s.checkDot, ok && { backgroundColor: d.sageDark, borderColor: d.sageDark }]}>{ok ? <Icon name="check" size={11} color="#FFFFFF" strokeWidth={3} /> : null}</View>
+                  <Text style={[s.checkText, !ok && { color: d.muted }]}>{label}</Text>
+                </View>
               ))}
-              <View style={styles.addRow}>
-                <Button kind="ghost" small label="Paragraph" icon={<Icon name="type" size={14} color={colors.fg} />} onPress={() => setBlocks((bs) => [...bs, { id: bid(), type: 'p', text: '' }])} style={{ flex: 1 }} />
-                <Button kind="ghost" small label={busy === 'storyimg' ? 'Uploading…' : 'Image'} disabled={busy === 'storyimg'} icon={<Icon name="image" size={14} color={colors.fg} />} onPress={addStoryImage} style={{ flex: 1 }} />
-              </View>
-              <Text style={styles.hint}>{storyChars.toLocaleString()} / 20,000 characters</Text>
-            </FadeInUp>
-          ) : null}
-
-          {step === 2 ? (
-            <FadeInUp key="s2">
-              <Text style={styles.stepTitle}>Supporting photos & documents</Text>
-              <Text style={styles.stepSub}>Photos and documents (like a hospital report or school letter) help people trust your request.</Text>
-              <Text style={styles.label}>Photos</Text>
-              <View style={styles.grid}>
-                {media.map((m, i) => (m.kind === 'image' ? (
-                  <View key={m.id || m.key} style={styles.gridItem}>
-                    <Image source={{ uri: m.url }} style={styles.gridImg} />
-                    <Pressable onPress={() => removeMedia(i)} hitSlop={6} style={styles.gridRemove} accessibilityLabel="Remove photo"><Icon name="x" size={12} color="#FFFFFF" strokeWidth={2.6} /></Pressable>
-                  </View>
-                ) : null))}
-                <PressScale onPress={addPhotos} scaleTo={0.95} style={[styles.gridItem, styles.gridAdd]} accessibilityLabel="Add photos">
-                  {busy === 'photos' ? <ActivityIndicator color={colors.primary} /> : <><Icon name="plus" size={20} color={colors.primary} /><Text style={styles.gridAddText}>Add</Text></>}
-                </PressScale>
-              </View>
-              <Text style={[styles.label, { marginTop: 22 }]}>Documents (PDF)</Text>
-              <Notice text="Private documents are only seen by our review team. Make a document public to show it on your fundraiser page." tint={colors.primary} />
-              <View style={{ gap: 10, marginTop: 12 }}>
-                {media.map((m, i) => (m.kind === 'pdf' ? (
-                  <View key={m.id || m.key} style={styles.docEdit}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                      <View style={styles.docIcon}><Text style={styles.docIconText}>PDF</Text></View>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <TextInput value={m.caption || ''} onChangeText={(t) => updMedia(i, { caption: t })} placeholder="Document title" placeholderTextColor={colors.faint} style={styles.docTitleInput} maxLength={200} />
-                        <Text style={styles.docSub} numberOfLines={1}>{m.name}</Text>
-                      </View>
-                      <Pressable onPress={() => removeMedia(i)} hitSlop={8} accessibilityLabel="Remove document"><Icon name="trash" size={16} color={colors.muted} /></Pressable>
-                    </View>
-                    <View style={styles.visRow}>
-                      <Icon name={m.visibility === 'public' ? 'globe' : 'lock'} size={14} color={m.visibility === 'public' ? colors.positive : colors.muted} />
-                      <Text style={styles.visText}>{m.visibility === 'public' ? 'Public — shown on your page' : 'Private — review team only'}</Text>
-                      <Switch value={m.visibility === 'public'} onValueChange={(v) => updMedia(i, { visibility: v ? 'public' : 'private' })} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" activeThumbColor="#FFFFFF" accessibilityLabel="Show document publicly" />
-                    </View>
-                  </View>
-                ) : null))}
-                <Button kind="ghost" label={busy === 'pdf' ? 'Uploading…' : 'Add a PDF document'} disabled={busy === 'pdf'} onPress={addPdf} icon={<Icon name="plus" size={15} color={colors.fg} />} />
-              </View>
-            </FadeInUp>
-          ) : null}
-
-          {step === 3 ? (
-            <FadeInUp key="s3">
-              <Text style={styles.stepTitle}>Preview</Text>
-              <Text style={styles.stepSub}>This is how your public page will look.</Text>
-              <View style={styles.checklist}>
-                {checklist.map(([label, ok]) => (
-                  <View key={label} style={styles.checkItem}>
-                    <View style={[styles.checkDot, ok && { backgroundColor: colors.positive, borderColor: colors.positive }]}>{ok ? <Icon name="check" size={11} color="#FFFFFF" strokeWidth={3} /> : null}</View>
-                    <Text style={[styles.checkText, !ok && { color: colors.muted }]}>{label}</Text>
-                  </View>
-                ))}
-              </View>
-              <View style={styles.previewFrame}>
-                <Thumb uri={previewF.mainImageUrl} style={styles.hero2} />
-                <Text style={[styles.title, { marginTop: 14 }]}>{previewF.title}</Text>
-                <Text style={[styles.orgText, { marginBottom: 14 }]}>Organised by {previewF.owner.displayName}</Text>
-                <View style={[styles.card, styles.progressCard]}><Progress f={previewF} big /></View>
-                <FundraiserBody f={previewF} showPrivate={false} />
-              </View>
-              {['draft', 'rejected'].includes(status) ? <Text style={[styles.hint, { marginTop: 16 }]}>After you submit, our team reviews your fundraiser (usually within a day). We’ll notify you when your public page is live.</Text> : null}
-              {['draft', 'rejected'].includes(status) && !fm.demo ? <FundMeCreditsCard style={{ marginTop: 14 }} refreshKey={creditsKey} /> : null}
-            </FadeInUp>
-          ) : null}
-        </ScrollView>
-      </Screen>
-      <View style={styles.footer}>
-        {step > 0 ? <Button kind="ghost" label="Back" onPress={() => go(step - 1)} style={{ flex: 0.6 }} /> : <Button kind="ghost" label={busy === 'save' ? 'Saving…' : 'Save draft'} onPress={() => save()} disabled={!!busy} style={{ flex: 0.8 }} />}
+            </View>
+            <DCard style={s.previewFrame}>
+              <Thumb uri={previewF.mainImageUrl} style={s.cover} />
+              <Text style={[s.detailTitle, { marginTop: 14 }]}>{previewF.title}</Text>
+              <Text style={[s.orgName, { marginBottom: 14, fontFamily: df.sans, color: d.muted }]}>Organised by {previewF.owner.displayName}</Text>
+              <DCard style={s.progressCard}><Progress f={previewF} big /></DCard>
+              <FundraiserBody f={previewF} showPrivate={false} />
+            </DCard>
+            {['draft', 'rejected'].includes(status) ? <Text style={[s.hint, { marginTop: 16 }]}>After you submit, our team reviews your fundraiser (usually within a day). We’ll notify you when your public page is live.</Text> : null}
+            {['draft', 'rejected'].includes(status) && !fm.demo ? <FundMeCreditsCard style={{ marginTop: 14 }} refreshKey={creditsKey} /> : null}
+          </FadeInUp>
+        ) : null}
+      </ScrollView>
+      <View style={s.footer}>
+        {step > 0 ? <FBtn kind="ghost" label="Back" onPress={() => go(step - 1)} style={{ flex: 0.6 }} /> : <FBtn kind="ghost" label={busy === 'save' ? 'Saving…' : 'Save draft'} onPress={() => save()} disabled={!!busy} style={{ flex: 0.8 }} />}
         {step < STEPS.length - 1
-          ? <Button label="Continue" onPress={() => go(step + 1)} style={{ flex: 1 }} />
-          : <Button label={submitLabel} onPress={submit} disabled={!!busy || (['draft', 'rejected'].includes(status) && !ready)} style={{ flex: 1 }} />}
+          ? <FBtn label="Continue" onPress={() => go(step + 1)} style={{ flex: 1 }} icon={<Icon name="arrow-right" size={15} color="#FFFFFF" />} />
+          : <FBtn label={submitLabel} onPress={submit} disabled={!!busy || (['draft', 'rejected'].includes(status) && !ready)} style={{ flex: 1 }} />}
       </View>
-      <BuyCoinsSheet visible={buyCredits} wallet="fundme_credits" onClose={() => setBuyCredits(false)} onPurchased={() => { setBuyCredits(false); setCreditsKey((k) => k + 1); }} />
+      <BuyCoinsSheet visible={buyCredits} wallet="fundme_credits" onClose={() => setBuyCredits(false)} onPurchased={() => { setBuyCredits(false); setCreditsKey((x) => x + 1); }} />
     </View>
   );
 }
@@ -1131,243 +1210,245 @@ export function FundraiserDonationsScreen({ params = {} }) {
   const [error, setError] = useState(null);
   const load = useCallback(async () => {
     try {
-      const [d, fr] = await Promise.all([fm.donations(params.id), fm.get(params.id)]);
-      setItems(d.items); setF(fr); setError(null);
+      const [dn, fr] = await Promise.all([fm.donations(params.id), fm.get(params.id)]);
+      setItems(dn.items); setF(fr); setError(null);
     } catch (e) { setError(errorMessage(e, 'Couldn’t load donations')); }
   }, [fm, params.id]);
   useReload(load);
   const cur = (f && f.currency) || params.currency || 'GBP';
-  const ok = (items || []).filter((d) => d.status === 'succeeded');
+  const ok = (items || []).filter((x) => x.status === 'succeeded');
   const nav = useNav();
-  const avg = ok.length ? Math.round(ok.reduce((n, d) => n + d.amountMinor, 0) / ok.length) : 0;
+  const avg = ok.length ? Math.round(ok.reduce((n, x) => n + x.amountMinor, 0) / ok.length) : 0;
   return (
-    <Screen title="Donations" subtitle={params.title} back>
-      {error ? <Notice text={error} tint={colors.negative} /> : null}
+    <DScreen title="Donations" subtitle={params.title} back onBack={() => nav.pop()}>
+      {error ? <FNotice text={error} tone="danger" /> : null}
       {f ? (
         <FadeInUp>
-          <View style={[styles.card, styles.progressCard]}>
+          <DCard style={s.progressCard}>
             <Progress f={f} big />
-          </View>
-          <View style={styles.kpis}>
-            <Kpi label="Donations" value={String(ok.length)} />
-            <Kpi label="Average gift" value={formatMoney(avg, cur)} />
-            <Kpi label="Remaining" value={formatMoney(f.remainingMinor, cur)} />
+          </DCard>
+          <View style={s.kpis}>
+            <FKpi label="Donations" value={String(ok.length)} />
+            <FKpi label="Average gift" value={formatMoney(avg, cur)} />
+            <FKpi label="Remaining" value={formatMoney(f.remainingMinor, cur)} />
           </View>
         </FadeInUp>
       ) : null}
-      {!fm.demo ? <Button kind="ghost" label="Money & payouts" onPress={() => nav.push('FundMeMoney', { id: params.id, title: params.title })} style={{ marginTop: 14 }} icon={<Icon name="coin" size={15} color={colors.fg} />} /> : null}
-      <Section title="All gifts" style={{ marginTop: 22 }}>
-        {items === null ? <Skeleton rows={3} /> : items.length ? (
-          <View style={styles.card}>
-            {items.map((d, i) => (
-              <FadeInUp key={d.id} index={i} style={[styles.donor, i > 0 && styles.donorBorder]}>
-                <View style={styles.avatar}><Text style={styles.avatarText}>{initials(d.name)}</Text></View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <Text style={styles.donorName}>{d.name}</Text>
-                    {d.anonymous ? <Badge label="Anonymous publicly" tint={colors.slate} /> : null}
-                    {d.settlementStatus && DONATION_STATUS[d.settlementStatus] ? <Badge label={DONATION_STATUS[d.settlementStatus].label} tint={DONATION_STATUS[d.settlementStatus].tint} /> : d.status === 'refunded' ? <Badge label="Refunded" tint={colors.negative} /> : null}
-                  </View>
-                  <Text style={styles.donorMeta}>{timeAgo(d.completedAt || d.createdAt)}</Text>
-                  {d.message ? <Text style={styles.donorMsg}>“{d.message}”</Text> : null}
+      {!fm.demo ? <FBtn kind="ghost" label="Money & payouts" onPress={() => nav.push('FundMeMoney', { id: params.id, title: params.title })} style={{ marginTop: 14 }} icon={<Icon name="coin" size={15} color={d.ink} />} /> : null}
+      <SectionTitle title="All gifts" />
+      {items === null ? <Skeleton rows={3} /> : items.length ? (
+        <DCard style={s.donorCard}>
+          {items.map((x, i) => (
+            <FadeInUp key={x.id} index={i} style={[s.donor, i > 0 && s.donorBorder]}>
+              <View style={s.avatar}><Text style={s.avatarText}>{initials(x.name)}</Text></View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <Text style={s.donorName}>{x.name}</Text>
+                  {x.anonymous ? <FBadge label="Anonymous publicly" tint={colors.slate} /> : null}
+                  {x.settlementStatus && DONATION_STATUS[x.settlementStatus] ? <FBadge label={DONATION_STATUS[x.settlementStatus].label} tint={DONATION_STATUS[x.settlementStatus].tint} /> : x.status === 'refunded' ? <FBadge label="Refunded" tint={colors.negative} /> : null}
                 </View>
-                <Text style={styles.donAmt}>{formatMoney(d.amountMinor, d.currency)}</Text>
-              </FadeInUp>
-            ))}
-          </View>
-        ) : <Empty title="No donations yet" body="Share your link on WhatsApp, Facebook or Instagram to get your first gift." />}
-      </Section>
-    </Screen>
-  );
-}
-
-function Kpi({ label, value }) {
-  return (
-    <View style={styles.kpi}>
-      <Text style={styles.kpiValue} numberOfLines={1}>{value}</Text>
-      <Text style={styles.kpiLabel}>{label}</Text>
-    </View>
+                <Text style={s.donorMeta}>{timeAgo(x.completedAt || x.createdAt)}</Text>
+                {x.message ? <Text style={s.donorMsg}>“{x.message}”</Text> : null}
+              </View>
+              <Text style={s.donAmt}>{formatMoney(x.amountMinor, x.currency)}</Text>
+            </FadeInUp>
+          ))}
+        </DCard>
+      ) : <FEmpty title="No donations yet" body="Share your link on WhatsApp, Facebook or Instagram to get your first gift." />}
+    </DScreen>
   );
 }
 
 // =============================================================================================
-const styles = StyleSheet.create({
-  // FUND ME MONEY
-  quickRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  quick: { flex: 1, alignItems: 'center', gap: 6, paddingVertical: 12, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  quickText: { color: colors.fg, fontWeight: '700', fontSize: 12.5 },
-  heldNote: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 12 },
-  heldNoteText: { flex: 1, color: colors.muted, fontSize: 12.5, lineHeight: 17 },
-  muted: { color: colors.muted, fontSize: 14, lineHeight: 20 },
-  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
-  headerBtn: { paddingHorizontal: 8, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18 },
-  headerSave: { color: colors.primary, fontWeight: '700', fontSize: 14.5 },
-
-  // home hero
-  hero: { backgroundColor: colors.night, borderRadius: radius.xl, padding: 20, overflow: 'hidden', ...shadow.md },
-  heroGlow: { position: 'absolute', right: -60, top: -70, width: 200, height: 200, borderRadius: 100, backgroundColor: alpha(colors.goldLight, 0.09) },
-  heroTitle: { fontFamily: fonts.serifBold, fontSize: 26, lineHeight: 31, letterSpacing: -0.5, color: colors.nightFg, marginTop: 6 },
-  heroBody: { color: colors.nightMuted, fontSize: 14, lineHeight: 20, marginTop: 8 },
-  heroBtn: { marginTop: 18, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.goldLight, paddingHorizontal: 18, paddingVertical: 12, borderRadius: radius.pill },
-  heroBtnText: { color: colors.night, fontWeight: '800', fontSize: 14.5 },
+const s = {
+  // home
+  hero: { borderRadius: 26, padding: 24, overflow: 'hidden' },
+  heroIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.45)', alignItems: 'center', justifyContent: 'center' },
+  heroEyebrow: { marginTop: 14, color: d.goldDark, fontFamily: df.sansBold, fontSize: 9.5, letterSpacing: 1.4, textTransform: 'uppercase' },
+  heroTitle: { marginTop: 8, color: d.goldDark, fontFamily: df.displayBold, fontSize: 25, lineHeight: 30, letterSpacing: -0.4 },
+  heroBody: { marginTop: 8, color: d.goldDark, fontFamily: df.sans, fontSize: 11.5, lineHeight: 18, opacity: 0.85 },
+  heroBtn: { marginTop: 18, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: d.plum, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 999 },
+  heroBtnText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 12 },
   heroSteps: { flexDirection: 'row', gap: 8, marginTop: 18 },
-  heroStep: { flex: 1, backgroundColor: colors.nightRaised, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: colors.nightBorder },
-  heroStepNum: { fontFamily: fonts.serifBold, color: colors.goldLight, fontSize: 16 },
-  heroStepText: { color: colors.nightFg, fontSize: 11.5, marginTop: 2, lineHeight: 15 },
-  emptyMine: { borderWidth: 1, borderStyle: 'dashed', borderColor: colors.borderStrong, borderRadius: radius.lg, padding: 18, alignItems: 'center' },
-  emptyMineText: { color: colors.muted, fontSize: 13.5 },
-
-  // cards
-  thumbBase: { backgroundColor: colors.raised },
+  heroStep: { flex: 1, backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: 14, padding: 10 },
+  heroStepNum: { fontFamily: df.displayBold, color: d.plumDark, fontSize: 16 },
+  heroStepText: { fontFamily: df.sans, color: d.goldDark, fontSize: 10, marginTop: 2, lineHeight: 14 },
+  stats: { flexDirection: 'row', gap: 9, marginTop: 12 },
+  stat2: { flex: 1, padding: 14, borderRadius: 16, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  stat2Num: { fontFamily: df.displayBold, fontSize: 19, color: d.ink },
+  stat2Label: { fontFamily: df.sans, fontSize: 10, color: d.muted, marginTop: 2 },
+  quickRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  quick: { flex: 1, alignItems: 'center', gap: 8, paddingVertical: 12, borderRadius: 16, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  quickIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  quickText: { color: d.ink, fontFamily: df.sansBold, fontSize: 10.5, textAlign: 'center' },
+  note: { color: d.muted, fontFamily: df.sans, fontSize: 10.5, lineHeight: 16, marginTop: 10 },
+  minis: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  miniWrap: { width: '48.5%' },
+  mini: { borderRadius: 18, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  miniImg: { width: '100%', height: 96 },
+  miniBody: { padding: 12 },
+  miniKicker: { color: d.plum, fontFamily: df.sansHeavy, fontSize: 8.5, letterSpacing: 1, textTransform: 'uppercase' },
+  miniTitle: { fontFamily: df.display, fontSize: 12.5, lineHeight: 17, color: d.ink, marginTop: 4, marginBottom: 6 },
+  bigCard: { borderRadius: 21, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  bigImg: { width: '100%', height: 170 },
+  bigBody: { padding: 15 },
+  kicker: { color: d.plum, fontFamily: df.sansHeavy, fontSize: 8.5, letterSpacing: 1, textTransform: 'uppercase' },
+  bigTitle: { fontFamily: df.display, fontSize: 17, lineHeight: 22, color: d.ink, marginTop: 5 },
+  owner: { fontFamily: df.sans, fontSize: 10.5, color: d.muted, marginTop: 3 },
+  excerpt: { fontFamily: df.sans, fontSize: 11, lineHeight: 17, color: d.muted, marginTop: 4 },
+  footRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  footL: { fontFamily: df.sansBold, fontSize: 10, color: d.ink },
+  footR: { fontFamily: df.sans, fontSize: 10, color: d.muted },
+  mineRow: { flexDirection: 'row', gap: 12, alignItems: 'center', backgroundColor: d.paper, borderRadius: 20, borderWidth: 1, borderColor: d.line, padding: 12 },
+  mineThumb: { width: 72, height: 72, borderRadius: 14 },
+  mineTitle: { fontFamily: df.display, fontSize: 14, color: d.ink, lineHeight: 18 },
+  thumbBase: { backgroundColor: d.lavender },
   thumbEmpty: { alignItems: 'center', justifyContent: 'center' },
-  dCard: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', ...shadow.sm },
-  dImage: { width: '100%', aspectRatio: 16 / 9 },
-  dTitle: { fontFamily: fonts.serifBold, fontSize: 19, letterSpacing: -0.3, color: colors.fg, lineHeight: 24 },
-  dOwner: { color: colors.muted, fontSize: 12.5 },
-  dExcerpt: { color: colors.muted, fontSize: 13.5, lineHeight: 19 },
-  mineRow: { flexDirection: 'row', gap: 12, alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 12, ...shadow.sm },
-  mineThumb: { width: 72, height: 72, borderRadius: 12 },
-  mineTitle: { fontFamily: fonts.serifBold, fontSize: 16.5, color: colors.fg, flex: 1, letterSpacing: -0.2 },
+  saveBtn: { paddingHorizontal: 12, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: d.plum },
+  saveText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 11.5 },
 
   // progress
-  bar: { height: 7, borderRadius: 99, backgroundColor: colors.raised, marginTop: 6 },
+  bar: { height: 8, borderRadius: 99, backgroundColor: '#E9DFD3', marginTop: 8, overflow: 'hidden' },
   barBig: { height: 10, marginTop: 14, marginBottom: 10 },
-  barFill: { backgroundColor: colors.primary, borderRadius: 99 },
-  raisedBig: { fontFamily: fonts.serifBold, fontSize: 32, letterSpacing: -0.8, color: colors.fg },
-  ofGoal: { color: colors.muted, fontSize: 14, marginTop: 2 },
+  barFill: { backgroundColor: d.plum, borderRadius: 99 },
+  raisedBig: { fontFamily: df.displayBold, fontSize: 30, letterSpacing: -0.6, color: d.ink },
+  ofGoal: { fontFamily: df.sans, color: d.muted, fontSize: 12, marginTop: 2 },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  stat: { color: colors.muted, fontSize: 13 },
-  statStrong: { color: colors.fg, fontWeight: '700' },
+  stat: { color: d.muted, fontFamily: df.sans, fontSize: 10 },
+  statStrong: { color: d.ink, fontFamily: df.sansBold },
   cardMoneyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 6 },
-  cardRaised: { color: colors.fg, fontWeight: '700', fontSize: 13.5 },
-  cardOf: { color: colors.muted, fontWeight: '400' },
-  cardPct: { color: colors.primary, fontWeight: '700', fontSize: 12.5 },
+  cardRaised: { color: d.ink, fontFamily: df.sansBold, fontSize: 11 },
+  cardOf: { color: d.muted, fontFamily: df.sans },
+  cardPct: { color: d.plum, fontFamily: df.sansBold, fontSize: 11 },
 
   // detail
-  banner: { borderLeftWidth: 3, borderRadius: radius.md, padding: 12, marginBottom: 14 },
-  bannerTitle: { fontWeight: '800', fontSize: 13, letterSpacing: 0.2 },
-  bannerText: { color: colors.fg, fontSize: 13.5, lineHeight: 19, marginTop: 2 },
-  hero2: { width: '100%', aspectRatio: 16 / 10, borderRadius: radius.xl },
-  title: { fontFamily: fonts.serifBold, fontSize: 28, lineHeight: 33, letterSpacing: -0.6, color: colors.fg, marginTop: 6 },
-  orgRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, marginBottom: 16 },
-  orgText: { color: colors.muted, fontSize: 13.5 },
-  avatarSm: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center' },
-  avatarSmText: { fontFamily: fonts.serifBold, fontSize: 12, color: colors.goldMuted },
-  progressCard: { padding: 18, position: 'relative' },
+  banner: { borderLeftWidth: 3, borderRadius: 14, padding: 12, marginBottom: 14 },
+  bannerTitle: { fontFamily: df.sansBold, fontSize: 12.5 },
+  bannerText: { color: d.ink, fontFamily: df.sans, fontSize: 11, lineHeight: 17, marginTop: 2 },
+  cover: { width: '100%', aspectRatio: 16 / 10, borderRadius: 24 },
+  verified: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14 },
+  verifiedText: { color: d.sageDark, fontFamily: df.sansBold, fontSize: 10.5 },
+  detailTitle: { fontFamily: df.displayBold, fontSize: 24, lineHeight: 30, letterSpacing: -0.5, color: d.ink, marginTop: 8 },
+  orgRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: d.line },
+  orgAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: d.gold, alignItems: 'center', justifyContent: 'center' },
+  orgAvatarText: { fontFamily: df.sansHeavy, fontSize: 10, color: d.goldDark },
+  orgSmall: { color: d.plum, fontFamily: df.sansHeavy, fontSize: 8, letterSpacing: 1, textTransform: 'uppercase' },
+  orgName: { fontFamily: df.display, fontSize: 13, color: d.ink, marginTop: 2 },
+  progressCard: { padding: 18, marginTop: 14 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  soon: { borderRadius: radius.pill, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center', paddingVertical: 13 },
-  soonText: { color: colors.muted, fontWeight: '700', fontSize: 14 },
-  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, backgroundColor: colors.primarySoft, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
-  linkText: { flex: 1, color: colors.primaryInk, fontSize: 13 },
-  linkCopy: { color: colors.primary, fontWeight: '800', fontSize: 13 },
-  toolsTitle: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.gold, marginBottom: 10 },
+  soon: { borderRadius: 999, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center', paddingVertical: 13 },
+  soonText: { color: d.muted, fontFamily: df.sansBold, fontSize: 12 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, backgroundColor: d.lavender, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10 },
+  linkText: { flex: 1, color: d.plumDark, fontFamily: df.sans, fontSize: 11 },
+  linkCopy: { color: d.plum, fontFamily: df.sansBold, fontSize: 11 },
+  heldNote: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 12 },
+  heldNoteText: { flex: 1, color: d.muted, fontFamily: df.sans, fontSize: 10.5, lineHeight: 16 },
+  toolsTitle: { fontFamily: df.sansHeavy, fontSize: 9, letterSpacing: 1.3, textTransform: 'uppercase', color: d.plum, marginBottom: 10 },
   toolsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tool: { width: '23%', minWidth: 70, flexGrow: 1, alignItems: 'center', gap: 6, paddingVertical: 8 },
-  toolIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  toolLabel: { fontSize: 12, fontWeight: '600', color: colors.fg },
-
-  h2: { fontFamily: fonts.serifBold, fontSize: 21, letterSpacing: -0.3, color: colors.fg, marginTop: 28, marginBottom: 10 },
-  h2Count: { fontFamily: fonts.serif, fontSize: 15, color: colors.faint },
-  storyP: { fontFamily: fonts.serif, fontSize: 17.5, lineHeight: 28, color: colors.passage, marginBottom: 14 },
-  storyImg: { width: '100%', aspectRatio: 3 / 2, borderRadius: radius.md, backgroundColor: colors.raised },
-  caption: { color: colors.faint, fontSize: 12.5, textAlign: 'center', marginTop: 6 },
+  toolIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  toolLabel: { fontFamily: df.sansBold, fontSize: 10.5, color: d.ink },
+  muted: { color: d.muted, fontFamily: df.sans, fontSize: 12, lineHeight: 18 },
+  storyP: { fontFamily: df.display, fontSize: 14.5, lineHeight: 25, color: d.ink, marginBottom: 14 },
+  storyImg: { width: '100%', aspectRatio: 3 / 2, borderRadius: 18, backgroundColor: d.lavender },
+  caption: { color: d.muted, fontFamily: df.sans, fontSize: 10.5, textAlign: 'center', marginTop: 6 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  gridItem: { width: '31.6%', aspectRatio: 1, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.raised },
+  gridItem: { width: '31.6%', aspectRatio: 1, borderRadius: 14, overflow: 'hidden', backgroundColor: d.lavender },
   gridImg: { width: '100%', height: '100%' },
-  gridRemove: { position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
-  gridAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.borderStrong, backgroundColor: colors.surface, gap: 2 },
-  gridAddText: { color: colors.primary, fontWeight: '700', fontSize: 12 },
-  docRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
-  docIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: colors.negativeFaint, alignItems: 'center', justifyContent: 'center' },
-  docIconText: { color: colors.negative, fontWeight: '800', fontSize: 10 },
-  docTitle: { fontWeight: '600', fontSize: 14, color: colors.fg },
-  docSub: { fontSize: 12, color: colors.muted, marginTop: 1 },
+  gridRemove: { position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(40,26,17,0.6)', alignItems: 'center', justifyContent: 'center' },
+  gridAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C8B5A4', backgroundColor: d.paper, gap: 2 },
+  gridAddText: { color: d.plum, fontFamily: df.sansBold, fontSize: 10.5 },
+  docRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: d.paper, borderRadius: 16, borderWidth: 1, borderColor: d.line },
+  docTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
+  docSub: { fontFamily: df.sans, fontSize: 10, color: d.muted, marginTop: 1 },
 
+  donorCard: { padding: 0, marginTop: 0 },
   donor: { flexDirection: 'row', gap: 12, paddingVertical: 14, paddingHorizontal: 16 },
-  donorBorder: { borderTopWidth: 1, borderTopColor: colors.rule },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontFamily: fonts.serifBold, fontSize: 13, color: colors.goldMuted },
-  donorName: { fontWeight: '700', fontSize: 14, color: colors.fg },
-  donorMeta: { fontSize: 12.5, color: colors.muted, marginTop: 1 },
-  donorMsg: { fontFamily: fonts.serifItalic, fontSize: 16, lineHeight: 22, color: colors.passage, marginTop: 6 },
-  donAmt: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.fg },
+  donorBorder: { borderTopWidth: 1, borderTopColor: d.line },
+  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: d.gold, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontFamily: df.displayBold, fontSize: 12, color: d.goldDark },
+  donorName: { fontFamily: df.sansBold, fontSize: 12, color: d.ink },
+  donorMeta: { fontFamily: df.sans, fontSize: 10, color: d.muted, marginTop: 1 },
+  donorMsg: { fontFamily: 'Playfair-Italic', fontSize: 13, lineHeight: 20, color: d.ink, marginTop: 6 },
+  donAmt: { fontFamily: df.displayBold, fontSize: 15, color: d.ink },
 
   lightbox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
   lightboxImg: { width: '100%', height: '80%' },
   lightboxClose: { position: 'absolute', top: 50, right: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
 
+  donateBar: { position: 'absolute', left: 12, right: 12, bottom: 12, flexDirection: 'row', gap: 8, padding: 7, borderRadius: 18, backgroundColor: 'rgba(255,250,242,0.96)', borderWidth: 1, borderColor: d.line },
+
   // sheets
-  sheet: { backgroundColor: colors.screen, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 28, maxHeight: '92%', ...shadow.lg },
-  grabber: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: 14 },
-  sheetTitle: { fontFamily: fonts.serifBold, fontSize: 22, letterSpacing: -0.4, color: colors.fg, marginTop: 4 },
-  sheetNote: { color: colors.faint, fontSize: 12, textAlign: 'center', marginTop: 10, lineHeight: 17 },
-  curBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  curBtnText: { color: colors.fg, fontSize: 13, fontWeight: '600' },
+  sheet: { backgroundColor: d.ivory, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 28, maxHeight: '92%' },
+  grabber: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8CFC5', marginBottom: 14 },
+  sheetTitle: { fontFamily: df.displayBold, fontSize: 21, letterSpacing: -0.4, color: d.ink, marginTop: 4 },
+  sheetNote: { color: d.muted, fontFamily: df.sans, fontSize: 10, textAlign: 'center', marginTop: 10, lineHeight: 16 },
+  curBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  curBtnText: { color: d.ink, fontFamily: df.sansBold, fontSize: 11 },
   curList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  fxAttr: { color: colors.muted, fontSize: 11, textDecorationLine: 'underline' }, // LIVE FX: "Rates by Exchange Rate API" (required attribution)
-  curChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  curChipText: { color: colors.fg, fontSize: 13, fontWeight: '700' },
-  quoteBox: { marginTop: 12, padding: 12, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 4 },
+  fxAttr: { color: d.muted, fontFamily: df.sans, fontSize: 9.5, textDecorationLine: 'underline' }, // LIVE FX: "Rates by Exchange Rate API" (required attribution)
+  curChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  curChipText: { color: d.ink, fontFamily: df.sansBold, fontSize: 11 },
+  quoteBox: { marginTop: 12, padding: 14, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, gap: 4 },
   quoteRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
-  quoteKey: { color: colors.muted, fontSize: 13, flex: 1 },
-  quoteVal: { color: colors.fg, fontSize: 13, fontWeight: '600' },
-  quoteNote: { color: colors.faint, fontSize: 12, marginTop: 6, lineHeight: 16 },
+  quoteKey: { color: d.muted, fontFamily: df.sans, fontSize: 11, flex: 1 },
+  quoteVal: { color: d.ink, fontFamily: df.sansBold, fontSize: 11 },
+  quoteNote: { color: d.muted, fontFamily: df.sans, fontSize: 9.5, marginTop: 6, lineHeight: 15 },
   presets: { flexDirection: 'row', gap: 8, marginTop: 16 },
-  preset: { flex: 1, height: 48, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  presetOn: { backgroundColor: colors.fg, borderColor: colors.fg },
-  presetText: { fontWeight: '800', fontSize: 15, color: colors.fg },
-  amountBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, marginTop: 10, height: 54 },
-  amountSym: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.muted, marginRight: 6 },
-  amountInput: { flex: 1, fontSize: 20, fontWeight: '700', color: colors.fg, paddingVertical: 0, ...Platform.select({ web: { outlineStyle: 'none' }, default: {} }) },
-  label: { fontSize: 12, fontWeight: '700', color: colors.muted, marginTop: 14, marginBottom: 6, letterSpacing: 0.2 },
-  anonRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 16, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 12 },
-  anonTitle: { fontWeight: '700', color: colors.fg, fontSize: 14 },
-  anonSub: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 2 },
-  err: { color: colors.negative, fontSize: 12.5, marginTop: 8 },
-  hint: { color: colors.muted, fontSize: 12.5, marginTop: 8, lineHeight: 17 },
+  preset: { flex: 1, height: 48, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, alignItems: 'center', justifyContent: 'center' },
+  on: { backgroundColor: d.plum, borderColor: d.plum },
+  presetText: { fontFamily: df.sansHeavy, fontSize: 12, color: d.ink },
+  amountBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: d.paper, borderRadius: 14, borderWidth: 1, borderColor: d.line, paddingHorizontal: 14, marginTop: 10, height: 54 },
+  amountSym: { fontFamily: df.displayBold, fontSize: 20, color: d.muted, marginRight: 6 },
+  amountInput: { flex: 1, fontSize: 16, fontFamily: df.sansBold, color: d.ink, paddingVertical: 0, ...Platform.select({ web: { outlineStyle: 'none' }, default: {} }) },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14, backgroundColor: d.paper, borderRadius: 18, borderWidth: 1, borderColor: d.line, padding: 14 },
+  toggleTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
+  toggleSub: { fontFamily: df.sans, color: d.muted, fontSize: 9.5, lineHeight: 15, marginTop: 3 },
+  err: { color: '#8A2F2F', fontFamily: df.sans, fontSize: 11, marginTop: 8 },
+  hint: { color: d.muted, fontFamily: df.sans, fontSize: 10.5, marginTop: 8, lineHeight: 16 },
 
   // wizard
-  stepper: { flexDirection: 'row', paddingHorizontal: 18, paddingBottom: 12, gap: 6, borderBottomWidth: 1, borderBottomColor: colors.rule },
-  stepItem: { flex: 1, alignItems: 'center', gap: 4 },
-  stepDot: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
-  stepDotOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  stepNum: { fontSize: 11.5, fontWeight: '800', color: colors.muted },
-  stepLabel: { fontSize: 11.5, fontWeight: '700', color: colors.faint },
-  stepTitle: { fontFamily: fonts.serifBold, fontSize: 24, letterSpacing: -0.5, color: colors.fg, lineHeight: 29 },
-  stepSub: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 6, marginBottom: 8 },
+  wizHeader: { paddingHorizontal: 18, paddingTop: 8 },
+  stepper: { flexDirection: 'row', paddingHorizontal: 18, paddingTop: 6, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: d.line },
+  stepperRail: { position: 'absolute', left: '12.5%', right: '12.5%', top: 18, height: 1.5, backgroundColor: d.line },
+  stepItem: { flex: 1, alignItems: 'center', gap: 6 },
+  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: '#D8CFC5', alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
+  stepDotOn: { backgroundColor: d.plum, borderColor: d.plum },
+  stepNum: { fontFamily: df.sansHeavy, fontSize: 11, color: d.muted },
+  stepLabel: { fontFamily: df.sansBold, fontSize: 9.5, color: d.muted },
+  stepTitle: { fontFamily: df.displayBold, fontSize: 23, letterSpacing: -0.5, color: d.ink, lineHeight: 28 },
+  stepSub: { color: d.muted, fontFamily: df.sans, fontSize: 11.5, lineHeight: 18, marginTop: 6 },
   suggestRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  suggest: { backgroundColor: colors.raised, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
-  suggestText: { color: colors.fg, fontSize: 12.5, fontWeight: '600' },
+  suggest: { backgroundColor: d.lavender, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  suggestText: { color: d.plumDark, fontFamily: df.sansBold, fontSize: 10.5 },
   curRow: { flexDirection: 'row', gap: 8 },
-  cur: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  curOn: { backgroundColor: colors.fg, borderColor: colors.fg },
-  curSym: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.fg },
-  curCode: { fontSize: 11, fontWeight: '700', color: colors.muted, marginTop: 1 },
-  mainPick: { height: 190, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  mainPickInner: { alignItems: 'center', gap: 6 },
-  mainPickChange: { flexDirection: 'row', position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill },
-  mainPickText: { color: colors.primary, fontWeight: '700', fontSize: 13.5 },
+  cur: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  curSym: { fontFamily: df.displayBold, fontSize: 18, color: d.ink },
+  curCode: { fontFamily: df.sansBold, fontSize: 9.5, color: d.muted, marginTop: 1 },
+  mainPick: { height: 190, borderRadius: 20, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C8B5A4', alignItems: 'center', justifyContent: 'center' },
+  mainImg: fillImage,
+  mainChange: { flexDirection: 'row', alignItems: 'center', gap: 6, position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(40,26,17,0.6)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
+  mainChangeText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 11 },
+  pickTitle: { fontFamily: df.display, fontSize: 13, color: d.ink, marginTop: 6 },
+  pickSub: { fontFamily: df.sans, fontSize: 10, color: d.muted },
   block: { marginBottom: 12 },
-  blockImgWrap: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  blockImg: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.raised },
-  captionInput: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 13.5, color: colors.fg, ...Platform.select({ web: { outlineStyle: 'none' }, default: {} }) },
+  blockImgWrap: { backgroundColor: d.paper, borderRadius: 18, borderWidth: 1, borderColor: d.line, overflow: 'hidden' },
+  blockImg: { width: '100%', aspectRatio: 16 / 9, backgroundColor: d.lavender },
+  captionInput: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 11.5, fontFamily: df.sans, color: d.ink, ...Platform.select({ web: { outlineStyle: 'none' }, default: {} }) },
   blockTools: { flexDirection: 'row', justifyContent: 'flex-end', gap: 4, marginTop: 4 },
-  blockTool: { width: 30, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
+  blockTool: { width: 30, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: d.lavender },
   addRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  docEdit: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 12 },
-  docTitleInput: { fontWeight: '600', fontSize: 14, color: colors.fg, paddingVertical: 2, ...Platform.select({ web: { outlineStyle: 'none' }, default: {} }) },
-  visRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.rule },
-  visText: { flex: 1, color: colors.muted, fontSize: 12.5 },
+  docEdit: { backgroundColor: d.paper, borderRadius: 18, borderWidth: 1, borderColor: d.line, padding: 12 },
+  docTitleInput: { fontFamily: df.display, fontSize: 13, color: d.ink, paddingVertical: 2, ...Platform.select({ web: { outlineStyle: 'none' }, default: {} }) },
+  visRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: d.line },
+  visText: { flex: 1, color: d.muted, fontFamily: df.sans, fontSize: 10.5 },
   checklist: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8, marginBottom: 16 },
   checkItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  checkDot: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  checkText: { fontSize: 12.5, fontWeight: '600', color: colors.fg },
-  previewFrame: { borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, padding: 14, backgroundColor: alpha(colors.surface, 0.5) },
-  footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.screen },
+  checkDot: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: '#D8CFC5', alignItems: 'center', justifyContent: 'center' },
+  checkText: { fontFamily: df.sansBold, fontSize: 10.5, color: d.ink },
+  previewFrame: { padding: 14, borderRadius: 24 },
+  footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16, borderTopWidth: 1, borderTopColor: d.line, backgroundColor: d.ivory },
 
   // donations
   kpis: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  kpi: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 12 },
-  kpiValue: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg },
-  kpiLabel: { fontSize: 11.5, color: colors.muted, marginTop: 2 },
-});
+};

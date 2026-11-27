@@ -95,8 +95,8 @@ const styles = StyleSheet.create({
   thumb: { width: 54, height: 54, borderRadius: 8, backgroundColor: colors.surface },
   thumbIcon: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft },
   body: { flex: 1, minWidth: 0, justifyContent: 'center' },
-  site: { fontSize: 11, fontWeight: '600', letterSpacing: 0.3, color: colors.muted, textTransform: 'lowercase' },
-  title: { fontSize: 13.5, fontWeight: '700', lineHeight: 18, color: colors.fg },
+  site: { fontSize: 11, fontFamily: 'DMSans-SemiBold', letterSpacing: 0.3, color: colors.muted, textTransform: 'lowercase' },
+  title: { fontSize: 13.5, fontFamily: 'DMSans-Bold', lineHeight: 18, color: colors.fg },
   desc: { fontSize: 12.5, lineHeight: 16.5, color: colors.muted, marginTop: 1 },
   overlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.screen, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 26, gap: 4, ...shadow.lg },
@@ -105,5 +105,5 @@ const styles = StyleSheet.create({
   sheetSub: { fontSize: 12.5, lineHeight: 17, color: colors.muted, marginBottom: 6 },
   opt: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 4, borderRadius: radius.md },
   optIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
-  optText: { fontSize: 15, fontWeight: '600', color: colors.fg },
+  optText: { fontSize: 15, fontFamily: 'DMSans-SemiBold', color: colors.fg },
 });

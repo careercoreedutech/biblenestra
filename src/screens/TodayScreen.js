@@ -1,45 +1,54 @@
-// Today — the daily home (patterns from YouVersion's Daily Refresh, Glorify's daily checklist
-// and Hallow's seasonal challenges): greeting, week strip, a gentle streak, and a four-step rhythm.
+// Today — rebuilt in the Figma "Project Document Analysis" design (src/design/sanctuary.js), on real data:
+// greeting, verse of the day (Daily Bread), the streak, the four-step daily rhythm, shortcuts, the daily
+// sanctuary grid, Be still (blessing videos), the community card, then the existing live sections.
+// The previous version is kept in TodayScreenClassic.js.
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AnimatedModal } from '../components/Motion';
-import { colors, fonts, radius, shadow } from '../theme';
 import { Icon } from '../components/Icons';
-import { NightGlow, alpha } from '../components/ui';
-import ProfileButton from '../components/ProfileButton';
-import SupportAdsCard from '../components/SupportAdsCard';
-import TodaysJourney from '../components/TodaysJourney'; // TODAY'S JOURNEY: Daily Bread · Videos · Prayer Wall
-import ChannelVideosRow from '../components/ChannelVideosRow'; // WATCH ON TODAY: latest videos of the connected YouTube channels
-import CareInvite from '../components/CareInvite';
-import AnnouncementCards from '../components/AnnouncementCards'; // ROUND 5: admin announcements
-import { FadeInUp, ScaleIn, Pop, Pulse, Burst, AnimatedBar, AnimatedNumber, PressScale } from '../components/Motion';
 import { useToast } from '../components/Toast';
+import VerseImageSheet from '../components/VerseImageSheet';
+import CareInvite from '../components/CareInvite';
+import SupportAdsCard from '../components/SupportAdsCard';
+import ChannelVideosRow from '../components/ChannelVideosRow';
+import AnnouncementCards from '../components/AnnouncementCards';
+import { useNarration } from '../audio/Narration';
+import { useChapter } from '../bible/loader';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
-import { verseOfDay, CHAPTER_TITLES, refLabel, bookName } from '../data/bible';
-import { STEPS, dayKey, computeStreak, weekDays, addDays } from '../data/rhythm';
+import { bookName, CHAPTER_TITLES } from '../data/bible';
+import { STEPS, dayKey, computeStreak } from '../data/rhythm';
+import { useTodayVerse } from './DailyScreens';
+import { d, df, k, images, fillImage, gradients, Grad, Tap, Eyebrow, PageHeader, SectionTitle } from '../design/sanctuary';
 
-const STEP_META = {
-  verse: { label: 'Verse of the day', icon: 'sun', mins: 1 },
-  reading: { label: "Today's reading", icon: 'book', mins: 6 },
-  prayer: { label: 'Pray with others', icon: 'prayer', mins: 3 },
-  reflect: { label: 'Reflect', icon: 'highlight', mins: 2 },
-};
+const STEP_LABEL = { verse: 'Verse', reading: 'Reading', prayer: 'Prayer', reflect: 'Reflect' };
 
 export default function TodayScreen() {
   const { state, dispatch } = useStore();
   const nav = useNav();
+  const toast = useToast();
+  const nar = useNarration();
   const today = new Date();
   const key = dayKey(today);
   const doneToday = (state.rhythm && state.rhythm[key]) || [];
   const isDone = (s) => doneToday.includes(s);
   const { streak, graceUsedThisWeek } = useMemo(() => computeStreak(state.rhythm || {}, today), [state.rhythm]);
   const best = Math.max(state.bestStreak || 0, streak);
-  const showStreak = state.streaksEnabled !== false;
-
-  const toast = useToast();
   const [streakOpen, setStreakOpen] = useState(false);
+  const [reflectOpen, setReflectOpen] = useState(false);
   const [reflection, setReflection] = useState('');
+  const [imageOpen, setImageOpen] = useState(false);
+
+  // Verse of the day: the same verse as Daily Bread, text from the Bible data
+  const { v } = useTodayVerse();
+  const tr = state.translation || 'KJV';
+  const { verses } = useChapter(tr, v.bookId, v.chapter);
+  const text = useMemo(() => {
+    if (!verses) return '';
+    const end = v.verseEnd && v.verseEnd > v.verse ? v.verseEnd : v.verse;
+    return verses.slice(v.verse - 1, end).filter(Boolean).join(' ');
+  }, [verses, v.bookId, v.chapter, v.verse, v.verseEnd]);
+  const saved = (state.bookmarks || []).some((b) => b.bookId === v.bookId && b.chapter === v.chapter && (b.verse || null) === v.verse);
 
   const markDone = (step, reflectionText) => {
     if (isDone(step) && !reflectionText) return;
@@ -47,330 +56,211 @@ export default function TodayScreen() {
     const next = { ...(state.rhythm || {}), [key]: nextSteps };
     const s = computeStreak(next, today).streak;
     const patch = { rhythm: next, bestStreak: Math.max(state.bestStreak || 0, s) };
-    if (reflectionText) {
-      patch.reflection = { day: key, text: reflectionText };
-    }
+    if (reflectionText) patch.reflection = { day: key, text: reflectionText };
     dispatch({ type: 'set', patch });
     if (!isDone(step)) {
       const left = STEPS.filter((x) => x !== step && !doneToday.includes(x)).length;
-      toast.show(left ? `${STEP_META[step].label} done · ${left} to go` : 'Today’s rhythm complete ✦', { icon: left ? 'check' : 'star', haptic: left ? 'light' : 'success' });
+      toast.show(left ? `${STEP_LABEL[step]} done · ${left} to go` : 'Today’s rhythm complete ✦', { icon: left ? 'check' : 'star', haptic: left ? 'light' : 'success' });
     }
   };
 
-  // Verse of the day (the Daily Bread card opens it; Reflect below uses it)
-  const v = verseOfDay(today);
-  const vRef = refLabel(v.bookId, v.chapter, v.verse);
-
-  // Reading plan
-  const plan = (state.plans || []).find((p) => !p.startsOn && p.done < p.days) || (state.plans || [])[0];
-  const season = (state.plans || []).find((p) => p.startsOn);
-  const seasonDays = season ? Math.max(0, Math.ceil((new Date(season.startsOn) - today) / 86400000)) : null;
-
-  // Prayer
+  const plan = (state.plans || []).find((p) => !p.startsOn && p.done < p.days) || null;
+  const last = state.lastPosition || { bookId: 'MAT', chapter: 1 };
+  const reading = plan ? plan.today : last;
   const activePrayers = (state.prayers || []).filter((p) => p.status !== 'answered' && !p.mine);
 
-  // Continue reading
-  const last = state.lastPosition || { bookId: 'MAT', chapter: 1 };
+  const openStep = (s) => {
+    if (s === 'verse') { markDone('verse'); nav.push('DailyVerse'); }
+    else if (s === 'reading') { markDone('reading'); nav.push('Bible', { bookId: reading.bookId, chapter: reading.chapter }); }
+    else if (s === 'prayer') { markDone('prayer'); nav.push('PrayerWall'); }
+    else setReflectOpen(true);
+  };
 
   const hour = today.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  // First name only so the greeting fits ("Rev. Esther Mwangi" → "Esther")
   const name = (() => {
     const parts = String((state.user && state.user.displayName) || '').trim().split(/\s+/).filter(Boolean);
     const first = parts.find((w) => !/^(rev|pastor|ps|dr|mr|mrs|ms|miss|fr|sr|bro|sis|bishop|elder|deacon|apostle|prophet|evangelist)\.?$/i.test(w));
     return first || parts[0] || 'friend';
   })();
-  const doneCount = STEPS.filter(isDone).length;
-  const minsLeft = STEPS.filter((s) => !isDone(s)).reduce((n, s) => n + STEP_META[s].mins, 0);
-  const allDone = doneCount === STEPS.length;
+  const rhythmTitle = streak >= 14 ? `${Math.floor(streak / 7)} weeks of showing up` : streak >= 7 ? 'A full week of showing up' : streak > 1 ? `${streak} days of showing up` : streak === 1 ? 'You showed up today' : 'Begin your rhythm today';
 
   return (
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <FadeInUp index={0} style={styles.header}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.eyebrow}>{today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
-            <Text style={[styles.greeting, (greeting + name).length > 14 && { fontSize: (greeting + name).length > 19 ? 22 : 25, lineHeight: (greeting + name).length > 19 ? 27 : 30 }]} numberOfLines={2}>{greeting}, {name}</Text>
+    <View style={k.screen}>
+      <ScrollView contentContainerStyle={[k.scroll, { paddingBottom: 24 }]} showsVerticalScrollIndicator={false}>
+        <PageHeader title={`${greeting}, ${name}`} subtitle={today.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })} />
+
+        <AnnouncementCards style={{ marginBottom: 12 }} />
+
+        {/* .verse-hero */}
+        <Grad colors={gradients.hero} locations={[0, 0.72, 1]} style={s.hero}>
+          <View style={s.heroRing} />
+          <View style={s.heroTop}>
+            <View style={s.heroLabel}><Icon name="sun" size={14} color="#FFD8BD" /><Text style={s.heroLabelText}>Verse of the day</Text></View>
+            <Tap style={s.heroSave} onPress={() => { dispatch({ type: 'bookmark', b: { bookId: v.bookId, chapter: v.chapter, verse: v.verse } }); toast.show(saved ? 'Removed from saved' : 'Saved', { icon: 'bookmark' }); }} accessibilityLabel={saved ? 'Remove from saved' : 'Save verse'}>
+              <Icon name={saved ? 'check' : 'bookmark'} size={18} color="#fff" />
+            </Tap>
           </View>
-          {showStreak ? (
-            <Pressable onPress={() => setStreakOpen(true)} style={({ pressed }) => [styles.streakChip, pressed && { opacity: 0.8 }]} accessibilityLabel={`${streak} day streak`}>
-              <Pulse min={0.92} max={1.1} duration={1100} active={streak > 0}>
-                <Icon name="flame" size={17} color={colors.terracotta} fill={streak > 0 ? 'solid' : 'none'} />
-              </Pulse>
-              <Pop trigger={streak}><AnimatedNumber value={streak} style={styles.streakChipText} /></Pop>
-            </Pressable>
-          ) : null}
-          <ProfileButton />
-        </FadeInUp>
+          <Tap onPress={() => openStep('verse')} style={s.verseCopy}>
+            <Text style={s.verseText} numberOfLines={7}>“{text || '…'}”</Text>
+            <Text style={s.verseRef}>{v.label} · {tr}</Text>
+          </Tap>
+          <View style={s.heroActions}>
+            <Tap style={s.heroBtn} onPress={() => openStep('verse')}><Icon name="book" size={17} color="#fff" /><Text style={s.heroBtnText}>Reflect</Text></Tap>
+            <Tap style={s.heroBtn} onPress={() => nar.playVerse(v.bookId, v.chapter, v.verse, { translation: tr })}><Icon name="headphones" size={17} color="#fff" /><Text style={s.heroBtnText}>Listen</Text></Tap>
+            <Tap style={[s.heroBtn, s.heroShare]} onPress={() => setImageOpen(true)} accessibilityLabel="Share verse"><Icon name="share" size={17} color="#fff" /></Tap>
+          </View>
+        </Grad>
 
-        <AnnouncementCards style={{ marginHorizontal: 18, marginTop: 16 }} />
+        {/* .rhythm-card */}
+        {state.streaksEnabled !== false ? (
+          <Tap style={s.rhythm} onPress={() => setStreakOpen(true)} accessibilityLabel={`${streak} day streak`}>
+            <View style={s.ring}><Text style={s.ringNum}>{streak}</Text><Text style={s.ringSmall}>{streak === 1 ? 'day' : 'days'}</Text></View>
+            <View style={{ flex: 1, paddingRight: 24 }}>
+              <Eyebrow>Your sacred rhythm</Eyebrow>
+              <Text style={s.rhythmTitle}>{rhythmTitle}</Text>
+              <Text style={s.rhythmSub}>Grace meets consistency. Keep going gently.</Text>
+            </View>
+            <View style={s.flame}><Icon name="flame" size={23} color="#D98D4A" /></View>
+          </Tap>
+        ) : null}
 
-        {/* Week strip */}
-        <FadeInUp index={1} style={styles.weekCard}>
-          {weekDays(today).map((d, wi) => {
-            const k = dayKey(d);
-            const did = ((state.rhythm || {})[k] || []).length > 0;
-            const isToday = k === key;
-            const future = d > today && !isToday;
+        {/* .daily-steps */}
+        <View style={s.steps}>
+          <View style={s.stepsLine} />
+          {STEPS.map((st, i) => {
+            const done = isDone(st);
             return (
-              <View key={k} style={styles.weekDay}>
-                <Text style={[styles.weekLetter, isToday && { color: colors.primary }]}>
-                  {d.toLocaleDateString(undefined, { weekday: 'narrow' })}
-                </Text>
-                {did ? (
-                  <ScaleIn key={k + '-done'} delay={180 + wi * 60} style={[styles.weekDot, styles.weekDotDone]}>
-                    <Icon name="check" size={13} color="#FFFFFF" strokeWidth={3} />
-                  </ScaleIn>
+              <Tap key={st} style={s.step} onPress={() => openStep(st)} accessibilityLabel={`${STEP_LABEL[st]}${done ? ', done' : ''}`}>
+                {done ? (
+                  <Grad colors={gradients.step} style={s.stepBadge}><Icon name="check" size={13} color="#fff" strokeWidth={3} /></Grad>
                 ) : (
-                  <View style={[styles.weekDot, isToday && styles.weekDotToday, future && { opacity: 0.45 }]}>
-                    <Text style={[styles.weekNum, isToday && { color: colors.primary }]}>{d.getDate()}</Text>
-                  </View>
+                  <View style={[s.stepBadge, { backgroundColor: '#EEE5DB' }]}><Text style={s.stepNum}>{i + 1}</Text></View>
                 )}
-              </View>
+                <Text style={[s.stepLabel, done && { color: d.plum }]}>{STEP_LABEL[st]}</Text>
+              </Tap>
             );
           })}
-        </FadeInUp>
+        </View>
 
-        {/* Rhythm header */}
-        <FadeInUp index={2} style={styles.rhythmHead}>
-          <View>
-            <Text style={styles.sectionEyebrow}>Daily rhythm</Text>
-            <Text style={styles.sectionTitle}>{allDone ? 'All done for today' : 'Your time with God'}</Text>
-          </View>
-          <Text style={styles.rhythmMeta}>{allDone ? `${doneCount} of 4` : `${doneCount} of 4 · ~${minsLeft} min`}</Text>
-        </FadeInUp>
-        <FadeInUp index={2} style={styles.progressRow}>
-          {STEPS.map((s, si) => (
-            <AnimatedBar key={s} progress={isDone(s) ? 1 : 0} delay={200 + si * 90} style={styles.progressSeg} fillStyle={{ backgroundColor: colors.gold, borderRadius: 2 }} />
+        {/* .today-shortcuts */}
+        <View style={{ gap: 7, marginTop: 9 }}>
+          {[
+            { label: 'Ask Scripture', sub: 'Explore any passage', icon: 'sparkles', g: gradients.orange, to: 'BibleChat' },
+            { label: 'Companion', sub: 'Wisdom for today', icon: 'prayer', g: gradients.gold, to: 'Companion' },
+            { label: 'Library', sub: 'Everything you saved', icon: 'bookmark', g: gradients.ink, to: 'Library' },
+          ].map((x) => (
+            <Tap key={x.label} style={s.shortcut} onPress={() => nav.push(x.to)}>
+              <View>
+                <Grad colors={x.g} style={s.shortcutIcon}><Icon name={x.icon} size={18} color="#fff" /></Grad>
+                <View style={s.shortcutDot} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.shortcutTitle}>{x.label}</Text>
+                <Text style={s.shortcutSub}>{x.sub}</Text>
+              </View>
+              <Icon name="arrow-right" size={15} color={d.muted} />
+            </Tap>
           ))}
-        </FadeInUp>
-
-        {/* Today's journey: Daily Bread · Videos · Prayer Wall (replaces the Verse of the Day card) */}
-        <FadeInUp index={3} style={styles.journey}>
-          <TodaysJourney
-            verse={{ label: vRef, reflection: v.reflection }}
-            prayersCount={activePrayers.length}
-            done={{ bread: isDone('verse'), prayer: isDone('prayer') }}
-            onBread={() => { markDone('verse'); nav.push('DailyVerse'); }}
-            onVideos={() => nav.push('BlessingVideos')}
-            onPrayer={() => { markDone('prayer'); nav.push('PrayerWall'); }}
-          />
-        </FadeInUp>
-
-        {/* Steps */}
-        <View style={styles.steps}>
-          {/* 2. Today's reading */}
-          {plan ? (
-            <FadeInUp index={4}>
-            <Step n={1} done={isDone('reading')}>
-              <Pressable
-                onPress={() => { markDone('reading'); nav.push('Bible', { bookId: plan.today.bookId, chapter: plan.today.chapter }); }}
-                style={({ pressed }) => [styles.card, pressed && styles.pressed]}
-              >
-                <View style={styles.cardRow}>
-                  <View style={[styles.iconTile, { backgroundColor: colors.cardSage }]}>
-                    <Icon name="book" size={22} color={colors.sage} />
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.cardEyebrow} numberOfLines={1}>Day {plan.done + 1} of {plan.days}</Text>
-                    <Text style={styles.cardTitle}>{bookName(plan.today.bookId)} {plan.today.chapter}</Text>
-                    <Text style={styles.cardSub} numberOfLines={1}>{CHAPTER_TITLES[`${plan.today.bookId}:${plan.today.chapter}`] || 'Continue your plan'}</Text>
-                  </View>
-                  <StepCta done={isDone('reading')} label="Read" />
-                </View>
-                <AnimatedBar progress={(plan.done + (isDone('reading') ? 1 : 0)) / plan.days} delay={500} style={styles.planBar} fillStyle={styles.planBarFill} />
-              </Pressable>
-            </Step>
-          </FadeInUp>
-          ) : null}
-
-          {/* 3. Pray */}
-          <FadeInUp index={5}>
-          <Step n={plan ? 2 : 1} done={isDone('prayer')}>
-            <Pressable onPress={() => { markDone('prayer'); nav.push('PrayerWall'); }} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
-              <View style={styles.cardRow}>
-                <View style={[styles.iconTile, { backgroundColor: colors.cardRose }]}>
-                  <Icon name="prayer" size={22} color={colors.rose} />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.cardEyebrow} numberOfLines={1}>{activePrayers.length} {activePrayers.length === 1 ? 'request' : 'requests'} today</Text>
-                  <Text style={styles.cardTitle} numberOfLines={1}>Pray for others</Text>
-                  <View style={styles.faces}>
-                    {activePrayers.slice(0, 4).map((p, i) => (
-                      <View key={p.id} style={[styles.face, { marginLeft: i ? -8 : 0, backgroundColor: [colors.cardRose, colors.cardSky, colors.cardGold, colors.cardSage][i % 4] }]}>
-                        <Text style={styles.faceText}>{(p.author || '?').charAt(0)}</Text>
-                      </View>
-                    ))}
-                    <Text style={styles.cardSub} numberOfLines={1}>  {activePrayers[0] ? activePrayers[0].title : 'Lift someone up today'}</Text>
-                  </View>
-                </View>
-                <StepCta done={isDone('prayer')} label="Pray" />
-              </View>
-            </Pressable>
-          </Step>
-          </FadeInUp>
-
-          {/* 4. Reflect */}
-          <FadeInUp index={6}>
-          <Step n={plan ? 3 : 2} done={isDone('reflect')} last>
-            <View style={styles.card}>
-              <View style={styles.cardRow}>
-                <View style={[styles.iconTile, { backgroundColor: colors.cardLavender }]}>
-                  <Icon name="highlight" size={21} color={colors.lavender} />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.cardEyebrow} numberOfLines={1}>Reflect · {vRef}</Text>
-                  <Text style={styles.cardTitle}>What is God saying to you?</Text>
-                </View>
-              </View>
-              <Text style={styles.prompt}>{v.reflection}</Text>
-              {isDone('reflect') ? (
-                <View style={styles.savedRow}>
-                  <Icon name="check-circle" size={18} color={colors.sage} />
-                  <Text style={styles.savedText}>Saved to your notes on {vRef}</Text>
-                </View>
-              ) : (
-                <>
-                  <TextInput
-                    value={reflection}
-                    onChangeText={setReflection}
-                    placeholder="Write a sentence or two…"
-                    placeholderTextColor={colors.faint}
-                    multiline
-                    style={styles.journal}
-                  />
-                  <Pressable
-                    onPress={() => {
-                      const text = reflection.trim();
-                      if (text) {
-                        dispatch({ type: 'note', n: { bookId: v.bookId, chapter: v.chapter, verse: v.verse, text, label: 'Reflection' } });
-                        markDone('reflect', text);
-                      } else {
-                        markDone('reflect');
-                      }
-                      setReflection('');
-                    }}
-                    style={({ pressed }) => [styles.reflectBtn, pressed && { opacity: 0.85 }]}
-                  >
-                    <Text style={styles.reflectBtnText}>{reflection.trim() ? 'Save reflection' : 'I’ve reflected'}</Text>
-                  </Pressable>
-                </>
-              )}
-            </View>
-          </Step>
-          </FadeInUp>
         </View>
 
-        {/* Completion */}
-        {allDone ? (
-          <ScaleIn style={[styles.doneCard]}>
-            <NightGlow />
-            <Burst trigger={allDone} count={14} radius={110} size={14} />
-            <Pulse min={0.9} max={1.15}><Text style={styles.doneStar}>✦</Text></Pulse>
-            <Text style={styles.doneTitle}>Today’s rhythm is complete</Text>
-            <Text style={styles.doneBody}>
-              {showStreak && streak > 1 ? `${streak} days in the Word. ` : ''}Rest well — tomorrow continues with {plan ? `${bookName(plan.today.bookId)} ${plan.today.chapter + 1}` : 'a fresh verse'}.
-            </Text>
-          </ScaleIn>
-        ) : null}
-
-        {/* Care: a warm invitation, high on Today so no one misses it */}
-        <FadeInUp index={6} style={styles.block}>
-          <CareInvite />
-        </FadeInUp>
-
-        {/* Support us — four 🔥 rewarded ads a day */}
-        <FadeInUp index={6}>
-          <SupportAdsCard />
-        </FadeInUp>
-
-        {/* Scripture pop-ups entry */}
-        <FadeInUp index={6} style={[styles.block, { marginTop: 14 }]}>
-          <PressScale onPress={() => nav.push('ScripturePop')} scaleTo={0.98} style={styles.popRow}>
-            <View style={styles.popIcon}><Icon name="bell" size={18} color={colors.primary} fill={state.scripturePop?.enabled ? 'solid' : 'none'} /></View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.cardTitle}>Scripture pop-ups</Text>
-              <Text style={styles.cardSub} numberOfLines={1}>{state.scripturePop?.enabled ? 'On · verses & prayers through your day' : 'Get a verse or prayer on your screen through the day'}</Text>
-            </View>
-            <Text style={[styles.popState, state.scripturePop?.enabled && { color: colors.primary }]}>{state.scripturePop?.enabled ? 'On' : 'Set up'}</Text>
-          </PressScale>
-        </FadeInUp>
-
-        {/* Continue reading */}
-        <FadeInUp index={7} style={styles.block}>
-          <Text style={styles.sectionEyebrow}>Pick up where you left off</Text>
-          <Pressable onPress={() => nav.push('Bible', last)} style={({ pressed }) => [styles.continueCard, pressed && styles.pressed]}>
-            <View style={styles.continueSpine}>
-              <Text style={styles.continueSpineText}>{bookName(last.bookId).slice(0, 3).toUpperCase()}</Text>
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.cardTitle}>{bookName(last.bookId)} {last.chapter}</Text>
-              <Text style={styles.cardSub} numberOfLines={1}>{CHAPTER_TITLES[`${last.bookId}:${last.chapter}`] || 'Continue reading'}</Text>
-            </View>
-            <View style={styles.continueBtn}>
-              <Icon name="arrow-right" size={17} color={colors.primary} strokeWidth={2.2} />
-            </View>
-          </Pressable>
-        </FadeInUp>
-
-        {/* Season challenge */}
-        {season ? (
-          <FadeInUp index={8} style={styles.block}>
-            <Text style={styles.sectionEyebrow}>Coming up</Text>
-            <Pressable onPress={() => nav.push('Plan', { id: season.id })} style={({ pressed }) => [styles.seasonCard, pressed && { opacity: 0.92 }]}>
-              <View style={styles.seasonArt}>
-                <Text style={styles.seasonArtStar}>✦</Text>
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.seasonEyebrow}>{seasonDays > 0 ? `Starts in ${seasonDays} days` : 'Starts today'} · {season.days} days</Text>
-                <Text style={styles.seasonTitle}>{season.name}</Text>
-                <Text style={styles.seasonSub}>Journey to Christmas with a chapter and a prayer each day.</Text>
-              </View>
-            </Pressable>
-          </FadeInUp>
-        ) : null}
-
-        {/* Quick links */}
-        <View style={[styles.block, { flexDirection: 'row', gap: 10 }]}>
-          <QuickTile icon="sparkles" label="Ask Scripture" tint={colors.gold} bg={colors.cardGold} onPress={() => nav.push('BibleChat')} />
-          <QuickTile icon="heart" label="Companion" tint={colors.rose} bg={colors.cardRose} onPress={() => nav.push('Companion')} />
-          <QuickTile icon="bookmark" label="Library" tint={colors.lavender} bg={colors.cardLavender} onPress={() => nav.push('Library')} />
+        {/* .quick-grid */}
+        <SectionTitle eyebrow="For this moment" title="Your daily sanctuary" />
+        <View style={s.grid}>
+          <QuickCard bg={d.lavender} icon="book" small="Continue reading" title={`${bookName(last.bookId)} ${last.chapter}`} sub={CHAPTER_TITLES[`${last.bookId}:${last.chapter}`] || 'Pick up where you left off'} onPress={() => nav.push('Bible', last)} />
+          <QuickCard bg={d.sage} icon="prayer" small="Prayer" title="Prayer wall" sub={`${activePrayers.length} ${activePrayers.length === 1 ? 'request' : 'requests'} today`} onPress={() => nav.push('PrayerWall')} />
+          <QuickCard bg={d.gold} icon="mic" small="Sermon studio" title="Start recording" sub="Capture every word" onPress={() => nav.push('SermonStudio')} />
+          <QuickCard ink icon="quiz" small="Daily challenge" title="Bible games" sub="A fresh set today" onPress={() => nav.push('Learn', { tab: 'Games' })} />
         </View>
 
-        {/* Watch: From Our Channels (replaces Sacred Audio Devotionals) */}
-        <ChannelVideosRow style={styles.block} />
+        {/* .still-card */}
+        <SectionTitle eyebrow="One quiet minute" title="Be still" link="Begin" onLink={() => nav.push('BlessingVideos')} />
+        <Tap style={s.still} onPress={() => nav.push('BlessingVideos')}>
+          <Grad colors={['#F2D2B5', '#F5E8D5']} style={s.stillArt}>
+            <View style={s.stillRing3} /><View style={s.stillRing2} /><View style={s.stillRing1} />
+            <Icon name="volume" size={30} color={d.plum} />
+          </Grad>
+          <View style={s.stillCopy}>
+            <Text style={s.stillKicker}>Blessing videos</Text>
+            <Text style={s.stillTitle}>Rest in His presence</Text>
+            <Text style={s.stillSub}>Let the noise soften. Return to what is eternal.</Text>
+            <View style={s.playBtn}><Icon name="play" size={13} color="#fff" fill="solid" /><Text style={s.playText}>Watch</Text></View>
+          </View>
+        </Tap>
+
+        {/* .community-preview */}
+        <SectionTitle title="In your community" link="See all" onLink={() => nav.push('PrayerWall')} />
+        <Tap style={s.community} onPress={() => nav.push('PrayerWall')}>
+          <Image source={images.fellowship} style={fillImage} resizeMode="cover" />
+          <Grad colors={['rgba(16,15,27,0)', 'rgba(16,15,27,0.82)']} locations={[0.22, 1]} style={StyleSheet.absoluteFill} />
+          <View style={s.communityCopy}>
+            <Text style={s.communityKicker}>LIVE FELLOWSHIP</Text>
+            <Text style={s.communityTitle}>Praying together</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Icon name="users" size={14} color="rgba(255,255,255,0.8)" />
+              <Text style={s.communitySub}>{activePrayers.length} prayer {activePrayers.length === 1 ? 'request' : 'requests'} open now</Text>
+            </View>
+          </View>
+        </Tap>
+
+        {/* Existing live sections */}
+        <View style={{ marginTop: 22 }}><CareInvite /></View>
+        <View style={{ marginHorizontal: -18 }}><SupportAdsCard /></View>
+        <Tap style={[s.shortcut, { marginTop: 14 }]} onPress={() => nav.push('ScripturePop')}>
+          <Grad colors={gradients.orange} style={s.shortcutIcon}><Icon name="bell" size={18} color="#fff" /></Grad>
+          <View style={{ flex: 1 }}>
+            <Text style={s.shortcutTitle}>Scripture pop-ups</Text>
+            <Text style={s.shortcutSub}>{state.scripturePop?.enabled ? 'On · verses & prayers through your day' : 'A verse or prayer on your screen through the day'}</Text>
+          </View>
+          <Text style={{ fontFamily: df.sansBold, fontSize: 11, color: state.scripturePop?.enabled ? d.plum : d.muted }}>{state.scripturePop?.enabled ? 'On' : 'Set up'}</Text>
+        </Tap>
+        <ChannelVideosRow style={{ marginTop: 18, marginHorizontal: -18 }} />
       </ScrollView>
 
-      {/* Streak sheet */}
-      <AnimatedModal visible={streakOpen} onRequestClose={() => setStreakOpen(false)}>
-        <View style={styles.backdrop}>
-          <Pressable style={{ flex: 1 }} onPress={() => setStreakOpen(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.grabber} />
-            <View style={styles.flameWrap}>
-              <Icon name="flame" size={44} color={colors.terracotta} fill="solid" />
-            </View>
-            <Text style={styles.streakBig}>{streak}</Text>
-            <Text style={styles.streakLabel}>day streak</Text>
-            <View style={styles.statsRow}>
-              <View style={styles.stat}><Text style={styles.statNum}>{streak}</Text><Text style={styles.statLabel}>Current</Text></View>
-              <View style={styles.statDivider} />
-              <View style={styles.stat}><Text style={styles.statNum}>{best}</Text><Text style={styles.statLabel}>Longest</Text></View>
-              <View style={styles.statDivider} />
-              <View style={styles.stat}><Text style={styles.statNum}>{graceUsedThisWeek ? 0 : 1}</Text><Text style={styles.statLabel}>Grace day left</Text></View>
-            </View>
-            <Text style={styles.streakExplain}>
-              Your streak grows each day you complete at least one step of your rhythm. Miss a day? One grace day each week keeps it going — this is about returning, not perfection.
-            </Text>
-            <Pressable onPress={() => setStreakOpen(false)} style={({ pressed }) => [styles.sheetBtn, pressed && { opacity: 0.88 }]}>
-              <Text style={styles.sheetBtnText}>Keep going</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => { dispatch({ type: 'set', patch: { streaksEnabled: false } }); setStreakOpen(false); }}
-              style={{ alignSelf: 'center', paddingVertical: 12 }}
+      <VerseImageSheet visible={imageOpen} onClose={() => setImageOpen(false)} text={text} reference={v.label} translation={tr} />
+
+      {/* Reflect */}
+      <AnimatedModal visible={reflectOpen} onRequestClose={() => setReflectOpen(false)}>
+        <View style={s.backdrop}>
+          <Pressable style={{ flex: 1 }} onPress={() => setReflectOpen(false)} />
+          <View style={s.sheet}>
+            <View style={s.grabber} />
+            <Eyebrow>Reflect · {v.label}</Eyebrow>
+            <Text style={s.sheetTitle}>What is God saying to you?</Text>
+            {v.reflection ? <Text style={s.sheetBody}>{v.reflection}</Text> : null}
+            <TextInput value={reflection} onChangeText={setReflection} placeholder="Write a sentence or two…" placeholderTextColor={d.muted} multiline style={s.input} />
+            <Tap
+              style={s.primary}
+              onPress={() => {
+                const t = reflection.trim();
+                if (t) { dispatch({ type: 'note', n: { bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: t, label: 'Reflection' } }); markDone('reflect', t); } else markDone('reflect');
+                setReflection(''); setReflectOpen(false);
+              }}
             >
-              <Text style={styles.hideStreak}>Hide streaks · you can turn them back on in plan settings</Text>
+              <Text style={s.primaryText}>{reflection.trim() ? 'Save reflection' : 'I’ve reflected'}</Text>
+            </Tap>
+          </View>
+        </View>
+      </AnimatedModal>
+
+      {/* Streak */}
+      <AnimatedModal visible={streakOpen} onRequestClose={() => setStreakOpen(false)}>
+        <View style={s.backdrop}>
+          <Pressable style={{ flex: 1 }} onPress={() => setStreakOpen(false)} />
+          <View style={[s.sheet, { alignItems: 'center' }]}>
+            <View style={s.grabber} />
+            <Icon name="flame" size={44} color={d.plum} fill="solid" />
+            <Text style={s.streakBig}>{streak}</Text>
+            <Text style={s.sheetBody}>day rhythm</Text>
+            <View style={s.stats}>
+              {[[streak, 'Current'], [best, 'Longest'], [graceUsedThisWeek ? 0 : 1, 'Grace day left']].map(([n, l]) => (
+                <View key={l} style={{ flex: 1, alignItems: 'center' }}><Text style={s.statNum}>{n}</Text><Text style={s.statLabel}>{l}</Text></View>
+              ))}
+            </View>
+            <Text style={[s.sheetBody, { textAlign: 'center' }]}>Your rhythm grows each day you complete at least one step. Miss a day? One grace day each week keeps it going — this is about returning, not perfection.</Text>
+            <Tap style={[s.primary, { alignSelf: 'stretch' }]} onPress={() => setStreakOpen(false)}><Text style={s.primaryText}>Keep going</Text></Tap>
+            <Pressable onPress={() => { dispatch({ type: 'set', patch: { streaksEnabled: false } }); setStreakOpen(false); }} style={{ paddingVertical: 12 }}>
+              <Text style={[s.sheetBody, { fontSize: 11 }]}>Hide streaks · turn them back on in plan settings</Text>
             </Pressable>
           </View>
         </View>
@@ -379,136 +269,82 @@ export default function TodayScreen() {
   );
 }
 
-function Step({ n, done, last, children }) {
+function QuickCard({ bg, ink, icon, small, title, sub, onPress }) {
+  const fg = ink ? '#fff' : d.ink;
   return (
-    <View style={styles.stepRow}>
-      <View style={styles.stepRail}>
-        <Pop trigger={done} amount={1.35}>
-          <View style={[styles.stepDot, done && styles.stepDotDone]}>
-            {done ? <Icon name="check" size={13} color="#FFFFFF" strokeWidth={3} /> : <Text style={styles.stepNum}>{n}</Text>}
-            <Burst trigger={done} radius={26} count={8} size={9} />
-          </View>
-        </Pop>
-        {!last ? <View style={[styles.stepLine, done && { backgroundColor: alpha(colors.gold, 0.5) }]} /> : null}
-      </View>
-      <View style={{ flex: 1, minWidth: 0, paddingBottom: last ? 0 : 14 }}>{children}</View>
-    </View>
+    <Tap style={[s.quick, { backgroundColor: ink ? d.ink : bg }]} onPress={onPress}>
+      <View style={[s.quickIcon, ink && { backgroundColor: 'rgba(255,255,255,0.12)' }]}><Icon name={icon} size={19} color={fg} /></View>
+      <Text style={[s.quickSmall, { color: fg }]} numberOfLines={1}>{small}</Text>
+      <Text style={[s.quickTitle, { color: fg }]} numberOfLines={1}>{title}</Text>
+      <Text style={[s.quickSub, { color: fg }]} numberOfLines={1}>{sub}</Text>
+    </Tap>
   );
 }
 
-function StepCta({ done, label }) {
-  return done ? (
-    <View style={[styles.cta, styles.ctaDone]}>
-      <Icon name="check" size={14} color={colors.sage} strokeWidth={2.8} />
-    </View>
-  ) : (
-    <View style={styles.cta}>
-      <Text style={styles.ctaText}>{label}</Text>
-    </View>
-  );
-}
-
-function QuickTile({ icon, label, tint, bg, onPress }) {
-  return (
-    <PressScale onPress={onPress} scaleTo={0.94} style={styles.quickTile}>
-      <View style={[styles.quickIcon, { backgroundColor: bg }]}><Icon name={icon} size={19} color={tint} /></View>
-      <Text style={styles.quickLabel} numberOfLines={1}>{label}</Text>
-    </PressScale>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.screen },
-  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingTop: 12 },
-  eyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', color: colors.gold },
-  greeting: { fontFamily: fonts.display, fontSize: 29, lineHeight: 35, letterSpacing: -0.6, color: colors.fg, marginTop: 2 },
-  streakChip: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
-  streakChipText: { fontSize: 16, fontWeight: '800', color: colors.fg },
-
-  weekCard: { flexDirection: 'row', marginHorizontal: 18, marginTop: 16, paddingVertical: 12, paddingHorizontal: 6, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
-  weekDay: { flex: 1, alignItems: 'center', gap: 7 },
-  weekLetter: { fontSize: 11, fontWeight: '700', color: colors.faint },
-  weekDot: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
-  weekDotDone: { backgroundColor: colors.gold },
-  weekDotToday: { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.primary },
-  weekNum: { fontSize: 12.5, fontWeight: '700', color: colors.muted },
-
-  popRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginTop: 4 },
-  popIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  popState: { fontSize: 13, fontWeight: '700', color: colors.muted },
-  rhythmHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: 18, marginTop: 26 },
-  sectionEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', color: colors.gold, marginBottom: 2 },
-  sectionTitle: { fontFamily: fonts.serifBold, fontSize: 22, letterSpacing: -0.3, color: colors.fg },
-  rhythmMeta: { fontSize: 12, fontWeight: '600', color: colors.muted, marginBottom: 4 },
-  progressRow: { flexDirection: 'row', gap: 5, paddingHorizontal: 18, marginTop: 10 },
-  progressSeg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong },
-
-  journey: { paddingHorizontal: 18, marginTop: 16 },
-  steps: { paddingHorizontal: 18, marginTop: 18 },
-  stepRow: { flexDirection: 'row', gap: 12 },
-  stepRail: { width: 26, alignItems: 'center' },
-  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: colors.borderStrong, backgroundColor: colors.screen, alignItems: 'center', justifyContent: 'center', marginTop: 12 },
-  stepDotDone: { backgroundColor: colors.gold, borderColor: colors.gold },
-  stepNum: { fontSize: 12, fontWeight: '800', color: colors.muted },
-  stepLine: { flex: 1, width: 2, borderRadius: 1, backgroundColor: colors.border, marginTop: 4 },
-
-  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 14, ...shadow.sm },
-  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  iconTile: { width: 48, height: 48, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  cardEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.9, textTransform: 'uppercase', color: colors.muted },
-  cardTitle: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg, marginTop: 2, letterSpacing: -0.2 },
-  cardSub: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
-  cta: { height: 34, minWidth: 34, paddingHorizontal: 14, borderRadius: 17, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  ctaText: { color: '#FFFFFF', fontSize: 12.5, fontWeight: '700' },
-  ctaDone: { backgroundColor: colors.cardSage, paddingHorizontal: 0 },
-  planBar: { height: 4, borderRadius: 2, backgroundColor: colors.raised, marginTop: 14, overflow: 'hidden' },
-  planBarFill: { height: 4, borderRadius: 2, backgroundColor: colors.sage },
-  faces: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  face: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.surface },
-  faceText: { fontSize: 10, fontWeight: '800', color: colors.fg },
-  prompt: { fontFamily: fonts.serifItalic, fontSize: 15.5, lineHeight: 22, color: colors.passage, marginTop: 12 },
-  journal: { marginTop: 12, minHeight: 74, borderRadius: radius.md, backgroundColor: colors.raised, padding: 12, fontSize: 14, color: colors.fg, textAlignVertical: 'top' },
-  reflectBtn: { marginTop: 10, alignSelf: 'flex-start', paddingHorizontal: 16, height: 36, borderRadius: 18, backgroundColor: colors.fg, alignItems: 'center', justifyContent: 'center' },
-  reflectBtnText: { color: '#FFFFFF', fontSize: 12.5, fontWeight: '700' },
-  savedRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-  savedText: { fontSize: 12.5, fontWeight: '600', color: colors.sage },
-
-  doneCard: { marginHorizontal: 18, marginTop: 18, borderRadius: radius.xl, padding: 22, overflow: 'hidden', alignItems: 'center', ...shadow.md },
-  doneStar: { fontSize: 20, color: colors.goldLight },
-  doneTitle: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.nightFg, marginTop: 6, textAlign: 'center' },
-  doneBody: { fontSize: 13.5, lineHeight: 19, color: colors.nightMuted, marginTop: 6, textAlign: 'center' },
-
-  block: { paddingHorizontal: 18, marginTop: 26 },
-  continueCard: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 12, ...shadow.sm },
-  continueSpine: { width: 46, height: 60, borderRadius: 8, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  continueSpineText: { fontFamily: fonts.serifBold, fontSize: 13, color: colors.goldLight, letterSpacing: 1 },
-  continueBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-
-  seasonCard: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8, borderRadius: radius.lg, padding: 14, backgroundColor: colors.cardLavender, borderWidth: 1, borderColor: alpha(colors.lavender, 0.18) },
-  seasonArt: { width: 64, height: 64, borderRadius: 18, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' },
-  seasonArtStar: { fontSize: 26, color: '#F4E3B5' },
-  seasonEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.9, textTransform: 'uppercase', color: colors.lavender },
-  seasonTitle: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.fg, marginTop: 2 },
-  seasonSub: { fontSize: 12.5, color: colors.muted, marginTop: 2, lineHeight: 17 },
-
-  quickTile: { flex: 1, alignItems: 'center', paddingVertical: 14, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
-  quickIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  quickLabel: { fontSize: 12, fontWeight: '600', color: colors.fg, marginTop: 8 },
-
-  backdrop: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: colors.screen, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 22, paddingTop: 8, paddingBottom: 22, alignItems: 'stretch' },
-  grabber: { alignSelf: 'center', width: 38, height: 4.5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: 18 },
-  flameWrap: { alignSelf: 'center', width: 84, height: 84, borderRadius: 42, backgroundColor: colors.terracottaFaint, alignItems: 'center', justifyContent: 'center' },
-  streakBig: { fontFamily: fonts.display, fontSize: 56, lineHeight: 62, color: colors.fg, textAlign: 'center', marginTop: 8 },
-  streakLabel: { fontSize: 13, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.terracotta, textAlign: 'center' },
-  statsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, paddingVertical: 14 },
-  stat: { flex: 1, alignItems: 'center' },
-  statNum: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg },
-  statLabel: { fontSize: 11.5, color: colors.muted, marginTop: 2 },
-  statDivider: { width: 1, height: 30, backgroundColor: colors.border },
-  streakExplain: { fontSize: 13.5, lineHeight: 20, color: colors.muted, marginTop: 16, textAlign: 'center' },
-  sheetBtn: { marginTop: 20, height: 50, borderRadius: 25, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  sheetBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  hideStreak: { fontSize: 12.5, fontWeight: '600', color: colors.muted, textAlign: 'center' },
+const s = StyleSheet.create({
+  hero: { borderRadius: 28, padding: 20, overflow: 'hidden', shadowColor: '#372B7D', shadowOpacity: 0.25, shadowRadius: 22, shadowOffset: { width: 0, height: 22 }, elevation: 8 },
+  heroRing: { position: 'absolute', width: 190, height: 190, borderRadius: 95, borderWidth: 30, borderColor: 'rgba(255,255,255,0.06)', right: -70, top: -75 },
+  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroLabel: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  heroLabelText: { fontSize: 10, letterSpacing: 1.4, textTransform: 'uppercase', fontFamily: df.sansBold, color: '#FFD8BD' },
+  heroSave: { width: 36, height: 36, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  verseCopy: { paddingTop: 33, paddingBottom: 30 },
+  verseText: { fontFamily: df.display, fontSize: 27, lineHeight: 34, color: '#fff', maxWidth: 320 },
+  verseRef: { color: '#F7C9A8', fontSize: 11, marginTop: 15, fontFamily: df.sans },
+  heroActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  heroBtn: { height: 38, flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 13, borderRadius: 12 },
+  heroBtnText: { color: '#fff', fontSize: 11, fontFamily: df.sansBold },
+  heroShare: { marginLeft: 'auto', paddingHorizontal: 0, width: 38, justifyContent: 'center' },
+  rhythm: { marginTop: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 20 },
+  ring: { width: 58, height: 58, borderRadius: 29, borderWidth: 5, borderColor: '#F3D8C0', borderTopColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  ringNum: { fontFamily: df.sansHeavy, fontSize: 18, lineHeight: 20, color: d.ink },
+  ringSmall: { fontSize: 8, color: d.muted, textTransform: 'uppercase', fontFamily: df.sans },
+  rhythmTitle: { fontSize: 13, marginTop: 4, marginBottom: 2, color: d.ink, fontFamily: df.sansMedium },
+  rhythmSub: { color: d.muted, fontSize: 10, fontFamily: df.sans },
+  flame: { position: 'absolute', right: 15 },
+  steps: { flexDirection: 'row', gap: 6, marginTop: 11 },
+  stepsLine: { position: 'absolute', height: 2, left: '12%', right: '12%', top: 22, backgroundColor: '#E3D7CA' },
+  step: { flex: 1, height: 73, borderRadius: 17, backgroundColor: 'rgba(255,250,242,0.94)', borderWidth: 1, borderColor: d.line, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  stepBadge: { width: 30, height: 30, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: 4, borderColor: d.ivory },
+  stepNum: { fontSize: 9, fontFamily: df.sansHeavy, color: d.muted },
+  stepLabel: { fontSize: 8, fontFamily: df.sansHeavy, color: d.muted },
+  shortcut: { minHeight: 62, paddingVertical: 9, paddingHorizontal: 11, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  shortcutIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  shortcutDot: { position: 'absolute', width: 11, height: 11, borderRadius: 6, right: -2, top: -2, backgroundColor: '#FFF2E7', borderWidth: 2, borderColor: d.paper },
+  shortcutTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
+  shortcutSub: { fontSize: 9, color: d.muted, marginTop: 2, fontFamily: df.sans },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  quick: { width: '48.4%', flexGrow: 1, flexBasis: '45%', minHeight: 154, padding: 15, borderRadius: 20 },
+  quickIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 12, marginBottom: 'auto' },
+  quickSmall: { fontSize: 8, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.65, fontFamily: df.sansBold, marginTop: 30 },
+  quickTitle: { marginTop: 4, fontFamily: df.displayBold, fontSize: 16 },
+  quickSub: { fontSize: 10, opacity: 0.65, marginTop: 3, fontFamily: df.sans },
+  still: { minHeight: 170, flexDirection: 'row', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 22, overflow: 'hidden' },
+  stillArt: { width: '42%', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  stillRing1: { position: 'absolute', width: 74, height: 74, borderRadius: 37, borderWidth: 1, borderColor: 'rgba(255,107,26,0.23)' },
+  stillRing2: { position: 'absolute', width: 114, height: 114, borderRadius: 57, backgroundColor: 'rgba(255,255,255,0.2)' },
+  stillRing3: { position: 'absolute', width: 154, height: 154, borderRadius: 77, backgroundColor: 'rgba(255,255,255,0.15)' },
+  stillCopy: { flex: 1, paddingVertical: 18, paddingHorizontal: 15 },
+  stillKicker: { fontSize: 8, color: d.plum, fontFamily: df.sansHeavy, textTransform: 'uppercase', letterSpacing: 1 },
+  stillTitle: { fontFamily: df.displayBold, fontSize: 17, marginVertical: 5, color: d.ink },
+  stillSub: { color: d.muted, fontSize: 10, lineHeight: 14.5, fontFamily: df.sans },
+  playBtn: { marginTop: 12, alignSelf: 'flex-start', flexDirection: 'row', gap: 7, alignItems: 'center', backgroundColor: d.ink, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 },
+  playText: { color: '#fff', fontSize: 10, fontFamily: df.sansBold },
+  community: { height: 205, borderRadius: 24, overflow: 'hidden' },
+  communityCopy: { position: 'absolute', left: 18, right: 18, bottom: 16 },
+  communityKicker: { fontSize: 8, letterSpacing: 1.3, color: '#F6C8A6', fontFamily: df.sansHeavy },
+  communityTitle: { fontFamily: df.display, fontSize: 20, color: '#fff', marginTop: 3, marginBottom: 7 },
+  communitySub: { fontSize: 10, color: 'rgba(255,255,255,0.8)', fontFamily: df.sans },
+  backdrop: { flex: 1, backgroundColor: 'rgba(40,26,17,0.45)' },
+  sheet: { backgroundColor: d.paper, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, paddingBottom: 34 },
+  grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: d.line, marginBottom: 16 },
+  sheetTitle: { fontFamily: df.displayBold, fontSize: 22, color: d.ink, marginTop: 8 },
+  sheetBody: { fontFamily: df.sans, fontSize: 13, lineHeight: 20, color: d.muted, marginTop: 8 },
+  input: { minHeight: 96, marginTop: 14, padding: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.ivory, borderRadius: 14, fontSize: 14, fontFamily: df.sans, color: d.ink, textAlignVertical: 'top' },
+  primary: { marginTop: 16, minHeight: 56, borderRadius: 18, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  primaryText: { color: '#fff', fontFamily: df.sansBold, fontSize: 15 },
+  streakBig: { fontFamily: df.displayBold, fontSize: 48, color: d.ink, marginTop: 6 },
+  stats: { flexDirection: 'row', alignSelf: 'stretch', marginVertical: 14, paddingVertical: 12, borderRadius: 16, backgroundColor: d.ivory },
+  statNum: { fontFamily: df.displayBold, fontSize: 20, color: d.ink },
+  statLabel: { fontFamily: df.sans, fontSize: 10, color: d.muted },
 });

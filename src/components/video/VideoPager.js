@@ -544,7 +544,7 @@ const styles = StyleSheet.create({
   retryText: { color: WHITE, fontWeight: '800' },
   adCover: { ...StyleSheet.absoluteFillObject, zIndex: 30, backgroundColor: 'rgba(0,0,0,0.82)', alignItems: 'center', justifyContent: 'center' },
   adPill: { backgroundColor: '#F5C451', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 6 },
-  adPillText: { color: '#15172B', fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },
+  adPillText: { color: '#2A1B12', fontWeight: '900', fontSize: 12, letterSpacing: 0.5 },
   adText: { color: 'rgba(255,255,255,0.8)', marginTop: 10, fontSize: 13 },
   breakWrap: { position: 'absolute', top: 70, left: 0, right: 0, alignItems: 'center', zIndex: 25 },
   breakCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(0,0,0,0.72)', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 22 },

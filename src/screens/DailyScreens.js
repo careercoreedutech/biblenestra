@@ -4,9 +4,9 @@
 //                    Share as image, Save, Read chapter. The verse text always comes from the Bible data.
 //   'BlessingVideos' admin-uploaded blessing videos in the full-screen vertical player (swipe for the next one).
 //   'ChannelVideos'  "See all" of Watch: From Our Channels — recent videos grouped by channel.
+// Restyled in the Figma design: the verse-hero card (as in TodayScreen), kit cards and rows (src/design/study/parts.js).
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { Screen, Empty, NightGlow, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { FadeInUp, Pop, ScaleIn, Shimmer } from '../components/Motion';
 import { useToast } from '../components/Toast';
@@ -19,7 +19,9 @@ import { useNav } from '../navigation';
 import { verseOfDay, refLabel } from '../data/bible';
 import { useChapter } from '../bible/loader';
 import { useBlessingVideos, useDailyToday, useLatestVideos } from '../api/daily';
-import { colors, fonts, radius, shadow } from '../theme';
+import { colors, fonts } from '../theme';
+import { d, df, Grad, Tap, gradients } from '../design/sanctuary';
+import { SPage, SEmpty } from '../design/study/parts';
 
 let FileSystem = null;
 let Sharing = null;
@@ -84,7 +86,7 @@ export function DailyVerseScreen() {
   };
 
   return (
-    <Screen back title="Daily Bread" subtitle={new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}>
+    <SPage back title="Daily Bread" subtitle={new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}>
       {v.imageUrl ? (
         <ScaleIn from={0.96} style={styles.imageCard}>
           <Image
@@ -97,21 +99,39 @@ export function DailyVerseScreen() {
         </ScaleIn>
       ) : null}
 
-      <FadeInUp index={1} style={styles.verseCard}>
-        <NightGlow />
-        <View style={styles.pill}>
-          <Icon name="book" size={12} color={colors.goldLight} />
-          <Text style={styles.pillText}>Verse of the day</Text>
-        </View>
-        {loading && !text ? <Shimmer style={{ height: 70, borderRadius: 12, marginTop: 16, opacity: 0.3 }} /> : <Text style={styles.verseText}>“{text}”</Text>}
-        <Text style={styles.verseRef}>{v.label} · {tr}</Text>
-      </FadeInUp>
-
-      <FadeInUp index={2} style={styles.actions}>
-        <Action icon="headphones" label={playing ? 'Playing' : 'Listen'} onPress={() => nar.playVerse(v.bookId, v.chapter, v.verse, { translation: tr })} />
-        <Action icon="share" label="Share" onPress={share} />
-        <Pop trigger={saved}><Action icon="bookmark" label={saved ? 'Saved' : 'Save'} active={saved} onPress={save} /></Pop>
-        <Action icon="book" label="Chapter" onPress={() => nav.push('Bible', { bookId: v.bookId, chapter: v.chapter, verse: v.verse })} />
+      {/* .verse-hero */}
+      <FadeInUp index={1}>
+        <Grad colors={gradients.hero} locations={[0, 0.72, 1]} style={styles.hero}>
+          <View style={styles.heroRing} />
+          <View style={styles.heroTop}>
+            <View style={styles.heroLabel}>
+              <Icon name="sun" size={14} color="#FFD8BD" />
+              <Text style={styles.heroLabelText}>Verse of the day</Text>
+            </View>
+            <Pop trigger={saved}>
+              <Tap style={styles.heroSave} onPress={save} accessibilityLabel={saved ? 'Remove from saved' : 'Save verse'}>
+                <Icon name={saved ? 'check' : 'bookmark'} size={18} color="#fff" />
+              </Tap>
+            </Pop>
+          </View>
+          <View style={styles.verseCopy}>
+            {loading && !text ? <Shimmer style={{ height: 90, borderRadius: 12, opacity: 0.3 }} /> : <Text style={styles.verseText}>“{text}”</Text>}
+            <Text style={styles.verseRef}>{v.label} · {tr}</Text>
+          </View>
+          <View style={styles.heroActions}>
+            <Tap style={styles.heroBtn} onPress={() => nar.playVerse(v.bookId, v.chapter, v.verse, { translation: tr })} accessibilityLabel="Listen">
+              <Icon name="headphones" size={16} color="#fff" />
+              <Text style={styles.heroBtnText}>{playing ? 'Playing' : 'Listen'}</Text>
+            </Tap>
+            <Tap style={styles.heroBtn} onPress={() => nav.push('Bible', { bookId: v.bookId, chapter: v.chapter, verse: v.verse })} accessibilityLabel="Read chapter">
+              <Icon name="book" size={16} color="#fff" />
+              <Text style={styles.heroBtnText}>Chapter</Text>
+            </Tap>
+            <Tap style={[styles.heroBtn, styles.heroShare]} onPress={share} accessibilityLabel="Share verse">
+              <Icon name="share" size={16} color="#fff" />
+            </Tap>
+          </View>
+        </Grad>
       </FadeInUp>
 
       {reflection ? (
@@ -122,24 +142,15 @@ export function DailyVerseScreen() {
       ) : null}
 
       <FadeInUp index={4}>
-        <Pressable onPress={() => setImageOpen(true)} style={({ pressed }) => [styles.makeImage, pressed && { opacity: 0.85 }]} accessibilityRole="button">
-          <Icon name="image" size={17} color={colors.primary} />
+        <Tap onPress={() => setImageOpen(true)} style={styles.makeImage} accessibilityLabel="Make your own verse image">
+          <View style={styles.makeIcon}><Icon name="image" size={17} color={d.plum} /></View>
           <Text style={styles.makeImageText}>Make your own verse image</Text>
-          <Icon name="chevron-right" size={14} color={colors.faint} />
-        </Pressable>
+          <Icon name="chevron-right" size={15} color="#AAA6AD" />
+        </Tap>
       </FadeInUp>
 
       <VerseImageSheet visible={imageOpen} onClose={() => setImageOpen(false)} text={text} reference={v.label} translation={tr} />
-    </Screen>
-  );
-}
-
-function Action({ icon, label, onPress, active }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.action, active && styles.actionOn, pressed && { opacity: 0.8 }]} accessibilityRole="button" accessibilityLabel={label}>
-      <Icon name={icon} size={18} color={active ? colors.gold : colors.primary} fill={active ? 'solid' : 'none'} />
-      <Text style={[styles.actionText, active && { color: colors.gold }]}>{label}</Text>
-    </Pressable>
+    </SPage>
   );
 }
 
@@ -176,20 +187,18 @@ export function BlessingVideosScreen({ params = {} }) {
     );
   }
   return (
-    <Screen back title="Videos" subtitle="Blessing videos">
+    <SPage back title="Videos" subtitle="Blessing videos">
       {!loaded ? (
-        <View style={{ paddingTop: 60, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View>
+        <View style={{ paddingTop: 60, alignItems: 'center' }}><ActivityIndicator color={d.plum} /></View>
       ) : (
-        <View style={{ marginTop: 12 }}>
-          <Empty
-            title={online ? 'No blessing videos yet' : 'Sign in to watch'}
-            body={online ? (error || 'A new blessing video will appear here soon.') : 'Blessing videos from the BibleNestra team appear here when you’re signed in.'}
-            action={online && error ? 'Try again' : undefined}
-            onAction={reload}
-          />
-        </View>
+        <SEmpty
+          title={online ? 'No blessing videos yet' : 'Sign in to watch'}
+          body={online ? (error || 'A new blessing video will appear here soon.') : 'Blessing videos from the BibleNestra team appear here when you’re signed in.'}
+          action={online && error ? 'Try again' : undefined}
+          onAction={reload}
+        />
       )}
-    </Screen>
+    </SPage>
   );
 }
 
@@ -199,47 +208,55 @@ export function ChannelVideosScreen() {
   const { data, loaded, error, reload } = useLatestVideos();
   const groups = (data && data.groups) || [];
   return (
-    <Screen back title="Watch" subtitle="From our channels">
+    <SPage back title="Watch" subtitle="From our channels">
       {!loaded && !groups.length ? (
         <View style={{ marginTop: 12 }}><Shimmer style={{ height: 160, borderRadius: 16 }} /><Shimmer style={{ height: 160, borderRadius: 16, marginTop: 12 }} /></View>
       ) : !groups.length ? (
-        <View style={{ marginTop: 12 }}><Empty title="Channels coming soon" body={error || 'Sermons and worship from trusted ministries will appear here.'} action={error ? 'Try again' : undefined} onAction={reload} /></View>
+        <SEmpty title="Channels coming soon" body={error || 'Sermons and worship from trusted ministries will appear here.'} action={error ? 'Try again' : undefined} onAction={reload} />
       ) : groups.map((g, gi) => (
-        <FadeInUp key={g.channel.id} index={Math.min(gi, 5)} style={{ marginTop: gi ? 24 : 10 }}>
-          <Pressable onPress={() => nav.push('YouTubeChannel', { id: g.channel.id })} style={({ pressed }) => [styles.chHead, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel={`Open ${g.channel.title}`}>
-            <ChannelAvatar channel={g.channel} size={34} />
+        <FadeInUp key={g.channel.id} index={Math.min(gi, 5)} style={{ marginTop: gi ? 22 : 12 }}>
+          <Tap onPress={() => nav.push('YouTubeChannel', { id: g.channel.id })} style={styles.chHead} accessibilityLabel={`Open ${g.channel.title}`}>
+            <ChannelAvatar channel={g.channel} size={36} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.chTitle} numberOfLines={1}>{g.channel.title}</Text>
               <Text style={styles.chMeta} numberOfLines={1}>{g.videos.length} recent video{g.videos.length === 1 ? '' : 's'}{g.channel.handle ? ` · @${g.channel.handle}` : ''}</Text>
             </View>
-            <Icon name="chevron-right" size={15} color={colors.faint} />
-          </Pressable>
+            <Icon name="chevron-right" size={15} color={d.muted} />
+          </Tap>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -18 }} contentContainerStyle={{ gap: 12, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 8 }}>
             {g.videos.map((v) => <VideoCard key={v.videoId} v={{ ...v, channel: g.channel }} width={196} onPress={() => playYouTube(nav, { ...v, channel: g.channel })} />)}
           </ScrollView>
         </FadeInUp>
       ))}
-    </Screen>
+    </SPage>
   );
 }
 
 const styles = StyleSheet.create({
-  imageCard: { marginTop: 10, borderRadius: radius.xl, overflow: 'hidden', backgroundColor: colors.raised, ...shadow.md },
-  image: { width: '100%', backgroundColor: colors.raised },
-  verseCard: { marginTop: 14, borderRadius: radius.xl, padding: 20, overflow: 'hidden', ...shadow.lg },
-  pill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: 'rgba(212,168,82,0.16)' },
-  pillText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase', color: colors.goldLight },
-  verseText: { fontFamily: fonts.serifItalic, fontSize: 21, lineHeight: 30, color: colors.nightFg, marginTop: 16 },
-  verseRef: { fontSize: 11.5, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.goldLight, marginTop: 14 },
-  actions: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  action: { flex: 1, alignItems: 'center', gap: 5, paddingVertical: 12, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
-  actionOn: { backgroundColor: colors.cardGold, borderColor: alpha(colors.gold, 0.3) },
-  actionText: { fontSize: 12, fontWeight: '700', color: colors.fg },
-  reflectCard: { marginTop: 16, padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  eyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase', color: colors.gold },
-  reflectText: { fontFamily: fonts.serifItalic, fontSize: 16, lineHeight: 23, color: colors.passage, marginTop: 8 },
-  makeImage: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, padding: 14, borderRadius: radius.lg, backgroundColor: colors.primarySoft },
-  makeImageText: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.primary },
+  imageCard: { marginTop: 12, borderRadius: 22, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  image: { width: '100%', backgroundColor: d.paper },
+
+  // .verse-hero (as in TodayScreen)
+  hero: { marginTop: 12, borderRadius: 28, padding: 20, overflow: 'hidden', shadowColor: '#372B7D', shadowOpacity: 0.25, shadowRadius: 22, shadowOffset: { width: 0, height: 22 }, elevation: 8 },
+  heroRing: { position: 'absolute', width: 190, height: 190, borderRadius: 95, borderWidth: 30, borderColor: 'rgba(255,255,255,0.06)', right: -70, top: -75 },
+  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroLabel: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  heroLabelText: { fontSize: 10, letterSpacing: 1.4, textTransform: 'uppercase', fontFamily: df.sansBold, color: '#FFD8BD' },
+  heroSave: { width: 36, height: 36, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  verseCopy: { paddingTop: 30, paddingBottom: 26 },
+  verseText: { fontFamily: df.display, fontSize: 26, lineHeight: 34, color: '#fff' },
+  verseRef: { color: '#F7C9A8', fontSize: 11, marginTop: 14, fontFamily: df.sans },
+  heroActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  heroBtn: { height: 38, flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 13, borderRadius: 12 },
+  heroBtnText: { color: '#fff', fontSize: 11, fontFamily: df.sansBold },
+  heroShare: { marginLeft: 'auto', paddingHorizontal: 0, width: 38, justifyContent: 'center' },
+
+  reflectCard: { marginTop: 12, padding: 16, borderRadius: 20, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  eyebrow: { fontSize: 9, fontFamily: df.sansHeavy, letterSpacing: 1.3, textTransform: 'uppercase', color: d.plum },
+  reflectText: { fontFamily: df.display, fontSize: 15, lineHeight: 23, color: d.ink, marginTop: 8 },
+  makeImage: { flexDirection: 'row', alignItems: 'center', gap: 11, marginTop: 12, padding: 14, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  makeIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: d.lavender },
+  makeImageText: { flex: 1, fontSize: 13, fontFamily: df.sansBold, color: d.ink },
 
   vOverlay: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 12 },
   vInfo: { maxWidth: 520 },
@@ -247,7 +264,7 @@ const styles = StyleSheet.create({
   vTitle: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 25, color: '#FFFFFF', marginTop: 4, textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 8 },
   vDesc: { fontSize: 13.5, lineHeight: 19, color: 'rgba(255,255,255,0.88)', marginTop: 4, textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 6 },
 
-  chHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  chTitle: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.fg },
-  chMeta: { fontSize: 12, color: colors.muted, marginTop: 1 },
+  chHead: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
+  chTitle: { fontFamily: df.displayBold, fontSize: 17, color: d.ink },
+  chMeta: { fontSize: 12, fontFamily: df.sans, color: d.muted, marginTop: 1 },
 });

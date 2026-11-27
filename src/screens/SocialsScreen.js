@@ -1917,9 +1917,13 @@ export default function SocialsScreen({ params }) {
                 </PressScale>
               ) : null}
               <View style={{ flex: 1, minWidth: 0 }}>
-                {/* Brief 7.2: the header says "Socials" only (no "Community" above it) */}
-                <Text style={[styles.headerTitle, !darkHead && { color: colors.fg }]} numberOfLines={1}>Socials</Text>
+                {/* Design "Community" header: small subtitle over the Playfair title */}
+                <Text style={styles.headerSubtitle} numberOfLines={1}>Faith grows together</Text>
+                <Text style={[styles.headerTitle, !darkHead && { color: colors.fg }]} numberOfLines={1}>Community</Text>
               </View>
+              <PressScale onPress={() => nav.push('Chats')} scaleTo={0.9} hitSlop={6} style={[styles.headerBack, !darkHead && styles.headerBackLight]} accessibilityLabel="Messages">
+                <Icon name="message" size={18} color={darkHead ? colors.nightFg : colors.fg} />
+              </PressScale>
               <PressScale onPress={() => nav.push('Activity')} scaleTo={0.9} hitSlop={6} style={[styles.headerBack, !darkHead && styles.headerBackLight]} accessibilityLabel={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'}>
                 <Icon name="bell" size={17} color={darkHead ? colors.nightFg : colors.fg} />
                 {unreadActivity ? (
@@ -1927,9 +1931,6 @@ export default function SocialsScreen({ params }) {
                     <Text style={styles.bellBadgeText}>{unreadActivity > 9 ? '9+' : unreadActivity}</Text>
                   </ScaleIn>
                 ) : null}
-              </PressScale>
-              <PressScale onPress={() => openComposer(segment === 'videos' ? 'video' : 'text')} scaleTo={0.9} hitSlop={6} style={[styles.headerCreate, !darkHead && styles.headerCreateLight]} accessibilityLabel="Create post">
-                <Icon name="plus" size={18} color={WHITE} strokeWidth={2.4} />
               </PressScale>
               <ProfileButton size={36} dark={darkHead} />
             </View>
@@ -1946,6 +1947,13 @@ export default function SocialsScreen({ params }) {
           >
             {segment === 'videos' ? renderReels() : renderFeed()}
           </View>
+
+          {/* Floating create (design .floating-round) — Feed only; Videos keeps its own controls */}
+          {segment === 'feed' ? (
+            <PressScale onPress={() => openComposer('text')} scaleTo={0.9} style={styles.floatingCreate} accessibilityLabel="Create post">
+              <Icon name="plus" size={22} color={WHITE} strokeWidth={2.4} />
+            </PressScale>
+          ) : null}
         </>
       ) : null}
 
@@ -2310,7 +2318,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.goldLight, marginBottom: 1 },
-  headerTitle: { fontFamily: fonts.display, fontSize: 28, lineHeight: 33, letterSpacing: -0.6, color: colors.nightFg },
+  headerTitle: { fontFamily: fonts.display, fontSize: 24, lineHeight: 28, letterSpacing: -0.5, color: colors.nightFg },
+  headerSubtitle: { fontFamily: 'DMSans-Bold', fontSize: 9, letterSpacing: 1.3, textTransform: 'uppercase', color: colors.muted, marginBottom: 2 },
+  floatingCreate: {
+    position: 'absolute',
+    right: 20,
+    bottom: 96,
+    width: 48,
+    height: 48,
+    borderRadius: 17,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
   headerCreate: {
     width: 36,
     height: 36,

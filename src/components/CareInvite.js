@@ -35,7 +35,7 @@ export default function CareInvite({ style }) {
       <View style={styles.needs}>
         {NEEDS.map((n) => (
           <PressScale key={n.label} onPress={() => nav.push('Care', { preselect: n.choice })} scaleTo={0.96} style={styles.need} accessibilityRole="button" accessibilityLabel={`Care: ${n.label}`}>
-            <Icon name={n.icon} size={15} color={colors.teal} />
+            <Icon name={n.icon} size={15} color={'#4B5B35'} />
             <Text style={styles.needText} numberOfLines={1}>{n.label}</Text>
           </PressScale>
         ))}
@@ -49,17 +49,17 @@ export default function CareInvite({ style }) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 22, padding: 18, overflow: 'hidden', backgroundColor: '#E6F0EE', borderWidth: 1, borderColor: 'rgba(44,118,114,0.18)', ...shadow.sm },
-  glow: { position: 'absolute', right: -60, top: -60, width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(44,118,114,0.10)' },
+  card: { borderRadius: 22, padding: 18, overflow: 'hidden', backgroundColor: '#E7EAD7', borderWidth: 1, borderColor: 'rgba(75,91,53,0.16)', ...shadow.sm },
+  glow: { position: 'absolute', right: -60, top: -60, width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(255,255,255,0.35)' },
   top: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  heart: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.teal, alignItems: 'center', justifyContent: 'center' },
-  eyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.teal },
-  title: { marginTop: 2, fontFamily: fonts.serifBold, fontSize: 23, lineHeight: 28, color: colors.fg, letterSpacing: -0.3 },
-  body: { marginTop: 10, fontSize: 14.5, lineHeight: 21, color: colors.passage },
+  heart: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#4B5B35', alignItems: 'center', justifyContent: 'center' },
+  eyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.3, textTransform: 'uppercase', color: '#4B5B35' },
+  title: { marginTop: 2, fontFamily: fonts.serifBold, fontSize: 21, lineHeight: 26, color: colors.fg, letterSpacing: -0.3 },
+  body: { marginTop: 10, fontSize: 13, lineHeight: 20, color: colors.muted },
   ask: { marginTop: 14, marginBottom: 8, fontSize: 12.5, fontWeight: '700', color: colors.muted },
   needs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  need: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 36, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: 'rgba(44,118,114,0.22)' },
+  need: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 36, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: 'rgba(75,91,53,0.18)' },
   needText: { fontSize: 13.5, fontWeight: '600', color: colors.fg },
-  cta: { marginTop: 14, height: 48, borderRadius: radius.pill, backgroundColor: colors.teal, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  cta: { marginTop: 14, height: 52, borderRadius: 18, backgroundColor: '#4B5B35', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   ctaText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
 });

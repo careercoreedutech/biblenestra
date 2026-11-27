@@ -26,6 +26,7 @@ import { usePresence } from '../chat/live';
 import { presenceLabel, relTime, fmtBytes } from '../chat/messages';
 import { openLink } from '../components/EmbedViewer';
 import { LinkPreviewCard, MuteSheet, isMutedNow, muteLabel } from '../components/chat/ChatGaps'; // CHAT GAPS: link cards, timed mute
+import { d, df, k, PageHeader } from '../design/sanctuary'; // FIGMA DESIGN: .page-header, paper cards, lavender chips
 
 const TABS = [
   { key: 'photos', label: 'Photos' }, { key: 'videos', label: 'Videos' }, { key: 'docs', label: 'Docs' },
@@ -44,7 +45,7 @@ function RoleBadge({ role }) {
 function Row({ icon, label, sub, onPress, tint = colors.fg, right }) {
   return (
     <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => [styles.row, pressed && onPress && { backgroundColor: colors.raised }]} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label}>
-      {icon ? <View style={styles.rowIcon}><Icon name={icon} size={17} color={tint} /></View> : null}
+      {icon ? <View style={styles.rowIcon}><Icon name={icon} size={17} color={tint === colors.fg ? d.plum : tint} /></View> : null}
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={[styles.rowLabel, { color: tint }]}>{label}</Text>
         {sub ? <Text style={styles.rowSub} numberOfLines={2}>{sub}</Text> : null}
@@ -384,7 +385,9 @@ export function ChatInfoScreen({ params = {} }) {
   const ou = info.otherUser;
 
   return (
-    <Screen back title={isDm ? 'Contact info' : info.kind === 'channel' ? 'Channel info' : 'Group info'}>
+    <View style={k.screen}>
+      <ScrollView contentContainerStyle={[k.scroll, { paddingBottom: 48 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <PageHeader back onBack={() => nav.pop()} title={isDm ? 'Contact info' : info.kind === 'channel' ? 'Channel info' : 'Group info'} subtitle={isDm ? 'Direct message' : info.kind === 'channel' ? 'Channel' : 'Group'} action={null} />
       <View style={styles.hero}>
         <Pressable onPress={p.canEditInfo && !isDm ? changePhoto : undefined} accessibilityLabel={p.canEditInfo ? 'Change group photo' : undefined}>
           {isDm ? <SocialAvatar name={info.title} uri={ou && ou.avatarUrl} size={88} />
@@ -528,11 +531,12 @@ export function ChatInfoScreen({ params = {} }) {
         {isDm && ou ? <Row icon="x" tint={colors.negative || colors.rose} label={`Block ${info.title}`} onPress={async () => { try { await api.request('POST', `/users/${ou.id}/block`); toast.show(`${info.title} is blocked`, { icon: 'shield' }); nav.pop(); } catch (e) { toast.show(errorMessage(e, 'Couldn’t block'), { tone: 'error' }); } }} /> : null}
         {!isDm ? <Row icon="x" tint={colors.negative || colors.rose} label={info.kind === 'channel' ? 'Unfollow channel' : 'Leave group'} onPress={leave} /> : null}
       </Card>
+      </ScrollView>
 
       {!isDm ? <AddMembersSheet visible={adding} convId={convId} existing={new Set((members || []).map((m) => m.id))} onClose={() => setAdding(false)} onAdded={refreshAll} invite={p.canInvite ? () => shareInvite(false) : null} /> : null}
       <MemberSheet member={sel} me={me} convId={convId} onClose={() => setSel(null)} onChanged={refreshAll} />
-      <MuteSheet visible={muteOpen} title={info.title} onClose={() => setMuteOpen(false)} onPick={(d) => toggleMute(d)} />
-    </Screen>
+      <MuteSheet visible={muteOpen} title={info.title} onClose={() => setMuteOpen(false)} onPick={(x) => toggleMute(x)} />
+    </View>
   );
 }
 
@@ -597,46 +601,46 @@ export function JoinGroupScreen({ params = {} }) {
 
 const styles = StyleSheet.create({
   hero: { alignItems: 'center', gap: 6, paddingTop: 14, paddingBottom: 6 },
-  heroIcon: { width: 88, height: 88, borderRadius: 44, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  camera: { position: 'absolute', right: 0, bottom: 0, width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.screen },
-  heroTitle: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg, textAlign: 'center', marginTop: 6 },
-  heroSub: { fontSize: 13, color: colors.muted },
-  heroDesc: { fontSize: 14, lineHeight: 20, color: colors.fg, textAlign: 'center', paddingHorizontal: 12 },
-  link: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 2 },
+  heroIcon: { width: 88, height: 88, borderRadius: 44, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  camera: { position: 'absolute', right: 0, bottom: 0, width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: d.ivory },
+  heroTitle: { fontFamily: df.displayBold, fontSize: 24, lineHeight: 28, letterSpacing: -0.4, color: d.ink, textAlign: 'center', marginTop: 6 },
+  heroSub: { fontSize: 13, color: d.muted },
+  heroDesc: { fontSize: 14, lineHeight: 20, color: d.ink, textAlign: 'center', paddingHorizontal: 12 },
+  link: { fontSize: 13, fontFamily: df.sansBold, color: colors.primary, marginTop: 2 },
   quick: { flexDirection: 'row', gap: 10, marginTop: 10 },
-  quickBtn: { width: 74, paddingVertical: 10, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', gap: 4 },
-  quickText: { fontSize: 12, fontWeight: '600', color: colors.primary },
-  card: { marginTop: 14, padding: 14, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  quickBtn: { width: 74, paddingVertical: 10, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, alignItems: 'center', gap: 4 },
+  quickText: { fontSize: 12, fontFamily: df.sansBold, color: colors.primary },
+  card: { marginTop: 14, padding: 14, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  cardTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: colors.muted },
+  cardTitle: { fontSize: 9.5, fontFamily: df.sansHeavy, letterSpacing: 1.3, textTransform: 'uppercase', color: d.plum },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 4, borderRadius: radius.md },
-  rowIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
-  rowLabel: { fontSize: 14.5, fontWeight: '600', color: colors.fg },
-  rowSub: { fontSize: 12.5, lineHeight: 17, color: colors.muted, marginTop: 1 },
+  rowIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  rowLabel: { fontSize: 14.5, fontFamily: df.sansSemi, color: d.ink },
+  rowSub: { fontSize: 12.5, lineHeight: 17, color: d.muted, marginTop: 1 },
   tab: { paddingHorizontal: 12, height: 32, borderRadius: radius.pill, backgroundColor: colors.raised, justifyContent: 'center' },
   tabOn: { backgroundColor: colors.primary },
-  tabText: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  tabText: { fontSize: 13, fontFamily: df.sansSemi, color: d.muted },
   tabTextOn: { color: '#FFFFFF' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   thumb: { width: '32.5%', aspectRatio: 1, borderRadius: 6, overflow: 'hidden', backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
   empty: { fontSize: 13, color: colors.faint, textAlign: 'center', paddingVertical: 14 },
-  dl: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  adminsLine: { fontSize: 12.5, color: colors.muted, marginBottom: 6 },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 8, paddingHorizontal: 12, height: 40, borderRadius: radius.pill, backgroundColor: colors.raised },
-  searchInput: { flex: 1, fontSize: 14, color: colors.fg, paddingVertical: 0, outlineStyle: 'none' },
+  dl: { width: 32, height: 32, borderRadius: 16, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  adminsLine: { fontSize: 12.5, color: d.muted, marginBottom: 6 },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 8, paddingHorizontal: 12, height: 44, borderRadius: 15, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  searchInput: { flex: 1, fontSize: 14, color: d.ink, paddingVertical: 0, outlineStyle: 'none' },
   member: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, paddingHorizontal: 2, borderRadius: radius.md },
-  memberName: { fontSize: 15, fontWeight: '600', color: colors.fg },
-  memberSub: { fontSize: 12.5, color: colors.muted, marginTop: 1 },
-  onlineDot: { position: 'absolute', right: 0, bottom: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: colors.surface },
+  memberName: { fontSize: 15, fontFamily: df.sansSemi, color: d.ink },
+  memberSub: { fontSize: 12.5, color: d.muted, marginTop: 1 },
+  onlineDot: { position: 'absolute', right: 0, bottom: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: d.paper },
   badge: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
-  badgeText: { fontSize: 10.5, fontWeight: '700' },
+  badgeText: { fontSize: 10.5, fontFamily: df.sansBold },
   choice: { paddingVertical: 8 },
   choiceOpts: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
   opt: { paddingHorizontal: 12, height: 30, borderRadius: radius.pill, backgroundColor: colors.raised, justifyContent: 'center' },
   optOn: { backgroundColor: colors.primary },
-  optText: { fontSize: 12.5, fontWeight: '600', color: colors.muted },
+  optText: { fontSize: 12.5, fontFamily: df.sansSemi, color: d.muted },
   optTextOn: { color: '#FFFFFF' },
-  input: { borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: colors.fg },
+  input: { borderRadius: 14, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: d.ink },
   overlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.screen, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 26, gap: 6, ...shadow.lg },
   grabber: { alignSelf: 'center', width: 38, height: 4.5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: 8 },

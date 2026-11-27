@@ -1,19 +1,21 @@
 // CHAT LIMITS (client #27): Invite friends — your personal invite link/code, who joined through you, and
 // "Have an invite code?" for people who installed before opening the link. Invited friends (both ways) can
 // always chat with you, even on the free plan. Server: backend/src/routes/referrals.js (GET /me/invite).
+// Styled in the Figma "Invites" design (src/design/sanctuary.js + src/design/profile/parts.js).
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Share, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { Screen, Empty, Notice, NightGlow, alpha } from '../components/ui';
+import { Empty, Notice } from '../components/ui';
 import { Icon } from '../components/Icons';
-import { FadeInUp, PressScale } from '../components/Motion';
+import { FadeInUp } from '../components/Motion';
 import { SocialAvatar } from '../components/social/FeedCard';
-import { colors, fonts, radius, shadow } from '../theme';
 import { useApi } from '../api/auth';
 import { useNav } from '../navigation';
 import { useToast } from '../components/Toast';
 import { errorMessage } from '../api/client';
 import { ChatSlotsCounter } from '../components/ChatLimit';
+import { d, df, Grad, Tap, SectionTitle } from '../design/sanctuary';
+import { DScreen, DInput, DButton } from '../design/profile/parts';
 
 export default function InviteFriendsScreen() {
   const api = useApi();
@@ -50,116 +52,127 @@ export default function InviteFriendsScreen() {
   };
 
   if (!api.online) {
-    return <Screen back title="Invite friends"><Empty title="Sign in first" body="Invite links connect your BibleNestra account with your friends’." /></Screen>;
+    return <DScreen back onBack={() => nav.pop()} title="Invite friends" subtitle="Grow the circle"><Empty title="Sign in first" body="Invite links connect your BibleNestra account with your friends’." /></DScreen>;
   }
   return (
-    <Screen back title="Invite friends" subtitle="Invited friends can always chat with you">
+    <DScreen back onBack={() => nav.pop()} title="Invite friends" subtitle="Grow the circle">
       <FadeInUp distance={10}>
-        <View style={styles.hero}>
-          <NightGlow intensity={1} />
-          <View style={styles.heroInner}>
-            <View style={styles.orb}><Icon name="users" size={26} color={colors.goldLight} strokeWidth={1.8} /></View>
-            <Text style={styles.heroTitle}>Bring your friends to BibleNestra</Text>
-            <Text style={styles.heroSub}>Friends who join with your link are unlimited — they never use one of your free chats, and you never use theirs.</Text>
-            {data ? (
-              <View style={styles.codeBox} accessibilityLabel={`Your invite code ${data.code.split('').join(' ')}`}>
-                <Text style={styles.codeLabel}>Your invite code</Text>
-                <Text style={styles.code} selectable>{data.code}</Text>
-              </View>
-            ) : error ? null : <ActivityIndicator color={colors.goldLight} style={{ marginTop: 16 }} />}
-          </View>
-        </View>
+        {/* .invite-hero */}
+        <Grad colors={['#F2D18E', '#F8EBD0']} style={s.hero}>
+          <Icon name="users" size={32} color={d.goldDark} strokeWidth={1.8} />
+          <Text style={s.heroEyebrow}>Your invite code</Text>
+          {data ? (
+            <Text style={s.code} selectable accessibilityLabel={`Your invite code ${data.code.split('').join(' ')}`}>{data.code}</Text>
+          ) : error ? null : <ActivityIndicator color={d.goldDark} style={{ marginTop: 16 }} />}
+          <Text style={s.heroBody}>Friends who join with your link are unlimited — they never use one of your free chats, and you never use theirs.</Text>
+          {data ? (
+            <View style={s.heroButtons}>
+              <Tap onPress={share} style={[s.heroBtn, { backgroundColor: d.ink }]} accessibilityRole="button" accessibilityLabel="Share invite link">
+                <Icon name="share" size={13} color="#FFFFFF" />
+                <Text style={[s.heroBtnText, { color: '#FFFFFF' }]}>Share invite</Text>
+              </Tap>
+              <Tap onPress={copy} style={[s.heroBtn, { backgroundColor: 'rgba(255,255,255,0.55)' }]} accessibilityRole="button" accessibilityLabel="Copy link">
+                <Icon name="link" size={13} color={d.goldDark} />
+                <Text style={[s.heroBtnText, { color: d.goldDark }]}>Copy link</Text>
+              </Tap>
+            </View>
+          ) : null}
+          {data ? <Text style={s.link} numberOfLines={1} selectable>{data.link}</Text> : null}
+        </Grad>
       </FadeInUp>
-      {error ? <Notice tint={colors.negative} text={error} /> : null}
-
-      {data ? (
-        <View style={styles.actions}>
-          <PressScale onPress={share} scaleTo={0.97} style={styles.cta} accessibilityRole="button" accessibilityLabel="Share invite link">
-            <Icon name="share" size={17} color="#FFFFFF" />
-            <Text style={styles.ctaText}>Share invite link</Text>
-          </PressScale>
-          <PressScale onPress={copy} scaleTo={0.97} style={styles.ghost} accessibilityRole="button" accessibilityLabel="Copy link">
-            <Icon name="link" size={16} color={colors.primary} />
-            <Text style={styles.ghostText} numberOfLines={1}>Copy link</Text>
-          </PressScale>
-          <Text style={styles.link} numberOfLines={1} selectable>{data.link}</Text>
-        </View>
-      ) : null}
+      {error ? <Notice tint={d.roseDark} text={error} /> : null}
 
       <ChatSlotsCounter />
 
       {data ? (
         <View>
+          {/* .invite-stats */}
+          <View style={s.stats}>
+            <View style={s.stat}>
+              <Text style={s.statNum}>{data.joined.length}</Text>
+              <Text style={s.statLabel}>Friends joined</Text>
+            </View>
+          </View>
+
           {data.invitedBy ? (
             <>
-              <Text style={styles.section}>Invited you</Text>
+              <SectionTitle eyebrow="Your circle" title="Invited you" />
               <PersonRow p={data.invitedBy} onPress={() => nav.push('UserProfile', { id: data.invitedBy.id, name: data.invitedBy.displayName })} />
             </>
           ) : null}
-          <Text style={styles.section}>Joined with your invite{data.joined.length ? ` · ${data.joined.length}` : ''}</Text>
-          {data.joined.length ? data.joined.map((p, i) => (
-            <FadeInUp key={p.id} index={i} distance={8} duration={260}>
-              <PersonRow p={p} sub={p.joinedAt ? `Joined ${new Date(p.joinedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : null} onPress={() => nav.push('UserProfile', { id: p.id, name: p.displayName })} />
-            </FadeInUp>
-          )) : <Text style={styles.hint}>No one yet. Share your link — when a friend signs up with it, they’ll show up here.</Text>}
+
+          <SectionTitle eyebrow="Your circle" title={`Your invited friends${data.joined.length ? ` · ${data.joined.length}` : ''}`} />
+          {data.joined.length ? (
+            <View style={s.list}>
+              {data.joined.map((p, i) => (
+                <FadeInUp key={p.id} index={i} distance={8} duration={260}>
+                  <PersonRow p={p} sub={p.joinedAt ? `Joined ${new Date(p.joinedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : null} onPress={() => nav.push('UserProfile', { id: p.id, name: p.displayName })} />
+                </FadeInUp>
+              ))}
+            </View>
+          ) : <Text style={s.hint}>No one yet. Share your link — when a friend signs up with it, they’ll show up here.</Text>}
 
           {data.canRedeem ? (
-            <View style={styles.redeem}>
-              <Text style={styles.redeemTitle}>Have an invite code?</Text>
-              <Text style={styles.hint}>Enter it within {data.claimDays} days of signing up to connect with the friend who invited you.</Text>
-              <View style={styles.redeemRow}>
-                <TextInput value={code} onChangeText={(t) => setCode(t.toUpperCase())} autoCapitalize="characters" autoCorrect={false} maxLength={16} placeholder="e.g. K7Q2M9XD" placeholderTextColor={colors.faint} style={styles.input} accessibilityLabel="Invite code" />
-                <PressScale onPress={redeem} disabled={busy || !code.trim()} scaleTo={0.95} style={[styles.redeemBtn, (busy || !code.trim()) && { opacity: 0.55 }]} accessibilityRole="button" accessibilityLabel="Use code">
-                  <Text style={styles.redeemBtnText}>{busy ? '…' : 'Use code'}</Text>
-                </PressScale>
+            /* .late-code: "Have an invite code?" */
+            <View style={s.redeem}>
+              <Text style={s.redeemTitle}>Have an invite code?</Text>
+              <Text style={s.hint}>Enter it within {data.claimDays} days of signing up to connect with the friend who invited you.</Text>
+              <View style={s.redeemRow}>
+                <DInput
+                  value={code}
+                  onChangeText={(t) => setCode(t.toUpperCase())}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={16}
+                  placeholder="e.g. K7Q2M9XD"
+                  accessibilityLabel="Invite code"
+                  style={s.input}
+                />
+                <DButton small label={busy ? '…' : 'Use code'} disabled={busy || !code.trim()} onPress={redeem} style={{ alignSelf: 'stretch' }} />
               </View>
             </View>
           ) : null}
         </View>
       ) : null}
-    </Screen>
+    </DScreen>
   );
 }
 
 function PersonRow({ p, sub, onPress }) {
   return (
-    <PressScale onPress={onPress} scaleTo={0.985} style={styles.row} accessibilityRole="button" accessibilityLabel={p.displayName}>
+    <Tap onPress={onPress} style={s.row} accessibilityRole="button" accessibilityLabel={p.displayName}>
       <SocialAvatar name={p.displayName} uri={p.avatarUrl} size={44} />
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={styles.rowName} numberOfLines={1}>{p.displayName}{p.verified ? ' ✓' : ''}</Text>
-        <Text style={styles.rowSub} numberOfLines={1}>{sub || (p.handle ? `@${p.handle}` : p.church || 'BibleNestra member')}</Text>
+        <Text style={s.rowName} numberOfLines={1}>{p.displayName}{p.verified ? ' ✓' : ''}</Text>
+        <Text style={s.rowSub} numberOfLines={1}>{sub || (p.handle ? `@${p.handle}` : p.church || 'BibleNestra member')}</Text>
       </View>
-      <View style={styles.free}><Text style={styles.freeText}>Unlimited</Text></View>
-    </PressScale>
+      <View style={s.free}><Text style={s.freeText}>Unlimited</Text></View>
+    </Tap>
   );
 }
 
-const styles = StyleSheet.create({
-  hero: { marginTop: 12, borderRadius: 24, overflow: 'hidden', backgroundColor: colors.night, ...shadow.md },
-  heroInner: { alignItems: 'center', paddingHorizontal: 20, paddingVertical: 20 },
-  orb: { width: 58, height: 58, borderRadius: 29, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1.5, borderColor: alpha('#D4A852', 0.55), alignItems: 'center', justifyContent: 'center' },
-  heroTitle: { marginTop: 12, fontFamily: fonts.serifBold, fontSize: 23, lineHeight: 28, color: colors.nightFg, textAlign: 'center' },
-  heroSub: { marginTop: 6, fontSize: 13.5, lineHeight: 19, color: colors.nightMuted, textAlign: 'center', maxWidth: 380 },
-  codeBox: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: radius.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: alpha('#D4A852', 0.7), alignItems: 'center' },
-  codeLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.nightMuted },
-  code: { marginTop: 2, fontSize: 24, fontWeight: '800', letterSpacing: 4, color: colors.goldLight },
-  actions: { marginTop: 14 },
-  cta: { height: 50, borderRadius: radius.pill, backgroundColor: colors.primary, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', ...shadow.sm },
-  ctaText: { fontSize: 15.5, fontWeight: '700', color: '#FFFFFF' },
-  ghost: { marginTop: 8, height: 46, borderRadius: radius.pill, backgroundColor: colors.primarySoft, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' },
-  ghostText: { fontSize: 14.5, fontWeight: '700', color: colors.primary },
-  link: { marginTop: 8, fontSize: 12, color: colors.faint, textAlign: 'center' },
-  section: { marginTop: 20, marginBottom: 4, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.muted },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  rowName: { fontSize: 15, fontWeight: '700', color: colors.fg },
-  rowSub: { marginTop: 2, fontSize: 13, color: colors.muted },
-  free: { paddingHorizontal: 8, height: 22, borderRadius: radius.pill, backgroundColor: colors.cardGold, justifyContent: 'center' },
-  freeText: { fontSize: 11, fontWeight: '700', color: colors.goldMuted },
-  hint: { marginTop: 8, fontSize: 12.5, lineHeight: 18, color: colors.faint },
-  redeem: { marginTop: 22, padding: 14, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  redeemTitle: { fontSize: 15, fontWeight: '700', color: colors.fg },
-  redeemRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  input: { flex: 1, height: 44, borderRadius: radius.md, backgroundColor: colors.raised, paddingHorizontal: 12, fontSize: 16, letterSpacing: 2, color: colors.fg },
-  redeemBtn: { paddingHorizontal: 16, height: 44, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  redeemBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+const s = StyleSheet.create({
+  hero: { marginTop: 8, borderRadius: 26, paddingVertical: 25, paddingHorizontal: 22, alignItems: 'center' },
+  heroEyebrow: { marginTop: 14, fontFamily: df.sansHeavy, fontSize: 9, letterSpacing: 1.4, textTransform: 'uppercase', color: d.goldDark },
+  code: { marginTop: 4, fontFamily: df.displayBold, fontSize: 35, letterSpacing: 2, color: d.goldDark },
+  heroBody: { marginTop: 6, maxWidth: 290, fontFamily: df.sans, fontSize: 11, lineHeight: 16, color: d.goldDark, textAlign: 'center' },
+  heroButtons: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: 18 },
+  heroBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 11 },
+  heroBtnText: { fontFamily: df.sansBold, fontSize: 11 },
+  link: { marginTop: 12, fontFamily: df.sans, fontSize: 10, color: d.goldDark, opacity: 0.8 },
+  stats: { flexDirection: 'row', marginTop: 12 },
+  stat: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  statNum: { fontFamily: df.displayBold, fontSize: 17, color: d.ink },
+  statLabel: { marginTop: 2, fontFamily: df.sans, fontSize: 9, color: d.muted },
+  list: { gap: 9 },
+  row: { minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, borderRadius: 17, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, marginBottom: 9 },
+  rowName: { fontFamily: df.display, fontSize: 13, color: d.ink },
+  rowSub: { fontFamily: df.sans, fontSize: 9, color: d.muted, marginTop: 3 },
+  free: { paddingHorizontal: 9, height: 22, borderRadius: 11, backgroundColor: d.sage, justifyContent: 'center' },
+  freeText: { fontFamily: df.sansBold, fontSize: 9, color: d.sageDark },
+  hint: { marginTop: 8, fontFamily: df.sans, fontSize: 10, lineHeight: 15, color: d.muted },
+  redeem: { marginTop: 18, padding: 16, borderRadius: 18, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBB9A8', backgroundColor: d.paper },
+  redeemTitle: { fontFamily: df.display, fontSize: 14, color: d.ink },
+  redeemRow: { flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' },
+  input: { flex: 1, height: 48, letterSpacing: 2, fontFamily: df.sansBold, fontSize: 14 },
 });

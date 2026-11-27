@@ -18,6 +18,9 @@ import { ws } from '../components/wallet/WalletSheet';
 import { GiftSheet } from '../components/gifts';
 import { SupportCard } from './GiftScreens';
 import { SUPPORT_CONTEXT, SUPPORT_RECIPIENT } from '../api/gifts';
+import { useStore } from '../store';
+import { DScreen, DList } from '../design/profile/parts';
+import { Grad, Tap, d as D, df as DF, SectionTitle as DSection } from '../design/sanctuary';
 
 const GROUPS = [
   { key: 'fundme_credits', title: 'Fund Me request credits', icon: 'heart', tint: '#B5523B' },
@@ -123,6 +126,7 @@ export function WalletScreen({ params = {} }) {
   const api = useApi();
   const toast = useToast();
   const { data, error, loaded, online, reload } = useWallet();
+  const { state } = useStore();
   const [buy, setBuy] = useState(null); // wallet key | 'plans'
   const [open, setOpen] = useState(params.focus || null);
   const [cancelAsk, setCancelAsk] = useState(false);
@@ -131,9 +135,9 @@ export function WalletScreen({ params = {} }) {
 
   if (!online) {
     return (
-      <Screen title="Wallet" back>
+      <DScreen title="Kingdom wallet" subtitle="Give, gift & grow" back onBack={() => nav.pop()}>
         <Empty title="Sign in to use your wallets" body="Fund Me credits, Dating Coins, Gifting Coins and gift earnings are kept safely on the server, so they need an online account." />
-      </Screen>
+      </DScreen>
     );
   }
   const cards = (data && data.wallets) || [];
@@ -151,22 +155,73 @@ export function WalletScreen({ params = {} }) {
     } catch (e) { toast.show(walletError(e, 'Could not cancel'), { icon: 'x' }); } finally { setBusy(false); }
   }
 
+  const gc = cards.find((c) => c.wallet === 'gift_coins') || { balance: 0 };
+  const walletBal = (key) => (cards.find((c) => c.wallet === key) || { balance: 0 }).balance;
+  // .wallet-ledgers: the four balances, each opens its history below
+  const ledgers = [
+    { key: 'fundme_credits', abbr: 'FM', label: 'Fund Me credits', value: walletBal('fundme_credits') },
+    { key: 'dating_coins', abbr: 'DC', label: 'Dating Coins', value: walletBal('dating_coins') },
+    { key: 'gift_coins', abbr: 'GC', label: 'Gifting Coins', value: gc.balance },
+    { key: 'gift_earnings', abbr: '$', label: 'Gift earnings', value: walletBal('gift_earnings_available') },
+  ];
+  // .transaction-list: the latest Kingdom Coin rewards and spends kept on this device
+  const recent = (state.coinLog || []).slice(0, 4);
+
   return (
-    <Screen title="Wallet" back>
-      <FadeInUp>
-        <View style={s.hero}>
-          <NightGlow />
-          <Text style={s.heroEyebrow}>BIBLENESTRA WALLET</Text>
-          <Text style={s.heroTitle}>Separate balances, clearly kept</Text>
-          <Text style={s.heroSub}>Each wallet has its own balance and history. Coins in one wallet can’t be used in another, and coins you buy are never cash.</Text>
+    <DScreen title="Kingdom wallet" subtitle="Give, gift & grow" back onBack={() => nav.pop()} action={null}>
+      {/* .wallet-card: the Gifting Coins balance, with Add / Send / Gift */}
+      <Grad colors={['#2D1B10', '#B95019']} style={wd.card}>
+        <Text style={wd.eyebrow}>AVAILABLE BALANCE</Text>
+        <Text style={wd.balance}>{fmtUnits(gc.balance)}</Text>
+        <Text style={wd.unit}>Gifting Coins</Text>
+        <Text style={wd.note}>Coins you buy are never cash. Each wallet keeps its own balance and history.</Text>
+        <View style={wd.actions}>
+          {gc.purchasable ? (
+            <Tap onPress={() => setBuy('gift_coins')} style={wd.action} accessibilityLabel="Add Gifting Coins">
+              <Icon name="plus" size={15} color="#FFFFFF" /><Text style={wd.actionText}>Add</Text>
+            </Tap>
+          ) : null}
+          <Tap onPress={() => nav.push('GiftStore')} style={wd.action} accessibilityLabel="Send a gift">
+            <Icon name="share" size={15} color="#FFFFFF" /><Text style={wd.actionText}>Send</Text>
+          </Tap>
+          <Tap onPress={() => setSupport(true)} style={wd.action} accessibilityLabel="Support BibleNestra">
+            <Icon name="gift" size={15} color="#FFFFFF" /><Text style={wd.actionText}>Support</Text>
+          </Tap>
         </View>
-      </FadeInUp>
+      </Grad>
+
+      <View style={wd.ledgers}>
+        {ledgers.map((l) => (
+          <Tap key={l.key} onPress={() => setOpen(open === l.key ? null : l.key)} style={wd.ledger} accessibilityLabel={`${l.label}: ${fmtUnits(l.value)}. Show history`}>
+            <View style={wd.abbr}><Text style={wd.abbrText}>{l.abbr}</Text></View>
+            <Text style={wd.ledgerValue}>{fmtUnits(l.value)}</Text>
+            <Text style={wd.ledgerLabel}>{l.label}</Text>
+          </Tap>
+        ))}
+      </View>
+
+      <DSection eyebrow="Kingdom coins" title="Recent activity" />
+      <DList>
+        {recent.length ? recent.map((c, idx) => (
+          <View key={c.id || idx} style={wd.txRow}>
+            <View style={[wd.txIcon, c.amount > 0 && wd.txIconPos]}>
+              <Icon name={c.amount > 0 ? 'star' : 'gift'} size={17} color={c.amount > 0 ? '#2E7D5B' : D.roseDark} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={wd.txTitle} numberOfLines={1}>{c.reason || (c.amount > 0 ? 'Reward' : 'Spent')}</Text>
+              <Text style={wd.txSub}>{c.time ? new Date(c.time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</Text>
+            </View>
+            <Text style={[wd.txAmt, c.amount > 0 && { color: '#2E7D5B' }]}>{`${c.amount > 0 ? '+' : '−'} ${Math.abs(c.amount)} coins`}</Text>
+          </View>
+        )) : <Text style={wd.empty}>No reward activity yet. Play today’s Bible games to earn coins.</Text>}
+      </DList>
 
       {!loaded ? <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} /> : null}
       {error ? <Notice text={walletError(error, 'Could not load your wallet')} /> : null}
       {loaded && !pay.playConfigured && !pay.testPurchases ? <Notice text="Buying through Google Play is coming soon. Nothing can be charged yet." /> : null}
       {pay.testPurchases ? <Notice text="Test purchases are on for your account (admins and testers only). No money moves." tint={colors.primary} /> : null}
 
+      {loaded && cards.length ? <DSection eyebrow="Your wallets" title="Balances & history" /> : null}
       {loaded && cards.length ? GROUPS.map((g) => (
         <WalletCard key={g.key} g={g} cards={cards} rules={data.rules} onBuy={setBuy} open={open === g.key} onToggle={() => setOpen(open === g.key ? null : g.key)} />
       )) : null}
@@ -223,9 +278,34 @@ export function WalletScreen({ params = {} }) {
         </PressScale>
         <PressScale onPress={() => setCancelAsk(false)} scaleTo={0.98} style={ws.ghost} accessibilityRole="button"><Text style={ws.ghostText}>Keep my plan</Text></PressScale>
       </WalletSheet>
-    </Screen>
+    </DScreen>
   );
 }
+
+// Design styles: the dark wallet card, ledger tiles and recent activity
+const wd = StyleSheet.create({
+  card: { borderRadius: 27, padding: 24, marginTop: 4, shadowColor: '#2F2666', shadowOpacity: 0.2, shadowRadius: 20, shadowOffset: { width: 0, height: 20 }, elevation: 6 },
+  eyebrow: { fontFamily: DF.sansBold, fontSize: 9, letterSpacing: 1.3, color: '#F3C6A7' },
+  balance: { fontFamily: DF.displayBold, fontSize: 40, lineHeight: 46, color: '#FFFFFF', marginTop: 10 },
+  unit: { fontFamily: DF.sansBold, fontSize: 12, color: '#E7B994', marginTop: 2 },
+  note: { fontFamily: DF.sans, fontSize: 10, lineHeight: 15, color: '#E7B994', marginTop: 8 },
+  actions: { flexDirection: 'row', gap: 8, marginTop: 22 },
+  action: { flex: 1, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  actionText: { fontFamily: DF.sansBold, fontSize: 11, color: '#FFFFFF' },
+  ledgers: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 9, marginTop: 12 },
+  ledger: { width: '48.5%', padding: 14, borderRadius: 18, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line },
+  abbr: { width: 28, height: 28, borderRadius: 9, backgroundColor: D.lavender, alignItems: 'center', justifyContent: 'center' },
+  abbrText: { fontFamily: DF.sansHeavy, fontSize: 9, color: D.plum },
+  ledgerValue: { fontFamily: DF.displayBold, fontSize: 17, color: D.ink, marginTop: 10 },
+  ledgerLabel: { fontFamily: DF.sans, fontSize: 9, color: D.muted, marginTop: 2 },
+  txRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: D.line },
+  txIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: D.rose },
+  txIconPos: { backgroundColor: D.sage },
+  txTitle: { fontFamily: DF.display, fontSize: 13, color: D.ink },
+  txSub: { fontFamily: DF.sans, fontSize: 10, color: D.muted, marginTop: 2 },
+  txAmt: { fontFamily: DF.sansBold, fontSize: 11, color: D.ink },
+  empty: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: D.muted, padding: 14 },
+});
 
 const s = StyleSheet.create({
   hero: { backgroundColor: colors.night, borderRadius: radius.lg, padding: 18, overflow: 'hidden', ...shadow.md, marginBottom: 12 },

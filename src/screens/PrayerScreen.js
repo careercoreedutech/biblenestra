@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, alpha, NightGlow } from '../components/ui';
@@ -13,7 +13,8 @@ import { PressScale, FadeInUp, ScaleIn, Pop, Burst, AnimatedNumber, LiveRing } f
 import { BOOKS, DAILY_VERSES, getChapter, refLabel, verseOfDay } from '../data/bible';
 import { useApi } from '../api/auth';
 import { useIsFocused } from '../navigation';
-import { CandleCeremony, LitCandleMark, SupportActions, SupportersSheet } from '../components/PrayerCandle';
+import { CandleCeremony, CandleGlyph, LitCandleMark, SupportActions, SupportersSheet } from '../components/PrayerCandle';
+import { d, df, k, gradients, Grad, Tap, Eyebrow, PageHeader, IconButton, SectionTitle } from '../design/sanctuary';
 
 // ---------- LIGHT A CANDLE (brief 6.6) ----------
 const isServerId = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(String(id || ''));
@@ -200,10 +201,13 @@ export default function PrayerScreen({ params = {} }) {
     return true;
   });
   const live = visible.filter((p) => p.status !== 'archived');
-  const prayingNow = live.reduce((n, p) => n + (p.praying || 0), 0);
-  const answeredCount = live.filter((p) => p.status === 'answered').length;
+  // Hero stats: the user's own prayers, how many were answered, and how often others prayed or lit a candle for them.
+  const mine = live.filter((p) => p.mine);
+  const myAnswered = mine.filter((p) => p.status === 'answered').length;
+  const timesSupported = mine.reduce((n, p) => n + (p.praying || 0) + (p.candles || 0), 0);
   const hasArchived = visible.some((p) => p.mine && p.status === 'archived');
   const tabs = ['All', 'Mine', 'Church', 'Community', 'Public', 'Answered', ...(hasArchived || tab === 'Archived' ? ['Archived'] : [])];
+  const journal = tab === 'Mine';
 
   const togglePray = (p) => {
     dispatch({ type: 'pray', id: p.id });
@@ -219,130 +223,151 @@ export default function PrayerScreen({ params = {} }) {
   const lightCandle = (p) => { if (toggleCandle(p)) setCeremony((c) => ({ id: p.id, n: c.n + 1 })); };
 
   return (
-    <Screen
-      refreshControl={pullRefresh}
-      back={nav.stack.length > 0}
-      title="Prayer Wall"
-      subtitle="Intercede & share with the body of Christ"
-      menu={() => nav.push('Profile')}
-      right={
-        <PressScale
-          onPress={() => nav.push('NewPrayer')}
-          hitSlop={12}
-          scaleTo={0.9}
-          accessibilityLabel="New prayer request"
-          style={styles.addPrayerBtn}
-        >
-          <PlusIcon size={17} color={colors.primaryFg} />
-        </PressScale>
-      }
-    >
-      {/* Atmospheric Video Animation Header */}
-      <View style={styles.videoHeroContainer}>
-        <VideoView
-          style={StyleSheet.absoluteFill}
-          player={prayerPlayer}
-          allowsFullscreen={false}
-          allowsPictureInPicture={false}
-          nativeControls={false}
-          contentFit="cover"
+    <View style={k.screen}>
+      <ScrollView
+        contentContainerStyle={[k.scroll, { paddingBottom: 150 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={pullRefresh}
+      >
+        <PageHeader
+          back={nav.stack.length > 0}
+          onBack={() => nav.pop()}
+          title="Prayer"
+          subtitle="A place to be held"
+          action={<IconButton icon="edit" label="New prayer request" onPress={() => nav.push('NewPrayer')} />}
         />
-        <View style={styles.videoHeroOverlay} />
-        <View style={styles.videoHeroContent}>
-          <View style={styles.videoLiveBadge}>
-            <LiveRing color={colors.goldLight} size={7} />
-            <Text style={styles.videoLiveBadgeText}>Live intercession</Text>
+
+        {/* .prayer-hero: guided-pause hero, the live intercession video sits underneath the gradient */}
+        <View style={ps.hero}>
+          <VideoView
+            style={StyleSheet.absoluteFill}
+            player={prayerPlayer}
+            allowsFullscreen={false}
+            allowsPictureInPicture={false}
+            nativeControls={false}
+            contentFit="cover"
+          />
+          <Grad colors={['rgba(60,37,24,0.9)', 'rgba(138,75,37,0.93)']} style={StyleSheet.absoluteFill} />
+          <View style={ps.moon} pointerEvents="none">
+            <Icon name="moon" size={70} color="rgba(255,255,255,0.14)" />
           </View>
+          <Eyebrow light>Live intercession</Eyebrow>
           <FadeInUp delay={80} distance={10}>
-            <Text style={styles.videoHeroTitle}>United in fervent prayer</Text>
-            <Text style={styles.videoHeroQuote}>
-              “The effectual fervent prayer of a righteous man availeth much.” — James 5:16
-            </Text>
+            <Text style={ps.heroTitle}>United in fervent prayer</Text>
+            <Text style={ps.heroQuote}>“The effectual fervent prayer of a righteous man availeth much.” — James 5:16</Text>
           </FadeInUp>
-          <View style={styles.videoStatsRow}>
-            <View style={styles.videoStatItem}>
-              <Pop trigger={prayingNow} amount={1.12}>
-                <AnimatedNumber value={prayingNow} style={styles.videoStatNum} format={(n) => Math.round(n).toLocaleString()} />
-              </Pop>
-              <Text style={styles.videoStatLabel}>Praying</Text>
-            </View>
-            <View style={styles.videoStatDivider} />
-            <View style={styles.videoStatItem}>
-              <AnimatedNumber value={answeredCount} style={styles.videoStatNum} />
-              <Text style={styles.videoStatLabel}>Answered</Text>
-            </View>
-            <PressScale style={styles.videoActionBtn} scaleTo={0.94} onPress={() => nav.push('NewPrayer')}>
-              <PlusIcon size={13} color={colors.night} />
-              <Text style={styles.videoActionBtnText}>Add prayer</Text>
-            </PressScale>
-          </View>
+          <Tap style={ps.heroBtn} onPress={() => nav.push('NewPrayer')} accessibilityLabel="Share a prayer">
+            <Icon name="plus" size={15} color={d.plumDark} />
+            <Text style={ps.heroBtnText}>Share a prayer</Text>
+          </Tap>
         </View>
-      </View>
 
-      <Pills
-        items={tabs}
-        value={tab}
-        onChange={setTab}
-        style={{ marginTop: 18, marginBottom: 4 }}
-      />
+        {/* .prayer-stats */}
+        <View style={ps.stats}>
+          <View style={ps.stat}><Text style={ps.statNum}>{mine.length}</Text><Text style={ps.statLabel}>Prayers</Text></View>
+          <View style={ps.stat}><Text style={ps.statNum}>{myAnswered}</Text><Text style={ps.statLabel}>Answered</Text></View>
+          <View style={[ps.stat, ps.statLast]}><Text style={ps.statNum}>{timesSupported}</Text><Text style={ps.statLabel}>Times supported</Text></View>
+        </View>
 
-      {/* Keyed on the filter so switching views cross-fades the list in. */}
-      <View key={tab}>
-        {filtered.map((p, i) => (
-          <FadeInUp key={p.id} index={i} distance={12} duration={380}>
-            <PressScale
-              scaleTo={0.985}
-              style={styles.card}
-              onPress={() => nav.push('Prayer', { id: p.id })}
-            >
-              <View style={styles.cardHead}>
-                <Avatar name={p.author} />
+        <SectionTitle eyebrow="Prayer wall" title="Carry one another" link="My journal" onLink={() => setTab('Mine')} />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ps.chips}>
+          {tabs.map((t) => (
+            <Tap key={t} onPress={() => setTab(t)} style={[ps.chip, tab === t && ps.chipOn]} accessibilityRole="button" accessibilityState={{ selected: tab === t }}>
+              <Text style={[ps.chipText, tab === t && ps.chipTextOn]}>{t}</Text>
+            </Tap>
+          ))}
+        </ScrollView>
+
+        {/* Keyed on the filter so switching views cross-fades the list in. */}
+        <View key={tab} style={{ marginTop: 6 }}>
+          {filtered.map((p, i) => (journal ? (
+            // .journal-list: the "Mine" view reads like the prayer journal
+            <FadeInUp key={p.id} index={i} distance={12} duration={380}>
+              <Tap onPress={() => nav.push('Prayer', { id: p.id })} style={ps.journalRow}>
+                <View style={[ps.journalIcon, p.status === 'answered' && { backgroundColor: d.sage }]}>
+                  <Icon name={p.status === 'answered' ? 'check' : 'prayer'} size={17} color={p.status === 'answered' ? d.sageDark : d.plum} />
+                </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.author} numberOfLines={1}>{p.author}</Text>
-                  <Text style={styles.authorMeta} numberOfLines={1}>{p.audience} · {p.created}</Text>
+                  <Text style={[ps.journalTag, p.status === 'answered' && { color: d.sageDark }]} numberOfLines={1}>
+                    {STATUS_LABEL[p.status] || p.status} · {p.audience}
+                  </Text>
+                  <Text style={ps.journalTitle} numberOfLines={1}>{p.title}</Text>
+                  {p.body ? <Text style={ps.journalBody} numberOfLines={1}>{p.body}</Text> : null}
                 </View>
-                {p.lit ? <LitCandleMark /> : null}
-                <StatusBadge status={p.status} animate />
+                <Icon name="chevron-right" size={16} color={d.muted} />
+              </Tap>
+            </FadeInUp>
+          ) : (
+            // .prayer-post
+            <FadeInUp key={p.id} index={i} distance={12} duration={380}>
+              <View style={ps.post}>
+                <Tap onPress={() => nav.push('Prayer', { id: p.id })}>
+                  <View style={ps.postHead}>
+                    <View style={ps.avatar}><Text style={ps.avatarText}>{initialsOf(p.author)}</Text></View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={ps.postName} numberOfLines={1}>{p.author}</Text>
+                      <Text style={ps.postMeta} numberOfLines={1}>{p.created}</Text>
+                    </View>
+                    {p.lit ? <LitCandleMark /> : null}
+                    <View style={[ps.tag, p.status === 'answered' && ps.tagAnswered]}>
+                      <Text style={[ps.tagText, p.status === 'answered' && { color: d.sageDark }]} numberOfLines={1}>{p.status === 'answered' ? 'Answered' : p.audience}</Text>
+                    </View>
+                  </View>
+                  <Text style={ps.postTitle}>{p.title}</Text>
+                  {p.body ? <Text style={ps.postBody} numberOfLines={2}>{p.body}</Text> : null}
+                  {p.verse ? (
+                    <View style={ps.verseChip}>
+                      <Icon name="bible" size={12} color={d.plum} />
+                      <Text style={ps.verseText}>{verseLabel(p.verse)}</Text>
+                    </View>
+                  ) : null}
+                  {p.updates.length ? <Text style={ps.updates}>{p.updates.length} update{p.updates.length > 1 ? 's' : ''}</Text> : null}
+                </Tap>
+
+                <View style={ps.foot}>
+                  <Tap style={ps.footBtn} onPress={() => togglePray(p)} accessibilityRole="button" accessibilityLabel={p.prayed ? 'Stop praying' : 'I am praying'}>
+                    <Icon name="prayer" size={16} color={p.prayed ? d.plum : d.muted} />
+                    <Text style={[ps.footText, p.prayed && ps.footOn]}>{p.prayed ? 'Prayed' : 'I prayed'} · {p.praying || 0}</Text>
+                  </Tap>
+                  <Tap style={ps.footBtn} onPress={() => nav.push('Prayer', { id: p.id })} accessibilityRole="button" accessibilityLabel="Encourage">
+                    <Icon name="chat" size={16} color={d.muted} />
+                    <Text style={ps.footText}>Encourage</Text>
+                  </Tap>
+                  <Tap style={ps.footBtn} onPress={() => lightCandle(p)} accessibilityRole="button" accessibilityLabel={p.lit ? 'Put out my candle' : 'Light a candle'}>
+                    {p.lit ? <CandleGlyph size={14} color={d.goldDark} /> : <Text style={{ fontSize: 13 }}>🕯️</Text>}
+                    <Text style={[ps.footText, p.lit && { color: d.goldDark }]}>{p.candles || 0}</Text>
+                  </Tap>
+                </View>
+                <CandleCeremony trigger={ceremony.id === p.id ? ceremony.n : 0} />
               </View>
+            </FadeInUp>
+          )))}
 
-              <Text style={styles.title}>{p.title}</Text>
-              {p.body ? <Text style={styles.body} numberOfLines={2}>{p.body}</Text> : null}
-
-              {p.verse ? (
-                <View style={styles.verseChip}>
-                  <Icon name="bible" size={12} color={colors.gold} />
-                  <Text style={styles.verse}>{verseLabel(p.verse)}</Text>
-                </View>
-              ) : null}
-
-              <SupportActions
-                p={p}
-                archived={p.status === 'archived'}
-                onPray={togglePray}
-                onCandle={lightCandle}
-                onShowSupporters={(x, action) => setSupporters({ p: x, action })}
+          {!filtered.length ? (
+            <ScaleIn style={{ marginTop: 6 }}>
+              <Empty
+                title={tab === 'Archived' ? 'No archived requests' : 'No prayer requests in this view'}
+                body={tab === 'All' ? undefined : 'Try another filter, or share what is on your heart.'}
+                action="Submit a prayer"
+                onAction={() => nav.push('NewPrayer')}
               />
-              {p.updates.length ? <Text style={[styles.meta, { marginTop: 8 }]}>{p.updates.length} update{p.updates.length > 1 ? 's' : ''}</Text> : null}
-              <CandleCeremony trigger={ceremony.id === p.id ? ceremony.n : 0} />
-            </PressScale>
-          </FadeInUp>
-        ))}
+            </ScaleIn>
+          ) : null}
+        </View>
 
-        {!filtered.length ? (
-          <ScaleIn style={{ marginTop: 6 }}>
-            <Empty
-              title={tab === 'Archived' ? 'No archived requests' : 'No prayer requests in this view'}
-              body={tab === 'All' ? undefined : 'Try another filter, or share what is on your heart.'}
-              action="Submit a prayer"
-              onAction={() => nav.push('NewPrayer')}
-            />
-          </ScaleIn>
-        ) : null}
-      </View>
+        <View style={ps.notice}>
+          <Icon name="shield" size={16} color={d.sageDark} />
+          <Text style={ps.noticeText}>Prayer requests are holy and private. Sensitive requests stay secure and are never shared for advertising.</Text>
+        </View>
+      </ScrollView>
 
-      <View style={{ marginTop: 10 }}>
-        <Notice text="Prayer requests are holy and private. Sensitive requests stay secure and are never shared for advertising." />
-      </View>
+      {/* .floating-create */}
+      <Tap onPress={() => nav.push('NewPrayer')} style={ps.floating} accessibilityRole="button" accessibilityLabel="Share a prayer">
+        <Icon name="plus" size={17} color="#FFFFFF" />
+        <Text style={ps.floatingText}>Share a prayer</Text>
+      </Tap>
+
       <SupportersSheet
         visible={!!supporters}
         action={supporters ? supporters.action : 'pray'}
@@ -351,7 +376,7 @@ export default function PrayerScreen({ params = {} }) {
         onClose={() => setSupporters(null)}
         onOpenUser={(u) => { setSupporters(null); nav.push('UserProfile', { id: u.id, name: u.displayName, handle: u.handle }); }}
       />
-    </Screen>
+    </View>
   );
 }
 
@@ -749,95 +774,117 @@ export function NewPrayerScreen({ params = {} }) {
     nav.replace('Prayer', { id, fresh: true });
   };
 
+  // Audience choices (the app's four audiences, with the design's wording for them)
+  const AUDIENCES = [
+    { id: 'Private', label: 'Only me', icon: 'lock' },
+    { id: 'Church', label: 'Church', icon: 'church' },
+    { id: 'Community', label: 'Community', icon: 'users' },
+    { id: 'Public', label: 'Everyone', icon: 'globe' },
+  ];
+
   return (
-    <Screen back title="New Prayer Request">
-      <FadeInUp style={styles.newIntro}><NightGlow />
-        <ScaleIn delay={120} style={styles.newIntroIcon}>
-          <Icon name="prayer" size={20} color={colors.goldLight} />
-        </ScaleIn>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.newIntroTitle}>Share what’s on your heart</Text>
-          <Text style={styles.newIntroSub}>“Cast all your anxiety on him because he cares for you.” — 1 Peter 5:7</Text>
+    <View style={k.screen}>
+      <ScrollView contentContainerStyle={[k.scroll, { paddingBottom: 48 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <PageHeader back onBack={() => nav.pop()} title="Share a prayer" subtitle="Let others carry it with you" action={null} />
+
+        {/* Scripture intro card (the app's own copy) */}
+        <Grad colors={gradients.ink} style={ps.intro}>
+          <View style={ps.introIcon}><Icon name="prayer" size={19} color={d.gold} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={ps.introTitle}>Share what’s on your heart</Text>
+            <Text style={ps.introSub}>“Cast all your anxiety on him because he cares for you.” — 1 Peter 5:7</Text>
+          </View>
+        </Grad>
+
+        <Text style={ps.label}>Your prayer request</Text>
+        <TextInput
+          value={title}
+          onChangeText={(v) => { setTitle(v); if (error) setError(null); }}
+          placeholder="Prayer title (e.g. Health & healing for family)..."
+          placeholderTextColor={d.muted}
+          style={[ps.input, error && { borderColor: colors.negative }]}
+          accessibilityLabel="Prayer title"
+        />
+        {error ? (
+          <View style={ps.fieldError}>
+            <Icon name="x" size={12} color={colors.negative} strokeWidth={2.6} />
+            <Text style={ps.fieldErrorText}>{error}</Text>
+          </View>
+        ) : null}
+        <TextInput
+          multiline
+          value={body}
+          onChangeText={setBody}
+          placeholder="Describe what you would like prayer for..."
+          placeholderTextColor={d.muted}
+          style={[ps.input, ps.textarea]}
+          accessibilityLabel="Prayer details"
+        />
+
+        {verse ? (
+          <Tap onPress={() => setVerse(null)} style={ps.verseRow} accessibilityRole="button" accessibilityLabel="Remove linked verse">
+            <Icon name="bible" size={16} color={d.plum} />
+            <View style={{ flex: 1 }}>
+              <Text style={ps.verseRowTitle}>{verse}</Text>
+              <Text style={ps.verseRowSub}>Linked Scripture passage · tap to remove</Text>
+            </View>
+            <Icon name="x" size={14} color={d.muted} />
+          </Tap>
+        ) : (
+          <Tap onPress={() => { const v = verseOfDay(); setVerse(refLabel(v.bookId, v.chapter, v.verse)); }} style={ps.linkVerse}>
+            <Icon name="bible" size={14} color={d.plum} />
+            <Text style={ps.linkVerseText}>Link today’s verse</Text>
+          </Tap>
+        )}
+
+        {/* .audience-picker */}
+        <Text style={ps.label}>Who can see this?</Text>
+        <View style={ps.audGrid}>
+          {AUDIENCES.map((a) => {
+            const on = audience === a.id;
+            return (
+              <Tap key={a.id} onPress={() => setAudience(a.id)} style={[ps.aud, on && ps.audOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
+                <Icon name={a.icon} size={17} color={on ? d.plum : d.muted} />
+                <Text style={[ps.audText, on && { color: d.plum }]}>{a.label}</Text>
+              </Tap>
+            );
+          })}
         </View>
-      </FadeInUp>
+        <View style={ps.audHint}>
+          <Icon name={audience === 'Private' ? 'shield' : 'users'} size={14} color={d.plum} />
+          <Text style={ps.audHintText}>{AUDIENCE_HINT[audience]}</Text>
+        </View>
 
-      <FadeInUp index={1}>
-      <Text style={styles.fieldLabel}>Request</Text>
-      <Input
-        placeholder="Prayer title (e.g. Health & healing for family)..."
-        value={title}
-        onChangeText={(v) => { setTitle(v); if (error) setError(null); }}
-        style={error ? { borderColor: colors.negative } : null}
-        accessibilityLabel="Prayer title"
-      />
-      {error ? (
-        <FadeInUp key={error} distance={6} duration={220} style={styles.fieldError}>
-          <Icon name="x" size={12} color={colors.negative} strokeWidth={2.6} />
-          <Text style={styles.fieldErrorText}>{error}</Text>
-        </FadeInUp>
-      ) : null}
-      <Input
-        multiline
-        placeholder="Describe what you would like prayer for..."
-        value={body}
-        onChangeText={setBody}
-        style={{ marginTop: 10, minHeight: 120 }}
-      />
-      {verse ? (
-        <ScaleIn key="verse" from={0.94}>
-          <Row
-            title={verse}
-            subtitle="Linked Scripture passage · tap to remove"
-            left={<Icon name="bible" size={16} color={colors.gold} />}
-            right={<Icon name="x" size={14} color={colors.faint} />}
-            onPress={() => setVerse(null)}
-            style={{ marginTop: 10 }}
-          />
-        </ScaleIn>
-      ) : (
-        <PressScale onPress={() => { const v = verseOfDay(); setVerse(refLabel(v.bookId, v.chapter, v.verse)); }} scaleTo={0.94} style={styles.linkVerse}>
-          <Icon name="bible" size={14} color={colors.primary} />
-          <Text style={styles.linkVerseText}>Link today’s verse</Text>
-        </PressScale>
-      )}
-      </FadeInUp>
+        {/* .compose-option */}
+        <View style={ps.option}>
+          <View style={ps.optionIcon}><Icon name="shield" size={16} color={d.plum} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={ps.optionTitle}>Post anonymously</Text>
+            <Text style={ps.optionSub}>Hide your name and account details</Text>
+          </View>
+          <Toggle value={anonymous} onChange={setAnonymous} />
+        </View>
+        <View style={ps.option}>
+          <View style={ps.optionIcon}><Icon name="bell" size={16} color={d.plum} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={ps.optionTitle}>Notify those who prayed when answered</Text>
+            <Text style={ps.optionSub}>Share the testimony of answered prayer</Text>
+          </View>
+          <Toggle value={notify} onChange={setNotify} />
+        </View>
 
-      <FadeInUp index={2}>
-      <Section title="Privacy & audience">
-        <Pills
-          items={['Private', 'Church', 'Community', 'Public']}
-          value={audience}
-          onChange={setAudience}
-        />
-        <FadeInUp key={audience} distance={4} duration={240} style={styles.audienceHint}>
-          <Icon name={audience === 'Private' ? 'shield' : 'users'} size={14} color={colors.primary} />
-          <Text style={styles.audienceHintText}>{AUDIENCE_HINT[audience]}</Text>
-        </FadeInUp>
-      </Section>
-      </FadeInUp>
+        {/* .prayer-preview */}
+        <View style={ps.preview}>
+          <Icon name="prayer" size={17} color={d.sageDark} />
+          <Text style={ps.previewText}>Prayer requests can be updated and marked answered at any time.</Text>
+        </View>
 
-      <FadeInUp index={3}>
-      <Section title="Preferences">
-        <Row
-          title="Post anonymously"
-          subtitle="Hide your name and account details"
-          right={<Toggle value={anonymous} onChange={setAnonymous} />}
-        />
-        <Row
-          title="Notify those who prayed when answered"
-          subtitle="Share the testimony of answered prayer"
-          right={<Toggle value={notify} onChange={setNotify} />}
-        />
-      </Section>
-
-      <Button
-        label="Submit Prayer Request"
-        style={{ marginTop: 24 }}
-        icon={<Icon name="prayer" size={16} color={colors.primaryFg} />}
-        onPress={submit}
-      />
-      </FadeInUp>
-    </Screen>
+        <Tap onPress={submit} style={ps.submit} accessibilityRole="button" accessibilityLabel="Share prayer request">
+          <Icon name="prayer" size={16} color="#FFFFFF" />
+          <Text style={ps.submitText}>Share prayer request</Text>
+        </Tap>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1152,4 +1199,90 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   videoActionBtnText: { color: colors.night, fontSize: 12.5, fontWeight: '700' },
+});
+
+
+// ---- Figma design (src/design/sanctuary.js tokens): Prayer wall, Mine journal, Share a prayer ----
+const initialsOf = (name = '') => (String(name).trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?');
+
+const ps = StyleSheet.create({
+  hero: { minHeight: 215, padding: 23, borderRadius: 26, overflow: 'hidden', backgroundColor: '#3C2518', marginTop: 4 },
+  moon: { position: 'absolute', right: 20, bottom: 18 },
+  heroTitle: { fontFamily: df.display, fontSize: 28, lineHeight: 31, color: '#FFFFFF', marginTop: 11 },
+  heroQuote: { fontFamily: df.sans, fontSize: 12, lineHeight: 18, color: '#E7C9B3', marginTop: 8, paddingRight: 40 },
+  heroBtn: { marginTop: 22, alignSelf: 'flex-start', height: 40, paddingHorizontal: 14, borderRadius: 12, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  heroBtnText: { fontFamily: df.sansHeavy, fontSize: 12, color: d.plumDark },
+
+  stats: { flexDirection: 'row', marginHorizontal: 12, marginTop: -14, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 17, shadowColor: '#1F1C2D', shadowOpacity: 0.07, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  stat: { flex: 1, paddingVertical: 12, paddingHorizontal: 4, alignItems: 'center', borderRightWidth: 1, borderRightColor: d.line },
+  statLast: { borderRightWidth: 0 },
+  statNum: { fontFamily: df.displayBold, fontSize: 18, color: d.ink },
+  statLabel: { fontFamily: df.sans, fontSize: 10, color: d.muted, marginTop: 2, textAlign: 'center' },
+
+  chips: { flexDirection: 'row', gap: 7, paddingBottom: 4 },
+  chip: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  chipOn: { backgroundColor: d.plum, borderColor: d.plum },
+  chipText: { fontFamily: df.sansBold, fontSize: 12, color: d.muted },
+  chipTextOn: { color: '#FFFFFF' },
+
+  post: { padding: 16, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, borderRadius: 20, marginBottom: 10 },
+  postHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar: { width: 36, height: 36, borderRadius: 12, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontFamily: df.sansHeavy, fontSize: 11, color: d.plumDark },
+  postName: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
+  postMeta: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
+  tag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: d.lavender, maxWidth: 110 },
+  tagAnswered: { backgroundColor: d.sage },
+  tagText: { fontFamily: df.sansBold, fontSize: 9, letterSpacing: 0.8, textTransform: 'uppercase', color: d.plumDark },
+  postTitle: { fontFamily: df.display, fontSize: 17, lineHeight: 23, color: d.ink, marginTop: 14 },
+  postBody: { fontFamily: df.sans, fontSize: 13, lineHeight: 19, color: d.muted, marginTop: 6 },
+  verseChip: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: d.gold },
+  verseText: { fontFamily: df.sansBold, fontSize: 11, color: d.goldDark },
+  updates: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 8 },
+  foot: { flexDirection: 'row', alignItems: 'center', gap: 16, borderTopWidth: 1, borderTopColor: d.line, paddingTop: 12, marginTop: 14 },
+  footBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  footText: { fontFamily: df.sansBold, fontSize: 12, color: d.muted },
+  footOn: { color: d.plum },
+
+  journalRow: { flexDirection: 'row', alignItems: 'center', gap: 13, minHeight: 84, borderBottomWidth: 1, borderBottomColor: d.line },
+  journalIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  journalTag: { fontFamily: df.sansBold, fontSize: 9, letterSpacing: 1, textTransform: 'uppercase', color: d.plum },
+  journalTitle: { fontFamily: df.display, fontSize: 15, color: d.ink, marginTop: 3 },
+  journalBody: { fontFamily: df.sans, fontSize: 12, color: d.muted, marginTop: 2 },
+
+  notice: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 12, marginTop: 14, borderRadius: 13, backgroundColor: d.sage },
+  noticeText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: d.sageDark },
+
+  floating: { position: 'absolute', right: 20, bottom: 96, height: 44, paddingHorizontal: 15, borderRadius: 16, backgroundColor: d.plum, flexDirection: 'row', alignItems: 'center', gap: 7, shadowColor: d.plum, shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 10 }, elevation: 6 },
+  floatingText: { fontFamily: df.sansHeavy, fontSize: 12, color: '#FFFFFF' },
+
+  // Share a prayer (compose)
+  intro: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 22, marginTop: 4 },
+  introIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: 'rgba(244,216,140,0.16)', alignItems: 'center', justifyContent: 'center' },
+  introTitle: { fontFamily: df.displayBold, fontSize: 17, color: '#FFFAF2' },
+  introSub: { fontFamily: df.displayItalic, fontSize: 12, lineHeight: 17, color: '#E8D2C0', marginTop: 3 },
+  label: { fontFamily: df.sansBold, fontSize: 11, color: '#4C3D32', marginTop: 20, marginBottom: 8 },
+  input: { height: 52, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, fontFamily: df.sans, fontSize: 14, color: d.ink, marginTop: 0 },
+  textarea: { height: 120, paddingTop: 13, marginTop: 10, textAlignVertical: 'top' },
+  fieldError: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7, marginLeft: 4 },
+  fieldErrorText: { fontFamily: df.sansBold, fontSize: 12, color: colors.negative },
+  verseRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, padding: 12, borderRadius: 14, backgroundColor: d.lavender },
+  verseRowTitle: { fontFamily: df.display, fontSize: 15, color: d.ink },
+  verseRowSub: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 1 },
+  linkVerse: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 12, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: d.lavender },
+  linkVerseText: { fontFamily: df.sansBold, fontSize: 12, color: d.plumDark },
+  audGrid: { flexDirection: 'row', gap: 6 },
+  aud: { flex: 1, height: 66, borderRadius: 13, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, alignItems: 'center', justifyContent: 'center', gap: 5 },
+  audOn: { borderColor: d.plum, backgroundColor: '#FFF0E5' },
+  audText: { fontFamily: df.sansBold, fontSize: 10, color: d.muted },
+  audHint: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: '#FFF0E5' },
+  audHintText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: d.plumDark },
+  option: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, padding: 13, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, borderRadius: 15 },
+  optionIcon: { width: 35, height: 35, borderRadius: 11, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  optionTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
+  optionSub: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
+  preview: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 12, marginTop: 14, borderRadius: 13, backgroundColor: d.sage },
+  previewText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: d.sageDark },
+  submit: { marginTop: 18, height: 50, borderRadius: 16, backgroundColor: d.plum, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  submitText: { fontFamily: df.sansHeavy, fontSize: 14, color: '#FFFFFF' },
 });

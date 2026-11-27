@@ -12,6 +12,7 @@ import { Icon } from '../Icons';
 import { SocialAvatar } from '../social/FeedCard';
 import { Waveform } from '../../chat/ChatExtras';
 import { colors, fonts, radius } from '../../theme';
+import { df } from '../../design/sanctuary'; // FIGMA DESIGN: paper input, #EADFCE border, orange round send
 
 let Haptics = null;
 try { Haptics = require('expo-haptics'); } catch (e) { Haptics = null; }
@@ -281,24 +282,24 @@ export const Composer = memo(function Composer({
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  roundBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
-  box: { flex: 1, minWidth: 0, backgroundColor: colors.raised, borderRadius: 20, paddingHorizontal: 14, justifyContent: 'center' },
-  input: { fontFamily: fonts.sans, fontSize: 15, color: colors.fg, paddingTop: 10, paddingBottom: 8, outlineStyle: 'none' },
+  roundBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  box: { flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, paddingHorizontal: 14, justifyContent: 'center' },
+  input: { fontFamily: fonts.sans, fontSize: 14, color: colors.fg, paddingTop: 10, paddingBottom: 8, outlineStyle: 'none' },
   sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
   suggest: { flexGrow: 0, marginBottom: 6 },
   // VOICE NOTES
   hidden: { position: 'absolute', opacity: 0, width: 0, height: 0, overflow: 'hidden' },
   recBox: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 40, paddingHorizontal: 12, overflow: 'hidden' },
   recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.negative || colors.rose },
-  recTime: { fontSize: 14, fontWeight: '700', color: colors.fg, fontVariant: ['tabular-nums'], minWidth: 36 },
+  recTime: { fontSize: 14, fontFamily: df.sansBold, color: colors.fg, fontVariant: ['tabular-nums'], minWidth: 36 },
   recHint: { flex: 1, fontSize: 13, color: colors.muted },
   liveWave: { flex: 1, minWidth: 0, justifyContent: 'flex-end' },
-  pauseBtn: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  pauseBtn: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
   slideHint: { flex: 1, textAlign: 'right', fontSize: 13, color: colors.muted },
   micWrap: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
   micHeld: { backgroundColor: colors.negative || colors.rose },
   lockPill: { position: 'absolute', bottom: 58, alignItems: 'center', gap: 2, width: 34, paddingVertical: 8, borderRadius: 17, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   tapHint: { alignSelf: 'flex-end', fontSize: 12, color: '#FFFFFF', backgroundColor: 'rgba(20,20,20,0.82)', borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, marginBottom: 6, overflow: 'hidden' },
   suggestChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 4, paddingRight: 10, height: 30, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, maxWidth: 180 },
-  suggestText: { fontSize: 13, fontWeight: '600', color: colors.fg },
+  suggestText: { fontSize: 13, fontFamily: df.sansSemi, color: colors.fg },
 });

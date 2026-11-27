@@ -37,7 +37,7 @@ export function Screen({ title, children, back, right, scroll = true, menu, subt
   return (
     <View style={[styles.screen, style]}>
       <View style={styles.topbar}>
-        <View style={styles.leftBtn}>
+        <View style={[styles.leftBtn, !(back || menu) && { marginRight: 0 }]}>
           {back ? (
             <NavButton onPress={() => nav.pop()} label="Back">
               <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -53,9 +53,10 @@ export function Screen({ title, children, back, right, scroll = true, menu, subt
           ) : null}
         </View>
 
+        {/* FIGMA DESIGN (.page-header): left-aligned, small uppercase subtitle above a Playfair title */}
         <View style={styles.centerTitleWrapper}>
-          {title ? <Text style={styles.topTitle} numberOfLines={1}>{title}</Text> : null}
           {subtitle ? <Text style={styles.topSub} numberOfLines={1}>{subtitle}</Text> : null}
+          {title ? <Text style={styles.topTitle} numberOfLines={1}>{title}</Text> : null}
         </View>
 
         <View style={styles.rightBtn}>{right || null}</View>
@@ -289,14 +290,12 @@ export const styles = StyleSheet.create({
   topbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    height: 58,
+    paddingHorizontal: 18,
+    height: 76,
     backgroundColor: colors.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
   },
   leftBtn: {
-    width: 44,
+    marginRight: 11,
     alignItems: 'flex-start',
     justifyContent: 'center',
   },
@@ -306,32 +305,34 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   navIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.surface,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.78)',
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.sm,
   },
   centerTitleWrapper: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flex: 1,
-    paddingHorizontal: 6,
+    minWidth: 0,
   },
   topTitle: {
-    fontFamily: fonts.serifBold,
-    fontSize: 19,
+    fontFamily: 'Playfair-Bold',
+    fontSize: 22,
+    lineHeight: 27,
     color: colors.fg,
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
   },
   topSub: {
-    fontFamily: fonts.sans,
-    fontSize: 11.5,
+    fontFamily: 'DMSans-Bold',
+    fontSize: 9,
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
     color: colors.muted,
-    marginTop: 1,
+    marginBottom: 2,
   },
   pad: {
     paddingHorizontal: 18,
@@ -600,13 +601,14 @@ export const styles = StyleSheet.create({
   },
 });
 
-// Depth for dark "night" hero surfaces: indigo gradient + soft radial gold/indigo glows.
+// Depth for dark "night" hero surfaces. FIGMA DESIGN: the warm ink → ember gradient of the design's dark cards
+// (.prayer-hero / .wallet-card), with a soft gold glow top-right and an orange glow bottom-left.
 // Drop in as the first child of a container that has overflow: 'hidden' and a borderRadius.
 export function NightGlow({ intensity = 1 }) {
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient
-        colors={['#252A5E', '#181A3B', '#110F23']}
+        colors={['#2D1B10', '#3C2518', '#7A3A17']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -618,8 +620,8 @@ export function NightGlow({ intensity = 1 }) {
             <Stop offset="1" stopColor="#D4A852" stopOpacity={0} />
           </RadialGradient>
           <RadialGradient id="nbIndigo" cx="8" cy="100" r="70" gradientUnits="userSpaceOnUse">
-            <Stop offset="0" stopColor="#6E7CE6" stopOpacity={0.30 * intensity} />
-            <Stop offset="1" stopColor="#6E7CE6" stopOpacity={0} />
+            <Stop offset="0" stopColor="#FF6B1A" stopOpacity={0.30 * intensity} />
+            <Stop offset="1" stopColor="#FF6B1A" stopOpacity={0} />
           </RadialGradient>
         </Defs>
         <Rect x="0" y="0" width="100" height="100" fill="url(#nbIndigo)" />

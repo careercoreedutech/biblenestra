@@ -70,11 +70,9 @@ function VerifiedTick({ size = 14 }) {
 export function LightPassageChip({ label, onPress, style }) {
   return (
     <PressScale onPress={onPress} scaleTo={0.95} style={[styles.passage, style]} accessibilityLabel={`Open ${label}`}>
-      <Icon name="book" size={13} color={colors.gold} />
+      <Icon name="book" size={12} color={colors.primary} />
       <Text style={styles.passageText} numberOfLines={1}>{label}</Text>
-      <View style={styles.passageSep} />
-      <Text style={styles.passageCta}>Open</Text>
-      <Icon name="chevron-right" size={11} color={colors.muted} strokeWidth={2.6} />
+      <Icon name="chevron-right" size={11} color={colors.primary} strokeWidth={2.6} />
     </PressScale>
   );
 }
@@ -342,7 +340,8 @@ function LightPostCardImpl({
   const showText = !!item.text && !item.quoteBg;
   const long = showText && item.text.length > 260;
   const reaction = item.liked ? reactionOf(item.reaction) : null;
-  const likeColor = reaction ? reaction.color : item.liked ? colors.rose : colors.muted;
+  const amenOn = !!item.liked && item.reaction === 'amen';
+  const loveOn = !!item.liked && item.reaction === 'love';
   const comments = Number(item.comments) || 0;
   const shares = Number(item.shares) || 0;
   const likes = Number(item.likes) || 0;
@@ -395,7 +394,7 @@ function LightPostCardImpl({
         <Pressable onPress={long ? () => setExpanded((v) => !v) : undefined} disabled={!long}>
           <LinkText
             text={item.text}
-            style={[styles.body, !hasImages && !isVideo && item.text.length < 110 && styles.bodyLarge]}
+            style={[styles.body, !hasImages && !isVideo && item.text.length < 220 && styles.bodyLarge]}
             numberOfLines={long && !expanded ? 5 : undefined}
           />
           {long ? <Text style={styles.seeMore}>{expanded ? 'See less' : 'See more'}</Text> : null}
@@ -410,7 +409,7 @@ function LightPostCardImpl({
           images={item.images}
           onDoubleTap={() => !item.liked && onLike && onLike(true)}
           onOpen={(i) => onOpenPhoto && onOpenPhoto(item.images, i)}
-          style={styles.mediaBleed}
+          style={styles.photoInset}
         />
       ) : null}
       {isVideo ? (
@@ -469,28 +468,41 @@ function LightPostCardImpl({
       {/* Action bar */}
       <View style={styles.actions}>
         {picker ? <Pressable style={styles.pickerScrim} onPress={() => setPicker(false)} accessibilityLabel="Close reactions" /> : null}
+        {/* Amen / Love are the app's real reactions (same toggle as the long-press picker); long-press opens the full set */}
         <PressScale
           onPress={() => {
             if (picker) { setPicker(false); return; }
-            onLike && onLike(false);
+            onReact && onReact('amen');
           }}
           onLongPress={() => { haptic('select'); setPicker(true); }}
           delayLongPress={320}
           scaleTo={0.9}
           style={styles.action}
-          accessibilityLabel={item.liked ? 'Unlike (long-press to react)' : 'Like (long-press to react)'}
+          accessibilityLabel={amenOn ? 'Remove Amen (long-press to react)' : 'Amen (long-press to react)'}
         >
-          <Pop trigger={`${!!item.liked}_${item.reaction || ''}`} amount={1.35}>
-            {reaction ? (
-              <Text style={styles.actionEmoji}>{reaction.emoji}</Text>
-            ) : (
-              <Icon name="heart" size={18} color={likeColor} fill={item.liked ? colors.rose : 'none'} />
-            )}
+          <Pop trigger={`${amenOn}`} amount={1.35}>
+            <Icon name="sparkles" size={17} color={amenOn ? colors.primary : colors.muted} fill={amenOn ? colors.primary : 'none'} />
           </Pop>
-          <Text style={[styles.actionText, (item.liked || reaction) && { color: likeColor, fontWeight: '700' }]}>{reaction ? reaction.label : 'Like'}</Text>
+          <Text style={[styles.actionText, amenOn && styles.actionTextOn]}>Amen</Text>
+        </PressScale>
+        <PressScale
+          onPress={() => {
+            if (picker) { setPicker(false); return; }
+            onReact && onReact('love');
+          }}
+          onLongPress={() => { haptic('select'); setPicker(true); }}
+          delayLongPress={320}
+          scaleTo={0.9}
+          style={styles.action}
+          accessibilityLabel={loveOn ? 'Remove Love (long-press to react)' : 'Love (long-press to react)'}
+        >
+          <Pop trigger={`${loveOn}`} amount={1.35}>
+            <Icon name="heart" size={17} color={loveOn ? colors.rose : colors.muted} fill={loveOn ? colors.rose : 'none'} />
+          </Pop>
+          <Text style={[styles.actionText, loveOn && { color: colors.rose }]}>Love</Text>
         </PressScale>
         <PressScale onPress={onComment} scaleTo={0.9} style={styles.action} accessibilityLabel="Comment">
-          <Icon name="chat" size={18} color={colors.muted} />
+          <Icon name="chat" size={17} color={colors.muted} />
           <Text style={styles.actionText}>Comment</Text>
         </PressScale>
         <PressScale onPress={onShare} scaleTo={0.9} style={styles.action} accessibilityLabel="Share">
@@ -501,7 +513,7 @@ function LightPostCardImpl({
           <Pop trigger={!!item.saved} amount={1.35}>
             <Icon name="bookmark" size={17} color={item.saved ? colors.primary : colors.muted} fill={item.saved ? colors.primary : 'none'} />
           </Pop>
-          <Text style={[styles.actionText, item.saved && { color: colors.primary, fontWeight: '700' }]}>{item.saved ? 'Saved' : 'Save'}</Text>
+          <Text style={[styles.actionText, item.saved && styles.actionTextOn]}>{item.saved ? 'Saved' : 'Save'}</Text>
         </PressScale>
         {picker ? <ReactionPicker current={item.liked ? item.reaction : null} onPick={pick} /> : null}
       </View>
@@ -728,7 +740,7 @@ export function PostMenuSheet({ visible, item, isFollowing, onClose, onSave, onS
 }
 
 // ─── Styles ──────────────────────────────────────────────────────
-const CARD_PAD = 14;
+const CARD_PAD = 16; // design .feed-card: 16px padding, 22px radius
 const eyebrow = { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase' };
 
 const styles = StyleSheet.create({
@@ -747,12 +759,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginBottom: 12,
     paddingHorizontal: CARD_PAD,
-    paddingTop: 14,
-    borderRadius: radius.lg,
+    paddingTop: 16,
+    borderRadius: 22,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadow.sm,
   },
   highlightRing: { position: 'absolute', top: -1, left: -1, right: -1, bottom: -1, borderRadius: radius.lg, borderWidth: 2, borderColor: colors.gold },
   head: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
@@ -767,31 +778,31 @@ const styles = StyleSheet.create({
   moreBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: -6 },
 
   body: { fontSize: 15, lineHeight: 22, color: colors.fg },
-  bodyLarge: { fontFamily: fonts.serif, fontSize: 18, lineHeight: 26, color: colors.passage, letterSpacing: -0.1 },
+  // Text posts read as a Playfair quote (design .feed-quote)
+  bodyLarge: { fontFamily: 'Playfair-SemiBold', fontSize: 20, lineHeight: 28, color: colors.fg, letterSpacing: -0.2, paddingTop: 8, paddingBottom: 14, paddingHorizontal: 2 },
   seeMore: { fontSize: 13.5, fontWeight: '700', color: colors.muted, marginTop: 2 },
 
+  // Scripture tag (design .feed-scripture): lavender pill, plum uppercase
   passage: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 6,
-    backgroundColor: colors.cardGold,
-    borderWidth: 1,
-    borderColor: alpha(colors.gold, 0.22),
-    paddingLeft: 10,
-    paddingRight: 9,
-    height: 30,
-    borderRadius: radius.pill,
+    backgroundColor: '#F6E4D2',
+    paddingLeft: 9,
+    paddingRight: 7,
+    height: 26,
+    borderRadius: 8,
     maxWidth: '100%',
   },
-  passageText: { fontFamily: fonts.serifBold, fontSize: 13.5, color: colors.goldMuted, flexShrink: 1 },
-  passageSep: { width: 1, height: 12, backgroundColor: alpha(colors.gold, 0.3) },
-  passageCta: { fontSize: 11.5, fontWeight: '700', color: colors.muted },
+  passageText: { fontFamily: 'DMSans-ExtraBold', fontSize: 10, letterSpacing: 0.6, textTransform: 'uppercase', color: colors.primary, flexShrink: 1 },
 
   quoteBleed: { marginHorizontal: -CARD_PAD, marginTop: 2 },
 
-  // Media bleeds to the card edges (inside the 1px border)
+  // Media bleeds to the card edges (inside the 1px border) — video only
   mediaBleed: { marginHorizontal: -CARD_PAD, marginTop: 12 },
+  // Photos sit inside the card with rounded corners (design .feed-card--image > img)
+  photoInset: { marginTop: 12, borderRadius: 16, overflow: 'hidden' },
   grid: { position: 'relative', backgroundColor: colors.raised, overflow: 'hidden' },
   gridCell: { position: 'absolute', overflow: 'hidden', backgroundColor: colors.raised },
   gridImg: { width: '100%', height: '100%' },
@@ -849,6 +860,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.rule, marginHorizontal: -6, paddingVertical: 3, position: 'relative' },
   action: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 40, borderRadius: radius.sm },
   actionText: { fontSize: 12.5, fontWeight: '600', color: colors.muted },
+  actionTextOn: { color: colors.primary, fontWeight: '700' },
   actionEmoji: { fontSize: 16, lineHeight: 20 },
 
   // Tapping anywhere on the card closes the reaction tray (it also closes itself after a few seconds)

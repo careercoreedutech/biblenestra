@@ -1,25 +1,26 @@
 // SOCIAL (round 3) — Activity inbox: in-app notifications (comment likes, gifts, …) from GET /me/notifications.
 // Tapping a comment like / comment gift opens the post with that comment visible; a profile gift opens the sender.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../components/Icons';
-import { colors, fonts, radius, shadow } from '../theme';
-import { Screen, Empty, alpha, Button, Badge } from '../components/ui';
-import { FadeInUp, PressScale } from '../components/Motion';
+import { colors } from '../theme';
+import { alpha } from '../components/ui';
+import { FadeInUp } from '../components/Motion';
 import { useToast } from '../components/Toast';
 import { useStore } from '../store';
 import { useSync } from '../api/sync';
 import { useApi } from '../api/auth';
 import { useNav } from '../navigation';
 import { mapNotification } from '../api/mappers';
-import { SocialAvatar } from '../components/social/FeedCard';
 import { isServerId } from '../api/social';
-import { BroadcastLogo, BroadcastPreview, BroadcastSheet } from '../components/BroadcastMessage'; // BROADCASTS
-import GoldNotificationCard, { GoldPill } from '../components/GoldNotificationCard'; // NOTIFICATIONS: black-and-gold cards
+import { BroadcastSheet } from '../components/BroadcastMessage'; // BROADCASTS
 import { deliveredMoments, openTarget } from '../notifications/daily'; // NOTIFICATIONS: today's moments
-import { imageFor, GOLD } from '../notifications/imagery'; // NOTIFICATIONS
+import { imageFor } from '../notifications/imagery'; // NOTIFICATIONS
 import { useDailyToday } from '../api/daily'; // NOTIFICATIONS: today's Daily Bread for the Scripture card
 import { relTime } from '../components/social/shared'; // NOTIFICATIONS
+import { d, df, k, PageHeader, SectionTitle } from '../design/sanctuary';
+import { DTabs } from '../design/profile/parts';
+import { SGroup, SRow, SButton, SEmpty } from '../design/study/parts';
 
 // NOTIFICATIONS: every inbox kind rendered as a black-and-gold card (emoji-led gold title, white body,
 // cinematic image, gold CTA). Behaviour (what a tap opens) stays in open() below.
@@ -85,6 +86,17 @@ const KIND = {
   broadcast: { icon: 'bell', tint: colors.primary, label: 'Official message' }, // BROADCASTS
 };
 
+// Design (.activity-tabs): the four tabs group the real notification kinds.
+const TABS = ['All', 'Social', 'Messages', 'Updates'];
+const SOCIAL_KINDS = ['comment_like', 'gift', 'follow'];
+const MESSAGE_KINDS = ['message', 'request'];
+const inTab = (tab, kind) => {
+  if (tab === 'All') return true;
+  if (tab === 'Social') return SOCIAL_KINDS.includes(kind);
+  if (tab === 'Messages') return MESSAGE_KINDS.includes(kind);
+  return !SOCIAL_KINDS.includes(kind) && !MESSAGE_KINDS.includes(kind);
+};
+
 /** Unread count of the in-app inbox (for header badges). */
 export function useUnreadActivity() {
   const { state } = useStore();
@@ -100,6 +112,7 @@ export default function ActivityScreen({ params = {} }) {
   const api = useApi();
   const [loading, setLoading] = useState(sync.online);
   const [pulling, setPulling] = useState(false);
+  const [tab, setTab] = useState('All');
   const items = state.notificationsList || [];
   // NOTIFICATIONS: the daily moments that have arrived today/yesterday (local, so they work offline)
   const today = useDailyToday();
@@ -162,83 +175,100 @@ export default function ActivityScreen({ params = {} }) {
   };
 
   const refresh = async () => { setPulling(true); await load(); setPulling(false); };
+  const visible = items.filter((n) => inTab(tab, n.kind));
+
+  const followBack = (fromId, from) => async () => {
+    try {
+      dispatch({ type: 'follow', id: fromId, local: true });
+      await api.request('POST', `/users/${fromId}/follow`, { following: true });
+      toast.show(`Following ${from || 'them'} · You can now chat!`, { icon: 'check', haptic: 'success' });
+      sync.refresh({ quiet: true });
+    } catch (e) {
+      toast.show(`Could not follow back${e && e.message ? `: ${e.message}` : ''}`, { tone: 'error' });
+    }
+  };
 
   return (
-    <Screen back title="Notifications" subtitle="A moment with God · every day" refreshControl={sync.online ? <RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={colors.primary} colors={[colors.primary]} /> : undefined}>
-      {/* NOTIFICATIONS: today's moments with God (local daily notifications) */}
-      {moments.length ? (
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Today’s moments</Text>
-          <PressScale onPress={() => nav.push('NotificationSettings', {})} scaleTo={0.94} hitSlop={8} accessibilityRole="button" accessibilityLabel="Choose notification times">
-            <Text style={styles.sectionAction}>Choose times →</Text>
-          </PressScale>
-        </View>
-      ) : null}
-      {moments.map((m, i) => (
-        <FadeInUp key={m.id} index={i} distance={8} duration={320}>
-          <GoldNotificationCard card={m} time={relTime(m.at, 'Just now')} onPress={() => openTarget(nav, m.target, m.params)} />
-        </FadeInUp>
-      ))}
-      {moments.length && items.length ? <Text style={[styles.sectionTitle, { marginTop: 8, marginBottom: 10 }]}>Activity</Text> : null}
-      {loading && !items.length ? (
-        <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>
-      ) : !items.length ? (
-        moments.length ? null : (
-          <View style={styles.emptyBox}>
-            <Empty title="No activity yet" body={sync.online ? 'When someone likes your comment or sends you a gift, you’ll see it here.' : 'Activity from other people appears here when you’re signed in online.'} action="Choose daily moments" onAction={() => nav.push('NotificationSettings', {})} />
-          </View>
-        )
-      ) : items.map((n, i) => {
-        const from = (n.data && n.data.fromName) || null;
-        const isFollow = n.kind === 'follow';
-        const fromId = n.data && n.data.fromId;
-        const isFollowingThem = fromId ? (state.follows || []).includes(fromId) : false;
-        const card = goldCardFor(n);
-        const sender = n.kind === 'broadcast' ? ((n.data && n.data.sender && n.data.sender.name) || 'BibleNestra') : from && !isFollow ? from : 'BibleNestra';
-        return (
-          <FadeInUp key={n.id} index={i + moments.length} distance={8} duration={320}>
-            <GoldNotificationCard card={card} time={n.time} unread={!n.read} sender={sender} onPress={() => open(n)}>
-              {isFollow && fromId ? (
-                isFollowingThem ? (
-                  <GoldPill label="Following ✓" filled />
-                ) : (
-                  <GoldPill
-                    label="+ Follow back"
-                    onPress={async () => {
-                      try {
-                        dispatch({ type: 'follow', id: fromId, local: true });
-                        await api.request('POST', `/users/${fromId}/follow`, { following: true });
-                        toast.show(`Following ${from || 'them'} · You can now chat!`, { icon: 'check', haptic: 'success' });
-                        sync.refresh({ quiet: true });
-                      } catch (e) {
-                        toast.show(`Could not follow back${e && e.message ? `: ${e.message}` : ''}`, { tone: 'error' });
-                      }
-                    }}
-                  />
-                )
-              ) : null}
-            </GoldNotificationCard>
-          </FadeInUp>
-        );
-      })}
+    <View style={k.screen}>
+      <ScrollView
+        contentContainerStyle={[k.scroll, { paddingTop: 8, paddingBottom: 48 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={sync.online ? <RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={d.plum} colors={[d.plum]} /> : undefined}
+      >
+        <PageHeader title="Activity" subtitle="What is new" back onBack={() => nav.pop()} action={null} />
+        <DTabs items={TABS} value={tab} onChange={setTab} />
+
+        {/* NOTIFICATIONS: today's moments with God (local daily notifications) */}
+        {moments.length ? (
+          <>
+            <SectionTitle eyebrow="Today" title="Today’s moments" link="Choose times" onLink={() => nav.push('NotificationSettings', {})} />
+            <SGroup>
+              {moments.map((m, i) => (
+                <FadeInUp key={m.id} index={i} distance={8} duration={320}>
+                  <SRow icon="sun" tint={colors.gold} title={String(m.title || m.body || 'A moment with God')} subtitle={relTime(m.at, 'Just now')} onPress={() => openTarget(nav, m.target, m.params)} />
+                </FadeInUp>
+              ))}
+            </SGroup>
+          </>
+        ) : null}
+
+        {loading && !items.length ? (
+          <View style={styles.center}><ActivityIndicator color={d.plum} /></View>
+        ) : !items.length ? (
+          moments.length ? null : (
+            <SEmpty title="No activity yet" body={sync.online ? 'When someone likes your comment or sends you a gift, you’ll see it here.' : 'Activity from other people appears here when you’re signed in online.'} action="Choose daily moments" onAction={() => nav.push('NotificationSettings', {})} />
+          )
+        ) : (
+          <>
+            <SectionTitle eyebrow={tab === 'All' ? 'Everything' : tab} title="Activity" />
+            {visible.length ? (
+              <SGroup>
+                {visible.map((n, i) => {
+                  const meta = KIND[n.kind] || { icon: 'bell', tint: colors.primary, label: 'Update' };
+                  const card = goldCardFor(n);
+                  const from = (n.data && n.data.fromName) || null;
+                  const isFollow = n.kind === 'follow';
+                  const fromId = n.data && n.data.fromId;
+                  const isFollowingThem = fromId ? (state.follows || []).includes(fromId) : false;
+                  const text = card.body || card.title || meta.label;
+                  const sub = [from && !isFollow ? from : null, meta.label, n.time].filter(Boolean).join(' · ');
+                  return (
+                    <FadeInUp key={n.id} index={Math.min(i, 8)} distance={8} duration={320}>
+                      <SRow
+                        left={(
+                          <View style={styles.leftWrap}>
+                            {n.read ? <View style={styles.unreadGap} /> : <View style={styles.unreadDot} />}
+                            <View style={[styles.tile, { backgroundColor: alpha(meta.tint, 0.16) }]}>
+                              <Icon name={meta.icon} size={17} color={meta.tint} />
+                            </View>
+                          </View>
+                        )}
+                        title={String(text)}
+                        subtitle={sub}
+                        right={isFollow && fromId ? (isFollowingThem ? <Text style={styles.following}>Following ✓</Text> : <SButton small label="+ Follow back" onPress={followBack(fromId, from)} />) : null}
+                        onPress={() => open(n)}
+                      />
+                    </FadeInUp>
+                  );
+                })}
+              </SGroup>
+            ) : (
+              <SEmpty title={`Nothing in ${tab} yet`} body="Try another tab." />
+            )}
+          </>
+        )}
+      </ScrollView>
       <BroadcastSheet item={broadcast} onClose={() => setBroadcast(null)} />{/* BROADCASTS */}
-    </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   center: { paddingVertical: 48, alignItems: 'center' },
-  emptyBox: { backgroundColor: colors.surface, borderRadius: 18, borderWidth: 1, borderColor: colors.border, paddingVertical: 10, marginTop: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14, marginBottom: 10, ...shadow.sm },
-  rowUnread: { borderColor: alpha(colors.primary, 0.32) },
-  iconCircle: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  kindBadge: { position: 'absolute', right: -3, bottom: -3, width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  body: { fontSize: 14, lineHeight: 19.5, color: colors.fg },
-  meta: { fontSize: 11.5, color: colors.faint, marginTop: 4, fontWeight: '600' },
-  liveTitle: { fontSize: 14, fontWeight: '800', color: colors.rose, marginBottom: 2 }, // YOUTUBE LIVE
-  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
-  // NOTIFICATIONS: black-and-gold centre
-  sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 2 },
-  sectionTitle: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg },
-  sectionAction: { fontSize: 13, fontWeight: '800', color: colors.gold },
+  leftWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: d.plum },
+  unreadGap: { width: 6 },
+  tile: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  following: { fontFamily: df.sansBold, fontSize: 11, color: d.sageDark },
 });

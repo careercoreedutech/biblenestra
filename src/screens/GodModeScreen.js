@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { d, df, k, Tap, PageHeader, IconButton } from '../design/sanctuary';
 import Svg, { Path } from 'react-native-svg';
 import Card from '../components/Card';
 import AskBar from '../components/AskBar';
@@ -395,6 +396,7 @@ export function ReadingScreen({ params = {} }) {
 }
 
 // ---------- Bible Chat ----------
+// Ask Scripture (the design's AskScripture page). Same conversation logic as before; restyled with src/design/sanctuary.js.
 export function BibleChatScreen({ params = {} }) {
   const nav = useNav();
   const { state, dispatch } = useStore();
@@ -405,6 +407,7 @@ export function BibleChatScreen({ params = {} }) {
   const [history, setHistory] = useState(fresh ? [] : state.chatHistory || []);
   const [typing, setTyping] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [draft, setDraft] = useState(params.send ? '' : params.seed || ''); // seed text waits in the box until sent
   const scroll = useRef(null);
   const sentSeed = useRef(false);
   const historyRef = useRef(history);
@@ -433,6 +436,13 @@ export function BibleChatScreen({ params = {} }) {
       commit([...historyRef.current, { id: 'a' + Date.now(), role: 'assistant', blocks, question: text }], true);
       setTyping(false);
     }, 500);
+  };
+
+  const submitDraft = () => {
+    const t = draft.trim();
+    if (!t) return;
+    setDraft('');
+    send(t);
   };
 
   const archiveCurrent = () => (historyRef.current.length ? [{ id: 't' + Date.now(), history: historyRef.current }, ...threads].slice(0, 5) : threads);
@@ -506,24 +516,33 @@ export function BibleChatScreen({ params = {} }) {
   const tint = (t) => BLOCK_TINT[t] || colors.primary;
 
   return (
-    <Screen
-      back
-      title="Bible Intelligence"
-      subtitle={context ? `Context: ${refLabel(context.bookId, context.chapter, context.verse)}` : 'Full Bible Study'}
-      scroll={false}
-      padded={false}
-      right={
-        <PressScale
-          onPress={() => setMenu(!menu)}
-          hitSlop={12}
-          scaleTo={0.88}
-          accessibilityLabel="Conversation options"
-          style={[styles.menuIconCircle, menu && { backgroundColor: colors.raised }]}
-        >
-          <Text style={styles.menuDots}>•••</Text>
-        </PressScale>
-      }
-    >
+    <View style={k.screen}>
+      <PageHeader
+        back
+        onBack={() => nav.pop()}
+        title="Ask Scripture"
+        subtitle={context ? `Context: ${refLabel(context.bookId, context.chapter, context.verse)}` : 'Bible AI chat'}
+        action={(
+          <View style={ask.headerActions}>
+            <IconButton icon="plus" label="New conversation" onPress={newConversation} />
+            <IconButton icon="more-horizontal" label="Conversation options" onPress={() => setMenu(!menu)} />
+          </View>
+        )}
+      />
+
+      {context ? (
+        <View style={ask.contextPill}>
+          <Icon name="book" size={20} color={d.plumDark} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={ask.contextSmall}>PASSAGE CONTEXT</Text>
+            <Text style={ask.contextStrong} numberOfLines={1}>{refLabel(context.bookId, context.chapter, context.verse)} · {state.translation || 'KJV'}</Text>
+          </View>
+          <Tap onPress={() => { setContext(null); toast.show('Now asking across the whole Bible', { icon: 'book' }); }} accessibilityLabel="Clear passage context" hitSlop={8}>
+            <Icon name="x" size={15} color={d.plumDark} />
+          </Tap>
+        </View>
+      ) : null}
+
       {menu ? <Pressable style={styles.menuBackdrop} onPress={() => setMenu(false)} accessibilityLabel="Close menu" /> : null}
       <Dropdown visible={menu} style={styles.dropdownMenu}>
           <MenuItem icon="plus" label="New conversation" onPress={newConversation} />
@@ -556,46 +575,34 @@ export function BibleChatScreen({ params = {} }) {
       <ScrollView
         ref={scroll}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 18, paddingBottom: 16, gap: 18 }}
+        contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 16, gap: 18 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {!history.length ? (
-          <View style={styles.chatEmpty}>
-            <ScaleIn style={styles.chatSparkBadge} from={0.6}>
+          <View style={ask.empty}>
+            <ScaleIn style={ask.sparkBadge} from={0.6}>
               <Pulse min={0.92} max={1.06} duration={1400}>
-                <Text style={{ fontSize: 22, color: colors.goldLight }}>✦</Text>
+                <Icon name="sparkles" size={24} color="#FFFFFF" />
               </Pulse>
             </ScaleIn>
             <FadeInUp delay={80} style={{ alignItems: 'center' }}>
-              <Text style={styles.chatEmptyTitle}>Ask about Scripture</Text>
-              <Text style={styles.chatEmptySub}>
+              <Text style={ask.emptyTitle}>Ask about Scripture</Text>
+              <Text style={ask.emptySub}>
                 Answers are cross-referenced with your licensed library, verifying citations before display.
               </Text>
             </FadeInUp>
-            {context ? (
-              <View style={styles.contextChip}>
-                <Icon name="book" size={13} color={colors.primary} />
-                <Text style={styles.contextChipText}>Studying {refLabel(context.bookId, context.chapter, context.verse)}</Text>
-              </View>
-            ) : null}
-            <Text style={[styles.eyebrow, { color: colors.muted, alignSelf: 'flex-start', marginTop: 26, marginBottom: 10 }]}>
-              Try asking
-            </Text>
+            <Text style={ask.eyebrow}>Try asking</Text>
             <View style={{ gap: 8, alignSelf: 'stretch' }}>
               {suggested.map((s, i) => (
                 <FadeInUp key={s} index={i} delay={180} distance={10}>
-                  <PressScale
-                    onPress={() => send(s)}
-                    scaleTo={0.98}
-                    style={styles.suggestCard}
-                  >
-                    <View style={styles.suggestIcon}>
-                      <Icon name="sparkles" size={14} color={colors.primary} />
+                  <Tap onPress={() => send(s)} style={ask.suggest} accessibilityRole="button">
+                    <View style={ask.suggestIcon}>
+                      <Icon name="sparkles" size={14} color={d.plum} />
                     </View>
-                    <Text style={styles.suggestText}>{s}</Text>
-                    <Icon name="arrow-right" size={14} color={colors.faint} />
-                  </PressScale>
+                    <Text style={ask.suggestText}>{s}</Text>
+                    <Icon name="arrow-right" size={14} color={d.muted} />
+                  </Tap>
                 </FadeInUp>
               ))}
             </View>
@@ -604,52 +611,48 @@ export function BibleChatScreen({ params = {} }) {
 
         {history.map((m) =>
           m.role === 'user' ? (
-            <SlideInRight key={m.id} style={styles.userRow}>
-              <View style={styles.userBubble}>
-                <Text style={styles.userText}>{m.text}</Text>
+            <SlideInRight key={m.id} style={ask.userRow}>
+              <View style={ask.userBubble}>
+                <Text style={ask.userText}>{m.text}</Text>
               </View>
             </SlideInRight>
           ) : (
-            <View key={m.id} style={styles.aiWrap}>
-              <FadeInUp distance={6} duration={300} style={styles.aiHeader}>
-                <AssistantAvatar />
-                <Text style={styles.aiName}>Scripture Intelligence</Text>
-                <View style={styles.verifiedPill}>
+            <View key={m.id} style={{ alignSelf: 'stretch' }}>
+              <FadeInUp distance={6} duration={300} style={ask.aiHeader}>
+                <View style={ask.aiAvatar}><Icon name="sparkles" size={14} color="#FFFFFF" /></View>
+                <Text style={ask.aiName}>Scripture Intelligence</Text>
+                <View style={ask.verifiedPill}>
                   <Icon name="check" size={10} color={colors.positive} strokeWidth={2.6} />
-                  <Text style={styles.verifiedText}>Citations verified</Text>
+                  <Text style={ask.verifiedText}>Citations verified</Text>
                 </View>
               </FadeInUp>
 
-              <FadeInUp delay={60} distance={10} duration={340} style={styles.aiCard}>
+              <FadeInUp delay={60} distance={10} duration={340} style={ask.aiCard}>
                 {m.blocks.map((b, i) => {
                   const t = tint(b.type);
                   return (
                     // Each answer section settles in after the last, like it is being written.
-                    <FadeInUp key={i} index={i} delay={80} stagger={70} distance={8} duration={320} style={[styles.blockContainer, i > 0 && styles.blockRule]}>
-                      <View style={styles.blockHeadRow}>
-                        <View style={[styles.blockHead, { backgroundColor: alpha(t, 0.1) }]}>
+                    <FadeInUp key={i} index={i} delay={80} stagger={70} distance={8} duration={320} style={[ask.block, i > 0 && ask.blockRule]}>
+                      <View style={ask.blockHeadRow}>
+                        <View style={[ask.blockHead, { backgroundColor: alpha(t, 0.1) }]}>
                           <Icon name={BLOCK_ICON[b.type] || 'sparkles'} size={11} color={t} strokeWidth={2.2} />
-                          <Text style={[styles.blockType, { color: t }]}>{b.type}</Text>
+                          <Text style={[ask.blockType, { color: t }]}>{b.type}</Text>
                         </View>
-                        {b.source ? <Text style={styles.blockSource} numberOfLines={1}>{b.source}</Text> : null}
+                        {b.source ? <Text style={ask.blockSource} numberOfLines={1}>{b.source}</Text> : null}
                       </View>
                       {b.ref ? (
-                        <PressScale
-                          onPress={() => nav.push('Bible', { bookId: b.bookId, chapter: b.chapter, verse: b.verse })}
-                          scaleTo={0.98}
-                          style={styles.quoteBox}
-                        >
-                          <Text style={styles.quoteText}>“{b.text}”</Text>
-                          <View style={styles.quoteFoot}>
-                            <Text style={styles.quoteRef}>{b.ref} · {b.translation}</Text>
-                            <View style={styles.quoteLink}>
-                              <Text style={styles.quoteLinkText}>Read passage</Text>
-                              <Icon name="chevron-right" size={12} color={colors.primary} strokeWidth={2.4} />
+                        <Tap onPress={() => nav.push('Bible', { bookId: b.bookId, chapter: b.chapter, verse: b.verse })} style={ask.quote}>
+                          <Text style={ask.quoteText}>“{b.text}”</Text>
+                          <View style={ask.quoteFoot}>
+                            <Text style={ask.quoteRef}>{b.ref} · {b.translation}</Text>
+                            <View style={ask.quoteLink}>
+                              <Text style={ask.quoteLinkText}>Read passage</Text>
+                              <Icon name="chevron-right" size={12} color={d.plum} strokeWidth={2.4} />
                             </View>
                           </View>
-                        </PressScale>
+                        </Tap>
                       ) : (
-                        <Text style={styles.blockBodyText}>{b.text}</Text>
+                        <Text style={ask.blockBody}>{b.text}</Text>
                       )}
                     </FadeInUp>
                   );
@@ -657,19 +660,19 @@ export function BibleChatScreen({ params = {} }) {
               </FadeInUp>
 
               <FadeInUp delay={140 + Math.min(m.blocks.length, 10) * 70} distance={6} duration={300}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -16 }} contentContainerStyle={{ gap: 8, paddingTop: 10, paddingHorizontal: 16 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -18 }} contentContainerStyle={{ gap: 8, paddingTop: 10, paddingHorizontal: 18 }}>
                 {(() => {
                   const p = answerPassage(m, context);
                   const saved = isSaved(m);
                   return (
                     <>
-                      {p ? <ActionChip icon="book" label="Open passage" onPress={() => nav.push('Bible', p)} /> : null}
-                      {p ? <ActionChip icon="headphones" label="Listen" onPress={() => listen(m)} /> : null}
-                      <ActionChip icon="bookmark" label={saved ? 'Saved' : 'Save answer'} active={saved} onPress={() => saveAnswer(m)} />
-                      {p ? <ActionChip icon="bible" label="Compare translations" onPress={() => nav.push('Bible', { ...p, compare: true })} /> : null}
-                      <ActionChip icon="share" label="Share" onPress={() => shareText(answerText(m), toast)} />
-                      <ActionChip icon="link" label="Copy" onPress={() => copy(m)} />
-                      <ActionChip icon="socials" label="Post to feed" onPress={() => postToFeed(m)} />
+                      {p ? <AChip icon="book" label="Open passage" onPress={() => nav.push('Bible', p)} /> : null}
+                      {p ? <AChip icon="headphones" label="Listen" onPress={() => listen(m)} /> : null}
+                      <AChip icon="bookmark" label={saved ? 'Saved' : 'Save answer'} active={saved} onPress={() => saveAnswer(m)} />
+                      {p ? <AChip icon="bible" label="Compare translations" onPress={() => nav.push('Bible', { ...p, compare: true })} /> : null}
+                      <AChip icon="share" label="Share" onPress={() => shareText(answerText(m), toast)} />
+                      <AChip icon="link" label="Copy" onPress={() => copy(m)} />
+                      <AChip icon="socials" label="Post to feed" onPress={() => postToFeed(m)} />
                     </>
                   );
                 })()}
@@ -680,27 +683,100 @@ export function BibleChatScreen({ params = {} }) {
         )}
 
         {typing ? (
-          <FadeInUp distance={8} duration={260} style={styles.typingRow}>
-            <AssistantAvatar />
-            <View style={styles.typingCard}>
+          <FadeInUp distance={8} duration={260} style={ask.typingRow}>
+            <View style={ask.aiAvatar}><Icon name="sparkles" size={14} color="#FFFFFF" /></View>
+            <View style={ask.typingCard}>
               <TypingDots />
-              <Text style={styles.typingText}>Verifying Scripture references…</Text>
+              <Text style={ask.typingText}>Verifying Scripture references…</Text>
             </View>
           </FadeInUp>
         ) : null}
       </ScrollView>
 
-      <View style={styles.composer}>
-        <AskBar
+      {/* .chat-compose */}
+      <View style={ask.composer}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          onSubmitEditing={submitDraft}
           placeholder={context ? 'Ask about this passage...' : 'Ask about Scripture...'}
-          onSend={send}
-          initial={params.send ? '' : params.seed}
+          placeholderTextColor={d.muted}
+          returnKeyType="send"
+          style={ask.composerInput}
+          accessibilityLabel="Ask Scripture"
         />
-        <Text style={styles.composerNote}>Answers cite Scripture from your library. Always read in context.</Text>
+        <Tap onPress={submitDraft} disabled={!draft.trim()} style={[ask.sendBtn, !draft.trim() && { opacity: 0.45 }]} accessibilityRole="button" accessibilityLabel="Send">
+          <Icon name="arrow-right" size={16} color="#FFFFFF" />
+        </Tap>
       </View>
-    </Screen>
+      <Text style={ask.note}>Answers cite Scripture from your library. Always read in context.</Text>
+    </View>
   );
 }
+
+// Design chip (action row under each answer)
+function AChip({ label, icon, onPress, active }) {
+  return (
+    <Tap onPress={onPress} accessibilityRole="button" style={[ask.actionChip, active && ask.actionChipOn]}>
+      {icon ? <Icon name={active ? 'check' : icon} size={13} color={active ? d.plum : d.muted} /> : null}
+      <Text style={[ask.actionChipText, active && { color: d.plum }]}>{label}</Text>
+    </Tap>
+  );
+}
+
+const ask = StyleSheet.create({
+  headerActions: { flexDirection: 'row', gap: 8 },
+  contextPill: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4, padding: 12, borderRadius: 15, backgroundColor: d.lavender },
+  contextSmall: { fontFamily: df.sansHeavy, fontSize: 9, letterSpacing: 1, color: d.plumDark },
+  contextStrong: { fontFamily: df.sansBold, fontSize: 12, color: d.plumDark, marginTop: 2 },
+
+  empty: { alignItems: 'stretch', paddingTop: 10 },
+  sparkBadge: { alignSelf: 'center', width: 56, height: 56, borderRadius: 18, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  emptyTitle: { fontFamily: df.displayBold, fontSize: 24, color: d.ink, textAlign: 'center' },
+  emptySub: { fontFamily: df.sans, fontSize: 13, lineHeight: 19, color: d.muted, textAlign: 'center', marginTop: 6, paddingHorizontal: 12 },
+  eyebrow: { fontFamily: df.sansHeavy, fontSize: 9.5, letterSpacing: 1.2, textTransform: 'uppercase', color: d.muted, marginTop: 26, marginBottom: 10 },
+  suggest: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 16, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  suggestIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  suggestText: { flex: 1, fontFamily: df.display, fontSize: 14, lineHeight: 20, color: d.ink },
+
+  userRow: { flexDirection: 'row', justifyContent: 'flex-end' },
+  userBubble: { maxWidth: '78%', padding: 13, borderRadius: 16, borderBottomRightRadius: 4, backgroundColor: d.ink },
+  userText: { fontFamily: df.sans, fontSize: 13.5, lineHeight: 19, color: '#FFFFFF' },
+
+  aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 8 },
+  aiAvatar: { width: 30, height: 30, borderRadius: 10, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  aiName: { flex: 1, fontFamily: df.sansBold, fontSize: 12.5, color: d.ink },
+  verifiedPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: d.sage },
+  verifiedText: { fontFamily: df.sansBold, fontSize: 10, color: d.sageDark },
+  aiCard: { padding: 16, borderRadius: 18, borderTopLeftRadius: 4, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  block: { paddingVertical: 10 },
+  blockRule: { borderTopWidth: 1, borderTopColor: d.line },
+  blockHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  blockHead: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
+  blockType: { fontFamily: df.sansHeavy, fontSize: 9.5, letterSpacing: 1, textTransform: 'uppercase' },
+  blockSource: { flex: 1, fontFamily: df.sans, fontSize: 11, color: d.muted },
+  blockBody: { fontFamily: df.display, fontSize: 14, lineHeight: 22, color: d.ink, marginTop: 8 },
+  quote: { marginTop: 10, padding: 13, borderRadius: 14, backgroundColor: d.ivory, borderWidth: 1, borderColor: d.line },
+  quoteText: { fontFamily: df.displayItalic, fontSize: 15, lineHeight: 23, color: d.ink },
+  quoteFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
+  quoteRef: { fontFamily: df.sansBold, fontSize: 11, color: d.muted, flexShrink: 1 },
+  quoteLink: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  quoteLinkText: { fontFamily: df.sansBold, fontSize: 11, color: d.plum },
+
+  actionChip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: 999, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  actionChipOn: { borderColor: d.plum, backgroundColor: '#FFF0E5' },
+  actionChipText: { fontFamily: df.sansBold, fontSize: 11.5, color: d.muted },
+
+  typingRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  typingCard: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 16, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  typingText: { fontFamily: df.sans, fontSize: 12, color: d.muted },
+
+  composer: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 12, marginTop: 6, paddingLeft: 16, paddingRight: 6, paddingVertical: 6, borderRadius: 19, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, shadowColor: '#321E12', shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  composerInput: { flex: 1, fontFamily: df.sans, fontSize: 14, color: d.ink, paddingVertical: 8 },
+  sendBtn: { width: 36, height: 36, borderRadius: 11, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  note: { fontFamily: df.sans, fontSize: 10.5, color: d.muted, textAlign: 'center', marginTop: 8, marginBottom: 12, paddingHorizontal: 18 },
+});
+
 
 // ---------- Scripture Companion ----------
 // SCRIPTURE COMPANION (client #6): the live screen is ./CompanionScreen.js (server pipeline, ≥7 validated verses,

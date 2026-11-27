@@ -43,7 +43,7 @@ import { useSpend } from '../components/findlove/useSpend';
 
 export { DatingPlansScreen, DatingBoostScreen, DatingSettingsScreen, DatingVerifyScreen } from '../components/findlove/AccountScreens';
 
-const DATING_BUBBLES = { mine: grad.wine, theirs: '#FBF4EC', theirsBorder: love.blushLine };
+const DATING_BUBBLES = { mine: grad.wine, theirs: '#FFFAF2', theirsBorder: love.blushLine };
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Discover › Find Love
@@ -128,7 +128,7 @@ export function FindLoveTab({ nav }) {
 function LoveIntro({ onStart, note }) {
   return (
     <FadeInUp style={[s.intro, lshadow.md]}>
-      <LinearGradient colors={['#5A1A30', '#2A0E1C', '#1A0812']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['#422819', '#2D1B10', '#291B12']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
       <Grain width={460} height={900} opacity={0.06} count={140} />
       <Glow size={380} color={love.roseBright} opacity={0.45} style={{ top: -150, left: -60 }} />
       <Glow size={260} color={love.goldBright} opacity={0.18} style={{ bottom: -80, right: -90 }} />
@@ -346,7 +346,7 @@ function LikesPane({ nav, home }) {
       {!d.unlocked ? (
         d.count ? (
           <FadeInUp style={[s.lockHero, lshadow.md]}>
-            <LinearGradient colors={['#5A1A30', '#2A0E1C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+            <LinearGradient colors={['#422819', '#2D1B10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
             <Grain width={460} height={700} opacity={0.06} count={110} />
             <Glow size={320} color={love.roseBright} opacity={0.4} style={{ top: -120, right: -100 }} />
             <View style={s.lockGrid}>
@@ -404,13 +404,13 @@ function LikesPane({ nav, home }) {
 }
 
 function LockedTile({ k }) {
-  const tints = [['#E7A3AE', '#9C2C48'], ['#F4E4C0', '#B4852F'], ['#D35C75', '#4A1326'], ['#EFD2CC', '#7A2540']];
+  const tints = [['#F7B98A', '#ED5C12'], ['#F6E4D2', '#A66D22'], ['#FF8B3D', '#3C2518'], ['#F4D8CB', '#8A451F']];
   return (
     <View style={s.lockTile} accessibilityLabel="Hidden like" accessible>
       <LinearGradient colors={tints[k % 4]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
       {/* a soft "someone" silhouette */}
       <View style={s.silHead} /><View style={s.silBody} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(30,10,21,0.45)' }]} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(40,26,17,0.45)' }]} />
       <View style={s.lockBadge}><Icon name="lock" size={14} color={love.goldBright} strokeWidth={2.2} /></View>
     </View>
   );
@@ -587,7 +587,7 @@ export function DatingProfileEditScreen({ params = {} }) {
                 return (
                   <View key={ph.id} style={[s.photoCell, i === 0 && s.photoMain]}>
                     <Image source={{ uri: ph.url }} style={StyleSheet.absoluteFill} />
-                    <LinearGradient colors={['rgba(30,10,21,0)', 'rgba(30,10,21,0.55)']} style={s.photoScrim} />
+                    <LinearGradient colors={['rgba(40,26,17,0)', 'rgba(40,26,17,0.55)']} style={s.photoScrim} />
                     <View style={[s.photoState, { backgroundColor: tone }]}>
                       <Text style={s.photoStateText}>{ph.status === 'approved' ? (i === 0 ? 'Main' : 'Live') : ph.status === 'rejected' ? 'Rejected' : 'In review'}</Text>
                     </View>
@@ -753,7 +753,7 @@ export function DatingProfileViewScreen({ params = {} }) {
             </ScrollView>
           ) : null}
           <LinearGradient colors={grad.scrimTop} style={s.heroTop} pointerEvents="none" />
-          <LinearGradient colors={['rgba(246,242,234,0)', 'rgba(30,10,21,0.25)', 'rgba(30,10,21,0.85)']} locations={[0, 0.4, 1]} style={s.heroScrim} pointerEvents="none" />
+          <LinearGradient colors={['rgba(246,242,234,0)', 'rgba(40,26,17,0.25)', 'rgba(40,26,17,0.85)']} locations={[0, 0.4, 1]} style={s.heroScrim} pointerEvents="none" />
           {photos.length > 1 ? <View style={s.heroBars} pointerEvents="none">{photos.map((ph, k) => <View key={ph.id} style={[s.heroBar, k === idx && { backgroundColor: '#FFFFFF' }]} />)}</View> : null}
           <View style={s.heroInfo} pointerEvents="none">
             {card.superLikedYou ? <View style={[s.likesYou, { marginBottom: 8 }]}><Icon name="star" size={12} color={love.plum} fill={love.plum} /><Text style={s.likesYouText}>Likes you a lot</Text></View> : null}
@@ -970,7 +970,7 @@ export function DatingChatScreen({ params = {} }) {
       {d && d.status === 'match' && a ? (
         a.unrestricted ? (
           <View style={s.meterWrap}>
-            <View style={[s.meterPill, { backgroundColor: love.goldPale, borderColor: 'rgba(180,133,47,0.35)' }]}>
+            <View style={[s.meterPill, { backgroundColor: love.goldPale, borderColor: 'rgba(166,109,34,0.35)' }]}>
               {d.plan === 'vip' ? <Crown size={13} color={love.gold} /> : <Icon name="sparkles" size={13} color={love.gold} />}
               <Text style={[s.meterText, { color: love.goldInk }]}>{`Unlimited messaging · Dating ${d.plan === 'vip' ? 'VIP' : 'Plus'}`}</Text>
             </View>
@@ -1044,7 +1044,7 @@ const s = StyleSheet.create({
   introAccent: { fontFamily: fonts.serifItalic, fontSize: 19, color: love.roseSoft, textAlign: 'center', marginTop: 2 },
   introBody: { fontSize: 14.5, lineHeight: 22, color: love.onDarkMuted, textAlign: 'center', marginTop: 12 },
   introRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
-  introRowIcon: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: 'rgba(217,176,97,0.45)', backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
+  introRowIcon: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: 'rgba(244,216,140,0.45)', backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
   introRowText: { flex: 1, fontSize: 14, color: love.onDark, lineHeight: 19 },
   introVerse: { fontFamily: fonts.serifItalic, fontSize: 18, color: love.onDark, marginTop: 20, textAlign: 'center' },
   introRef: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.6, color: love.goldBright, textTransform: 'uppercase', marginTop: 4 },
@@ -1070,10 +1070,10 @@ const s = StyleSheet.create({
   // likes
   lockHero: { borderRadius: 30, padding: 22, overflow: 'hidden', alignItems: 'center' },
   lockGrid: { flexDirection: 'row', gap: 8, justifyContent: 'center', flexWrap: 'wrap' },
-  lockTile: { width: 68, height: 92, borderRadius: 16, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(217,176,97,0.35)' },
+  lockTile: { width: 68, height: 92, borderRadius: 16, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(244,216,140,0.35)' },
   silHead: { position: 'absolute', top: 22, width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.5)' },
   silBody: { position: 'absolute', bottom: -14, width: 54, height: 46, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.45)' },
-  lockBadge: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(30,10,21,0.75)', borderWidth: 1, borderColor: 'rgba(217,176,97,0.6)', alignItems: 'center', justifyContent: 'center' },
+  lockBadge: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(40,26,17,0.75)', borderWidth: 1, borderColor: 'rgba(244,216,140,0.6)', alignItems: 'center', justifyContent: 'center' },
   lockTitle: { fontFamily: fonts.serifBold, fontSize: 27, color: love.onDark, marginTop: 18, textAlign: 'center', letterSpacing: -0.4 },
   lockBody: { fontSize: 14, color: love.onDarkMuted, marginTop: 4, textAlign: 'center' },
   paneNote: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: love.goldPale, marginBottom: 12 },
@@ -1100,14 +1100,14 @@ const s = StyleSheet.create({
   rowName: { fontFamily: fonts.serifBold, fontSize: 17, color: love.ink, flexShrink: 1 },
   rowAge: { fontFamily: fonts.serif, color: love.muted },
   rowSub: { fontSize: 13.5, color: love.muted, marginTop: 2, lineHeight: 19 },
-  vip: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 7, backgroundColor: '#1A1210', borderWidth: 1, borderColor: 'rgba(217,176,97,0.6)' },
+  vip: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 7, backgroundColor: '#1A1210', borderWidth: 1, borderColor: 'rgba(244,216,140,0.6)' },
   vipText: { fontSize: 9.5, fontWeight: '900', color: love.goldBright, letterSpacing: 0.6 },
   unread: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: love.rose, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   unreadText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
   // editor
   fieldLabel: { fontSize: 13.5, fontWeight: '800', color: love.ink },
   fieldHint: { fontSize: 12.5, color: love.muted, marginTop: 3, marginBottom: 6, lineHeight: 18 },
-  lockPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, backgroundColor: love.goldPale, borderWidth: 1, borderColor: 'rgba(180,133,47,0.35)' },
+  lockPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, backgroundColor: love.goldPale, borderWidth: 1, borderColor: 'rgba(166,109,34,0.35)' },
   lockPillText: { fontSize: 11, fontWeight: '900', color: love.goldInk },
   promptBox: { marginTop: 10, padding: 12, borderRadius: 18, backgroundColor: love.blush },
   promptNum: { fontFamily: fonts.serifItalic, fontSize: 14, color: love.wine, marginBottom: 6 },
@@ -1127,7 +1127,7 @@ const s = StyleSheet.create({
   photoTools: { position: 'absolute', top: 6, right: 6, flexDirection: 'row', gap: 5 },
   photoTool: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.94)', alignItems: 'center', justifyContent: 'center' },
   photoAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: love.roseSoft, backgroundColor: love.blush },
-  photoSlot: { borderColor: love.blushLine, backgroundColor: '#FBF6F1' },
+  photoSlot: { borderColor: love.blushLine, backgroundColor: '#FFFAF2' },
   addDisc: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photoAddText: { fontSize: 12, fontWeight: '800', color: love.wine, marginTop: 6 },
   // profile view
@@ -1143,7 +1143,7 @@ const s = StyleSheet.create({
   viewChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 16 },
   viewBio: { fontFamily: fonts.serif, fontSize: 18, lineHeight: 27, color: love.ink, marginTop: 8 },
   quoteCard: { marginTop: 14, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20, borderRadius: 24, backgroundColor: love.blush, borderWidth: 1, borderColor: love.blushLine, overflow: 'hidden' },
-  quoteMark: { position: 'absolute', right: 14, top: -18, fontFamily: fonts.serifBold, fontSize: 110, color: 'rgba(180,133,47,0.22)' },
+  quoteMark: { position: 'absolute', right: 14, top: -18, fontFamily: fonts.serifBold, fontSize: 110, color: 'rgba(166,109,34,0.22)' },
   promptQ: { fontSize: 11.5, fontWeight: '800', color: love.rose, letterSpacing: 1.1, textTransform: 'uppercase' },
   promptA: { fontFamily: fonts.serifBoldItalic, fontSize: 23, lineHeight: 30, color: love.wine, marginTop: 8 },
   faithRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: love.blush },
@@ -1160,19 +1160,19 @@ const s = StyleSheet.create({
   menuText: { flex: 1, fontSize: 15, fontWeight: '600', color: love.ink },
   // chat
   chatScreen: { flex: 1, backgroundColor: love.paper },
-  chatTop: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: love.blushLine, backgroundColor: '#FBF6F0' },
+  chatTop: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: love.blushLine, backgroundColor: '#FFFAF2' },
   chatWho: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0, minHeight: 44 },
   chatName: { fontFamily: fonts.serifBold, fontSize: 19, color: love.ink, flexShrink: 1 },
   chatSub: { fontSize: 12, color: love.rose, fontWeight: '700' },
   socialBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 40, borderBottomWidth: 1, borderBottomColor: love.blushLine, backgroundColor: love.card },
   socialText: { flex: 1, minWidth: 0, fontSize: 12.5, color: love.ink },
-  meterWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#FBF6F0' },
+  meterWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#FFFAF2' },
   meterPill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, minHeight: 34, borderRadius: 17, backgroundColor: love.blush, borderWidth: 1, borderColor: love.blushLine },
   meterText: { fontSize: 12.5, color: love.wine, fontWeight: '700', flexShrink: 1 },
-  meterTrack: { flex: 1, minWidth: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(176,71,92,0.16)', overflow: 'hidden' },
+  meterTrack: { flex: 1, minWidth: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(237,92,18,0.16)', overflow: 'hidden' },
   meterFill: { height: 4, borderRadius: 2 },
   meterLink: { minHeight: 44, justifyContent: 'center' },
-  reqBanner: { padding: 14, backgroundColor: love.goldPale, borderBottomWidth: 1, borderBottomColor: 'rgba(180,133,47,0.3)' },
+  reqBanner: { padding: 14, backgroundColor: love.goldPale, borderBottomWidth: 1, borderBottomColor: 'rgba(166,109,34,0.3)' },
   reqBannerText: { fontSize: 13.5, color: love.ink, lineHeight: 19 },
   lockPanel: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 20, paddingBottom: 24, backgroundColor: love.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: love.blushLine, alignItems: 'center', overflow: 'hidden', ...lshadow.md },
   lockHeart: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 8 },

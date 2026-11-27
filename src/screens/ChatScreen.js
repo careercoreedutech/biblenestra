@@ -5,7 +5,6 @@
 // Tap the header → contact or Group Info (screens/ChatInfoScreen.js).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
 import { Screen, Button, Empty, Notice, Badge } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { FadeInUp, ScaleIn } from '../components/Motion';
@@ -36,20 +35,22 @@ import { MuteSheet, isMutedNow, muteLabel } from '../components/chat/ChatGaps'; 
 import { GiftSheet, useIncomingGiftPlayer } from '../components/gifts'; // VIRTUAL GIFTS: Gifting Coin gifts in chats and groups
 import { SharedPost } from '../components/chat/SharedPost'; // MEMBERSHIP GROUPS: MASTER CLASS posts shown in EXECUTIVE CLASS
 import { setPostComments, mutedLabel } from '../api/memberships'; // MEMBERSHIP GROUPS
+import { d, df, k } from '../design/sanctuary'; // FIGMA DESIGN: .page-header, .icon-button, lavender initials
 
 const newLocalId = () => `m_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
+// Design .page-header for a thread: round back button, avatar, small uppercase status line over a Playfair name, icon buttons
 function TopBar({ title, subtitle, subtitleTint, avatar, onBack, onTitle, right }) {
   return (
     <View style={styles.top}>
-      <Pressable onPress={onBack} hitSlop={12} style={styles.topBtn} accessibilityRole="button" accessibilityLabel="Back">
-        <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M15 18l-6-6 6-6" stroke={colors.fg} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>
+      <Pressable onPress={onBack} hitSlop={8} style={k.iconButton} accessibilityRole="button" accessibilityLabel="Back">
+        <Icon name="chevron-left" size={19} color={d.ink} />
       </Pressable>
       <Pressable onPress={onTitle} style={styles.topMid} accessibilityRole="button" accessibilityLabel={`${title}. Open info`}>
         {avatar}
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.topTitle} numberOfLines={1}>{title}</Text>
           {subtitle ? <Text style={[styles.topSub, subtitleTint && { color: subtitleTint }]} numberOfLines={1}>{subtitle}</Text> : null}
+          <Text style={styles.topTitle} numberOfLines={1}>{title}</Text>
         </View>
       </Pressable>
       <View style={styles.topRight}>{right}</View>
@@ -59,9 +60,19 @@ function TopBar({ title, subtitle, subtitleTint, avatar, onBack, onTitle, right 
 
 function IconBtn({ name, label, onPress, active }) {
   return (
-    <Pressable onPress={onPress} hitSlop={8} style={[styles.topBtn, active && { backgroundColor: colors.primarySoft }]} accessibilityRole="button" accessibilityLabel={label}>
-      <Icon name={name} size={18} color={active ? colors.primary : colors.fg} />
+    <Pressable onPress={onPress} hitSlop={6} style={[k.iconButton, active && styles.iconOn]} accessibilityRole="button" accessibilityLabel={label}>
+      <Icon name={name} size={19} color={active ? d.plum : d.ink} />
     </Pressable>
+  );
+}
+
+// Initials on the design's lavender circle, used when a contact or group has no photo
+const initialsOf = (name) => String(name || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+function InitialsAvatar({ name, size = 42 }) {
+  return (
+    <View style={[styles.initials, { width: size, height: size, borderRadius: size / 2 }]}>
+      <Text style={[styles.initialsText, { fontSize: Math.round(size * 0.26) }]}>{initialsOf(name)}</Text>
+    </View>
   );
 }
 
@@ -340,10 +351,10 @@ export function ChatScreen({ params = {} }) {
   ];
 
   const avatar = isGroup
-    ? (chat.avatarUrl ? <SocialAvatar name={chat.with} uri={chat.avatarUrl} size={36} /> : <View style={[styles.groupAv, isChannel && { backgroundColor: colors.cardGold }]}><Icon name={isChannel ? 'volume' : 'users'} size={17} color={isChannel ? colors.gold : colors.primary} /></View>)
+    ? (chat.avatarUrl ? <SocialAvatar name={chat.with} uri={chat.avatarUrl} size={42} /> : <View style={[styles.groupAv, isChannel && { backgroundColor: colors.cardGold }]}><Icon name={isChannel ? 'volume' : 'users'} size={18} color={isChannel ? colors.gold : d.plum} /></View>)
     : (
       <View>
-        <SocialAvatar name={chat.with} uri={chat.otherUser && chat.otherUser.avatarUrl} size={36} />
+        {chat.otherUser && chat.otherUser.avatarUrl ? <SocialAvatar name={chat.with} uri={chat.otherUser.avatarUrl} size={42} /> : <InitialsAvatar name={chat.with} size={42} />}
         {presence && presence.online ? <View style={styles.onlineDot} /> : null}
       </View>
     );
@@ -456,17 +467,17 @@ export function ChatScreen({ params = {} }) {
         visible={tray}
         onClose={() => setTray(false)}
         items={[
-          { label: 'Photo', icon: 'image', tint: colors.sky, disabled: !mediaOk, onPress: sendPhotos },
-          { label: 'Video', icon: 'video', tint: colors.terracotta, disabled: !mediaOk, onPress: () => sendFile(true) },
-          { label: 'Document', icon: 'book', tint: colors.primary, disabled: !mediaOk, onPress: () => sendFile(false) },
-          { label: 'Voice message', icon: 'mic', tint: colors.rose, disabled: !mediaOk, onPress: startVoice },
-          { label: 'Audio file', icon: 'music', tint: colors.lavender, disabled: !mediaOk, onPress: sendAudioFile },
-          { label: 'Video call', icon: 'live', tint: colors.teal, onPress: () => setMeetOpen(true) },
-          ...(!isChannel ? [{ label: 'Send a gift', icon: 'gift', tint: colors.rose, disabled: !mediaOk, onPress: () => (mediaOk ? setVgiftOpen(true) : needOnline()) }] : []), // VIRTUAL GIFTS
+          { label: 'Photo', icon: 'image', tint: d.plum, disabled: !mediaOk, onPress: sendPhotos },
+          { label: 'Video', icon: 'video', tint: d.roseDark, disabled: !mediaOk, onPress: () => sendFile(true) },
+          { label: 'Document', icon: 'book', tint: d.plumDark, disabled: !mediaOk, onPress: () => sendFile(false) },
+          { label: 'Voice message', icon: 'mic', tint: d.roseDark, disabled: !mediaOk, onPress: startVoice },
+          { label: 'Audio file', icon: 'music', tint: d.goldDark, disabled: !mediaOk, onPress: sendAudioFile },
+          { label: 'Video call', icon: 'live', tint: d.sageDark, onPress: () => setMeetOpen(true) },
+          ...(!isChannel ? [{ label: 'Send a gift', icon: 'gift', tint: d.roseDark, disabled: !mediaOk, onPress: () => (mediaOk ? setVgiftOpen(true) : needOnline()) }] : []), // VIRTUAL GIFTS
           ...(!isGroup ? [{ label: 'Gift Kingdom Coins', icon: 'coin', tint: colors.gold, disabled: !mediaOk, onPress: () => (mediaOk ? setGiftOpen(true) : needOnline()) }] : []),
         ]}
       />
-      <MuteSheet visible={muteOpen} title={chat.with} onClose={() => setMuteOpen(false)} onPick={(d) => toggleMute(d)} />
+      <MuteSheet visible={muteOpen} title={chat.with} onClose={() => setMuteOpen(false)} onPick={(x) => toggleMute(x)} />
       <MeetPrompt visible={meetOpen} onClose={() => setMeetOpen(false)} onShare={shareMeet} />
       <CoinGiftSheet visible={giftOpen} name={chat.with} balance={state.coins || 0} onClose={() => setGiftOpen(false)} onSend={sendCoins} onEarn={() => nav.push('Learn', { tab: 'Games' })} />
       {/* VIRTUAL GIFTS: pick a gift → confirm → animation; the gift bubble lands in this chat */}
@@ -500,28 +511,30 @@ export function ChatScreen({ params = {} }) {
 
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.screen },
-  top: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 60, paddingHorizontal: 8, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  topBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  topMid: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  topRight: { flexDirection: 'row', alignItems: 'center' },
-  topTitle: { fontSize: 16, fontWeight: '600', color: colors.fg },
-  topSub: { fontSize: 12, color: colors.muted, marginTop: 1 },
-  groupAv: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  onlineDot: { position: 'absolute', right: -1, bottom: -1, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: colors.surface },
-  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  searchInput: { flex: 1, fontSize: 14.5, color: colors.fg, paddingVertical: 4, outlineStyle: 'none' },
+  screen: { flex: 1, backgroundColor: d.ivory },
+  top: { flexDirection: 'row', alignItems: 'center', gap: 11, height: 84, paddingHorizontal: 18, backgroundColor: d.ivory },
+  topMid: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topTitle: { fontFamily: df.displayBold, fontSize: 19, lineHeight: 23, letterSpacing: -0.3, color: d.ink },
+  topSub: { fontFamily: df.sansBold, fontSize: 9, lineHeight: 12, letterSpacing: 1.3, textTransform: 'uppercase', color: d.muted, marginBottom: 2 },
+  iconOn: { backgroundColor: d.lavender, borderColor: d.plum },
+  groupAv: { width: 42, height: 42, borderRadius: 21, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  initials: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  initialsText: { fontFamily: df.sansHeavy, color: '#704426', letterSpacing: 0.3 },
+  onlineDot: { position: 'absolute', right: -1, bottom: -1, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: d.ivory },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 14, height: 48, borderRadius: 15, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  searchInput: { flex: 1, fontSize: 14, color: d.ink, paddingVertical: 4, outlineStyle: 'none' },
   searchCount: { fontSize: 12, color: colors.muted, minWidth: 30, textAlign: 'right' },
-  menu: { position: 'absolute', top: 58, right: 10, zIndex: 20, minWidth: 220, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingVertical: 6, ...shadow.lg },
+  menu: { position: 'absolute', top: 92, right: 18, zIndex: 20, minWidth: 220, backgroundColor: d.paper, borderRadius: 18, borderWidth: 1, borderColor: d.line, paddingVertical: 6, ...shadow.lg },
   menuRow: { paddingVertical: 11, paddingHorizontal: 16 },
-  menuText: { fontSize: 14.5, color: colors.fg },
-  encrypt: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.raised },
-  encryptText: { fontSize: 11.5, color: colors.muted },
+  menuText: { fontSize: 14, fontFamily: df.sansMedium, color: d.ink },
+  encrypt: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  encryptText: { fontSize: 11, color: d.muted },
   tip: { fontSize: 12, color: colors.faint, textAlign: 'center', paddingHorizontal: 20 },
-  composerWrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10, gap: 6, backgroundColor: colors.screen },
-  locked: { flexDirection: 'row', alignItems: 'center', gap: 10, margin: 12, padding: 14, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  lockedText: { flex: 1, fontSize: 13.5, color: colors.muted },
-  lockedLink: { fontSize: 13.5, fontWeight: '800', color: colors.primary },
+  composerWrap: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10, gap: 6, backgroundColor: d.ivory },
+  locked: { flexDirection: 'row', alignItems: 'center', gap: 10, margin: 12, padding: 14, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  lockedText: { flex: 1, fontSize: 13.5, color: d.muted },
+  lockedLink: { fontSize: 13.5, fontFamily: df.sansBold, color: d.plum },
   commentsOff: { fontSize: 11, color: colors.faint, marginTop: 4 },
   newHero: { alignItems: 'center', gap: 12, paddingVertical: 28 },
   newTitle: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg },

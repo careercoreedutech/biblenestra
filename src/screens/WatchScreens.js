@@ -1,21 +1,26 @@
 // Watch — YouTube channels curated by the BibleNestra team (added in the admin dashboard at /admin).
 // Videos come from each channel's public feed; they play inside the app (WebView / iframe embed).
+// Look: the design's LiveStudy page (dark live stage, paper cards, plum accents) on the design kit.
 import React from 'react';
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Screen, Empty, Eyebrow, Badge, alpha, NightGlow } from '../components/ui';
+import { Empty } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { PressScale, FadeInUp, ScaleIn, Shimmer, LiveRing } from '../components/Motion';
-import { colors, fonts, radius, shadow } from '../theme';
 import { useNav } from '../navigation';
 import { useYouTubeChannels, useChannelVideos, relDate, views, useLiveNow } from '../api/youtube';
+import { d, df, Grad, SectionTitle, Eyebrow } from '../design/sanctuary';
+import { DScreen, DCard } from '../design/profile/parts';
+
+const STAGE_GRAD = ['#422819', '#8A451F', '#E36A1F'];
+const NIGHT_GRAD = ['#3C2518', '#8A4B25'];
 
 function Avatar({ ch, size = 40, ring }) {
   const initials = (ch.title || '?').split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   return ch.avatarUrl ? (
-    <Image source={{ uri: ch.avatarUrl }} style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.raised }, ring && styles.ring]} />
+    <Image source={{ uri: ch.avatarUrl }} style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: d.lavender }, ring && styles.ring]} />
   ) : (
-    <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: colors.cardIndigo, alignItems: 'center', justifyContent: 'center' }, ring && styles.ring]}>
-      <Text style={{ fontFamily: fonts.serifBold, fontSize: size * 0.38, color: colors.primary }}>{initials}</Text>
+    <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' }, ring && styles.ring]}>
+      <Text style={{ fontFamily: df.displayBold, fontSize: size * 0.38, color: d.plum }}>{initials}</Text>
     </View>
   );
 }
@@ -23,10 +28,11 @@ function Avatar({ ch, size = 40, ring }) {
 function SoonCard() {
   return (
     <ScaleIn from={0.95} style={styles.soon}>
-      <NightGlow />
-      <View style={styles.soonIcon}><Icon name="video" size={22} color={colors.goldLight} /></View>
-      <Text style={styles.soonTitle}>Channels coming soon</Text>
-      <Text style={styles.soonBody}>Sermons, worship and live services from trusted ministries will appear here.</Text>
+      <Grad colors={NIGHT_GRAD} style={styles.soonInner}>
+        <View style={styles.soonIcon}><Icon name="video" size={22} color={d.gold} /></View>
+        <Text style={styles.soonTitle}>Channels coming soon</Text>
+        <Text style={styles.soonBody}>Sermons, worship and live services from trusted ministries will appear here.</Text>
+      </Grad>
     </ScaleIn>
   );
 }
@@ -66,11 +72,11 @@ function LiveNowRow({ items }) {
           <PressScale scaleTo={0.97} onPress={() => nav.push('YouTubeWatch', { videoId: x.videoId, title: x.title, channelTitle: x.channelTitle, live: x.status === 'live' })} style={styles.liveStrip} accessibilityRole="button" accessibilityLabel={(x.status === 'live' ? 'Live now: ' : 'Upcoming: ') + x.title}>
             <View style={styles.thumbWrap}>
               <Image source={{ uri: x.thumbnail }} style={styles.thumb} />
-              <View style={[styles.liveTag, x.status !== 'live' && { backgroundColor: alpha(colors.night, 0.8) }]}><Text style={styles.liveTagText}>{x.status === 'live' ? '● LIVE' : 'UPCOMING'}</Text></View>
+              <View style={[styles.liveTag, x.status !== 'live' && { backgroundColor: 'rgba(40,26,17,0.8)' }]}><Text style={styles.liveTagText}>{x.status === 'live' ? '● LIVE' : 'UPCOMING'}</Text></View>
             </View>
             <View style={{ padding: 12 }}>
-              <Text style={[styles.cardTitle, { color: colors.nightFg }]} numberOfLines={1}>{x.channelTitle || 'Live service'}</Text>
-              <Text style={[styles.cardMeta, { color: colors.nightMuted }]} numberOfLines={1}>{x.status === 'live' ? x.title : x.scheduledStart ? new Date(x.scheduledStart).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + ' · ' + x.title : x.title}</Text>
+              <Text style={[styles.cardTitle, { color: '#FFF2E5' }]} numberOfLines={1}>{x.channelTitle || 'Live service'}</Text>
+              <Text style={[styles.cardMeta, { color: '#E9CFBA' }]} numberOfLines={1}>{x.status === 'live' ? x.title : x.scheduledStart ? new Date(x.scheduledStart).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + ' · ' + x.title : x.title}</Text>
             </View>
           </PressScale>
         </FadeInUp>
@@ -86,19 +92,14 @@ export function YouTubeSection() {
   const liveNow = useLiveNow(); // YOUTUBE LIVE
   return (
     <View>
-      <View style={styles.head}>
-        <Text style={styles.eyebrow}>Watch</Text>
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>Sermons & Worship</Text>
-          {items && items.length ? (
-            <Pressable onPress={() => nav.push('Watch')} hitSlop={10} style={({ pressed }) => [styles.action, pressed && { opacity: 0.6 }]}>
-              <Text style={styles.actionText}>See all</Text>
-              <Icon name="chevron-right" size={12} color={colors.primary} strokeWidth={2.4} />
-            </Pressable>
-          ) : null}
-        </View>
-        <Text style={styles.sub}>Trusted YouTube channels · live services & recent messages</Text>
-      </View>
+      <SectionTitle
+        eyebrow="Watch"
+        title="Sermons & Worship"
+        link={items && items.length ? 'See all' : undefined}
+        onLink={() => nav.push('Watch')}
+      />
+      <Text style={styles.sub}>Trusted YouTube channels · live services & recent messages</Text>
+      <View style={{ height: 12 }} />
       <LiveNowRow items={liveNow} />
       {items == null ? (
         <View style={{ flexDirection: 'row', gap: 12 }}><Shimmer style={[styles.card, { height: 190 }]} /><Shimmer style={[styles.card, { height: 190 }]} /></View>
@@ -121,33 +122,33 @@ export function WatchScreen() {
     return acc;
   }, {});
   return (
-    <Screen back title="Watch" subtitle="Sermons · worship · live services">
+    <DScreen title="Watch" subtitle="Sermons · worship · live services" back onBack={() => nav.pop()}>
       {!online ? (
-        <View style={[styles.emptyCard, { marginTop: 12 }]}><Empty title="Sign in to watch" body="YouTube channels picked by the BibleNestra team appear here when you’re signed in." /></View>
+        <DCard style={{ marginTop: 12 }}><Empty title="Sign in to watch" body="YouTube channels picked by the BibleNestra team appear here when you’re signed in." /></DCard>
       ) : items == null ? (
         <View style={{ marginTop: 12 }}><Shimmer style={{ height: 64, borderRadius: 16 }} /><Shimmer style={{ height: 64, borderRadius: 16, marginTop: 10 }} /></View>
       ) : !items.length ? (
         <View style={{ marginTop: 12 }}><SoonCard />{error ? <Text style={[styles.cardMeta, { marginTop: 10, textAlign: 'center' }]} onPress={reload}>{error} · tap to retry</Text> : null}</View>
       ) : Object.entries(groups).map(([g, list], gi) => (
         <View key={g} style={{ marginTop: gi ? 22 : 10 }}>
-          <Eyebrow>{g}</Eyebrow>
-          <View style={styles.group}>
+          <Eyebrow style={{ marginBottom: 4 }}>{g}</Eyebrow>
+          <DCard style={styles.group}>
             {list.map((ch, i) => (
               <FadeInUp key={ch.id} index={i + gi}>
-                <Pressable onPress={() => nav.push('YouTubeChannel', { id: ch.id, channel: ch })} style={({ pressed }) => [styles.rowItem, i > 0 && styles.sep, pressed && { backgroundColor: colors.raised }]} accessibilityRole="button">
+                <Pressable onPress={() => nav.push('YouTubeChannel', { id: ch.id, channel: ch })} style={({ pressed }) => [styles.rowItem, i > 0 && styles.sep, pressed && { backgroundColor: d.lavender }]} accessibilityRole="button">
                   <Avatar ch={ch} size={44} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.rowTitle} numberOfLines={1}>{ch.title}</Text>
                     <Text style={styles.cardMeta} numberOfLines={1}>{[ch.handle ? `@${ch.handle}` : null, ch.category].filter(Boolean).join(' · ')}</Text>
                   </View>
-                  <Icon name="chevron-right" size={15} color={colors.faint} />
+                  <Icon name="chevron-right" size={15} color="#AAA6AD" />
                 </Pressable>
               </FadeInUp>
             ))}
-          </View>
+          </DCard>
         </View>
       ))}
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -160,8 +161,9 @@ export function YouTubeChannelScreen({ params = {} }) {
   const videos = (data && data.videos) || [];
   const nav = useNav();
   const liveNow = useLiveNow();
+  const shell = (title, subtitle, children) => <DScreen title={title} subtitle={subtitle} back onBack={() => nav.pop()}>{children}</DScreen>;
   if (!channel) {
-    return <Screen back title="Watch">{error ? <View style={[styles.emptyCard, { marginTop: 12 }]}><Empty title="Channel unavailable" body={error} action="Try again" onAction={reload} /></View> : <Shimmer style={{ height: 200, borderRadius: 18, marginTop: 12 }} />}</Screen>;
+    return shell('Watch', undefined, error ? <DCard style={{ marginTop: 12 }}><Empty title="Channel unavailable" body={error} action="Try again" onAction={reload} /></DCard> : <Shimmer style={{ height: 200, borderRadius: 18, marginTop: 12 }} />);
   }
   const latest = videos.find((v) => !v.isShort) || videos[0];
   // YOUTUBE LIVE: videos open on the big Watch screen (player + Bible Nestra comments)
@@ -171,41 +173,45 @@ export function YouTubeChannelScreen({ params = {} }) {
   const playLive = () => (onAir
     ? nav.push('YouTubeWatch', { videoId: onAir.videoId, title: onAir.title, channelTitle: channel.title, live: true })
     : nav.push('YouTubeWatch', { channelId: channel.channelId, title: `Live · ${channel.title}`, channelTitle: channel.title, live: true }));
-  return (
-    <Screen back title={channel.title} subtitle={[channel.handle ? `@${channel.handle}` : null, channel.category].filter(Boolean).join(' · ')}>
+  const subtitle = [channel.handle ? `@${channel.handle}` : null, channel.category].filter(Boolean).join(' · ');
+  return shell(channel.title, subtitle, (
+    <>
+      {/* live stage (LiveStudy look): dark gradient card with the poster, LIVE tag and watch-on-YouTube link */}
       <ScaleIn from={0.96} style={styles.playerCard}>
-        <Pressable onPress={() => (onAir || !latest ? playLive() : play(latest))} style={styles.poster} accessibilityRole="button" accessibilityLabel="Play">
-          {onAir || latest ? <Image source={{ uri: (onAir || latest).thumbnail }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : <NightGlow />}
-          <View style={styles.posterShade} />
-          <View style={styles.bigPlay}><Icon name="play" size={26} color={colors.night} fill="solid" /></View>
-          <Text style={styles.posterTitle} numberOfLines={2}>{onAir ? onAir.title : latest ? latest.title : 'Watch live'}</Text>
-          {onAir ? <View style={styles.liveTag}><Text style={styles.liveTagText}>● LIVE</Text></View> : null}
-        </Pressable>
-        <View style={styles.playerBar}>
-          <Text style={styles.nowTitle} numberOfLines={1}>{onAir ? `Live now · ${channel.title}` : 'Latest message'}</Text>
-          <Pressable onPress={() => Linking.openURL(onAir ? onAir.watchUrl : latest ? latest.url : channel.url).catch(() => {})} hitSlop={8} style={styles.ytLink} accessibilityRole="link">
-            <Text style={styles.ytLinkText}>Watch on YouTube</Text>
-            <Icon name="arrow-up-right" size={12} color={colors.goldLight} />
+        <Grad colors={STAGE_GRAD} style={styles.stage}>
+          <Pressable onPress={() => (onAir || !latest ? playLive() : play(latest))} style={styles.poster} accessibilityRole="button" accessibilityLabel="Play">
+            {onAir || latest ? <Image source={{ uri: (onAir || latest).thumbnail }} style={styles.posterImg} resizeMode="cover" /> : null}
+            <View style={styles.posterShade} />
+            <View style={styles.bigPlay}><Icon name="play" size={26} color={d.plumDark} fill="solid" /></View>
+            <Text style={styles.posterTitle} numberOfLines={2}>{onAir ? onAir.title : latest ? latest.title : 'Watch live'}</Text>
+            {onAir ? <View style={styles.liveTag}><Text style={styles.liveTagText}>● LIVE</Text></View> : null}
           </Pressable>
-        </View>
+          <View style={styles.playerBar}>
+            <Text style={styles.nowTitle} numberOfLines={1}>{onAir ? `Live now · ${channel.title}` : 'Latest message'}</Text>
+            <Pressable onPress={() => Linking.openURL(onAir ? onAir.watchUrl : latest ? latest.url : channel.url).catch(() => {})} hitSlop={8} style={styles.ytLink} accessibilityRole="link">
+              <Text style={styles.ytLinkText}>Watch on YouTube</Text>
+              <Icon name="arrow-up-right" size={12} color={d.gold} />
+            </Pressable>
+          </View>
+        </Grad>
       </ScaleIn>
 
       <FadeInUp index={1}>
         <PressScale scaleTo={0.98} onPress={playLive} style={styles.liveCard} accessibilityRole="button" accessibilityLabel="Watch live now">
-          <View style={styles.liveDot}><LiveRing color={colors.rose} size={7} /></View>
+          <View style={styles.liveDot}><LiveRing color={d.roseDark} size={7} /></View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.rowTitle}>{onAir ? 'Live now — join the service' : 'Live services'}</Text>
             <Text style={styles.cardMeta} numberOfLines={2}>{onAir ? onAir.title : soon && soon.scheduledStart ? `Next: ${soon.title} · ${new Date(soon.scheduledStart).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : 'Plays the channel’s live service when they’re streaming'}</Text>
           </View>
-          <Badge label={onAir ? 'Live' : soon ? 'Soon' : 'Live'} tint={colors.rose} />
+          <View style={styles.badge}><Text style={styles.badgeText}>{onAir ? 'Live' : soon ? 'Soon' : 'Live'}</Text></View>
         </PressScale>
       </FadeInUp>
 
-      <Text style={[styles.eyebrow, { marginTop: 24, marginBottom: 4 }]}>Recent videos</Text>
+      <SectionTitle eyebrow="Replays" title="Recent videos" />
       {data == null && !error ? (
         <View><Shimmer style={{ height: 76, borderRadius: 14, marginTop: 10 }} /><Shimmer style={{ height: 76, borderRadius: 14, marginTop: 10 }} /></View>
       ) : error && !videos.length ? (
-        <View style={[styles.emptyCard, { marginTop: 10 }]}><Empty title="Couldn’t load videos" body={error} action="Try again" onAction={reload} /></View>
+        <DCard style={{ marginTop: 10 }}><Empty title="Couldn’t load videos" body={error} action="Try again" onAction={reload} /></DCard>
       ) : videos.length ? videos.map((v, i) => {
         return (
           <FadeInUp key={v.videoId} index={i + 2}>
@@ -218,59 +224,56 @@ export function YouTubeChannelScreen({ params = {} }) {
                 <Text style={styles.videoTitle} numberOfLines={2}>{v.title}</Text>
                 <Text style={styles.cardMeta} numberOfLines={1}>{[relDate(v.published), views(v.views)].filter(Boolean).join(' · ')}</Text>
               </View>
-              <Icon name="play" size={14} color={colors.faint} fill="solid" />
+              <Icon name="play" size={14} color={d.plum} fill="solid" />
             </PressScale>
           </FadeInUp>
         );
-      }) : <View style={[styles.emptyCard, { marginTop: 10 }]}><Empty title="No videos yet" body="This channel hasn’t published any public videos." /></View>}
-    </Screen>
-  );
+      }) : <DCard style={{ marginTop: 10 }}><Empty title="No videos yet" body="This channel hasn’t published any public videos." /></DCard>}
+    </>
+  ));
 }
 
 const styles = StyleSheet.create({
-  head: { marginTop: 30, marginBottom: 14 },
-  eyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.gold, marginBottom: 3 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  title: { flex: 1, fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 27, color: colors.fg, letterSpacing: -0.4 },
-  sub: { fontSize: 13, lineHeight: 18, color: colors.muted, marginTop: 3 },
-  action: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingVertical: 4 },
-  actionText: { fontSize: 13, fontWeight: '600', color: colors.primary },
-  card: { width: 236, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', ...shadow.sm },
-  thumbWrap: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.night },
+  sub: { fontFamily: df.sans, fontSize: 13, lineHeight: 18, color: d.muted, marginTop: -6 },
+  card: { width: 236, backgroundColor: d.paper, borderRadius: 18, borderWidth: 1, borderColor: d.line, overflow: 'hidden', shadowColor: '#281A11', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  thumbWrap: { width: '100%', aspectRatio: 16 / 9, backgroundColor: d.plumDark },
   thumb: { width: '100%', height: '100%' },
-  playBadge: { position: 'absolute', right: 10, bottom: 10, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', paddingLeft: 2 },
-  featured: { position: 'absolute', left: 10, top: 10, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: alpha(colors.night, 0.75) },
-  featuredText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', color: colors.goldLight },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: colors.fg },
-  cardMeta: { fontSize: 12, color: colors.muted, marginTop: 2, lineHeight: 16 },
-  ring: { borderWidth: 2, borderColor: colors.surface },
-  soon: { backgroundColor: colors.night, borderRadius: radius.lg, padding: 20, alignItems: 'center', overflow: 'hidden', ...shadow.md },
-  soonIcon: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: alpha(colors.goldLight, 0.4), alignItems: 'center', justifyContent: 'center' },
-  soonTitle: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.nightFg, marginTop: 12 },
-  soonBody: { fontSize: 13, lineHeight: 19, color: colors.nightMuted, textAlign: 'center', marginTop: 6, maxWidth: 280 },
-  emptyCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, ...shadow.sm },
-  group: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', marginTop: 8, ...shadow.sm },
+  playBadge: { position: 'absolute', right: 10, bottom: 10, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(40,26,17,0.6)', alignItems: 'center', justifyContent: 'center', paddingLeft: 2 },
+  featured: { position: 'absolute', left: 10, top: 10, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: 'rgba(40,26,17,0.75)' },
+  featuredText: { fontFamily: df.sansHeavy, fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', color: d.gold },
+  cardTitle: { fontFamily: df.sansBold, fontSize: 14, color: d.ink },
+  cardMeta: { fontFamily: df.sans, fontSize: 12, color: d.muted, marginTop: 2, lineHeight: 16 },
+  ring: { borderWidth: 2, borderColor: d.paper },
+  soon: { borderRadius: 22, overflow: 'hidden' },
+  soonInner: { borderRadius: 22, padding: 22, alignItems: 'center' },
+  soonIcon: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: 'rgba(244,216,140,0.45)', alignItems: 'center', justifyContent: 'center' },
+  soonTitle: { fontFamily: df.displayBold, fontSize: 20, color: '#FFF2E5', marginTop: 12 },
+  soonBody: { fontFamily: df.sans, fontSize: 13, lineHeight: 19, color: '#E9CFBA', textAlign: 'center', marginTop: 6, maxWidth: 280 },
+  group: { marginTop: 8, overflow: 'hidden', padding: 0 },
   rowItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  sep: { borderTopWidth: 1, borderTopColor: colors.rule },
-  rowTitle: { fontSize: 15, fontWeight: '700', color: colors.fg },
-  playerCard: { backgroundColor: colors.night, borderRadius: radius.lg, overflow: 'hidden', marginTop: 8, ...shadow.md },
-  poster: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: colors.night },
-  posterShade: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
-  bigPlay: { width: 62, height: 62, borderRadius: 31, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center', paddingLeft: 3 },
-  posterTitle: { position: 'absolute', left: 14, right: 14, bottom: 12, fontFamily: fonts.serifBold, fontSize: 17, lineHeight: 22, color: '#FFFFFF' },
+  sep: { borderTopWidth: 1, borderTopColor: d.line },
+  rowTitle: { fontFamily: df.sansBold, fontSize: 15, color: d.ink },
+  playerCard: { borderRadius: 22, overflow: 'hidden', marginTop: 4, shadowColor: '#281A11', shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
+  stage: { borderRadius: 22 },
+  poster: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: d.plumDark },
+  posterImg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' },
+  posterShade: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(40,26,17,0.35)' },
+  bigPlay: { width: 62, height: 62, borderRadius: 31, backgroundColor: d.gold, alignItems: 'center', justifyContent: 'center', paddingLeft: 3 },
+  posterTitle: { position: 'absolute', left: 14, right: 14, bottom: 12, fontFamily: df.displayBold, fontSize: 17, lineHeight: 22, color: '#FFFFFF' },
   playerBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 12 },
-  nowTitle: { flex: 1, fontSize: 13.5, fontWeight: '600', color: colors.nightFg },
+  nowTitle: { flex: 1, fontFamily: df.sansSemi, fontSize: 13.5, color: '#FFF2E5' },
   ytLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  ytLinkText: { fontSize: 12.5, fontWeight: '700', color: colors.goldLight },
-  liveCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, marginTop: 12, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
-  liveDot: { width: 40, height: 40, borderRadius: 13, backgroundColor: colors.cardRose, alignItems: 'center', justifyContent: 'center' },
-  videoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, marginTop: 10, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  videoOn: { borderColor: alpha(colors.primary, 0.4), backgroundColor: colors.primarySoft },
-  videoThumb: { width: 128, aspectRatio: 16 / 9, borderRadius: 10, backgroundColor: colors.raised },
-  videoTitle: { fontSize: 14, fontWeight: '600', lineHeight: 19, color: colors.fg },
+  ytLinkText: { fontFamily: df.sansBold, fontSize: 12.5, color: d.gold },
+  liveCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, marginTop: 12, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  liveDot: { width: 40, height: 40, borderRadius: 13, backgroundColor: d.rose, alignItems: 'center', justifyContent: 'center' },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: d.rose },
+  badgeText: { fontFamily: df.sansHeavy, fontSize: 10, letterSpacing: 0.8, textTransform: 'uppercase', color: d.roseDark },
+  videoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, marginTop: 10, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  videoThumb: { width: 128, aspectRatio: 16 / 9, borderRadius: 10, backgroundColor: d.lavender },
+  videoTitle: { fontFamily: df.sansSemi, fontSize: 14, lineHeight: 19, color: d.ink },
   liveTag: { position: 'absolute', left: 12, top: 12, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: '#CC0000' },
-  liveTagText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.6 },
-  liveStrip: { width: 236, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.night, ...shadow.sm },
+  liveTagText: { fontFamily: df.sansHeavy, fontSize: 11, color: '#FFFFFF', letterSpacing: 0.6 },
+  liveStrip: { width: 236, borderRadius: 18, overflow: 'hidden', backgroundColor: d.plumDark },
   shortTag: { position: 'absolute', left: 6, bottom: 6, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.65)' },
-  shortText: { fontSize: 9.5, fontWeight: '800', color: '#FFFFFF', textTransform: 'uppercase' },
+  shortText: { fontFamily: df.sansHeavy, fontSize: 9.5, color: '#FFFFFF', textTransform: 'uppercase' },
 });

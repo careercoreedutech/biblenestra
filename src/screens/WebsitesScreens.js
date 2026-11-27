@@ -13,6 +13,8 @@ import { FadeInUp } from '../components/Motion';
 import { useToast } from '../components/Toast';
 import { colors, fonts, radius } from '../theme';
 import { useNav } from '../navigation';
+import { d, df, Grad, Tap } from '../design/sanctuary';
+import { DScreen, DButton } from '../design/profile/parts';
 import { useApi } from '../api/auth';
 import { useSync } from '../api/sync';
 import { errorMessage } from '../api/client';
@@ -79,19 +81,26 @@ export function WebsitesScreen() {
   };
 
   if (!api.online) {
-    return <Screen back title="Member websites"><Empty title="Sign in to see member websites" body="Member websites need the online version of Bible Nestra." /></Screen>;
+    return <DScreen back onBack={() => nav.pop()} title="Member websites" subtitle="Trusted destinations" action={null}><Empty title="Sign in to see member websites" body="Member websites need the online version of Bible Nestra." /></DScreen>;
   }
   const canAdd = isAdmin || (canSubmit && (!mine.items || mine.items.filter((w) => w.status !== 'rejected').length < (mine.max || 3)));
 
   return (
-    <Screen back title="Member websites" subtitle="Ministries, churches and creators">
+    <DScreen back onBack={() => nav.pop()} title="Member websites" subtitle="Trusted destinations" action={null}>
       <FadeInUp>
-        <View style={styles.hero}>
+        {/* .website-feature: the design's dark feature card, with the real team copy */}
+        <Grad colors={['#2D1D13', '#88451F']} style={styles.hero}>
+          <Icon name="globe" size={28} color={d.gold} />
           <Text style={styles.heroEyebrow}>{canSubmit && !isAdmin ? 'FROM OUR MEMBERS' : 'CHOSEN BY OUR TEAM'}</Text>
           <Text style={styles.heroTitle}>Visit trusted Christian websites without leaving Bible Nestra</Text>
           <Text style={styles.heroBody}>Every website here was checked by our team. It opens right inside the app.</Text>
-          {canAdd ? <Button label={isAdmin ? 'Add website' : 'Add your website'} onPress={() => nav.push('AddWebsite')} style={{ marginTop: 14, alignSelf: 'flex-start' }} icon={<Icon name="plus" size={15} color="#FFFFFF" />} /> : null}
-        </View>
+          {canAdd ? (
+            <Tap onPress={() => nav.push('AddWebsite')} style={styles.heroBtn} accessibilityRole="button" accessibilityLabel={isAdmin ? 'Add website' : 'Add your website'}>
+              <Icon name="plus" size={14} color="#FFC29A" />
+              <Text style={styles.heroBtnText}>{isAdmin ? 'Add website' : 'Add your website'}</Text>
+            </Tap>
+          ) : null}
+        </Grad>
       </FadeInUp>
 
       {canSubmit && mine.items && mine.items.length ? (
@@ -109,39 +118,41 @@ export function WebsitesScreen() {
                 </View>
                 <View style={[styles.statusChip, { backgroundColor: `${s.tint}22` }]}><Text style={[styles.statusText, { color: s.tint }]}>{s.label}</Text></View>
                 {w.status === 'approved' ? (
-                  <Pressable onPress={() => openWebsite(nav, api, w)} hitSlop={8} style={styles.iconBtn} accessibilityLabel={`Open ${w.title}`}><Icon name="arrow-up-right" size={16} color={colors.fg} /></Pressable>
+                  <Pressable onPress={() => openWebsite(nav, api, w)} hitSlop={8} style={styles.iconBtn} accessibilityLabel={`Open ${w.title}`}><Icon name="arrow-up-right" size={16} color={d.ink} /></Pressable>
                 ) : null}
-                <Pressable onPress={() => remove(w)} hitSlop={8} style={styles.iconBtn} accessibilityLabel={`Remove ${w.title}`}><Icon name="trash" size={15} color={colors.muted} /></Pressable>
+                <Pressable onPress={() => remove(w)} hitSlop={8} style={styles.iconBtn} accessibilityLabel={`Remove ${w.title}`}><Icon name="trash" size={15} color={d.muted} /></Pressable>
               </View>
             );
           })}
         </View>
       ) : null}
 
-      <Text style={[styles.section, { marginTop: 18 }]}>Explore</Text>
+      <Text style={styles.section}>Explore</Text>
       <View style={styles.chips}>
         {[null, ...cats].map((c) => {
           const on = cat === c;
           return (
-            <Pressable key={c || 'all'} onPress={() => setCat(c)} style={[styles.chip, on && styles.chipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
+            <Tap key={c || 'all'} onPress={() => setCat(c)} style={[styles.chip, on && styles.chipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
               <Text style={[styles.chipText, on && styles.chipTextOn]}>{c || 'All'}</Text>
-            </Pressable>
+            </Tap>
           );
         })}
       </View>
 
-      {sites.items === null ? (
-        <ActivityIndicator color={colors.primary} style={{ marginTop: 30 }} />
-      ) : sites.error ? (
-        <Empty title="Couldn’t load websites" body={sites.error} action="Try again" onAction={sites.refresh} />
-      ) : !sites.items.length ? (
-        <Empty title="No websites yet" body={cat ? `No ${cat.toLowerCase()} websites yet.` : (isAdmin ? 'Tap “Add website” to publish the first one.' : 'New websites are added by our team. Check back soon.')} />
-      ) : (
-        sites.items.map((w) => <WebsiteCard key={w.id} site={w} onPress={() => openWebsite(nav, api, w)} />)
-      )}
-      {sites.hasMore ? <Button kind="ghost" label="Show more" onPress={sites.loadMore} style={{ marginTop: 12 }} /> : null}
+      <View style={{ marginTop: 12 }}>
+        {sites.items === null ? (
+          <ActivityIndicator color={d.plum} style={{ marginTop: 30 }} />
+        ) : sites.error ? (
+          <Empty title="Couldn’t load websites" body={sites.error} action="Try again" onAction={sites.refresh} />
+        ) : !sites.items.length ? (
+          <Empty title="No websites yet" body={cat ? `No ${cat.toLowerCase()} websites yet.` : (isAdmin ? 'Tap “Add website” to publish the first one.' : 'New websites are added by our team. Check back soon.')} />
+        ) : (
+          sites.items.map((w) => <WebsiteCard key={w.id} site={w} onPress={() => openWebsite(nav, api, w)} />)
+        )}
+        {sites.hasMore ? <DButton small label="Show more" onPress={sites.loadMore} style={{ marginTop: 12, alignSelf: 'center' }} /> : null}
+      </View>
       <Text style={styles.footer}>Websites are run by their owners, not Bible Nestra. Their own adverts may show. Report anything inappropriate to our team.</Text>
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -179,7 +190,7 @@ export function AddWebsiteScreen() {
   }
 
   return (
-    <Screen back title={isAdmin ? 'Add website' : 'Add your website'}>
+    <DScreen back onBack={() => nav.pop()} title={isAdmin ? 'Add website' : 'Add your website'} subtitle="Trusted destinations" action={null}>
       <Notice text={isAdmin ? 'Websites you add are published straight away: members see them in the Websites directory and the Socials feed and open them inside Bible Nestra.' : 'Add a website you own, such as your ministry, church, blog or business. Our team checks it first; once approved, members can open it inside Bible Nestra, with its own pages, videos and adverts.'} />
       <Text style={styles.label}>Website address</Text>
       <TextInput value={url} onChangeText={setUrl} placeholder="https://yourministry.org" placeholderTextColor={colors.faint} autoCapitalize="none" autoCorrect={false} keyboardType="url" style={styles.input} accessibilityLabel="Website address" />
@@ -203,8 +214,8 @@ export function AddWebsiteScreen() {
         <Text style={styles.checkText}>This is my own website (or I manage it for my church or ministry)</Text>
       </Pressable>}
       {err ? <Text style={styles.error}>{err}</Text> : null}
-      <Button label={busy ? (isAdmin ? 'Publishing…' : 'Sending…') : (isAdmin ? 'Publish website' : 'Send for review')} onPress={submit} disabled={busy} style={{ marginTop: 16 }} />
-    </Screen>
+      <DButton label={busy ? (isAdmin ? 'Publishing…' : 'Sending…') : (isAdmin ? 'Publish website' : 'Send for review')} onPress={submit} disabled={busy} style={{ marginTop: 16 }} />
+    </DScreen>
   );
 }
 
@@ -297,37 +308,39 @@ export function WebsiteViewerScreen({ params = {} }) {
 }
 
 const styles = StyleSheet.create({
-  hero: { backgroundColor: colors.night || '#15172B', borderRadius: 20, padding: 20, marginBottom: 14 },
-  heroEyebrow: { color: colors.goldLight || '#D9B36A', fontSize: 10.5, fontWeight: '800', letterSpacing: 1 },
-  heroTitle: { color: '#FFFFFF', fontFamily: fonts.display, fontSize: 22, marginTop: 8 },
-  heroBody: { color: 'rgba(255,255,255,0.78)', fontSize: 14, lineHeight: 20, marginTop: 8 },
-  section: { fontFamily: fonts.display, fontSize: 19, color: colors.fg, marginBottom: 8 },
-  card: { backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', marginTop: 12 },
-  cover: { width: '100%', aspectRatio: 1.91, backgroundColor: colors.raised },
-  coverEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft || '#E7E9F5' },
+  hero: { borderRadius: 25, padding: 23, marginBottom: 14 },
+  heroEyebrow: { marginTop: 28, color: '#F4BE98', fontSize: 9, letterSpacing: 1.2, fontFamily: df.sansHeavy },
+  heroTitle: { color: '#FFFFFF', fontFamily: df.display, fontSize: 27, lineHeight: 30, marginTop: 8 },
+  heroBody: { color: '#D8C3B5', fontFamily: df.sans, fontSize: 11, lineHeight: 16, marginTop: 8 },
+  heroBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 18, alignSelf: 'flex-start' },
+  heroBtnText: { color: '#FFC29A', fontFamily: df.sansBold, fontSize: 11 },
+  section: { fontFamily: df.displayBold, fontSize: 20, color: d.ink, marginTop: 28, marginBottom: 13 },
+  card: { backgroundColor: d.paper, borderRadius: 20, borderWidth: 1, borderColor: d.line, overflow: 'hidden', marginTop: 12 },
+  cover: { width: '100%', aspectRatio: 1.91, backgroundColor: d.lavender },
+  coverEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: d.lavender },
   body: { padding: 14 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   favicon: { width: 18, height: 18, borderRadius: 4 },
-  title: { fontSize: 15.5, fontWeight: '700', color: colors.fg, flexShrink: 1 },
-  host: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
-  desc: { fontSize: 13.5, color: colors.fg, marginTop: 6, lineHeight: 19 },
-  owner: { fontSize: 12, color: colors.faint, marginTop: 6 },
-  miniCard: { width: 210, backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', marginRight: 10 },
-  miniCover: { width: '100%', height: 96, backgroundColor: colors.raised },
+  title: { fontSize: 13, fontFamily: df.display, color: d.ink, flexShrink: 1 },
+  host: { fontSize: 9, fontFamily: df.sans, color: d.muted, marginTop: 3 },
+  desc: { fontSize: 10.5, fontFamily: df.sans, color: d.ink, marginTop: 6, lineHeight: 16 },
+  owner: { fontSize: 9, fontFamily: df.sans, color: d.muted, marginTop: 6 },
+  miniCard: { width: 210, backgroundColor: d.paper, borderRadius: 16, borderWidth: 1, borderColor: d.line, overflow: 'hidden', marginRight: 10 },
+  miniCover: { width: '100%', height: 96, backgroundColor: d.lavender },
   miniBody: { padding: 10 },
-  mineRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 8 },
+  mineRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 17, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, marginBottom: 8 },
   statusChip: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999 },
-  statusText: { fontSize: 11.5, fontWeight: '700' },
-  reason: { fontSize: 12, color: colors.muted, marginTop: 4 },
-  iconBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  chipOn: { backgroundColor: colors.fg, borderColor: colors.fg },
-  chipText: { fontSize: 13, fontWeight: '600', color: colors.fg },
-  chipTextOn: { color: colors.surface },
-  footer: { fontSize: 12, color: colors.faint, lineHeight: 17, marginTop: 22 },
-  label: { fontSize: 13, fontWeight: '700', color: colors.fg, marginTop: 16, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: colors.fg },
+  statusText: { fontSize: 10, fontFamily: df.sansBold },
+  reason: { fontSize: 10, fontFamily: df.sans, color: d.muted, marginTop: 4 },
+  iconBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  chip: { paddingVertical: 9, paddingHorizontal: 13, borderRadius: 10, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  chipOn: { backgroundColor: d.plum, borderColor: d.plum },
+  chipText: { fontSize: 11, fontFamily: df.sansBold, color: d.muted },
+  chipTextOn: { color: '#FFFFFF' },
+  footer: { fontSize: 10, fontFamily: df.sans, color: d.muted, lineHeight: 15, marginTop: 22 },
+  label: { marginTop: 18, marginBottom: 8, fontSize: 10, fontFamily: df.sansBold, color: '#4C3D32' },
+  input: { height: 52, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, borderRadius: 14, paddingHorizontal: 14, fontSize: 12, fontFamily: df.sans, color: d.ink },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 18 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.borderStrong || colors.border, alignItems: 'center', justifyContent: 'center' },
   checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },

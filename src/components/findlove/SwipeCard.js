@@ -100,7 +100,7 @@ const s = StyleSheet.create({
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { fontFamily: fonts.serifBold, fontSize: 36, color: '#FFFFFF', letterSpacing: -0.6, flexShrink: 1 },
   age: { fontFamily: fonts.serif, fontSize: 30, color: 'rgba(255,255,255,0.9)' },
-  vip: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, backgroundColor: 'rgba(15,11,9,0.85)', borderWidth: 1, borderColor: 'rgba(217,176,97,0.7)' },
+  vip: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, backgroundColor: 'rgba(15,11,9,0.85)', borderWidth: 1, borderColor: 'rgba(244,216,140,0.7)' },
   vipText: { fontSize: 10, fontWeight: '900', color: love.goldBright, letterSpacing: 0.8 },
   openBtn: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.45)', backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
@@ -108,7 +108,7 @@ const s = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   bio: { fontFamily: fonts.serifItalic, fontSize: 15.5, lineHeight: 21, color: 'rgba(255,255,255,0.95)', marginTop: 10 },
   stamp: { position: 'absolute', top: 92, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 3 },
-  stampLike: { left: 22, borderColor: love.goldBright, backgroundColor: 'rgba(74,19,38,0.55)' },
+  stampLike: { left: 22, borderColor: love.goldBright, backgroundColor: 'rgba(60,37,24,0.55)' },
   stampPass: { right: 22, borderColor: '#FFFFFF', backgroundColor: 'rgba(40,36,33,0.5)' },
   stampText: { fontSize: 28, fontWeight: '900', letterSpacing: 3 },
 });

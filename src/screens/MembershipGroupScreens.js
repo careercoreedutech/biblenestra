@@ -6,13 +6,15 @@
 //   MembershipSettingsScreen              my notifications, invite link, group profile, joining and chat rules, welcome text
 // Server: backend/src/routes/membershipGroups.js (every rule is enforced there too).
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Screen, Button, Empty, Notice } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { AnimatedModal, FadeInUp, PressScale, ScaleIn } from '../components/Motion';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { colors, fonts, radius, shadow } from '../theme';
+import { d, df } from '../design/sanctuary';
+import { DToggle } from '../design/profile/parts';
 import { useNav } from '../navigation';
 import { useToast } from '../components/Toast';
 import { useApi } from '../api/auth';
@@ -33,7 +35,7 @@ export function WelcomeModal({ visible, title, text, onMaster, onExecutive, onCl
     <AnimatedModal visible={!!visible} onRequestClose={onClose}>
       <View style={s.welcomeWrap}>
         <ScaleIn style={s.welcomeCard}>
-          <View style={s.welcomeIcon}><Text style={{ fontSize: 30 }}>🎉</Text></View>
+          <View style={s.welcomeIcon}><Icon name="sparkles" size={28} color={d.plum} /></View>
           <Text style={s.welcomeEyebrow}>Welcome to the group</Text>
           <Text style={s.welcomeTitle} numberOfLines={2}>{title}</Text>
           <ScrollView style={{ maxHeight: 300, alignSelf: 'stretch' }} contentContainerStyle={{ paddingVertical: 4 }}>
@@ -346,7 +348,7 @@ export function MembershipAdminsScreen({ params = {} }) {
               {data.permissions.map((p) => (
                 <View key={p.id} style={s.permRow}>
                   <Text style={s.permLabel}>{p.label}</Text>
-                  <Switch value={!!a.permissions[p.id]} onValueChange={(v) => toggle(a, p.id, v)} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" accessibilityLabel={`${a.displayName}: ${p.label}`} />
+                  <DToggle value={!!a.permissions[p.id]} onChange={(v) => toggle(a, p.id, v)} accessibilityLabel={`${a.displayName}: ${p.label}`} />
                 </View>
               ))}
             </View>
@@ -421,7 +423,7 @@ export function MembershipSettingsScreen({ params = {} }) {
             <Text style={s.permLabel}>New {MASTER} posts</Text>
             <Text style={s.settingHint}>Lessons, videos and materials from the teacher</Text>
           </View>
-          <Switch value={!!g.me.notifications.master} onValueChange={(v) => setNotif({ master: v })} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" accessibilityLabel={`Notify me about new ${MASTER} posts`} />
+          <DToggle value={!!g.me.notifications.master} onChange={(v) => setNotif({ master: v })} accessibilityLabel={`Notify me about new ${MASTER} posts`} />
         </View>
         <SettingRow label={`${EXECUTIVE} messages`}>
           <Choice options={[['all', 'All'], ['mentions', 'Mentions only'], ['off', 'Off']]} value={g.me.notifications.executive} onChange={(v) => setNotif({ executive: v })} />
@@ -506,55 +508,56 @@ export function MembershipSettingsScreen({ params = {} }) {
 }
 
 const s = StyleSheet.create({
-  link: { color: colors.primary, fontWeight: '700', fontSize: 13.5 },
-  lead: { fontSize: 14, color: colors.muted, lineHeight: 20, marginBottom: 12 },
-  welcomeWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18 },
-  welcomeCard: { width: '100%', maxWidth: 420, backgroundColor: colors.surface, borderRadius: radius.xl, padding: 22, alignItems: 'center', ...shadow.lg },
-  welcomeIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center' },
-  welcomeEyebrow: { marginTop: 12, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.gold },
-  welcomeTitle: { fontFamily: fonts.serifBold, fontSize: 24, color: colors.fg, textAlign: 'center', marginTop: 4, marginBottom: 8 },
-  welcomeText: { fontSize: 14.5, lineHeight: 21, color: colors.fg },
-  welcomeBtn: { alignSelf: 'stretch', height: 48, borderRadius: radius.pill, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
-  welcomeBtnGhost: { backgroundColor: colors.primarySoft, marginTop: 8 },
-  welcomeBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14.5 },
-  choice: { flexDirection: 'row', backgroundColor: colors.raised, borderRadius: radius.pill, padding: 3, borderWidth: 1, borderColor: colors.border },
-  choiceBtn: { flex: 1, paddingVertical: 8, paddingHorizontal: 6, borderRadius: radius.pill, alignItems: 'center' },
-  choiceOn: { backgroundColor: colors.surface, ...shadow.sm },
-  choiceText: { fontSize: 12.5, fontWeight: '600', color: colors.muted },
-  choiceTextOn: { color: colors.primary, fontWeight: '800' },
-  card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 14, borderWidth: 1, borderColor: colors.border, marginBottom: 12 },
-  cardTitle: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg },
-  cardSub: { fontSize: 12.5, color: colors.faint, marginTop: 2 },
+  link: { color: d.plum, fontFamily: df.sansBold, fontSize: 12 },
+  lead: { fontFamily: df.sans, fontSize: 13, color: d.muted, lineHeight: 20, marginBottom: 12 },
+  welcomeWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18, backgroundColor: 'rgba(40,26,17,0.35)' },
+  welcomeCard: { width: '100%', maxWidth: 420, backgroundColor: d.ivory, borderRadius: 26, padding: 22, alignItems: 'center', borderWidth: 1, borderColor: d.line, shadowColor: '#362012', shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  welcomeIcon: { width: 64, height: 64, borderRadius: 22, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  welcomeEyebrow: { marginTop: 12, fontSize: 10, fontFamily: df.sansHeavy, letterSpacing: 1.3, textTransform: 'uppercase', color: d.plum },
+  welcomeTitle: { fontFamily: df.displayBold, fontSize: 24, lineHeight: 29, color: d.ink, textAlign: 'center', marginTop: 4, marginBottom: 8 },
+  welcomeText: { fontFamily: df.sans, fontSize: 13, lineHeight: 21, color: d.ink },
+  welcomeBtn: { alignSelf: 'stretch', height: 50, borderRadius: 14, backgroundColor: d.plum, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
+  welcomeBtnGhost: { backgroundColor: '#FFE9DA', marginTop: 8 },
+  welcomeBtnText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 14 },
+  // segmented choice: the design's .discover-toggle pills
+  choice: { flexDirection: 'row', gap: 7 },
+  choiceBtn: { flex: 1, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 13, alignItems: 'center', borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  choiceOn: { backgroundColor: '#FFE9DA', borderColor: 'rgba(255,107,26,0.45)' },
+  choiceText: { fontSize: 12, fontFamily: df.sansBold, color: d.plumDark },
+  choiceTextOn: { color: d.plum },
+  card: { backgroundColor: d.paper, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: d.line, marginBottom: 12 },
+  cardTitle: { fontFamily: df.displayBold, fontSize: 18, color: d.ink },
+  cardSub: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
   settingRow: { marginTop: 14 },
-  settingLabel: { fontSize: 13.5, fontWeight: '700', color: colors.fg },
-  settingHint: { fontSize: 12, color: colors.faint, marginTop: 2, lineHeight: 17 },
-  permRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 4 },
-  permLabel: { flex: 1, fontSize: 14, color: colors.fg },
-  roleTag: { borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 1 },
-  roleText: { fontSize: 10.5, fontWeight: '800' },
-  person: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, paddingHorizontal: 6, borderRadius: radius.md },
-  personName: { fontSize: 14.5, fontWeight: '700', color: colors.fg, flexShrink: 1 },
-  personSub: { fontSize: 12, color: colors.faint, marginTop: 1 },
-  listCard: { backgroundColor: colors.surface, borderRadius: radius.lg, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: colors.border, marginBottom: 12 },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, height: 42 },
-  searchInput: { flex: 1, fontSize: 14.5, color: colors.fg, outlineStyle: 'none' },
-  sheet: { backgroundColor: colors.screen, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 14, paddingBottom: 26, ...shadow.lg },
-  grabber: { alignSelf: 'center', width: 38, height: 4.5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: 10 },
-  sheetTitle: { fontFamily: fonts.serifBold, fontSize: 19, color: colors.fg, marginHorizontal: 8, marginBottom: 6 },
-  sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 8, borderRadius: radius.md },
-  sheetRowText: { fontSize: 15, fontWeight: '600', color: colors.fg },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.raised, borderWidth: 1, borderColor: colors.border },
-  chipOn: { backgroundColor: colors.fg, borderColor: colors.fg },
-  chipText: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  settingLabel: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
+  settingHint: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2, lineHeight: 16 },
+  permRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: d.line, marginTop: 4 },
+  permLabel: { flex: 1, fontFamily: df.sans, fontSize: 13, color: d.ink },
+  roleTag: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  roleText: { fontSize: 10, fontFamily: df.sansHeavy },
+  person: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 14 },
+  personName: { fontFamily: df.sansBold, fontSize: 13, color: d.ink, flexShrink: 1 },
+  personSub: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 1 },
+  listCard: { backgroundColor: d.paper, borderRadius: 20, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: d.line, marginBottom: 12 },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: d.paper, borderRadius: 14, borderWidth: 1, borderColor: d.line, paddingHorizontal: 14, height: 46 },
+  searchInput: { flex: 1, fontFamily: df.sans, fontSize: 13, color: d.ink, outlineStyle: 'none' },
+  sheet: { backgroundColor: d.ivory, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 14, paddingBottom: 26, borderTopWidth: 1, borderColor: d.line },
+  grabber: { alignSelf: 'center', width: 38, height: 4, borderRadius: 3, backgroundColor: d.line, marginBottom: 10 },
+  sheetTitle: { fontFamily: df.displayBold, fontSize: 19, color: d.ink, marginHorizontal: 8, marginBottom: 6 },
+  sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 8, borderRadius: 14 },
+  sheetRowText: { fontFamily: df.sansBold, fontSize: 14, color: d.ink },
+  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 13, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  chipOn: { backgroundColor: d.ink, borderColor: d.ink },
+  chipText: { fontSize: 12, fontFamily: df.sansBold, color: d.muted },
   chipTextOn: { color: '#FFFFFF' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  gridCell: { width: '31.8%', aspectRatio: 1, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: colors.raised },
-  mediaRow: { backgroundColor: colors.surface, borderRadius: radius.md, padding: 10, borderWidth: 1, borderColor: colors.border, marginBottom: 8, gap: 6 },
-  mediaMeta: { fontSize: 11.5, color: colors.faint },
-  inviteUrl: { marginTop: 10, fontSize: 13.5, color: colors.primary, backgroundColor: colors.raised, borderRadius: radius.sm, padding: 10 },
+  gridCell: { width: '31.8%', aspectRatio: 1, borderRadius: 14, overflow: 'hidden', backgroundColor: d.raised },
+  mediaRow: { backgroundColor: d.paper, borderRadius: 16, padding: 10, borderWidth: 1, borderColor: d.line, marginBottom: 8, gap: 6 },
+  mediaMeta: { fontFamily: df.sans, fontSize: 10, color: d.muted },
+  inviteUrl: { marginTop: 10, fontFamily: df.sansBold, fontSize: 12, color: d.plumDark, backgroundColor: d.lavender, borderRadius: 13, padding: 10 },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: colors.fg, marginTop: 12, marginBottom: 6 },
-  input: { backgroundColor: colors.screen, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14.5, color: colors.fg },
+  fieldLabel: { fontFamily: df.sansBold, fontSize: 11, color: '#4C3D32', marginTop: 14, marginBottom: 7 },
+  input: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontFamily: df.sans, fontSize: 13, color: d.ink },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  linkRowText: { flex: 1, fontSize: 14.5, fontWeight: '600', color: colors.fg },
+  linkRowText: { flex: 1, fontFamily: df.sansBold, fontSize: 13, color: d.ink },
 });

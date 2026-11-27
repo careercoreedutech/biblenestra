@@ -4,7 +4,9 @@ import React, { useMemo } from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Svg, { Path, Rect } from 'react-native-svg';
-import { Screen, Button, Empty, Notice, NightGlow } from '../components/ui';
+import { Button, Empty, Notice, NightGlow } from '../components/ui';
+import { KitScreen } from '../design/bible/parts';
+import { d } from '../design/sanctuary';
 import { FadeInUp, Shimmer } from '../components/Motion';
 import { Icon } from '../components/Icons';
 import { useToast } from '../components/Toast';
@@ -79,14 +81,14 @@ export default function ExegesisScreen({ params = {} }) {
 
   if (!ex.online) {
     return (
-      <Screen back title="Exegesis" subtitle={title}>
+      <KitScreen title="Exegesis" subtitle={title}>
         <Empty
           title="Exegesis needs a connection"
           body="Exegesis is written by BibleNestra’s study assistant on our servers, so it needs the online app. The commentaries, cross-references and lexicon work right here meanwhile."
           action="Open commentaries"
           onAction={commentaries}
         />
-      </Screen>
+      </KitScreen>
     );
   }
 
@@ -159,7 +161,7 @@ export default function ExegesisScreen({ params = {} }) {
   };
 
   return (
-    <Screen back title="Exegesis" subtitle={title}>
+    <KitScreen title="Exegesis" subtitle={title}>
       <View style={styles.aiNote}>
         <Icon name="sparkles" size={14} color={colors.gold} />
         <Text style={styles.aiNoteText}>{ex.label || AI_NOTE}</Text>
@@ -194,7 +196,7 @@ export default function ExegesisScreen({ params = {} }) {
 
       <Text style={styles.footer}>{AI_NOTE}. Original-language data: Strong’s-tagged KJV with the Brown-Driver-Briggs and Thayer lexicons (public domain).</Text>
       <Button kind="ghost" label="Compare with the commentaries" onPress={commentaries} style={{ marginTop: 12, marginBottom: 24 }} />
-    </Screen>
+    </KitScreen>
   );
 }
 
@@ -233,7 +235,7 @@ const styles = StyleSheet.create({
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 40, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
   actionText: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
   progress: { fontSize: 12, color: colors.muted, marginTop: 10, textAlign: 'center' },
-  section: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 16, marginTop: 12, ...shadow.sm },
+  section: { backgroundColor: d.paper, borderRadius: 20, borderWidth: 1, borderColor: d.line, padding: 16, marginTop: 12 },
   secHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   secNum: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   secNumText: { fontSize: 12, fontWeight: '800', color: colors.primary },
@@ -242,7 +244,7 @@ const styles = StyleSheet.create({
   bullet: { fontFamily: fonts.serif, fontSize: 15, lineHeight: 23, color: colors.passage, marginBottom: 6 },
   termBold: { fontFamily: fonts.serifBold, color: colors.fg },
   subHead: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.gold, marginBottom: 6, marginTop: 2 },
-  passageBox: { overflow: 'hidden', backgroundColor: colors.night, borderRadius: radius.md, padding: 16 },
+  passageBox: { overflow: 'hidden', backgroundColor: '#3C2518', borderRadius: 20, padding: 16 },
   quoteMark: { fontFamily: fonts.serifBold, fontSize: 34, lineHeight: 34, color: colors.goldLight, marginBottom: -6 },
   passageText: { fontFamily: fonts.serif, fontSize: 17, lineHeight: 26, color: colors.nightFg },
   passageRef: { fontSize: 12, fontWeight: '700', color: colors.goldLight, marginTop: 10, letterSpacing: 0.4 },

@@ -6,6 +6,7 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, Sty
 import { Screen, Button, Empty, Notice, Pills, Badge } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { PressScale, FadeInUp, Pulse } from '../components/Motion';
+import { d, k, PageHeader, IconButton, SectionTitle, Tap } from '../design/sanctuary';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useNav, useIsFocused } from '../navigation';
@@ -244,11 +245,32 @@ export function ChatsHomeScreen({ params = {} }) {
 
   const listHeader = (
     <View>
-      <View style={styles.searchMsgs}>
+      <View style={styles.searchDesign}>
         <Icon name="search" size={16} color={colors.faint} />
         <TextInput value={query} onChangeText={setQuery} placeholder="Search Messages" placeholderTextColor={colors.faint} style={styles.searchInput} autoCorrect={false} accessibilityLabel="Search Messages" />
         {query ? <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Clear search"><Icon name="x" size={14} color={colors.muted} /></Pressable> : null}
       </View>
+      {/* Prayer circles: the real group chats as horizontal cards (design .message-circles) */}
+      {!term && tab === 'Chats' && myGroups.length ? (
+        <>
+          <SectionTitle eyebrow="Prayer circles" title="Your groups" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.circleRow}>
+            {myGroups.map((c) => {
+              const n = unreadOf(c);
+              return (
+                <Tap key={c.id} onPress={pressFor(c)} style={styles.circleCard} accessibilityRole="button" accessibilityLabel={`${c.with}${n ? `, ${n} unread` : ''}`}>
+                  <View style={styles.circleIcon}><Icon name="users" size={19} color={d.plum} /></View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.circleName} numberOfLines={1}>{c.with}</Text>
+                    <Text style={styles.circleMeta} numberOfLines={1}>{lastText(c) || 'No messages yet'}</Text>
+                  </View>
+                  {n ? <View style={styles.circleBadge}><Text style={styles.circleBadgeText}>{n > 99 ? '99+' : n}</Text></View> : null}
+                </Tap>
+              );
+            })}
+          </ScrollView>
+        </>
+      ) : null}
       {!term && tab === 'Chats' ? (
         <>
           <PressScale onPress={() => nav.push('BibleChat', {})} scaleTo={0.985} style={styles.listRow} accessibilityRole="button" accessibilityLabel="Bible Exegesis Chat">
@@ -261,6 +283,7 @@ export function ChatsHomeScreen({ params = {} }) {
             </View>
           </PressScale>
           {api.online ? <View style={{ paddingHorizontal: 16 }}><CreateRow icon="users" title="Invite friends" sub="Friends who join with your link chat with you free, always" onPress={() => nav.push('InviteFriends')} /></View> : null}{/* CHAT LIMITS */}
+          {direct.length ? <SectionTitle title="Recent conversations" /> : null}
         </>
       ) : null}
       {!term && tab === 'Groups' ? (
@@ -290,18 +313,11 @@ export function ChatsHomeScreen({ params = {} }) {
   ) : <View style={{ height: 90 }} />;
 
   return (
-    <Screen
-      back
-      title="Messages"
-      subtitle="Chats · groups · communities · channels"
-      scroll={false}
-      padded={false}
-      right={(
-        <PressScale onPress={() => nav.push('JoinGroup')} scaleTo={0.9} style={styles.headBtn} accessibilityRole="button" accessibilityLabel="Join a group with a link">
-          <Icon name="link" size={17} color={colors.fg} />
-        </PressScale>
-      )}
-    >
+    <View style={k.screen}>
+      {/* Design "Messages" header: back · subtitle over the Playfair title · join-by-link action */}
+      <View style={{ paddingHorizontal: 18 }}>
+        <PageHeader back onBack={() => nav.pop()} title="Messages" subtitle="Conversations that matter" action={<IconButton icon="link" label="Join a group with a link" onPress={() => nav.push('JoinGroup')} />} />
+      </View>
       <View style={{ paddingHorizontal: 16 }}>
         <Pills items={TABS} value={tab} onChange={(t) => { setTab(t); setQuery(''); }} style={{ marginTop: 10, marginBottom: 6 }} />
         {listTab ? <ChatPassBadge /> : null}{/* CHAT WEEK PASS: "Extra chats until Tue 26 Nov" (only while a pass is active) */}
@@ -364,11 +380,12 @@ export function ChatsHomeScreen({ params = {} }) {
       )}
 
       {listTab ? (
-        <PressScale onPress={plus} scaleTo={0.9} style={styles.fab} accessibilityRole="button" accessibilityLabel={tab === 'Groups' ? 'New group' : 'New chat'}>
-          <Icon name="plus" size={24} color="#FFFFFF" strokeWidth={2.4} />
-        </PressScale>
+        <Tap onPress={plus} style={styles.newMessage} accessibilityRole="button" accessibilityLabel={tab === 'Groups' ? 'New group' : 'Start a conversation'}>
+          <Icon name="chat" size={17} color="#FFFFFF" strokeWidth={2.2} />
+          <Text style={styles.newMessageText}>{tab === 'Groups' ? 'New group' : 'Start a conversation'}</Text>
+        </Tap>
       ) : null}
-    </Screen>
+    </View>
   );
 }
 
@@ -463,7 +480,18 @@ const styles = StyleSheet.create({
   loading: { paddingVertical: 24, alignItems: 'center' },
   plus: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', ...shadow.sm },
   // CHAT 7.3: Messages list
-  list: { flex: 1, backgroundColor: colors.surface },
+  list: { flex: 1, backgroundColor: 'transparent' },
+  // Design Messages screen (.search-box, .message-circles, .new-message)
+  searchDesign: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginTop: 6, marginBottom: 4, paddingHorizontal: 14, height: 48, borderRadius: 15, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  circleRow: { gap: 9, paddingHorizontal: 18, paddingBottom: 4 },
+  circleCard: { minWidth: 240, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 18, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  circleIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: d.lavender },
+  circleName: { fontFamily: 'Playfair-SemiBold', fontSize: 13, color: d.ink },
+  circleMeta: { marginTop: 3, fontSize: 11, color: d.muted },
+  circleBadge: { minWidth: 19, height: 19, paddingHorizontal: 5, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: d.plum },
+  circleBadgeText: { fontSize: 10, fontFamily: 'DMSans-Bold', color: '#FFFFFF' },
+  newMessage: { position: 'absolute', right: 18, bottom: 22, height: 46, paddingHorizontal: 16, borderRadius: 15, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: d.plum, shadowColor: d.plum, shadowOpacity: 0.28, shadowRadius: 12, shadowOffset: { width: 0, height: 12 }, elevation: 6 },
+  newMessageText: { fontSize: 13, fontFamily: 'DMSans-Bold', color: '#FFFFFF' },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: 13, height: 72, paddingHorizontal: 16 },
   listName: { flexShrink: 1, fontSize: 15.5, fontWeight: '600', color: colors.fg },
   searchMsgs: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 10, marginBottom: 6, paddingHorizontal: 14, height: 42, borderRadius: radius.pill, backgroundColor: colors.raised },

@@ -1,7 +1,8 @@
 // Settings for "Scripture pop-ups" — verses and prayers that pop on the phone at an interval.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { Screen } from '../components/ui';
+import { KitScreen } from '../design/bible/parts';
+import { d } from '../design/sanctuary';
 import { Icon } from '../components/Icons';
 import { FadeInUp, PressScale } from '../components/Motion';
 import { useToast } from '../components/Toast';
@@ -63,7 +64,7 @@ export default function ScripturePopScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-    <Screen back title="Scripture pop-ups" subtitle="Verses & prayers through your day">
+    <KitScreen title="Scripture pop-ups" subtitle="Verses & prayers through your day">
 
       <FadeInUp style={styles.hero}>
         <View style={styles.phone}>
@@ -150,7 +151,7 @@ export default function ScripturePopScreen() {
           ? 'Pop-ups are scheduled on your phone, so they arrive even offline. Tap one to open the verse. Scripture text is from the King James Version.'
           : 'Pop-ups arrive as phone notifications in the mobile app. This preview shows how they look.'}
       </Text>
-    </Screen>
+    </KitScreen>
     {preview ? <PopPreview key={preview.key} item={preview} onDone={() => setPreview(null)} /> : null}
     </View>
   );
@@ -179,7 +180,7 @@ function PopPreview({ item, onDone }) {
 }
 
 const styles = StyleSheet.create({
-  hero: { borderRadius: 24, backgroundColor: colors.night, padding: 16, overflow: 'hidden', ...shadow.md },
+  hero: { borderRadius: 24, backgroundColor: '#3C2518', padding: 16, overflow: 'hidden', ...shadow.md },
   phone: { borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', padding: 12, paddingTop: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)' },
   phoneNotch: { position: 'absolute', top: 8, alignSelf: 'center', width: 70, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.18)' },
   mockPop: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: 18, backgroundColor: 'rgba(250,247,240,0.96)' },
@@ -201,7 +202,7 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { fontSize: 13, fontWeight: '600', color: colors.fg },
   chipTextOn: { color: '#FFFFFF' },
-  card: { marginTop: 24, padding: 16, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  card: { marginTop: 24, padding: 16, borderRadius: 20, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   cardHead: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg, marginBottom: 6 },
   slot: { flexDirection: 'row', gap: 12, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   slotTime: { width: 64 },

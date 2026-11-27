@@ -7,11 +7,15 @@ import Svg, { Path } from 'react-native-svg';
 import { Icon } from '../Icons';
 import { SocialAvatar } from '../social/FeedCard';
 import { colors } from '../../theme';
+import { d, df } from '../../design/sanctuary'; // FIGMA DESIGN: lavender initials circle, Playfair names, orange unread badge
 import { useTypingNames, useReceipts, usePresence } from '../../chat/live';
 import { relTime, typingLabel, messageStatus } from '../../chat/messages';
 import { isMutedNow } from './ChatGaps'; // CHAT GAPS: a timed mute that ran out shows as unmuted
 
 const AV = 46;
+
+// Design .avatar / .message-list avatar: initials on the lavender circle (used when there is no photo)
+const initialsOf = (name) => String(name || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 
 function MiniTicks({ status }) {
   if (!status || status === 'sending' || status === 'failed') return null;
@@ -29,13 +33,20 @@ export function ChatAvatar({ c, size = AV, online }) {
     if (c.avatarUrl) return <SocialAvatar name={c.with} uri={c.avatarUrl} size={size} />;
     return (
       <View style={[styles.groupIcon, { width: size, height: size, borderRadius: size / 2 }, c.kind === 'channel' && { backgroundColor: colors.cardGold }]}>
-        <Icon name={c.kind === 'channel' ? 'volume' : 'users'} size={Math.round(size * 0.42)} color={c.kind === 'channel' ? colors.gold : colors.primary} />
+        <Icon name={c.kind === 'channel' ? 'volume' : 'users'} size={Math.round(size * 0.42)} color={c.kind === 'channel' ? colors.gold : d.plum} />
       </View>
     );
   }
+  const uri = c.otherUser && c.otherUser.avatarUrl;
   return (
     <View>
-      <SocialAvatar name={c.with} uri={c.otherUser && c.otherUser.avatarUrl} size={size} />
+      {uri ? (
+        <SocialAvatar name={c.with} uri={uri} size={size} />
+      ) : (
+        <View style={[styles.initials, { width: size, height: size, borderRadius: size / 2 }]}>
+          <Text style={[styles.initialsText, { fontSize: Math.round(size * 0.24) }]}>{initialsOf(c.with)}</Text>
+        </View>
+      )}
       {online ? <View style={styles.onlineDot} /> : null}
     </View>
   );
@@ -64,7 +75,7 @@ function ChatListRowInner({ c, onPress, myId }) {
       <View style={styles.mid}>
         <View style={styles.line}>
           <Text style={styles.name} numberOfLines={1}>{c.with}</Text>
-          <Text style={[styles.time, unread && !isMutedNow(c) ? { color: colors.primary, fontWeight: '600' } : null]}>{time}</Text>
+          <Text style={[styles.time, unread && !isMutedNow(c) ? { color: colors.primary, fontFamily: df.sansBold } : null]}>{time}</Text>
         </View>
         <View style={styles.line}>
           {typingText ? (
@@ -88,15 +99,17 @@ export const ChatListRow = memo(ChatListRowInner, (a, b) => a.c === b.c && a.myI
 export const CHAT_ROW_HEIGHT = 72;
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 13, height: CHAT_ROW_HEIGHT, paddingHorizontal: 16 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, height: CHAT_ROW_HEIGHT, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: d.line },
   mid: { flex: 1, minWidth: 0, gap: 3 },
   line: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  name: { flex: 1, fontSize: 15.5, fontWeight: '600', color: colors.fg },
-  time: { fontSize: 11.5, color: colors.faint },
-  preview: { flex: 1, fontSize: 13.5, color: colors.muted },
+  name: { flex: 1, fontSize: 15, fontFamily: df.display, letterSpacing: -0.2, color: d.ink },
+  time: { fontSize: 11, color: d.muted },
+  preview: { flex: 1, fontSize: 13, color: d.muted },
   typing: { color: colors.primary, fontStyle: 'italic' },
-  badge: { minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
-  groupIcon: { backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  badge: { minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  badgeText: { fontSize: 10.5, fontFamily: df.sansBold, color: '#FFFFFF' },
+  initials: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  initialsText: { fontFamily: df.sansHeavy, color: '#704426', letterSpacing: 0.3 },
+  groupIcon: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
   onlineDot: { position: 'absolute', right: 1, bottom: 1, width: 12, height: 12, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: colors.surface },
 });

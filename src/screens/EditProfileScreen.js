@@ -2,12 +2,10 @@
 // and the device-only profile details shown on the Profile screen (testimony, skills, experience, portfolio).
 //   Online: images → POST /uploads/image, then PUT /me { avatarUrl, bannerUrl (upload keys), … }.
 //   Local:  everything is saved in the store (images are copied into app storage).
+// Presentation: the Figma design's page header, paper cards, field inputs and plum primary button (src/design).
 import React, { useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../components/Icons';
-import { colors, fonts, radius, shadow } from '../theme';
-import { Screen, Input, Button, NightGlow, alpha } from '../components/ui';
-import { FadeInUp, PressScale, ScaleIn } from '../components/Motion';
 import { useToast } from '../components/Toast';
 import { useStore } from '../store';
 import { useSync } from '../api/sync';
@@ -16,16 +14,18 @@ import { useNav } from '../navigation';
 import { mapMeToUser } from '../api/mappers';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { pickProfileImage, uploadProfileImage, persistLocalImage } from '../api/social';
+import { DScreen, DInput, DLabel, DCard, DButton } from '../design/profile/parts';
+import { Grad, Tap, gradients, d as D, df as DF, SectionTitle as DSection } from '../design/sanctuary';
 
 const HANDLE_RE = /^[a-z0-9._]{3,30}$/;
 
-function Field({ label, hint, children, index }) {
+function Field({ label, hint, children }) {
   return (
-    <FadeInUp index={index} distance={8} duration={320} style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+    <View>
+      <DLabel>{label}</DLabel>
       {children}
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
-    </FadeInUp>
+    </View>
   );
 }
 
@@ -124,97 +124,95 @@ export default function EditProfileScreen() {
   };
 
   return (
-    <Screen
-      back
+    <DScreen
       title="Edit profile"
       subtitle={`@${handle || u.username || ''}`}
-      right={(
-        <PressScale onPress={save} disabled={saving || !changed} scaleTo={0.92} hitSlop={8} style={[styles.saveBtn, (!changed || saving) && { opacity: 0.45 }]} accessibilityLabel="Save profile">
+      back
+      onBack={() => nav.pop()}
+      action={(
+        <Tap onPress={save} disabled={saving || !changed} accessibilityLabel="Save profile" style={[styles.saveBtn, (!changed || saving) && { opacity: 0.45 }]}>
           {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.saveText}>Save</Text>}
-        </PressScale>
+        </Tap>
       )}
     >
-      <FadeInUp distance={10} style={styles.hero}>
-        <PressScale onPress={() => pick('banner')} scaleTo={0.99} style={styles.banner} accessibilityLabel="Change profile banner">
-          {bannerUri ? <Image source={{ uri: bannerUri }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : <NightGlow />}
+      {/* Photo and banner card */}
+      <View style={styles.hero}>
+        <Tap onPress={() => pick('banner')} style={styles.banner} accessibilityLabel="Change profile banner">
+          {bannerUri ? <Image source={{ uri: bannerUri }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : <Grad colors={gradients.profile} style={StyleSheet.absoluteFill} />}
           <View style={styles.bannerChip}>
-            <Icon name="image" size={13} color={colors.fg} />
+            <Icon name="image" size={13} color={D.ink} />
             <Text style={styles.bannerChipText}>{bannerUri ? 'Change banner' : 'Add banner'}</Text>
           </View>
-        </PressScale>
-        <ScaleIn delay={100} from={0.7} style={styles.avatarWrap}>
-          <PressScale onPress={() => pick('avatar')} scaleTo={0.94} style={styles.avatarRing} accessibilityLabel="Change profile photo">
+        </Tap>
+        <View style={styles.avatarWrap}>
+          <Tap onPress={() => pick('avatar')} style={styles.avatarRing} accessibilityLabel="Change profile photo">
             <SocialAvatar name={f.displayName || u.displayName} uri={avatarUri} size={92} />
             <View style={styles.avatarBadge}><Icon name="edit" size={13} color="#FFFFFF" /></View>
-          </PressScale>
-        </ScaleIn>
+          </Tap>
+        </View>
         <View style={styles.imgLinks}>
-          <PressScale onPress={() => pick('avatar')} scaleTo={0.94} hitSlop={6} accessibilityLabel={avatarUri ? 'Change photo' : 'Add photo'}>
+          <Tap onPress={() => pick('avatar')} hitSlop={6} accessibilityLabel={avatarUri ? 'Change photo' : 'Add photo'}>
             <Text style={styles.imgLink}>{avatarUri ? 'Change photo' : 'Add photo'}</Text>
-          </PressScale>
+          </Tap>
           {avatarUri ? (
-            <PressScale onPress={() => setAvatar(null)} scaleTo={0.94} hitSlop={6} accessibilityLabel="Remove photo">
-              <Text style={[styles.imgLink, { color: colors.muted }]}>Remove photo</Text>
-            </PressScale>
+            <Tap onPress={() => setAvatar(null)} hitSlop={6} accessibilityLabel="Remove photo">
+              <Text style={[styles.imgLink, { color: D.muted }]}>Remove photo</Text>
+            </Tap>
           ) : null}
           {bannerUri ? (
-            <PressScale onPress={() => setBanner(null)} scaleTo={0.94} hitSlop={6} accessibilityLabel="Remove banner">
-              <Text style={[styles.imgLink, { color: colors.muted }]}>Remove banner</Text>
-            </PressScale>
+            <Tap onPress={() => setBanner(null)} hitSlop={6} accessibilityLabel="Remove banner">
+              <Text style={[styles.imgLink, { color: D.muted }]}>Remove banner</Text>
+            </Tap>
           ) : null}
         </View>
         <Text style={styles.imgHint}>Photos are cropped square · banners to a wide 3:1</Text>
-      </FadeInUp>
+      </View>
 
-      <Text style={styles.group}>Public profile</Text>
-      <View style={styles.card}>
-        <Field label="Display name" index={1}><Input value={f.displayName} onChangeText={set('displayName')} placeholder="Your name" maxLength={60} accessibilityLabel="Display name" /></Field>
-        <Field label="Handle" hint={handle && !handleOk ? '3–30 letters, numbers, dots or underscores' : 'People can find you by your handle'} index={2}>
+      <DSection eyebrow="Public profile" title="How you appear" />
+      <DCard>
+        <Field label="Display name"><DInput value={f.displayName} onChangeText={set('displayName')} placeholder="Your name" maxLength={60} accessibilityLabel="Display name" /></Field>
+        <Field label="Handle" hint={handle && !handleOk ? '3–30 letters, numbers, dots or underscores' : 'People can find you by your handle'}>
           <View style={styles.handleRow}>
             <Text style={styles.at}>@</Text>
-            <Input value={f.username} onChangeText={(v) => set('username')(v.replace(/^@/, ''))} placeholder="your.handle" autoCapitalize="none" autoCorrect={false} maxLength={30} style={{ flex: 1 }} accessibilityLabel="Handle" />
+            <DInput value={f.username} onChangeText={(v) => set('username')(v.replace(/^@/, ''))} placeholder="your.handle" autoCapitalize="none" autoCorrect={false} maxLength={30} style={{ flex: 1 }} accessibilityLabel="Handle" />
           </View>
         </Field>
-        <Field label="Headline" index={3}><Input value={f.headline} onChangeText={set('headline')} placeholder="e.g. Youth leader · Software engineer" maxLength={120} accessibilityLabel="Headline" /></Field>
-        <Field label="Bio" hint={`${f.bio.length}/1000`} index={4}><Input value={f.bio} onChangeText={set('bio')} placeholder="A few words about you and your faith" multiline maxLength={1000} accessibilityLabel="Bio" /></Field>
-        <Field label="Church" index={5}><Input value={f.church} onChangeText={set('church')} placeholder="Your church or fellowship" maxLength={120} accessibilityLabel="Church" /></Field>
-        <Field label="Country" index={6}><Input value={f.country} onChangeText={set('country')} placeholder="Where you're based" maxLength={60} accessibilityLabel="Country" /></Field>
-      </View>
+        <Field label="Headline"><DInput value={f.headline} onChangeText={set('headline')} placeholder="e.g. Youth leader · Software engineer" maxLength={120} accessibilityLabel="Headline" /></Field>
+        <Field label="Bio" hint={`${f.bio.length}/1000`}><DInput value={f.bio} onChangeText={set('bio')} placeholder="A few words about you and your faith" multiline maxLength={1000} accessibilityLabel="Bio" /></Field>
+        <Field label="Church"><DInput value={f.church} onChangeText={set('church')} placeholder="Your church or fellowship" maxLength={120} accessibilityLabel="Church" /></Field>
+        <Field label="Country"><DInput value={f.country} onChangeText={set('country')} placeholder="Where you're based" maxLength={60} accessibilityLabel="Country" /></Field>
+      </DCard>
 
-      <Text style={styles.group}>About & professional</Text>
-      <View style={styles.card}>
-        <Field label="Testimony" index={7}><Input value={f.testimony} onChangeText={set('testimony')} placeholder="Share a short testimony (optional)" multiline accessibilityLabel="Testimony" /></Field>
-        <Field label="Christian skills" index={8}><Input value={f.christianSkills} onChangeText={set('christianSkills')} placeholder="Teaching, worship, discipleship" accessibilityLabel="Christian skills" /></Field>
-        <Field label="Professional skills" index={9}><Input value={f.professionalSkills} onChangeText={set('professionalSkills')} placeholder="Technology, design, audio" accessibilityLabel="Professional skills" /></Field>
-        <Field label="Experience, education, certifications" index={10}><Input value={f.experience} onChangeText={set('experience')} placeholder="Add your background" multiline accessibilityLabel="Experience" /></Field>
-        <Field label="Portfolio" index={11}><Input value={f.portfolio} onChangeText={set('portfolio')} placeholder="Link to your work" autoCapitalize="none" accessibilityLabel="Portfolio" /></Field>
-      </View>
+      <DSection eyebrow="About" title="Testimony & professional" />
+      <DCard>
+        <Field label="Testimony"><DInput value={f.testimony} onChangeText={set('testimony')} placeholder="Share a short testimony (optional)" multiline accessibilityLabel="Testimony" /></Field>
+        <Field label="Christian skills"><DInput value={f.christianSkills} onChangeText={set('christianSkills')} placeholder="Teaching, worship, discipleship" accessibilityLabel="Christian skills" /></Field>
+        <Field label="Professional skills"><DInput value={f.professionalSkills} onChangeText={set('professionalSkills')} placeholder="Technology, design, audio" accessibilityLabel="Professional skills" /></Field>
+        <Field label="Experience, education, certifications"><DInput value={f.experience} onChangeText={set('experience')} placeholder="Add your background" multiline accessibilityLabel="Experience" /></Field>
+        <Field label="Portfolio"><DInput value={f.portfolio} onChangeText={set('portfolio')} placeholder="Link to your work" autoCapitalize="none" accessibilityLabel="Portfolio" /></Field>
+      </DCard>
 
-      <Button label={saving ? 'Saving…' : 'Save changes'} onPress={save} disabled={saving || !changed} style={{ marginTop: 22 }} />
+      <DButton label={saving ? 'Saving…' : 'Save changes'} onPress={save} disabled={saving || !changed} style={{ marginTop: 22 }} />
       <Text style={styles.foot}>{sync.online ? 'Your photo, banner, name, handle, headline, bio, church and country are public on your profile.' : 'Saved on this device.'}</Text>
-    </Screen>
+    </DScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  saveBtn: { height: 34, minWidth: 64, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  saveText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  hero: { backgroundColor: colors.surface, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', paddingBottom: 16, ...shadow.md },
-  banner: { height: 124, backgroundColor: colors.night, overflow: 'hidden' },
-  bannerChip: { position: 'absolute', right: 10, top: 10, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: radius.pill, paddingHorizontal: 11, height: 30, ...shadow.sm },
-  bannerChipText: { fontSize: 12, fontWeight: '700', color: colors.fg },
+  saveBtn: { height: 36, minWidth: 64, paddingHorizontal: 14, borderRadius: 12, backgroundColor: D.plum, alignItems: 'center', justifyContent: 'center' },
+  saveText: { color: '#FFFFFF', fontSize: 12, fontFamily: DF.sansBold },
+  hero: { backgroundColor: D.paper, borderRadius: 26, borderWidth: 1, borderColor: D.line, overflow: 'hidden', paddingBottom: 16 },
+  banner: { height: 124, backgroundColor: '#3B2417', overflow: 'hidden' },
+  bannerChip: { position: 'absolute', right: 10, top: 10, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,250,242,0.94)', borderRadius: 999, paddingHorizontal: 11, height: 30 },
+  bannerChipText: { fontSize: 11, fontFamily: DF.sansBold, color: D.ink },
   avatarWrap: { alignSelf: 'center', marginTop: -50 },
-  avatarRing: { padding: 4, borderRadius: 54, backgroundColor: colors.surface, ...shadow.sm },
-  avatarBadge: { position: 'absolute', right: 2, bottom: 4, width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary, borderWidth: 2.5, borderColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  avatarRing: { padding: 4, borderRadius: 54, backgroundColor: D.paper },
+  avatarBadge: { position: 'absolute', right: 2, bottom: 4, width: 30, height: 30, borderRadius: 15, backgroundColor: D.plum, borderWidth: 2.5, borderColor: D.paper, alignItems: 'center', justifyContent: 'center' },
   imgLinks: { flexDirection: 'row', justifyContent: 'center', gap: 18, marginTop: 10, flexWrap: 'wrap' },
-  imgLink: { fontSize: 13, fontWeight: '700', color: colors.primary },
-  imgHint: { fontSize: 11.5, color: colors.faint, textAlign: 'center', marginTop: 6 },
-  group: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.gold, marginTop: 24, marginBottom: 8, marginLeft: 4 },
-  card: { backgroundColor: colors.surface, borderRadius: 18, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 14, ...shadow.sm },
-  field: {},
-  label: { fontSize: 12.5, fontWeight: '700', color: colors.fg, marginBottom: 6 },
-  hint: { fontSize: 11.5, color: colors.faint, marginTop: 5 },
+  imgLink: { fontSize: 12, fontFamily: DF.sansBold, color: D.plum },
+  imgHint: { fontSize: 10, fontFamily: DF.sans, color: D.muted, textAlign: 'center', marginTop: 6 },
+  hint: { fontSize: 10, fontFamily: DF.sans, color: D.muted, marginTop: 6 },
   handleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  at: { fontSize: 16, fontWeight: '700', color: colors.muted },
-  foot: { fontSize: 12, color: colors.faint, textAlign: 'center', marginTop: 12, lineHeight: 17 },
+  at: { fontSize: 16, fontFamily: DF.sansBold, color: D.muted },
+  foot: { fontSize: 11, lineHeight: 16, fontFamily: DF.sans, color: D.muted, textAlign: 'center', marginTop: 12 },
 });

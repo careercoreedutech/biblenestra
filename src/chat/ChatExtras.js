@@ -387,7 +387,7 @@ export function CoinGiftSheet({ visible, name, balance = 0, onClose, onSend, onE
         <View style={styles.sheet}>
           <View style={styles.grabber} />
           <Text style={styles.sheetTitle}>Gift coins to {name}</Text>
-          <Text style={styles.sheetSub}>Your balance: <Text style={{ fontWeight: '700', color: colors.gold }}>{balance} coins</Text>. {name} receives the full amount.</Text>
+          <Text style={styles.sheetSub}>Your balance: <Text style={{ fontFamily: 'DMSans-Bold', color: colors.gold }}>{balance} coins</Text>. {name} receives the full amount.</Text>
           <View style={styles.amounts}>
             {AMOUNTS.map((a) => (
               <PressScale key={a} onPress={() => { setAmount(a); setCustom(''); }} scaleTo={0.92} style={[styles.amount, !custom && amount === a && styles.amountOn, a > balance && { opacity: 0.4 }]} accessibilityLabel={`${a} coins`}>
@@ -419,22 +419,22 @@ const styles = StyleSheet.create({
 
   audio: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 210, paddingVertical: 2 },
   playBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  audioTitle: { fontSize: 13, fontWeight: '600' },
+  audioTitle: { fontSize: 13, fontFamily: 'DMSans-SemiBold' },
   track: { height: 4, borderRadius: 2, backgroundColor: colors.raised, overflow: 'hidden' },
   trackFill: { height: 4, borderRadius: 2, backgroundColor: colors.primary },
   audioTime: { fontSize: 11 },
   rateBtn: { minWidth: 34, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
-  rateText: { fontSize: 11, fontWeight: '700' },
+  rateText: { fontSize: 11, fontFamily: 'DMSans-Bold' },
 
   gift: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 190, paddingVertical: 4, paddingHorizontal: 2 },
   giftMine: {},
   giftEmoji: { fontSize: 28 },
-  giftTitle: { fontSize: 14.5, fontWeight: '700', color: colors.fg },
+  giftTitle: { fontSize: 14.5, fontFamily: 'DMSans-Bold', color: colors.fg },
   giftNote: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
 
   meetBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 8, paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.primary },
   meetBtnMine: { backgroundColor: '#FFFFFF' },
-  meetBtnText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  meetBtnText: { fontSize: 13, fontFamily: 'DMSans-Bold', color: '#FFFFFF' },
 
   overlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.screen, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 28, gap: 12, ...shadow.lg },
@@ -446,16 +446,16 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontFamily: fonts.sans, fontSize: 14.5, color: colors.fg, paddingVertical: 11 },
   inputBox: { flex: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 12 },
   pasteBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.raised },
-  pasteText: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
+  pasteText: { fontSize: 12.5, fontFamily: 'DMSans-Bold', color: colors.primary },
 
   trayGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 14, paddingTop: 6 },
   trayItem: { width: '31%', alignItems: 'center', gap: 7 },
   trayIcon: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
-  trayLabel: { fontSize: 12.5, fontWeight: '600', color: colors.fg, textAlign: 'center' },
+  trayLabel: { fontSize: 12.5, fontFamily: 'DMSans-SemiBold', color: colors.fg, textAlign: 'center' },
 
   recBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingLeft: 16, paddingRight: 6, paddingVertical: 6, marginVertical: 8, ...shadow.sm },
   recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.negative || colors.rose },
-  recTime: { fontSize: 14, fontWeight: '700', color: colors.fg, fontVariant: ['tabular-nums'] },
+  recTime: { fontSize: 14, fontFamily: 'DMSans-Bold', color: colors.fg, fontVariant: ['tabular-nums'] },
   recHint: { flex: 1, fontSize: 13, color: colors.muted },
   recCancel: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
   recSend: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
@@ -463,7 +463,7 @@ const styles = StyleSheet.create({
   amounts: { flexDirection: 'row', gap: 8 },
   amount: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   amountOn: { backgroundColor: colors.gold, borderColor: colors.gold },
-  amountText: { fontSize: 15, fontWeight: '700', color: colors.fg },
+  amountText: { fontSize: 15, fontFamily: 'DMSans-Bold', color: colors.fg },
 });
 
 // ---------- CHAT 7.4: documents / files, videos, in-app viewers, upload progress, forward ----------
@@ -626,8 +626,8 @@ const xs = StyleSheet.create({
   file: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 220, maxWidth: 280, padding: 8, borderRadius: 12, backgroundColor: colors.raised, marginVertical: 2 },
   fileMine: { backgroundColor: 'rgba(255,255,255,0.14)' },
   fileIcon: { width: 40, height: 46, borderRadius: 8, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  fileExt: { fontSize: 10.5, fontWeight: '800', color: colors.primary, letterSpacing: 0.5 },
-  fileName: { fontSize: 13.5, fontWeight: '600', color: colors.fg },
+  fileExt: { fontSize: 10.5, fontFamily: 'DMSans-ExtraBold', color: colors.primary, letterSpacing: 0.5 },
+  fileName: { fontSize: 13.5, fontFamily: 'DMSans-SemiBold', color: colors.fg },
   fileMeta: { fontSize: 11.5, color: colors.muted, marginTop: 2 },
   dlBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   vid: { width: 230, maxWidth: '100%', aspectRatio: 16 / 10, borderRadius: 12, backgroundColor: '#111216', alignItems: 'center', justifyContent: 'center', marginVertical: 2, overflow: 'hidden' },
@@ -637,11 +637,11 @@ const xs = StyleSheet.create({
   mv: { flex: 1, backgroundColor: '#0D0E12' },
   mvBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 40, paddingHorizontal: 12, paddingBottom: 10 },
   mvBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' },
-  mvTitle: { flex: 1, color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  mvTitle: { flex: 1, color: '#FFFFFF', fontSize: 15, fontFamily: 'DMSans-SemiBold' },
   mvMsg: { color: 'rgba(255,255,255,0.8)', fontSize: 14, textAlign: 'center' },
   mvAudio: { width: '86%', backgroundColor: colors.surface, borderRadius: 16, padding: 14 },
   fwdRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  fwdName: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.fg },
+  fwdName: { flex: 1, fontSize: 15, fontFamily: 'DMSans-SemiBold', color: colors.fg },
   fwdKind: { fontSize: 12, color: colors.muted },
   check: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   checkOn: { backgroundColor: colors.primary, borderColor: colors.primary },

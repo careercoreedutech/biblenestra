@@ -1,105 +1,62 @@
 import React from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
-import Svg, { Path, Circle, Rect } from 'react-native-svg';
-import { colors, fonts, shadow } from '../theme';
+import Svg, { Path, Circle } from 'react-native-svg';
 
+// Lucide icons used by the design: Home, BookOpen, Compass, UsersRound
+const svg = (c, paths) => <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">{paths}</Svg>;
 const icons = {
-  Today: (c, active) => (
-    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={4.2} stroke={c} strokeWidth={1.9} fill={active ? c : 'none'} fillOpacity={active ? 0.18 : 0} />
-      <Path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5 7 7M17 17l1.5 1.5M5.5 18.5 7 17M17 7l1.5-1.5" stroke={active ? colors.gold : c} strokeWidth={1.9} strokeLinecap="round" />
-    </Svg>
-  ),
-  Bible: (c, active) => (
-    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M5 4.5A2.5 2.5 0 0 1 7.5 2H19v17H7.5A2.5 2.5 0 0 0 5 21.5v-17z"
-        stroke={c}
-        strokeWidth={1.9}
-        strokeLinejoin="round"
-        fill={active ? c : 'none'}
-        fillOpacity={active ? 0.14 : 0}
-      />
-      <Path d="M5 21.5A2.5 2.5 0 0 1 7.5 19H19v3H7.5" stroke={c} strokeWidth={1.9} strokeLinejoin="round" />
-      <Path d="M12 6v8M9 9h6" stroke={active ? colors.gold : c} strokeWidth={1.9} strokeLinecap="round" />
-    </Svg>
-  ),
-  Discover: (c, active) => (
-    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={9.2} stroke={c} strokeWidth={1.9} fill={active ? c : 'none'} fillOpacity={active ? 0.14 : 0} />
-      <Path d="M15.8 8.2l-2.1 5.5-5.5 2.1 2.1-5.5 5.5-2.1z" fill={active ? c : 'none'} stroke={c} strokeWidth={1.7} strokeLinejoin="round" />
-    </Svg>
-  ),
-  Socials: (c, active) => (
-    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Rect x={3} y={3.5} width={18} height={17} rx={5} stroke={c} strokeWidth={1.9} fill={active ? c : 'none'} fillOpacity={active ? 0.16 : 0} />
-      <Path d="M10.2 8.8l5 3.2-5 3.2V8.8z" fill={c} stroke={c} strokeWidth={1.4} strokeLinejoin="round" />
-    </Svg>
-  ),
-  Profile: (c, active) => (
-    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={8} r={4} stroke={c} strokeWidth={1.9} fill={active ? c : 'none'} fillOpacity={active ? 0.14 : 0} />
-      <Path d="M4.5 20.5c1.2-3.6 4-5.5 7.5-5.5s6.3 1.9 7.5 5.5" stroke={c} strokeWidth={1.9} strokeLinecap="round" />
-    </Svg>
-  ),
+  Today: (c) => svg(c, <><Path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" /><Path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" /></>),
+  Bible: (c) => svg(c, <><Path d="M12 7v14" stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" /><Path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" /></>),
+  Discover: (c) => svg(c, <><Circle cx={12} cy={12} r={10} stroke={c} strokeWidth={1.9} /><Path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" /></>),
+  Socials: (c) => svg(c, <><Path d="M18 21a8 8 0 0 0-16 0" stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" /><Circle cx={10} cy={8} r={5} stroke={c} strokeWidth={1.9} /><Path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3" stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" /></>),
 };
 
 export const TABS = ['Today', 'Bible', 'Discover', 'Socials'];
 
-const VARIANTS = {
-  light: { page: colors.screen, dock: colors.surface, border: colors.border, on: colors.primary, onLabel: colors.fg, off: colors.faint, pill: colors.primarySoft },
-  night: { page: '#101221', dock: '#1A1D33', border: '#272B45', on: '#AEB8FF', onLabel: '#EDE7DB', off: '#6C697D', pill: '#262B4F' },
-  sepia: { page: '#EEE2C9', dock: '#F8EFDC', border: '#DCCAA6', on: '#7B4A1C', onLabel: '#3A2D1C', off: '#A38F72', pill: '#E6D3AE' },
-  dark: { page: '#000000', dock: 'rgba(28,28,32,0.96)', border: 'rgba(255,255,255,0.10)', on: '#FFFFFF', onLabel: '#FFFFFF', off: 'rgba(255,255,255,0.5)', pill: 'rgba(255,255,255,0.14)' },
-};
+// FIGMA DESIGN (.bottom-nav): a dark floating dock; the active tab opens into a light pill with its label,
+// and an orange + in the middle opens Create.
+const D = { dock: 'rgba(46,29,18,0.96)', off: '#BFAE9F', onBg: '#FFF2E5', onText: '#472612', plum: '#FF6B1A' };
 
-function Tab({ name, isActive, v, onPress }) {
-  const scale = React.useRef(new Animated.Value(isActive ? 1 : 0)).current;
+function Tab({ name, isActive, onPress }) {
+  const open = React.useRef(new Animated.Value(isActive ? 1 : 0)).current;
   React.useEffect(() => {
-    Animated.spring(scale, { toValue: isActive ? 1 : 0, useNativeDriver: true, friction: 7, tension: 120 }).start();
+    Animated.timing(open, { toValue: isActive ? 1 : 0, duration: 250, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
   }, [isActive]);
-  const c = isActive ? v.on : v.off;
   return (
-    <Pressable
-      accessibilityRole="tab"
-      accessibilityLabel={name}
-      accessibilityState={{ selected: isActive }}
-      style={({ pressed }) => [styles.tab, pressed && { opacity: 0.7 }]}
-      onPress={onPress}
-    >
-      <View style={styles.iconWrap}>
-        <Animated.View
-          style={[
-            styles.indicator,
-            { backgroundColor: v.pill, opacity: scale, transform: [{ scaleX: scale.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }] },
-          ]}
-        />
-        <Animated.View style={{ zIndex: 1, transform: [{ scale: scale.interpolate({ inputRange: [0, 0.6, 1], outputRange: [1, 1.14, 1] }) }, { translateY: scale.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }] }}>{icons[name](c, isActive)}</Animated.View>
-      </View>
-      <Text style={[styles.label, { color: isActive ? v.onLabel : v.off }, isActive && styles.activeLabel]} numberOfLines={1}>
-        {name}
-      </Text>
-    </Pressable>
+    <Animated.View style={{ flex: open.interpolate({ inputRange: [0, 1], outputRange: [1, 1.9] }) }}>
+      <Pressable
+        accessibilityRole="tab"
+        accessibilityLabel={name}
+        accessibilityState={{ selected: isActive }}
+        onPress={onPress}
+        style={({ pressed }) => [styles.tab, isActive && { backgroundColor: D.onBg }, pressed && { transform: [{ scale: 0.98 }] }]}
+      >
+        <View style={styles.iconWrap}>{icons[name](isActive ? D.plum : D.off, false)}</View>
+        {isActive ? <Text style={styles.label} numberOfLines={1}>{name}</Text> : null}
+      </Pressable>
+    </Animated.View>
   );
 }
 
 // `hidden` (Bible full-screen reading): the bar slides down and its space collapses so the page fills the screen.
-export default function TabBar({ active, onChange, variant, hidden }) {
-  const v = VARIANTS[variant || (active === 'Socials' ? 'dark' : 'light')] || VARIANTS.light;
+export default function TabBar({ active, onChange, onCreate, hidden }) {
   const shown = React.useRef(new Animated.Value(hidden ? 0 : 1)).current;
   const [h, setH] = React.useState(0);
   React.useEffect(() => {
     Animated.timing(shown, { toValue: hidden ? 0 : 1, duration: hidden ? 260 : 300, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
   }, [hidden]);
+  const tab = (name) => <Tab key={name} name={name} isActive={name === active} onPress={() => onChange(name)} />;
   const bar = (
     <View
       onLayout={(e) => { const hh = e.nativeEvent.layout.height; if (hh && Math.abs(hh - h) > 0.5) setH(hh); }}
-      style={[styles.wrap, { backgroundColor: v.page }]}
+      style={[styles.wrap, { backgroundColor: '#F8F1E7' }]}
     >
-      <View style={[styles.dock, { backgroundColor: v.dock, borderColor: v.border }]}>
-        {TABS.map((name) => (
-          <Tab key={name} name={name} isActive={name === active} v={v} onPress={() => onChange(name)} />
-        ))}
+      <View style={styles.dock}>
+        {TABS.slice(0, 2).map(tab)}
+        <Pressable accessibilityLabel="Create" onPress={onCreate} style={({ pressed }) => [styles.create, pressed && { transform: [{ scale: 0.95 }] }]}>
+          <Svg width={22} height={22} viewBox="0 0 24 24" fill="none"><Path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth={2.2} strokeLinecap="round" /></Svg>
+        </Pressable>
+        {TABS.slice(2).map(tab)}
       </View>
     </View>
   );
@@ -119,44 +76,17 @@ export default function TabBar({ active, onChange, variant, hidden }) {
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    paddingHorizontal: 14,
-    paddingTop: 6,
-    paddingBottom: Platform.OS === 'ios' ? 2 : 10,
-  },
+  wrap: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: Platform.OS === 'ios' ? 2 : 12 },
   dock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 30,
-    borderWidth: 1,
-    height: 66,
-    paddingHorizontal: 6,
-    ...shadow.md,
+    flexDirection: 'row', alignItems: 'center', height: 66, padding: 7, borderRadius: 22,
+    borderWidth: 1, borderColor: 'rgba(91,57,35,0.13)', backgroundColor: D.dock,
+    shadowColor: '#362012', shadowOpacity: 0.25, shadowRadius: 19, shadowOffset: { width: 0, height: 16 }, elevation: 12,
   },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-  },
-  iconWrap: {
-    width: 58,
-    height: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  indicator: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 15,
-  },
-  label: {
-    fontFamily: fonts.sans,
-    fontSize: 10.5,
-    marginTop: 2,
-    fontWeight: '500',
-    letterSpacing: 0.15,
-  },
-  activeLabel: {
-    fontWeight: '700',
+  tab: { height: 52, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 4, overflow: 'hidden' },
+  iconWrap: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  label: { fontFamily: 'DMSans-ExtraBold', fontSize: 10, color: D.onText, paddingRight: 6 },
+  create: {
+    width: 48, height: 48, marginHorizontal: 4, borderRadius: 16, backgroundColor: D.plum, alignItems: 'center', justifyContent: 'center',
+    shadowColor: D.plum, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 8 }, elevation: 8,
   },
 });

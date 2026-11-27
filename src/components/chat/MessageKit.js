@@ -20,6 +20,7 @@ import { openLink } from '../EmbedViewer'; // YOUTUBE LIVE: video links open in-
 import { useNav } from '../../navigation';
 import { LinkPreviewCard } from './ChatGaps'; // CHAT GAPS: link preview cards
 import { GiftBubble } from '../gifts/GiftBubble'; // VIRTUAL GIFTS: kind 'gift' bubble
+import { df } from '../../design/sanctuary'; // FIGMA DESIGN: DM Sans / Playfair families (Android ignores fontWeight on custom families)
 
 // ---------- small icons ----------
 function PinGlyph({ size = 16, color = colors.fg, filled }) {
@@ -59,10 +60,10 @@ const snippet = (m) => (m ? (m.deleted ? 'This message was deleted' : previewOf(
 // CHAT 7.3: ticks — sending (clock), sent ✓, delivered ✓✓, read ✓✓ (highlighted)
 function Ticks({ status, mine }) {
   if (!status) return null;
-  const base = mine ? 'rgba(255,255,255,0.7)' : colors.faint;
+  const base = mine ? 'rgba(255,255,255,0.5)' : colors.faint; // own bubble: sent/delivered dimmer, read solid white
   if (status === 'sending') return <Icon name="clock" size={10} color={base} />;
   const read = status === 'read';
-  const color = read ? (mine ? colors.goldLight : colors.primary) : base;
+  const color = read ? (mine ? '#FFFFFF' : colors.primary) : base;
   return (
     <Svg width={status === 'sent' ? 11 : 15} height={10} viewBox={status === 'sent' ? '0 0 11 10' : '0 0 15 10'} fill="none" accessibilityLabel={status}>
       <Path d="M1 5.5l2.8 2.8L10 2" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
@@ -129,7 +130,7 @@ export function ChatMessage({ m, showSender, highlighted, onLongPress, onReact, 
           {m.forwarded && !m.deleted ? <Text style={[styles.fwd, mine && { color: 'rgba(255,255,255,0.75)' }]}>↪ Forwarded</Text> : null}
           {m.reply && !m.deleted ? (
             <Pressable onPress={() => onOpenReply && onOpenReply(m.reply.id)} onLongPress={onLongPress} delayLongPress={280} style={[styles.quote, mine && styles.quoteMine]} accessibilityLabel={`Replying to ${m.reply.from}`}>
-              <Text style={[styles.quoteFrom, mine && { color: colors.goldLight }]} numberOfLines={1}>{m.reply.from}</Text>
+              <Text style={[styles.quoteFrom, mine && { color: '#FFFFFF' }]} numberOfLines={1}>{m.reply.from}</Text>
               <Text style={[styles.quoteText, mine && { color: 'rgba(255,255,255,0.82)' }]} numberOfLines={2}>{m.reply.deleted ? 'This message was deleted' : m.reply.text || 'Message'}</Text>
             </Pressable>
           ) : null}
@@ -398,34 +399,34 @@ const styles = StyleSheet.create({
   msgDeleted: { backgroundColor: colors.raised, borderColor: colors.border, shadowOpacity: 0, elevation: 0 },
   msgDeletedMine: { backgroundColor: alpha(colors.primary, 0.55), borderColor: 'transparent' },
   msgHighlight: { borderColor: colors.gold, borderWidth: 2 },
-  msgFrom: { fontSize: 11.5, color: colors.gold, fontWeight: '700', marginBottom: 3 },
+  msgFrom: { fontSize: 11.5, color: colors.primary, fontFamily: df.sansBold, marginBottom: 3 },
   groupedTheirs: { borderBottomLeftRadius: 18 },
   groupedMine: { borderBottomRightRadius: 18 },
   msgFailed: { borderColor: colors.negative || colors.rose, borderWidth: 1.5 },
-  failedText: { color: colors.negative || colors.rose, fontWeight: '700' },
+  failedText: { color: colors.negative || colors.rose, fontFamily: df.sansBold },
   fwd: { fontSize: 11, fontStyle: 'italic', color: colors.muted, marginBottom: 2 },
-  msgText: { fontSize: 14.5, lineHeight: 20, color: colors.fg },
-  link: { textDecorationLine: 'underline', color: colors.primary, fontWeight: '600' },
+  msgText: { fontFamily: df.sans, fontSize: 14, lineHeight: 20, color: colors.fg },
+  link: { textDecorationLine: 'underline', color: colors.primary, fontFamily: df.sansSemi },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 5 },
   msgTime: { fontSize: 10.5, color: colors.faint },
   msgTimeMine: { color: 'rgba(255,255,255,0.66)', textAlign: 'right' },
   deletedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   deletedText: { fontSize: 13.5, fontStyle: 'italic', color: colors.muted },
   quote: { borderLeftWidth: 3, borderLeftColor: colors.gold, backgroundColor: colors.raised, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 9, marginBottom: 6 },
-  quoteMine: { backgroundColor: 'rgba(255,255,255,0.13)', borderLeftColor: colors.goldLight },
-  quoteFrom: { fontSize: 11.5, fontWeight: '700', color: colors.gold },
+  quoteMine: { backgroundColor: 'rgba(255,255,255,0.16)', borderLeftColor: '#FFFFFF' },
+  quoteFrom: { fontSize: 11.5, fontFamily: df.sansBold, color: colors.primaryInk },
   quoteText: { fontSize: 12.5, lineHeight: 17, color: colors.muted, marginTop: 1 },
   reactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: -6, marginHorizontal: 8 },
   reactChip: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 2, ...shadow.sm },
   reactChipMine: { borderColor: alpha(colors.primary, 0.5), backgroundColor: colors.primarySoft },
   reactEmoji: { fontSize: 13 },
-  reactCount: { fontSize: 11, fontWeight: '700', color: colors.muted },
+  reactCount: { fontSize: 11, fontFamily: df.sansBold, color: colors.muted },
 
   overlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.screen, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 26, ...shadow.lg },
   grabber: { alignSelf: 'center', width: 38, height: 4.5, borderRadius: 3, backgroundColor: colors.borderStrong, marginBottom: 12 },
   preview: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 12, marginHorizontal: 4, marginBottom: 12 },
-  previewFrom: { fontSize: 11.5, fontWeight: '700', color: colors.gold, marginBottom: 3 },
+  previewFrom: { fontSize: 11.5, fontFamily: df.sansBold, color: colors.primary, marginBottom: 3 },
   previewText: { fontSize: 14, lineHeight: 19, color: colors.fg },
   emojiRow: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.surface, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 6, paddingVertical: 5, marginHorizontal: 4, marginBottom: 8 },
   emojiBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
@@ -433,18 +434,18 @@ const styles = StyleSheet.create({
   emojiText: { fontSize: 21 },
   actRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, paddingHorizontal: 8, borderRadius: radius.md },
   actIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
-  actLabel: { fontSize: 15, fontWeight: '600' },
+  actLabel: { fontSize: 15, fontFamily: df.sansSemi },
   actSub: { fontSize: 12, color: colors.muted, marginTop: 2 },
   confirmTitle: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.fg, marginHorizontal: 8, marginBottom: 6 },
 
   banner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 2 },
   bannerBar: { width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: colors.gold },
-  bannerTitle: { fontSize: 12, fontWeight: '700', color: colors.primary },
+  bannerTitle: { fontSize: 12, fontFamily: df.sansBold, color: colors.primary },
   bannerText: { fontSize: 12.5, color: colors.muted, marginTop: 1 },
   bannerClose: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
 
   pinBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 14, marginTop: 10, borderRadius: radius.md, paddingVertical: 9, paddingHorizontal: 12, borderWidth: 1, borderColor: alpha(colors.gold, 0.28), backgroundColor: colors.cardGold },
   pinIcon: { width: 26, height: 26, borderRadius: 13, backgroundColor: alpha(colors.gold, 0.14), alignItems: 'center', justifyContent: 'center' },
-  pinLabel: { fontSize: 9.5, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.gold },
+  pinLabel: { fontSize: 9.5, fontFamily: df.sansHeavy, letterSpacing: 1.3, textTransform: 'uppercase', color: colors.primary },
   pinText: { fontSize: 13, color: colors.fg, marginTop: 1 },
 });

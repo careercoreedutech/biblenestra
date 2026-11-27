@@ -1,5 +1,6 @@
 // Profile "Gifts received" wall: counts per gift (all contexts) + recent public gifts (profile, live, post).
 //   <GiftWall userId name />
+// Styled as the design's profile cards (paper card, Playfair heading, plum eyebrow).
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { GiftArt } from './GiftArt';
@@ -16,19 +17,19 @@ const ago = (iso) => {
 export function GiftWall({ userId, name, empty = true }) {
   const { data, loaded, online } = useGiftWall(userId);
   if (!online || !loaded) return null;
-  const d = data || { total: 0, gifts: [], recent: [] };
-  if (!d.total && !empty) return null;
+  const wall = data || { total: 0, gifts: [], recent: [] };
+  if (!wall.total && !empty) return null;
   return (
     <View style={styles.box}>
       <View style={styles.head}>
         <View style={{ flex: 1 }}>
           <Text style={styles.eyebrow}>Gifts received</Text>
-          <Text style={styles.title}>{d.total ? `${d.total.toLocaleString('en-US')} gift${d.total === 1 ? '' : 's'}` : 'No gifts yet'}</Text>
+          <Text style={styles.title}>{wall.total ? `${wall.total.toLocaleString('en-US')} gift${wall.total === 1 ? '' : 's'}` : 'No gifts yet'}</Text>
         </View>
       </View>
-      {d.total ? (
+      {wall.total ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 4 }}>
-          {d.gifts.map((g) => (
+          {wall.gifts.map((g) => (
             <View key={g.id} style={styles.tile} accessibilityLabel={`${g.count} ${g.name}`}>
               <GiftArt gift={g} size={48} animate={g.tier === 'premium'} />
               <Text style={styles.count}>×{g.count}</Text>
@@ -37,12 +38,12 @@ export function GiftWall({ userId, name, empty = true }) {
           ))}
         </ScrollView>
       ) : <Text style={styles.empty}>{`Be the first to bless ${name || 'them'} with a gift.`}</Text>}
-      {d.recent.length ? (
+      {wall.recent.length ? (
         <View style={{ marginTop: 8, gap: 6 }}>
-          {d.recent.slice(0, 5).map((r) => (
+          {wall.recent.slice(0, 5).map((r) => (
             <View key={r.id} style={styles.recent}>
               <GiftArt gift={r.gift} size={26} animate={false} />
-              <Text style={styles.recentText} numberOfLines={1}><Text style={{ fontWeight: '700' }}>{(r.sender && r.sender.displayName) || 'Someone'}</Text>{` sent ${r.gift.name}`}</Text>
+              <Text style={styles.recentText} numberOfLines={1}><Text style={styles.recentStrong}>{(r.sender && r.sender.displayName) || 'Someone'}</Text>{` sent ${r.gift.name}`}</Text>
               <Text style={styles.ago}>{ago(r.createdAt)}</Text>
             </View>
           ))}
@@ -53,15 +54,16 @@ export function GiftWall({ userId, name, empty = true }) {
 }
 
 const styles = StyleSheet.create({
-  box: { marginTop: 16, padding: 14, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  box: { marginTop: 16, padding: 16, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   head: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 8 },
-  eyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.gold },
-  title: { fontFamily: fonts.serifBold, fontSize: 19, color: colors.fg, marginTop: 1 },
-  tile: { width: 74, alignItems: 'center', paddingVertical: 8, borderRadius: 14, backgroundColor: '#FFF8EA' },
-  count: { fontSize: 13, fontWeight: '800', color: colors.fg, marginTop: 2 },
-  name: { fontSize: 10.5, color: colors.muted, maxWidth: 68 },
-  empty: { fontSize: 13, color: colors.muted },
+  eyebrow: { fontSize: 9, fontFamily: 'DMSans-ExtraBold', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.primary },
+  title: { fontFamily: fonts.serifBold, fontSize: 19, color: colors.fg, marginTop: 2 },
+  tile: { width: 74, alignItems: 'center', paddingVertical: 8, borderRadius: 14, backgroundColor: colors.primarySoft || '#FFF8EA' },
+  count: { fontSize: 12, fontFamily: 'DMSans-Bold', color: colors.fg, marginTop: 2 },
+  name: { fontSize: 9.5, fontFamily: fonts.sans, color: colors.muted, maxWidth: 68 },
+  empty: { fontSize: 12, fontFamily: fonts.sans, color: colors.muted },
   recent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  recentText: { flex: 1, fontSize: 13, color: colors.fg },
-  ago: { fontSize: 11.5, color: colors.faint },
+  recentText: { flex: 1, fontSize: 12, fontFamily: fonts.sans, color: colors.fg },
+  recentStrong: { fontFamily: 'DMSans-Bold' },
+  ago: { fontSize: 10, fontFamily: fonts.sans, color: colors.faint },
 });

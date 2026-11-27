@@ -16,6 +16,7 @@ import { useChapter, useChapters, prefetchChapter } from '../bible/loader';
 import { translationInfo, resolveTranslationId } from '../bible/catalog';
 import { useNarration } from '../audio/Narration';
 import { Icon } from '../components/Icons';
+import { d, df } from '../design/sanctuary';
 import { colors, fonts, radius, shadow, readerThemes, lineSpacings, READER_FONTS, readerFontFamily } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
@@ -55,7 +56,6 @@ export default function BibleScreen({ params: routeParams }) {
   const toggleVerse = (n) => setSel((cur) => (cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n].sort((a, b) => a - b)));
   const [picker, setPicker] = useState(null); // 'book' | 'translation' | 'compare' | 'settings' | 'tools' | null
   const [panel, setPanel] = useState(null); // 'note' | null
-  const [studyOpen, setStudyOpen] = useState(false); // verse toolbar: study tools expanded
   const insets = useSafeAreaInsets();
   // Android Back closes the verse sheet (it's drawn over the page, not a Modal) instead of leaving the app
   useEffect(() => {
@@ -63,7 +63,7 @@ export default function BibleScreen({ params: routeParams }) {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { setSel([]); return true; });
     return () => sub.remove();
   }, [selected]);
-  useEffect(() => { if (!sel.length) { setStudyOpen(false); setPanel(null); } }, [sel.length]);
+  useEffect(() => { if (!sel.length) setPanel(null); }, [sel.length]);
 
   // ---- Full-screen reading (Bible tab only): the tab bar slides away; a small arrow handle brings it back,
   // and it hides again after a few seconds or as soon as the text scrolls.
@@ -278,21 +278,35 @@ export default function BibleScreen({ params: routeParams }) {
     { key: 'plans', label: 'Reading plans', icon: 'calendar', onPress: runTool(() => nav.push('Learn', { tab: 'Plans' })) },
   ];
 
-  // Verse toolbar → study tools, in this exact order: Commentary, Exegesis, Cross Reference, Word Study, then the rest.
+  // Verse toolbar (design .verse-toolbar): the design's actions first, then the rest of the study tools.
   const verseCtx = () => ({ ...pos, verse: selected });
-  const studyTools = !selected ? [] : [
-    { k: 'commentary', label: 'Commentary', icon: 'book', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Commentary' }) },
+  const verseActions = !selected ? [] : [
+    { k: 'note', label: 'Note', icon: 'edit', active: panel === 'note', onPress: () => setPanel(panel === 'note' ? null : 'note') },
     { k: 'exegesis', label: 'Exegesis', icon: 'sparkles', onPress: () => nav.push('Exegesis', { bookId: pos.bookId, chapter: pos.chapter, verseStart: selected, verseEnd: selEnd, translation: showingFallback ? 'KJV' : tr }) },
-    { k: 'xref', label: 'Cross Reference', icon: 'link', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Cross-references' }) },
-    { k: 'word', label: 'Word Study', icon: 'search', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Word study' }) },
     { k: 'compare', label: 'Compare', icon: 'bible', onPress: () => { setCompare(true); setSel([]); } },
     { k: 'listen', label: 'Listen', icon: 'headphones', onPress: () => { nar.playChapter(pos.bookId, pos.chapter, { translation: tr, fromVerse: selected }); setSel([]); } },
-    { k: 'image', label: 'Share image', icon: 'image', onPress: () => setImageOpen(true) },
-    { k: 'lexicon', label: 'Word by word', icon: 'type', onPress: () => nav.push('Concordance', verseCtx()) },
+    { k: 'image', label: 'Verse art', icon: 'image', onPress: () => setImageOpen(true) },
     { k: 'ask', label: 'Ask AI', icon: 'chat', onPress: () => nav.push('BibleChat', { context: verseCtx() }) },
-    { k: 'post', label: 'Post', icon: 'repost', onPress: postToFeed },
-    { k: 'pray', label: 'Intercede', icon: 'prayer', onPress: () => nav.push('NewPrayer', { verse: selLabel() }) },
+    { k: 'pray', label: 'Pray', icon: 'prayer', onPress: () => nav.push('NewPrayer', { verse: selLabel() }) },
     { k: 'memorize', label: 'Memorize', icon: 'star', onPress: () => nav.push('Learn', { tab: 'Memorize' }) },
+    { k: 'commentary', label: 'Commentary', icon: 'book', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Commentary' }) },
+    { k: 'xref', label: 'Cross refs', icon: 'link', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Cross-references' }) },
+    { k: 'word', label: 'Word study', icon: 'search', onPress: () => nav.push('Study', { ...verseCtx(), tab: 'Word study' }) },
+    { k: 'lexicon', label: 'Word by word', icon: 'type', onPress: () => nav.push('Concordance', verseCtx()) },
+    {
+      k: 'save',
+      label: verseSaved ? 'Saved' : 'Bookmark',
+      icon: 'bookmark',
+      active: verseSaved,
+      onPress: () => {
+        dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter, verse: selected } });
+        toast.show(verseSaved ? 'Removed from library' : `${refLabel(pos.bookId, pos.chapter, selected)} saved`, { icon: 'bookmark' });
+      },
+    },
+    { k: 'copy', label: 'Copy', glyph: true, onPress: copy },
+    { k: 'share', label: 'Share', icon: 'share', onPress: share },
+    { k: 'post', label: 'Post', icon: 'repost', onPress: postToFeed },
+    { k: 'close', label: 'Close', icon: 'x', onPress: () => setSel([]) },
   ];
   const highlightSelection = (c) => {
     const all = sel.every((n) => hl(n)?.color === c);
@@ -312,18 +326,14 @@ export default function BibleScreen({ params: routeParams }) {
       >
       <View style={[styles.topBar, { backgroundColor: t.bg }]}>
         {isRoute ? (
-          <Pressable onPress={() => nav.pop()} hitSlop={10} accessibilityLabel="Back" style={({ pressed }) => [styles.iconBtn, { backgroundColor: t.chip, borderColor: t.border, marginRight: 10 }, pressed && { opacity: 0.7 }]}>
+          <Pressable onPress={() => nav.pop()} hitSlop={10} accessibilityLabel="Back" style={({ pressed }) => [styles.iconBtn, { backgroundColor: t.chip, borderColor: t.border, marginRight: 12 }, pressed && { opacity: 0.7 }]}>
             <Icon name="chevron-left" size={19} color={t.fg} strokeWidth={2.2} />
           </Pressable>
         ) : null}
-        <Pressable onPress={() => setPicker('book')} style={({ pressed }) => [styles.bookBtn, pressed && { opacity: 0.7 }]} hitSlop={8}>
-          <Text style={[styles.bookBtnEyebrow, { color: t.gold }]}>{book && book.testament === 'NT' ? 'New Testament' : 'Old Testament'}</Text>
-          <View style={styles.bookBtnRow}>
-            <Text style={[styles.bookBtnText, { color: t.fg }]} numberOfLines={1}>{bookName(pos.bookId)} {pos.chapter}</Text>
-            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-              <Path d="M6 9l6 6 6-6" stroke={t.muted} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-            </Svg>
-          </View>
+        {/* .page-header: "John 15" over "KJV · chapter title"; tap to pick a book or chapter */}
+        <Pressable onPress={() => setPicker('book')} style={({ pressed }) => [styles.bookBtn, pressed && { opacity: 0.7 }]} hitSlop={8} accessibilityLabel="Choose book and chapter">
+          <Text style={[styles.bookBtnText, { color: t.fg }]} numberOfLines={1}>{bookName(pos.bookId)} {pos.chapter}</Text>
+          <Text style={[styles.bookBtnEyebrow, { color: t.muted }]} numberOfLines={1}>{tr}{title ? ` · ${title}` : ''}</Text>
         </Pressable>
 
         <View style={styles.rightActions}>
@@ -338,14 +348,29 @@ export default function BibleScreen({ params: routeParams }) {
           </Pressable>
         </View>
       </View>
-      </Animated.View>
+
+      {/* .reader-controls: book, chapter and the AA text settings */}
+      <View style={styles.controlsRow}>
+        <Pressable onPress={() => setPicker('book')} style={({ pressed }) => [styles.ctrlBtn, { backgroundColor: t.surface, borderColor: t.border }, pressed && { opacity: 0.7 }]} accessibilityLabel="Choose book">
+          <Text style={[styles.ctrlText, { color: t.fg }]}>{bookName(pos.bookId)}</Text>
+          <Icon name="chevron-right" size={13} color={t.muted} />
+        </Pressable>
+        <Pressable onPress={() => setPicker('book')} style={({ pressed }) => [styles.ctrlBtn, { backgroundColor: t.surface, borderColor: t.border }, pressed && { opacity: 0.7 }]} accessibilityLabel="Choose chapter">
+          <Text style={[styles.ctrlText, { color: t.fg }]}>{pos.chapter}</Text>
+          <Icon name="chevron-right" size={13} color={t.muted} />
+        </Pressable>
+        <Pressable onPress={() => setPicker('settings')} style={({ pressed }) => [styles.ctrlBtn, styles.ctrlAA, { backgroundColor: t.surface, borderColor: t.border }, pressed && { opacity: 0.7 }]} accessibilityLabel="Text size, font and theme">
+          <Text style={[styles.ctrlText, { color: t.fg }]}>AA</Text>
+        </Pressable>
+      </View>
+    </Animated.View>
 
       {/* Reader */}
       <ScrollView
         ref={scrollRef}
         {...pan.panHandlers}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 22, paddingTop: headH + 4, paddingBottom: selected ? (studyOpen ? 330 : 220) : 72 }}
+        contentContainerStyle={{ paddingHorizontal: 22, paddingTop: headH + 4, paddingBottom: selected ? 240 : 72 }}
         showsVerticalScrollIndicator={false}
         onScroll={onReaderScroll}
         onScrollBeginDrag={hideNav}
@@ -420,7 +445,7 @@ export default function BibleScreen({ params: routeParams }) {
                   {n === 1 && !rtl && v ? (
                     <Text style={[styles.dropCapLetter, { color: t.accent, fontSize: fs * 2, lineHeight: Math.round(fs * spacing) }]}>{v.charAt(0)}</Text>
                   ) : (
-                    <Text style={[styles.vnum, { color: isSel ? t.accent : t.gold }]}>{n}{'\u2009'} </Text>
+                    <Text style={[styles.vnum, { color: t.accent }]}>{n}{'\u2009'} </Text>
                   )}
                   <Text>{n === 1 && !rtl && v ? v.slice(1) : v}</Text>
                   {notes.length ? <Text style={{ color: t.gold, fontSize: fs * 0.8 }}>  ✎</Text> : null}
@@ -433,22 +458,22 @@ export default function BibleScreen({ params: routeParams }) {
         {/* one small banner at the end of the chapter, never between verses */}
         {verses && !compare ? <BannerSlot /> : null}
 
-        {/* Narration bar */}
-        <Pressable onPress={() => { if (!narHere) nar.playChapter(pos.bookId, pos.chapter, { translation: tr }); nar.openPlayer(); }} accessibilityLabel="Open player" style={[styles.audioBar, t.dark && { backgroundColor: t.surface, borderWidth: 1, borderColor: t.border }]}><NightGlow />
+        {/* Narration bar: the design's .audio-player (paper bar, plum play button, progress line) */}
+        <Pressable onPress={() => { if (!narHere) nar.playChapter(pos.bookId, pos.chapter, { translation: tr }); nar.openPlayer(); }} accessibilityLabel="Open player" style={[styles.audioBar, { backgroundColor: t.surface, borderColor: t.border }]}>
           <Pressable onPress={toggleNarration} style={styles.audioPlayBtn} accessibilityLabel={audio ? 'Pause narration' : 'Play narration'}>
             {audio ? (
-              <Svg width={14} height={14} viewBox="0 0 24 24"><Path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill={colors.night} /></Svg>
+              <Svg width={14} height={14} viewBox="0 0 24 24"><Path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="#FFFFFF" /></Svg>
             ) : (
-              <Svg width={14} height={14} viewBox="0 0 24 24"><Path d="M8 5.5v13l10.5-6.5L8 5.5z" fill={colors.night} /></Svg>
+              <Svg width={14} height={14} viewBox="0 0 24 24"><Path d="M8 5.5v13l10.5-6.5L8 5.5z" fill="#FFFFFF" /></Svg>
             )}
           </Pressable>
           <View style={{ flex: 1, minWidth: 0, paddingHorizontal: 12 }}>
-            <Text style={styles.audioTitleText} numberOfLines={1}>{bookName(pos.bookId)} {pos.chapter} · Narration</Text>
-            <View style={styles.audioTrack}><View style={[styles.audioTrackFill, { width: narHere && nar.total ? `${(nar.verse / nar.total) * 100}%` : '0%' }]} /></View>
-            <Text style={styles.audioSubText}>{nar.narrator.name} · {narHere ? `Verse ${nar.verse} of ${nar.total}` : `${verses ? verses.length : 0} verses`} · {tr}</Text>
-          </View>
-          <View style={styles.audioSpeedBadge}>
-            <Text style={styles.audioSpeedText}>{nar.rate}×</Text>
+            <View style={styles.audioTopRow}>
+              <Text style={[styles.audioTitleText, { color: t.fg }]} numberOfLines={1}>{bookName(pos.bookId)} {pos.chapter} · Narration</Text>
+              <Text style={[styles.audioSpeedText, { color: t.muted }]}>{nar.rate}×</Text>
+            </View>
+            <View style={[styles.audioTrack, { backgroundColor: t.borderStrong }]}><View style={[styles.audioTrackFill, { width: narHere && nar.total ? `${(nar.verse / nar.total) * 100}%` : '0%' }]} /></View>
+            <Text style={[styles.audioSubText, { color: t.muted }]}>{nar.narrator.name} · {narHere ? `Verse ${nar.verse} of ${nar.total}` : `${verses ? verses.length : 0} verses`} · {tr}</Text>
           </View>
         </Pressable>
 
@@ -482,12 +507,11 @@ export default function BibleScreen({ params: routeParams }) {
 
       {/* Verse toolbar: highlight colours, Copy, Share, Bookmark, Note + an arrow that opens the study tools */}
       {selected && verses ? (
-        <SlideUp style={[styles.sheet, { backgroundColor: t.surface }, t.dark && { borderTopWidth: 1, borderColor: t.border }]}>
-          <View style={[styles.grabber, { backgroundColor: t.borderStrong }]} />
-          <View style={styles.sheetHeader}>
+        <SlideUp style={styles.vsheet}>
+          <View style={styles.vsHeader}>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[styles.sheetEyebrow, { color: t.gold }]}>{sel.length > 1 ? `${sel.length} verses` : `Verse ${selected}`}</Text>
-              <Text style={[styles.sheetRef, { color: t.fg }]} numberOfLines={1}>{selLabel()}</Text>
+              <Text style={styles.vsEyebrow}>{sel.length > 1 ? `${sel.length} verses` : `Verse ${selected}`}</Text>
+              <Text style={styles.vsRef} numberOfLines={1}>{selLabel()}</Text>
             </View>
             <View style={styles.hlRow}>
               {HIGHLIGHT_COLORS.map((c) => {
@@ -499,51 +523,20 @@ export default function BibleScreen({ params: routeParams }) {
                 );
               })}
             </View>
-            <Pressable onPress={() => setSel([])} hitSlop={12} style={[styles.sheetCloseBtn, { backgroundColor: t.raised }]} accessibilityLabel="Close">
-              <Svg width={12} height={12} viewBox="0 0 24 24" fill="none"><Path d="M6 6l12 12M18 6L6 18" stroke={t.muted} strokeWidth={2.6} strokeLinecap="round" /></Svg>
-            </Pressable>
           </View>
 
-          <View style={styles.vbar}>
-            <View style={styles.vbarActions}>
-              {[
-                { k: 'copy', label: 'Copy', glyph: (col) => <CopyGlyph color={col} />, onPress: copy },
-                { k: 'share', label: 'Share', icon: 'share', onPress: share },
-                { k: 'save', label: verseSaved ? 'Saved' : 'Bookmark', icon: 'bookmark', active: verseSaved, onPress: () => { dispatch({ type: 'bookmark', b: { bookId: pos.bookId, chapter: pos.chapter, verse: selected } }); toast.show(verseSaved ? 'Removed from library' : `${refLabel(pos.bookId, pos.chapter, selected)} saved`, { icon: 'bookmark' }); } },
-                { k: 'note', label: 'Note', icon: 'edit', onPress: () => setPanel(panel === 'note' ? null : 'note'), active: panel === 'note' },
-              ].map((a) => {
-                const col = a.active ? t.accent : t.fg;
-                return (
-                  <Pressable key={a.k} onPress={a.onPress} accessibilityRole="button" accessibilityLabel={a.label} style={({ pressed }) => [styles.vbarAction, pressed && { opacity: 0.6 }]}>
-                    {a.glyph ? a.glyph(col) : <Icon name={a.icon} size={19} color={col} fill={a.active ? 'solid' : 'none'} />}
-                    <Text style={[styles.vbarLabel, { color: col }]} numberOfLines={1}>{a.label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Pressable
-              onPress={() => setStudyOpen(!studyOpen)}
-              accessibilityRole="button"
-              accessibilityLabel={studyOpen ? 'Hide study tools' : 'More study tools'}
-              accessibilityState={{ expanded: studyOpen }}
-              style={({ pressed }) => [styles.moreArrow, { backgroundColor: studyOpen ? t.accent : t.accentSoft }, pressed && { opacity: 0.75 }]}
-            >
-              <RotateArrow open={studyOpen} color={studyOpen ? (t.dark ? t.bg : '#FFFFFF') : t.accent} />
-            </Pressable>
-          </View>
-
-          <Expand open={studyOpen}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.studyRow}>
-              {studyTools.map((s, i) => (
-                <Pressable key={s.k} onPress={s.onPress} accessibilityRole="button" accessibilityLabel={s.label} style={({ pressed }) => [styles.studyTool, pressed && { opacity: 0.6 }]}>
-                  <View style={[styles.studyIcon, { backgroundColor: i < 4 ? t.accentSoft : t.raised }]}>
-                    <Icon name={s.icon} size={20} color={i < 4 ? t.accent : t.fg} />
-                  </View>
-                  <Text style={[styles.studyLabel, { color: t.fg }]} numberOfLines={2}>{s.label}</Text>
+          {/* .verse-toolbar: one scrolling strip of icon + label actions */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.vtRow} accessibilityLabel="Verse actions">
+            {verseActions.map((a) => {
+              const col = a.active ? '#F4D88C' : '#DDD0C6';
+              return (
+                <Pressable key={a.k} onPress={a.onPress} accessibilityRole="button" accessibilityLabel={a.label} accessibilityState={{ selected: !!a.active }} style={({ pressed }) => [styles.vtAction, pressed && { opacity: 0.6 }]}>
+                  {a.glyph ? <CopyGlyph color={col} /> : <Icon name={a.icon} size={18} color={col} fill={a.active ? 'solid' : 'none'} />}
+                  <Text style={[styles.vtLabel, { color: col }]} numberOfLines={1}>{a.label}</Text>
                 </Pressable>
-              ))}
-            </ScrollView>
-          </Expand>
+              );
+            })}
+          </ScrollView>
 
           {panel === 'note' ? (
             <View style={{ marginTop: 12, gap: 10 }}>
@@ -776,42 +769,6 @@ function SlideUp({ children, style }) {
   );
 }
 
-// Right-pointing arrow that turns to point down when the study tools are open.
-function RotateArrow({ open, color }) {
-  const a = useRef(new Animated.Value(open ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(a, { toValue: open ? 1 : 0, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
-  }, [open]);
-  return (
-    <Animated.View style={{ transform: [{ rotate: a.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '90deg'] }) }] }}>
-      <Svg width={16} height={16} viewBox="0 0 24 24" fill="none"><Path d="M9 6l6 6-6 6" stroke={color} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" /></Svg>
-    </Animated.View>
-  );
-}
-
-// Smooth height + fade expand for the study tools row.
-function Expand({ open, children }) {
-  const a = useRef(new Animated.Value(open ? 1 : 0)).current;
-  const [h, setH] = useState(0);
-  const [mounted, setMounted] = useState(open);
-  useEffect(() => {
-    if (open) setMounted(true);
-    Animated.timing(a, { toValue: open ? 1 : 0, duration: open ? 300 : 220, easing: Easing.out(Easing.cubic), useNativeDriver: false })
-      .start(({ finished }) => { if (finished && !open) setMounted(false); });
-  }, [open]);
-  if (!mounted) return null;
-  return (
-    <Animated.View style={{ overflow: 'hidden', height: h ? a.interpolate({ inputRange: [0, 1], outputRange: [0, h] }) : undefined, opacity: a }}>
-      <Animated.View
-        onLayout={(e) => { const hh = Math.round(e.nativeEvent.layout.height); if (hh && hh !== h) setH(hh); }}
-        style={{ transform: [{ translateX: a.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }] }}
-      >
-        {children}
-      </Animated.View>
-    </Animated.View>
-  );
-}
-
 function CompareView({ pos, base, others, onPick }) {
   const cols = [base, ...others.filter((o) => o !== base)];
   const texts = useChapters(cols, pos.bookId, pos.chapter);
@@ -878,9 +835,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.screen,
   },
   bookBtn: { flexShrink: 1, flexGrow: 1, paddingVertical: 2 },
-  bookBtnEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.gold },
+  bookBtnEyebrow: { fontFamily: df.sans, fontSize: 11, marginTop: 2 },
   bookBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
-  bookBtnText: { fontFamily: fonts.serifBold, fontSize: 25, color: colors.fg, letterSpacing: -0.5 },
+  bookBtnText: { fontFamily: df.displayBold, fontSize: 24, lineHeight: 28, letterSpacing: -0.4 },
   rightActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   trBadge: {
     height: 36,
@@ -895,9 +852,9 @@ const styles = StyleSheet.create({
   },
   trBadgeText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.6, color: colors.primary },
   iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -957,25 +914,28 @@ const styles = StyleSheet.create({
   dropCapLetter: { fontFamily: fonts.display, color: colors.primary },
   vnum: { fontFamily: fonts.sans, fontSize: 11, color: colors.gold, fontWeight: '700' },
 
-  // Narration bar
-  audioBar: { overflow: 'hidden',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.night,
-    borderRadius: radius.lg,
-    padding: 12,
-    marginTop: 30,
-    ...shadow.lg,
-  },
-  audioPlayBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
-  audioTitleText: { fontSize: 13, fontWeight: '700', color: colors.nightFg },
-  audioTrack: { height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.14)', marginTop: 7, overflow: 'hidden' },
-  audioTrackFill: { height: 3, backgroundColor: colors.goldLight },
-  audioSubText: { fontSize: 11, color: colors.nightMuted, marginTop: 5 },
-  audioSpeedBadge: { backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 9 },
-  audioSpeedText: { fontSize: 11, fontWeight: '800', color: colors.nightFg },
-
-  // Pager
+  // Reader header and .reader-controls (design)
+  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingTop: 2, paddingBottom: 10 },
+  ctrlBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 34, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1 },
+  ctrlAA: { marginLeft: 'auto' },
+  ctrlText: { fontFamily: df.sansBold, fontSize: 11 },
+  // Verse toolbar (design .verse-toolbar): dark floating strip with icon + label actions
+  vsheet: { position: 'absolute', left: 12, right: 12, bottom: 14, borderRadius: 20, backgroundColor: 'rgba(25,23,38,0.96)', paddingHorizontal: 10, paddingTop: 10, paddingBottom: 8, ...shadow.lg },
+  vsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4, marginBottom: 6 },
+  vsEyebrow: { fontFamily: df.sansBold, fontSize: 9, letterSpacing: 1.3, textTransform: 'uppercase', color: '#F4D88C' },
+  vsRef: { fontFamily: df.displayBold, fontSize: 16, color: '#FFFFFF', marginTop: 1 },
+  vtRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  vtAction: { minWidth: 56, alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 4 },
+  vtLabel: { fontFamily: df.sans, fontSize: 9 },
+  // Narration bar (design .audio-player)
+  audioBar: { flexDirection: 'row', alignItems: 'center', marginTop: 30, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 18, borderWidth: 1 },
+  audioPlayBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  audioTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  audioTitleText: { flex: 1, fontFamily: df.sansBold, fontSize: 11 },
+  audioTrack: { height: 3, borderRadius: 2, marginTop: 7, overflow: 'hidden' },
+  audioTrackFill: { height: 3, backgroundColor: d.plum },
+  audioSubText: { fontFamily: df.sans, fontSize: 9, marginTop: 4 },
+  audioSpeedText: { fontFamily: df.sansBold, fontSize: 10 },
   pager: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 16 },
   pagerBtn: {
     flex: 1,

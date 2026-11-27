@@ -29,7 +29,7 @@ export function GiftGrid({ items, selected, onPick, balance, animate = true, col
         const on = selected === g.id;
         const short = balance != null && g.coins > balance;
         return (
-          <PressScale key={g.id} onPress={() => onPick(g)} scaleTo={0.95} style={[styles.cell, { width: `${100 / columns - 2}%` }, on && styles.cellOn]}
+          <PressScale key={g.id} onPress={() => onPick(g)} scaleTo={0.95} style={[styles.cell, columns === 2 && styles.cellWide, { width: `${100 / columns - 2}%` }, on && styles.cellOn]}
             accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={`${g.name}, ${fmt(g.coins)} Gifting Coins${short ? ', more than your balance' : ''}`}>
             {g.tier === 'premium' ? <View style={styles.premium}><Text style={styles.premiumText}>PREMIUM</Text></View> : null}
             <GiftArt gift={g} size={58} animate={animate && (on || g.tier === 'premium')} />
@@ -137,13 +137,15 @@ const styles = StyleSheet.create({
   bar: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
   link: { color: colors.primary, fontWeight: '700', fontSize: 13 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8 },
-  cell: { alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.border },
+  cell: { alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4, borderRadius: 19, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  // the design's gift tile (.gift-grid button): a roomier 140px card when the store shows two columns
+  cellWide: { minHeight: 140, justifyContent: 'center', paddingVertical: 13 },
   cellOn: { borderColor: colors.primary, backgroundColor: alpha(colors.primary, 0.06) },
   premium: { position: 'absolute', top: 5, right: 5, paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 6, backgroundColor: alpha('#9C4FD6', 0.12) },
   premiumText: { fontSize: 7.5, fontWeight: '800', letterSpacing: 0.6, color: '#7B3BB3' },
-  name: { fontSize: 12.5, fontWeight: '700', color: colors.fg, marginTop: 4, maxWidth: '100%' },
+  name: { fontFamily: fonts.serifBold, fontSize: 12, color: colors.fg, marginTop: 4, maxWidth: '100%' },
   price: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
-  priceText: { fontSize: 11.5, fontWeight: '700', color: colors.gold },
+  priceText: { fontFamily: 'DMSans-Bold', fontSize: 11, color: colors.gold },
   chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.raised, maxWidth: 160 },
   chipOn: { backgroundColor: colors.primary },
   chipText: { fontSize: 13, fontWeight: '600', color: colors.fg },

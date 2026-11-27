@@ -1,10 +1,11 @@
 // CHRISTIAN CARE NETWORK (brief 6.7): Talk to a Priest (verified directory → profile → private chat, apply to be listed)
 // and Talk to an Apostle (opens the Apostle's inbox directly). Server: backend/src/routes/care.js.
+// Styled in the Figma care page: sage feature hero, feature list items and the trust note (src/design/sanctuary.js).
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Screen, Button, Input, Badge, Tag, Notice, Empty, Pills } from '../components/ui';
+import { Button, Input, Badge, Tag, Notice, Empty, Pills } from '../components/ui';
 import { Icon } from '../components/Icons';
-import { PressScale, FadeInUp, ScaleIn, Pulse } from '../components/Motion';
+import { FadeInUp, ScaleIn, Pulse } from '../components/Motion';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useNav, useIsFocused } from '../navigation';
@@ -12,6 +13,8 @@ import { useToast } from '../components/Toast';
 import { useApi } from '../api/auth';
 import { useSync } from '../api/sync';
 import { errorMessage } from '../api/client';
+import { d, df, Tap } from '../design/sanctuary';
+import { DScreen } from '../design/profile/parts';
 
 const AVAIL = {
   available: { label: 'Available', tint: colors.positive || colors.sage },
@@ -60,8 +63,8 @@ export function CareNetworkOptions({ summary }) {
   const nav = useNav();
   const openChat = useOpenCareChat();
   const [busy, setBusy] = useState(false);
-  const d = summary || {};
-  const apostle = d.apostle || { available: false };
+  const sm = summary || {};
+  const apostle = sm.apostle || { available: false };
   const talkToApostle = async () => {
     if (!apostle.available || busy) return;
     setBusy(true);
@@ -69,41 +72,41 @@ export function CareNetworkOptions({ summary }) {
     setBusy(false);
   };
   return (
-    <View style={{ marginTop: 14, gap: 10 }}>
+    <View style={{ marginTop: 14, gap: 9 }}>
       <FadeInUp index={1} distance={10}>
-        <PressScale onPress={() => nav.push('Priests')} scaleTo={0.985} style={[styles.option, { backgroundColor: '#EEF0F8' }]} accessibilityRole="button" accessibilityLabel="Talk to a Priest">
-          <View style={[styles.optionIcon, { backgroundColor: colors.primary }]}><Icon name="church" size={20} color="#FFFFFF" /></View>
+        <Tap onPress={() => nav.push('Priests')} style={s.item} accessibilityRole="button" accessibilityLabel="Talk to a Priest">
+          <View style={s.itemIcon}><Icon name="church" size={17} color={d.plum} /></View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.optionTitle}>Talk to a Priest</Text>
-            <Text style={styles.optionSub}>Verified Catholic priests · private conversation</Text>
+            <Text style={s.itemTitle}>Talk to a Priest</Text>
+            <Text style={s.itemSub}>Verified Catholic priests · private conversation</Text>
           </View>
-          <Icon name="chevron-right" size={15} color={colors.faint} />
-        </PressScale>
+          <Icon name="chevron-right" size={15} color="#AAA6AD" />
+        </Tap>
       </FadeInUp>
       <FadeInUp index={2} distance={10}>
-        <PressScale onPress={talkToApostle} disabled={!apostle.available} scaleTo={0.985} style={[styles.option, { backgroundColor: colors.cardGold }]} accessibilityRole="button" accessibilityLabel="Talk to an Apostle">
+        <Tap onPress={talkToApostle} disabled={!apostle.available} style={[s.item, !apostle.available && { opacity: 0.75 }]} accessibilityRole="button" accessibilityLabel="Talk to an Apostle">
           <Pulse min={0.95} max={1.05} duration={2000} active={!!apostle.available}>
             {apostle.available && apostle.avatarUrl ? <SocialAvatar name={apostle.displayName} uri={apostle.avatarUrl} size={44} ring /> : (
-              <View style={[styles.optionIcon, { backgroundColor: colors.gold }]}><Icon name="sparkles" size={20} color="#FFFFFF" /></View>
+              <View style={s.itemIcon}><Icon name="sparkles" size={17} color={d.plum} /></View>
             )}
           </Pulse>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.optionTitle}>Talk to an Apostle</Text>
-            <Text style={styles.optionSub} numberOfLines={2}>
-              {apostle.available ? `Message ${apostle.name || 'the Apostle'} directly — personal and private` : d.offline ? OFFLINE : 'Coming soon'}
+            <Text style={s.itemTitle}>Talk to an Apostle</Text>
+            <Text style={s.itemSub} numberOfLines={2}>
+              {apostle.available ? `Message ${apostle.name || 'the Apostle'} directly — personal and private` : sm.offline ? OFFLINE : 'Coming soon'}
             </Text>
           </View>
-          {busy ? <ActivityIndicator color={colors.gold} /> : apostle.available ? <Icon name="chat" size={16} color={colors.goldMuted} /> : <Tag label="Soon" />}
-        </PressScale>
+          {busy ? <ActivityIndicator color={d.plum} /> : apostle.available ? <Icon name="chat" size={16} color={d.plum} /> : <Tag label="Soon" />}
+        </Tap>
       </FadeInUp>
-      {d.isApostle ? (
+      {sm.isApostle ? (
         <FadeInUp index={3} distance={10}>
-          <Button kind="ghost" label={`Apostle inbox${d.inbox && d.inbox.apostle ? ` (${d.inbox.apostle})` : ''}`} icon={<Icon name="chat" size={14} color={colors.fg} />} onPress={() => nav.push('CareInbox', { kind: 'apostle' })} />
+          <Button kind="ghost" label={`Apostle inbox${sm.inbox && sm.inbox.apostle ? ` (${sm.inbox.apostle})` : ''}`} icon={<Icon name="chat" size={14} color={colors.fg} />} onPress={() => nav.push('CareInbox', { kind: 'apostle' })} />
         </FadeInUp>
       ) : null}
-      {d.priest && d.priest.status === 'approved' ? (
+      {sm.priest && sm.priest.status === 'approved' ? (
         <FadeInUp index={3} distance={10}>
-          <Button kind="ghost" label={`My “Talk to a Priest” chats${d.inbox && d.inbox.priest ? ` (${d.inbox.priest})` : ''}`} icon={<Icon name="chat" size={14} color={colors.fg} />} onPress={() => nav.push('CareInbox', { kind: 'priest' })} />
+          <Button kind="ghost" label={`My “Talk to a Priest” chats${sm.inbox && sm.inbox.priest ? ` (${sm.inbox.priest})` : ''}`} icon={<Icon name="chat" size={14} color={colors.fg} />} onPress={() => nav.push('CareInbox', { kind: 'priest' })} />
         </FadeInUp>
       ) : null}
     </View>
@@ -115,7 +118,7 @@ function PriestCard({ p, onPress, index }) {
   const av = AVAIL[p.availability] || AVAIL.available;
   return (
     <FadeInUp index={index} distance={10} duration={300}>
-      <PressScale onPress={onPress} scaleTo={0.985} style={styles.card} accessibilityRole="button" accessibilityLabel={`${p.displayName}, ${p.parish || p.diocese}, ${p.country}`}>
+      <Tap onPress={onPress} style={styles.card} accessibilityRole="button" accessibilityLabel={`${p.displayName}, ${p.parish || p.diocese}, ${p.country}`}>
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View>
             <SocialAvatar name={p.name} uri={p.photoUrl} size={56} ring />
@@ -135,7 +138,7 @@ function PriestCard({ p, onPress, index }) {
           <Badge label={av.label} tint={av.tint} />
           <Text style={styles.link}>View profile</Text>
         </View>
-      </PressScale>
+      </Tap>
     </FadeInUp>
   );
 }
@@ -175,7 +178,8 @@ export function PriestsScreen() {
   }, [q, country, language, api.online]);
   const mine = summary && summary.priest;
   return (
-    <Screen back title="Talk to a Priest" subtitle="Verified Catholic priests">
+    <DScreen back onBack={() => nav.pop()} title="Talk to a Priest" subtitle="Verified Catholic priests">
+      {/* .feature-hero.sage */}
       <FadeInUp style={styles.hero}>
         <Text style={styles.heroEyebrow}>✦  Christian Care Network</Text>
         <Text style={styles.heroTitle}>A priest who will listen</Text>
@@ -183,14 +187,14 @@ export function PriestsScreen() {
       </FadeInUp>
       {!api.online ? <Notice text={OFFLINE} /> : null}
       <View style={styles.search}>
-        <Icon name="search" size={16} color={colors.muted} />
-        <TextInput value={q} onChangeText={setQ} placeholder="Search by name, parish or diocese" placeholderTextColor={colors.faint} style={styles.searchInput} autoCorrect={false} />
-        {q ? <Pressable onPress={() => setQ('')} hitSlop={10}><Icon name="x" size={14} color={colors.muted} /></Pressable> : null}
+        <Icon name="search" size={16} color={d.muted} />
+        <TextInput value={q} onChangeText={setQ} placeholder="Search by name, parish or diocese" placeholderTextColor={d.muted} style={styles.searchInput} autoCorrect={false} />
+        {q ? <Pressable onPress={() => setQ('')} hitSlop={10}><Icon name="x" size={14} color={d.muted} /></Pressable> : null}
       </View>
       {facets.countries.length > 1 ? <Pills small items={['All countries', ...facets.countries]} value={country} onChange={setCountry} style={{ marginTop: 10 }} /> : null}
       {facets.languages.length > 1 ? <Pills small items={['All languages', ...facets.languages]} value={language} onChange={setLanguage} style={{ marginTop: 8 }} /> : null}
       {error ? <Notice tint={colors.negative} text={error} /> : null}
-      {data === null ? <ActivityIndicator color={colors.primary} style={{ marginTop: 30 }} /> : null}
+      {data === null ? <ActivityIndicator color={d.plum} style={{ marginTop: 30 }} /> : null}
       {data && data.map((p, i) => <PriestCard key={p.id} p={p} index={i} onPress={() => nav.push('PriestProfile', { id: p.id, priest: p })} />)}
       {data && !data.length && api.online && !error ? (
         <ScaleIn from={0.92} style={{ marginTop: 10 }}>
@@ -201,16 +205,24 @@ export function PriestsScreen() {
         </ScaleIn>
       ) : null}
       <FadeInUp index={2} style={{ marginTop: 18 }}>
-        <PressScale onPress={() => nav.push('PriestApply')} scaleTo={0.985} style={styles.applyRow} accessibilityRole="button">
-          <Icon name="church" size={17} color={colors.primary} />
+        <Tap onPress={() => nav.push('PriestApply')} style={styles.applyRow} accessibilityRole="button">
+          <View style={styles.itemIcon}><Icon name="church" size={17} color={d.plum} /></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.applyTitle}>{mine ? 'My priest profile' : 'Are you a Catholic priest?'}</Text>
             <Text style={styles.meta}>{mine ? STATUS_TEXT[mine.status] || mine.status : 'Apply to be listed — we verify every profile'}</Text>
           </View>
-          <Icon name="chevron-right" size={15} color={colors.faint} />
-        </PressScale>
+          <Icon name="chevron-right" size={15} color="#AAA6AD" />
+        </Tap>
       </FadeInUp>
-    </Screen>
+      {/* .trust-note */}
+      <View style={styles.trust}>
+        <Icon name="shield" size={20} color={d.plum} />
+        <Text style={styles.trustText}>
+          <Text style={styles.trustStrong}>Trust is sacred here.</Text>
+          {'\n'}Every experience includes verification, reporting, and privacy controls.
+        </Text>
+      </View>
+    </DScreen>
   );
 }
 
@@ -236,15 +248,15 @@ export function PriestProfileScreen({ params = {} }) {
   }, [params.id, api.online]);
   if (!p) {
     return (
-      <Screen back title="Priest">
-        {error ? <Empty title="Not available" body={error} action="Back to the directory" onAction={() => nav.pop()} /> : <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />}
-      </Screen>
+      <DScreen back onBack={() => nav.pop()} title="Priest">
+        {error ? <Empty title="Not available" body={error} action="Back to the directory" onAction={() => nav.pop()} /> : <ActivityIndicator color={d.plum} style={{ marginTop: 40 }} />}
+      </DScreen>
     );
   }
   const av = AVAIL[p.availability] || AVAIL.available;
   const message = async () => { setBusy(true); await openChat(`/care/priests/${p.id}/message`, p.displayName); setBusy(false); };
   return (
-    <Screen back title={p.displayName} subtitle="Talk to a Priest">
+    <DScreen back onBack={() => nav.pop()} title={p.displayName} subtitle="Talk to a Priest">
       <FadeInUp style={styles.profile}>
         <ScaleIn from={0.7} delay={80}>
           <SocialAvatar name={p.name} uri={p.photoUrl} size={92} ring />
@@ -265,7 +277,7 @@ export function PriestProfileScreen({ params = {} }) {
         )}
       </FadeInUp>
       <Notice text="Your conversation is private between you and the priest. For confession and the sacraments, please visit your parish. In an emergency, contact local emergency services." />
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -305,9 +317,9 @@ export function PriestApplyScreen() {
     } catch (e) { toast.show(errorMessage(e, 'Couldn’t send your application'), { tone: 'error', icon: 'x' }); }
     setBusy(false);
   };
-  if (mine === undefined) return <Screen back title="Priest profile"><ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} /></Screen>;
+  if (mine === undefined) return <DScreen back onBack={() => nav.pop()} title="Priest profile"><ActivityIndicator color={d.plum} style={{ marginTop: 40 }} /></DScreen>;
   return (
-    <Screen back title={approved ? 'My priest profile' : 'Apply as a priest'} subtitle="Talk to a Priest">
+    <DScreen back onBack={() => nav.pop()} title={approved ? 'My priest profile' : 'Apply as a priest'} subtitle="Talk to a Priest">
       {mine ? <Notice tint={mine.status === 'approved' ? colors.primary : mine.status === 'pending' ? colors.gold : colors.negative} text={`${STATUS_TEXT[mine.status] || mine.status}${mine.rejectReason ? ` — ${mine.rejectReason}` : ''}`} /> : (
         <Notice text="Only ordained Catholic priests can be listed. The Bible Nestra team checks every application (for example with your parish or diocese) before your profile appears." />
       )}
@@ -342,7 +354,7 @@ export function PriestApplyScreen() {
           <Button label={busy ? 'Sending…' : approved ? 'Save changes' : mine ? 'Apply again' : 'Send application'} disabled={busy || (!approved && !confirm)} onPress={submit} style={{ marginTop: 18 }} />
         </View>
       )}
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -370,59 +382,66 @@ export function CareInboxScreen({ params = {} }) {
   }, [api.online, kind, focused]);
   const label = kind === 'apostle' ? 'Talk to an Apostle' : 'Talk to a Priest';
   return (
-    <Screen back title={kind === 'apostle' ? 'Apostle inbox' : 'Priest inbox'} subtitle={`Only conversations started from “${label}”`}>
+    <DScreen back onBack={() => nav.pop()} title={kind === 'apostle' ? 'Apostle inbox' : 'Priest inbox'} subtitle={`Only conversations started from “${label}”`}>
       {error ? <Notice tint={colors.negative} text={error} /> : null}
-      {!data && !error ? <ActivityIndicator color={colors.primary} style={{ marginTop: 30 }} /> : null}
+      {!data && !error ? <ActivityIndicator color={d.plum} style={{ marginTop: 30 }} /> : null}
       {data && !data.items.length ? <Empty title="No conversations yet" body={`When someone taps “${label}”, their chat appears here.`} /> : null}
       {data && data.items.map((c, i) => (
         <FadeInUp key={c.conversationId} index={i} distance={8} duration={260}>
-          <PressScale onPress={() => nav.push('Chat', { id: c.conversationId, to: c.requester.displayName, userId: c.requester.id })} scaleTo={0.985} style={styles.inboxRow} accessibilityRole="button">
+          <Tap onPress={() => nav.push('Chat', { id: c.conversationId, to: c.requester.displayName, userId: c.requester.id })} style={styles.inboxRow} accessibilityRole="button">
             <SocialAvatar name={c.requester.displayName} uri={c.requester.avatarUrl} size={46} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={styles.name} numberOfLines={1}>{c.requester.displayName}</Text>
                 <Tag label={label} tint={kind === 'apostle' ? colors.goldMuted : colors.primary} />
               </View>
-              <Text style={[styles.meta, c.unread ? { color: colors.fg, fontWeight: '600' } : null]} numberOfLines={1}>{c.lastMessage ? `${c.lastMessage.mine ? 'You: ' : ''}${c.lastMessage.text || 'Attachment'}` : 'No messages yet'}</Text>
+              <Text style={[styles.meta, c.unread ? { color: d.ink, fontFamily: df.sansBold } : null]} numberOfLines={1}>{c.lastMessage ? `${c.lastMessage.mine ? 'You: ' : ''}${c.lastMessage.text || 'Attachment'}` : 'No messages yet'}</Text>
             </View>
             {c.unread ? <View style={styles.unread}><Text style={styles.unreadText}>{c.unread > 99 ? '99+' : c.unread}</Text></View> : null}
-          </PressScale>
+          </Tap>
         </FadeInUp>
       ))}
-    </Screen>
+    </DScreen>
   );
 }
 
+const s = StyleSheet.create({
+  item: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 70, padding: 12, borderRadius: 17, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  itemIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: d.lavender },
+  itemTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
+  itemSub: { fontFamily: df.sans, fontSize: 9, color: d.muted, marginTop: 3 },
+});
+
 const styles = StyleSheet.create({
-  option: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
-  optionIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  optionTitle: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.fg },
-  optionSub: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
-  hero: { backgroundColor: '#EEF0F8', borderRadius: radius.lg, padding: 16, marginBottom: 12 },
-  heroEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.primary },
-  heroTitle: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg, marginTop: 4, letterSpacing: -0.4 },
-  heroSub: { fontSize: 13, lineHeight: 18, color: colors.muted, marginTop: 4 },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  searchInput: { flex: 1, fontSize: 14.5, color: colors.fg, paddingVertical: 0, outlineStyle: 'none' },
-  card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: 14, marginTop: 12, ...shadow.sm },
-  availDot: { position: 'absolute', right: 1, bottom: 1, width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: colors.surface },
-  name: { fontSize: 15.5, fontWeight: '700', color: colors.fg, flexShrink: 1 },
-  meta: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
-  bio: { fontSize: 13.5, lineHeight: 19, color: colors.passage || colors.fg, marginTop: 10 },
-  link: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
-  verified: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 2 },
-  verifiedText: { fontSize: 10.5, fontWeight: '700', color: '#FFFFFF' },
-  applyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  applyTitle: { fontSize: 14.5, fontWeight: '700', color: colors.fg },
-  profile: { alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 20, marginBottom: 12, ...shadow.sm },
-  profileName: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg, textAlign: 'center' },
-  profileMeta: { fontSize: 13, color: colors.muted, marginTop: 3, textAlign: 'center' },
-  profileBio: { fontFamily: fonts.serif, fontSize: 15, lineHeight: 22, color: colors.fg, marginTop: 14, textAlign: 'center' },
-  fieldLabel: { fontSize: 12, fontWeight: '700', color: colors.muted, marginBottom: 6, letterSpacing: 0.2 },
+  itemIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: d.lavender },
+  hero: { backgroundColor: d.sage, borderRadius: 28, padding: 25, marginTop: 8, marginBottom: 12 },
+  heroEyebrow: { fontFamily: df.sansHeavy, fontSize: 8, letterSpacing: 1.4, textTransform: 'uppercase', color: d.sageDark },
+  heroTitle: { fontFamily: df.display, fontSize: 31, lineHeight: 34, color: d.sageDark, marginTop: 11 },
+  heroSub: { fontFamily: df.sans, fontSize: 11, lineHeight: 17, color: d.sageDark, opacity: 0.85, marginTop: 6, maxWidth: 310 },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 48, paddingHorizontal: 14, borderRadius: 15, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  searchInput: { flex: 1, fontSize: 12, fontFamily: df.sans, color: d.ink, paddingVertical: 0, outlineStyle: 'none' },
+  card: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 20, padding: 14, marginTop: 12 },
+  availDot: { position: 'absolute', right: 1, bottom: 1, width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: d.paper },
+  name: { fontFamily: df.display, fontSize: 15, color: d.ink, flexShrink: 1 },
+  meta: { fontFamily: df.sans, fontSize: 10, color: d.muted, marginTop: 2 },
+  bio: { fontFamily: df.sans, fontSize: 11, lineHeight: 17, color: d.ink, marginTop: 10 },
+  link: { fontFamily: df.sansBold, fontSize: 10, color: d.plum },
+  verified: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: d.plum, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 2 },
+  verifiedText: { fontSize: 10, fontFamily: df.sansBold, color: '#FFFFFF' },
+  applyRow: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 70, padding: 12, borderRadius: 17, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  applyTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
+  trust: { flexDirection: 'row', gap: 11, marginTop: 20, padding: 15, borderRadius: 16, backgroundColor: '#ECEAE5' },
+  trustText: { flex: 1, fontFamily: df.sans, fontSize: 10, lineHeight: 15, color: d.muted },
+  trustStrong: { color: d.ink, fontFamily: df.sansBold },
+  profile: { alignItems: 'center', backgroundColor: d.paper, borderRadius: 22, borderWidth: 1, borderColor: d.line, padding: 20, marginTop: 8, marginBottom: 12 },
+  profileName: { fontFamily: df.displayBold, fontSize: 22, color: d.ink, textAlign: 'center' },
+  profileMeta: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 3, textAlign: 'center' },
+  profileBio: { fontFamily: df.displayItalic, fontSize: 15, lineHeight: 22, color: d.ink, marginTop: 14, textAlign: 'center' },
+  fieldLabel: { fontFamily: df.sansBold, fontSize: 10, color: '#4C3D32', marginBottom: 8 },
   confirm: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
   check: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  confirmText: { flex: 1, fontSize: 13.5, color: colors.fg },
-  inboxRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  unread: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: colors.positive || colors.primary, alignItems: 'center', justifyContent: 'center' },
-  unreadText: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
+  confirmText: { flex: 1, fontFamily: df.sans, fontSize: 11, color: d.ink },
+  inboxRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: d.line },
+  unread: { minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  unreadText: { fontSize: 10, fontFamily: df.sansBold, color: '#FFFFFF' },
 });

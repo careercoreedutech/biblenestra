@@ -2,15 +2,16 @@
 // contest details (quiz or creative entry), entries gallery with free voting, results, certificates.
 // The server does every score, vote count and payout (backend/src/routes/contests.js).
 // Paid entry / paid votes are not enabled: fees are shown, registration says "opens soon".
+// Look: the design's Contests page (dark hero, paper cards, plum actions, gold prize rows) on the design kit.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Video, ResizeMode, Audio } from 'expo-av';
-import { Screen, Section, Button, Empty, Notice, Badge, NightGlow, Pills, alpha } from '../components/ui';
+import { Empty, Notice, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { PressScale, FadeInUp, ScaleIn, AnimatedBar, AnimatedModal } from '../components/Motion';
 import { SocialAvatar } from '../components/social/FeedCard';
-import { colors, fonts, radius, shadow } from '../theme';
+import { colors } from '../theme';
 import { useNav, useIsFocused } from '../navigation';
 import { useToast } from '../components/Toast';
 import { useStore } from '../store';
@@ -20,6 +21,9 @@ import { useSync } from '../api/sync';
 import { API_CONFIG } from '../api/config';
 import { pickPhotos, uploadImage, pickVideo, uploadVideo, pickAudio, uploadAudio } from '../api/media';
 import { BattlesPanel } from './BattleScreens';
+import { d, df, Grad, Eyebrow, gradients, fillImage } from '../design/sanctuary';
+import { Screen, Section, Button, Pills } from '../design/contests/parts';
+import { DInput } from '../design/profile/parts';
 
 export const STATUS = {
   upcoming: { label: 'Upcoming', tint: colors.sky },
@@ -98,7 +102,7 @@ export function ContestCard({ c, index = 0, onPress }) {
           <Text style={styles.cardCat}>{c.contestCategoryLabel}{c.teamMode === 'church' ? ' · Church teams' : ''}</Text>
           <Text style={styles.cardTitle} numberOfLines={2}>{c.title}</Text>
           {c.description ? <Text style={styles.cardDesc} numberOfLines={2}>{c.description}</Text> : null}
-          {prizeLine(c) ? <View style={styles.prizeRow}><Icon name="gift" size={14} color={colors.gold} /><Text style={styles.prizeText} numberOfLines={1}>{prizeLine(c)}</Text></View> : null}
+          {prizeLine(c) ? <View style={styles.prizeRow}><Icon name="gift" size={14} color={d.plum} /><Text style={styles.prizeText} numberOfLines={1}>{prizeLine(c)}</Text></View> : null}
           <View style={styles.cardFoot}>
             <Text style={styles.cardMeta}>{timing(c)} · {c.participants || 0} joined</Text>
             <View style={styles.joinBtn}><Text style={styles.joinBtnText}>{mine ? 'Open' : c.status === 'completed' ? 'Results' : 'Join contest'}</Text></View>
@@ -110,14 +114,14 @@ export function ContestCard({ c, index = 0, onPress }) {
 }
 
 function Leaderboard({ rows, kind }) {
-  if (!rows) return <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View>;
+  if (!rows) return <View style={styles.loading}><ActivityIndicator color={d.plum} /></View>;
   if (!rows.length) return <Text style={styles.muted}>No scores yet. Be the first!</Text>;
   return (
     <View style={styles.board}>
       {rows.map((r) => (
         <View key={(r.user && r.user.id) || r.communityId || r.name} style={[styles.boardRow, r.isMe && styles.boardRowMe]}>
-          <Text style={[styles.boardPlace, r.place <= 3 && { color: colors.gold }]}>{r.place}</Text>
-          {r.user ? <SocialAvatar name={r.user.displayName} uri={r.user.avatarUrl} size={34} /> : <View style={styles.churchDot}><Icon name="church" size={16} color={colors.primary} /></View>}
+          <Text style={[styles.boardPlace, r.place <= 3 && { color: d.plum }]}>{r.place}</Text>
+          {r.user ? <SocialAvatar name={r.user.displayName} uri={r.user.avatarUrl} size={34} /> : <View style={styles.churchDot}><Icon name="church" size={16} color={d.plum} /></View>}
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.boardName} numberOfLines={1}>{r.user ? r.user.displayName : r.name}{r.isMe ? ' (you)' : ''}</Text>
             <Text style={styles.boardMeta} numberOfLines={1}>
@@ -127,7 +131,7 @@ function Leaderboard({ rows, kind }) {
                     : `${r.title}${r.votes !== undefined && r.votes !== null ? ` · ${r.votes} votes` : ''}${r.score !== null && r.score !== undefined ? ` · score ${r.score}` : ''}`}
             </Text>
           </View>
-          {r.prizeCoins ? <View style={styles.coin}><Icon name="coin" size={13} color={colors.gold} /><Text style={styles.coinText}>{r.prizeCoins}</Text></View> : null}
+          {r.prizeCoins ? <View style={styles.coin}><Icon name="coin" size={13} color={d.plum} /><Text style={styles.coinText}>{r.prizeCoins}</Text></View> : null}
         </View>
       ))}
     </View>
@@ -201,31 +205,30 @@ export function ContestsScreen({ params = {} }) {
     <Screen back title="Contest Centre" subtitle="Compete, showcase your gifts, win prizes"
       right={roles.organizer ? (
         <PressScale onPress={() => nav.push('ContestOrganize')} scaleTo={0.92} style={styles.headBtn} accessibilityRole="button" accessibilityLabel="Organize contests">
-          <Icon name="plus" size={18} color="#FFFFFF" strokeWidth={2.4} />
+          <Icon name="plus" size={18} color={d.ink} strokeWidth={2.4} />
         </PressScale>
       ) : null}
-      refreshControl={<RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={colors.primary} />}>
+      refreshControl={<RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={d.plum} />}>
       <Pills items={TABS} value={tab} onChange={setTab} style={{ marginTop: 10 }} />
       {error ? <Notice tint={colors.negative} text={error} /> : null}
       {roles.judge ? (
         <PressScale onPress={() => nav.push('ContestJudge')} scaleTo={0.98} style={styles.roleRow} accessibilityRole="button" accessibilityLabel="Judging">
-          <Icon name="star" size={16} color={colors.lavender} /><Text style={styles.roleText}>You have entries to judge</Text><Icon name="chevron-right" size={14} color={colors.faint} />
+          <Icon name="star" size={16} color={d.plum} /><Text style={styles.roleText}>You have entries to judge</Text><Icon name="chevron-right" size={14} color={d.muted} />
         </PressScale>
       ) : null}
 
       {tab === 'Discover' ? (
         <View>
-          <View style={styles.hero}>
-            <NightGlow />
-            <Text style={styles.heroEyebrow}>Contest Centre</Text>
+          <Grad colors={gradients.hero} style={styles.hero}>
+            <Eyebrow light>Contest Centre</Eyebrow>
             <Text style={styles.heroTitle}>Show your Bible knowledge and your gifts</Text>
             <Text style={styles.heroSub}>Quizzes, memory challenges, gospel talent, writing, photography and more. Fair scoring, real prizes, certificates for winners.</Text>
-          </View>
-          <Pills small items={[{ id: 'all', label: 'All categories' }, ...cats.map((x) => ({ id: x.id, label: x.label.replace(/ (Contest|Challenge)$/, '') }))].map((x) => x.label)}
+          </Grad>
+          <Pills items={[{ id: 'all', label: 'All categories' }, ...cats.map((x) => ({ id: x.id, label: x.label.replace(/ (Contest|Challenge)$/, '') }))].map((x) => x.label)}
             value={(cat === 'all' ? 'All categories' : (cats.find((x) => x.id === cat) || {}).label || '').replace(/ (Contest|Challenge)$/, '')}
             onChange={(label) => { const f = cats.find((x) => x.label.replace(/ (Contest|Challenge)$/, '') === label); setCat(f ? f.id : 'all'); }} style={{ marginTop: 12 }} />
-          <Pills small items={STATUS_FILTERS.map((s) => s[1])} value={(STATUS_FILTERS.find((s) => s[0] === status) || STATUS_FILTERS[0])[1]} onChange={(l) => setStatus((STATUS_FILTERS.find((s) => s[1] === l) || STATUS_FILTERS[0])[0])} style={{ marginTop: 8 }} />
-          {!items && !error ? <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View> : null}
+          <Pills items={STATUS_FILTERS.map((s) => s[1])} value={(STATUS_FILTERS.find((s) => s[0] === status) || STATUS_FILTERS[0])[1]} onChange={(l) => setStatus((STATUS_FILTERS.find((s) => s[1] === l) || STATUS_FILTERS[0])[0])} style={{ marginTop: 8 }} />
+          {!items && !error ? <View style={styles.loading}><ActivityIndicator color={d.plum} /></View> : null}
           {items && !list.length ? <Empty title="No contests here yet" body="Try another category or check back soon." /> : null}
           {list.map((c, i) => <ContestCard key={c.id} c={c} index={i} onPress={() => nav.push('Contest', { id: c.id })} />)}
         </View>
@@ -233,15 +236,15 @@ export function ContestsScreen({ params = {} }) {
 
       {tab === 'My Contests' ? (
         <View>
-          {!mine ? <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View> : null}
+          {!mine ? <View style={styles.loading}><ActivityIndicator color={d.plum} /></View> : null}
           {mine && !mine.length ? <Empty title="You haven’t joined a contest yet" body="Join one from Discover — most are free to enter." action="Discover contests" onAction={() => setTab('Discover')} /> : null}
           {(mine || []).map((c, i) => <ContestCard key={c.id} c={c} index={i} onPress={() => nav.push('Contest', { id: c.id })} />)}
           {certs.length ? <Section title="Your certificates">
             {certs.map((x) => (
               <PressScale key={x.code} onPress={() => nav.push('Certificate', { code: x.code })} scaleTo={0.98} style={styles.certRow} accessibilityRole="button" accessibilityLabel={`Certificate: ${x.achievement}, ${x.contestTitle}`}>
-                <View style={styles.certIcon}><Icon name="star" size={18} color={colors.gold} /></View>
+                <View style={styles.certIcon}><Icon name="star" size={18} color={d.plum} /></View>
                 <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.boardName}>{x.achievement}</Text><Text style={styles.boardMeta} numberOfLines={1}>{x.contestTitle}</Text></View>
-                <Icon name="chevron-right" size={14} color={colors.faint} />
+                <Icon name="chevron-right" size={14} color={d.muted} />
               </PressScale>
             ))}
           </Section> : null}
@@ -250,8 +253,8 @@ export function ContestsScreen({ params = {} }) {
 
       {tab === 'Leaderboards' ? (
         <View>
-          <Pills small items={['This week', 'This month', 'All time']} value={{ week: 'This week', month: 'This month', all: 'All time' }[period]} onChange={(l) => setPeriod({ 'This week': 'week', 'This month': 'month', 'All time': 'all' }[l])} style={{ marginTop: 12 }} />
-          <Pills small items={['People', 'Churches']} value={by === 'church' ? 'Churches' : 'People'} onChange={(l) => setBy(l === 'Churches' ? 'church' : 'people')} style={{ marginTop: 8 }} />
+          <Pills items={['This week', 'This month', 'All time']} value={{ week: 'This week', month: 'This month', all: 'All time' }[period]} onChange={(l) => setPeriod({ 'This week': 'week', 'This month': 'month', 'All time': 'all' }[l])} style={{ marginTop: 12 }} />
+          <Pills items={['People', 'Churches']} value={by === 'church' ? 'Churches' : 'People'} onChange={(l) => setBy(l === 'Churches' ? 'church' : 'people')} style={{ marginTop: 8 }} />
           {state.user && state.user.country ? (
             <Pressable onPress={() => setMyCountry(!myCountry)} style={styles.toggleRow} accessibilityRole="switch" accessibilityState={{ checked: myCountry }}>
               <View style={[styles.box, myCountry && styles.boxOn]}>{myCountry ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} /> : null}</View>
@@ -265,7 +268,7 @@ export function ContestsScreen({ params = {} }) {
 
       {tab === 'Hall of Fame' ? (
         <View>
-          {!hof ? <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View> : null}
+          {!hof ? <View style={styles.loading}><ActivityIndicator color={d.plum} /></View> : null}
           {hof && !hof.length ? <Empty title="No winners yet" body="Winners of finished contests appear here." /> : null}
           {(hof || []).map((h, i) => (
             <FadeInUp key={h.id} index={i} distance={8}>
@@ -275,7 +278,7 @@ export function ContestsScreen({ params = {} }) {
                 <View style={styles.podium}>
                   {h.winners.slice(0, 3).map((w) => (
                     <View key={`${w.place}-${w.user.id}`} style={styles.podiumItem}>
-                      <Text style={[styles.podiumPlace, w.place === 1 && { color: colors.gold }]}>{['🥇', '🥈', '🥉'][w.place - 1] || w.place}</Text>
+                      <Text style={[styles.podiumPlace, w.place === 1 && { color: d.plum }]}>{['🥇', '🥈', '🥉'][w.place - 1] || w.place}</Text>
                       <SocialAvatar name={w.user.displayName} uri={w.user.avatarUrl} size={40} />
                       <Text style={styles.podiumName} numberOfLines={1}>{w.user.displayName}</Text>
                       {w.title ? <Text style={styles.boardMeta} numberOfLines={1}>{w.title}</Text> : null}
@@ -349,7 +352,7 @@ function Quiz({ contest, session, onFinished }) {
   if (sending || sendError) {
     return (
       <Screen title={contest.title}>
-        {sending ? <View style={styles.loading}><ActivityIndicator color={colors.primary} /><Text style={styles.muted}>Sending your answers…</Text></View> : null}
+        {sending ? <View style={styles.loading}><ActivityIndicator color={d.plum} /><Text style={styles.muted}>Sending your answers…</Text></View> : null}
         {sendError ? <View><Notice tint={colors.negative} text={sendError} /><Button label="Try again" onPress={submit} style={{ marginTop: 14 }} /></View> : null}
       </Screen>
     );
@@ -358,7 +361,7 @@ function Quiz({ contest, session, onFinished }) {
     <Screen back title={contest.title} subtitle={`Question ${index + 1} of ${total}`}>
       <View style={styles.quizTop}>
         <View style={[styles.timer, low && styles.timerLow]} accessibilityLabel={`${left} seconds left`}>
-          <Icon name="clock" size={15} color={low ? colors.negative : colors.primary} />
+          <Icon name="clock" size={15} color={low ? colors.negative : d.plum} />
           <Text style={[styles.timerText, low && { color: colors.negative }]}>{clock(left)}</Text>
         </View>
         <Text style={styles.muted}>{answered} of {total} answered</Text>
@@ -371,8 +374,8 @@ function Quiz({ contest, session, onFinished }) {
             const on = answers[q.id] === i;
             return (
               <PressScale key={`${q.id}-${i}`} onPress={() => choose(i)} scaleTo={0.98} style={[styles.option, on && styles.optionOn]} accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={o}>
-                <Text style={[styles.optionText, on && { color: colors.primary, fontWeight: '700' }]}>{o}</Text>
-                {on ? <Icon name="check" size={16} color={colors.primary} strokeWidth={2.6} /> : null}
+                <Text style={[styles.optionText, on && { color: d.plum, fontFamily: df.sansBold }]}>{o}</Text>
+                {on ? <Icon name="check" size={16} color={d.plum} strokeWidth={2.6} /> : null}
               </PressScale>
             );
           })}
@@ -394,7 +397,7 @@ function EntryTile({ s, canVote, voted, onVote, onOpen }) {
   return (
     <PressScale onPress={onOpen} scaleTo={0.98} style={styles.entry} accessibilityRole="button" accessibilityLabel={`${s.title} by ${s.user ? s.user.displayName : ''}`}>
       {s.kind === 'image' && s.mediaUrl ? <Image source={{ uri: s.mediaUrl }} style={styles.entryImg} />
-        : s.kind === 'video' ? <View style={[styles.entryImg, styles.entryKind]}>{s.thumbnailUrl ? <Image source={{ uri: s.thumbnailUrl }} style={StyleSheet.absoluteFill} /> : null}<Icon name="play" size={26} color="#FFFFFF" /></View>
+        : s.kind === 'video' ? <View style={[styles.entryImg, styles.entryKind]}>{s.thumbnailUrl ? <Image source={{ uri: s.thumbnailUrl }} style={fillImage} /> : null}<Icon name="play" size={26} color="#FFFFFF" /></View>
           : s.kind === 'audio' ? <View style={[styles.entryImg, styles.entryKind]}><Icon name="headphones" size={26} color="#FFFFFF" /></View>
             : <View style={[styles.entryImg, styles.entryText]}><Text style={styles.entryTextBody} numberOfLines={6}>{s.body}</Text></View>}
       <View style={{ padding: 10 }}>
@@ -402,7 +405,7 @@ function EntryTile({ s, canVote, voted, onVote, onOpen }) {
         <Text style={styles.boardMeta} numberOfLines={1}>{s.user ? s.user.displayName : ''}{s.votes !== undefined ? ` · ${s.votes} votes` : ''}{s.disqualified ? ' · disqualified' : ''}</Text>
         {canVote ? (
           <PressScale onPress={onVote} scaleTo={0.95} style={[styles.voteBtn, voted && styles.voteBtnOn]} accessibilityRole="button" accessibilityLabel={voted ? 'Your vote' : `Vote for ${s.title}`}>
-            <Icon name="heart" size={13} color={voted ? '#FFFFFF' : colors.primary} fill={voted ? 'solid' : 'none'} />
+            <Icon name="heart" size={13} color={voted ? '#FFFFFF' : d.plum} fill={voted ? 'solid' : 'none'} />
             <Text style={[styles.voteText, voted && { color: '#FFFFFF' }]}>{voted ? 'Your vote' : 'Vote'}</Text>
           </PressScale>
         ) : null}
@@ -487,7 +490,7 @@ export function ContestScreen({ params = {} }) {
   };
 
   if (session) return <Quiz contest={c} session={session} onFinished={onFinished} />;
-  if (!c) return <Screen back title="Contest">{error ? <Notice tint={colors.negative} text={error} /> : <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View>}</Screen>;
+  if (!c) return <Screen back title="Contest">{error ? <Notice tint={colors.negative} text={error} /> : <View style={styles.loading}><ActivityIndicator color={d.plum} /></View>}</Screen>;
 
   const s = STATUS[c.status] || STATUS.completed;
   const mine = c.myEntry;
@@ -513,9 +516,9 @@ export function ContestScreen({ params = {} }) {
       : 'Popularity: the entries with the most community votes win. Every vote is free, one per person.';
 
   return (
-    <Screen back title={c.title} subtitle={c.contestCategoryLabel} refreshControl={<RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={colors.primary} />}>
+    <Screen back title={c.title} subtitle={c.contestCategoryLabel} refreshControl={<RefreshControl refreshing={pulling} onRefresh={refresh} tintColor={d.plum} />}>
       <View style={styles.detailHero}>
-        <Image source={{ uri: artFor(c) }} style={StyleSheet.absoluteFill} />
+        <Image source={{ uri: artFor(c) }} style={fillImage} />
         <View style={styles.detailScrim} />
         <View style={[styles.statusPill, { backgroundColor: alpha(s.tint, 0.92), alignSelf: 'flex-start' }]}><Text style={styles.statusPillText}>{s.label}</Text></View>
         <Text style={styles.detailTitle}>{c.title}</Text>
@@ -543,9 +546,9 @@ export function ContestScreen({ params = {} }) {
         ) : null}
         {canSubmit ? <Button label={c.mySubmissionId ? 'Edit my entry' : 'Submit my entry'} icon={<Icon name="plus" size={14} color="#FFFFFF" />} onPress={() => nav.push('ContestSubmit', { id: c.id })} /> : null}
         {c.mySubmissionId ? <Button kind="ghost" label="View my entry" onPress={() => nav.push('ContestEntry', { id: c.mySubmissionId })} /> : null}
-        {c.isJudge ? <Button kind="ghost" label="Judge the entries" icon={<Icon name="star" size={14} color={colors.primary} />} onPress={() => nav.push('ContestJudge', { id: c.id })} /> : null}
-        {c.canManage ? <Button kind="ghost" label="Manage contest" icon={<Icon name="settings" size={14} color={colors.primary} />} onPress={() => nav.push('ContestManage', { id: c.id })} /> : null}
-        {c.myCertificate ? <Button kind="ghost" label="My certificate" icon={<Icon name="star" size={14} color={colors.gold} />} onPress={() => nav.push('Certificate', { code: c.myCertificate })} /> : null}
+        {c.isJudge ? <Button kind="ghost" label="Judge the entries" icon={<Icon name="star" size={14} color={d.plum} />} onPress={() => nav.push('ContestJudge', { id: c.id })} /> : null}
+        {c.canManage ? <Button kind="ghost" label="Manage contest" icon={<Icon name="settings" size={14} color={d.plum} />} onPress={() => nav.push('ContestManage', { id: c.id })} /> : null}
+        {c.myCertificate ? <Button kind="ghost" label="My certificate" icon={<Icon name="star" size={14} color={d.plum} />} onPress={() => nav.push('Certificate', { code: c.myCertificate })} /> : null}
       </View>
 
       {mine && mine.finished ? (
@@ -623,7 +626,7 @@ export function ContestScreen({ params = {} }) {
       ) : null}
 
       <Section title="Dates">
-        <View style={styles.panel}>{timeline.map(([k, v]) => <View key={k} style={styles.prizeLine}><Text style={styles.muted}>{k}</Text><Text style={styles.boardName}>{day(v)}</Text></View>)}</View>
+        <View style={styles.panel}>{timeline.map(([k2, v]) => <View key={k2} style={styles.prizeLine}><Text style={styles.muted}>{k2}</Text><Text style={styles.boardName}>{day(v)}</Text></View>)}</View>
       </Section>
       <Section title="How it’s scored"><Text style={styles.body}>{scoringText}</Text></Section>
       {c.judgingCriteria ? <Section title="Judging criteria"><Text style={styles.body}>{c.judgingCriteria}</Text></Section> : null}
@@ -645,7 +648,7 @@ export function ContestScreen({ params = {} }) {
             <Text style={styles.sheetTitle}>Which church are you competing for?</Text>
             {myChurches.length ? myChurches.map((ch) => (
               <PressScale key={ch.id} onPress={() => register(ch.id)} scaleTo={0.98} style={styles.certRow} accessibilityRole="button" accessibilityLabel={ch.name}>
-                <View style={styles.churchDot}><Icon name="church" size={16} color={colors.primary} /></View>
+                <View style={styles.churchDot}><Icon name="church" size={16} color={d.plum} /></View>
                 <Text style={[styles.boardName, { flex: 1 }]}>{ch.name}</Text>
               </PressScale>
             )) : <Text style={styles.muted}>Join your church’s community first (Chats › Communities), then come back.</Text>}
@@ -659,7 +662,7 @@ export function ContestScreen({ params = {} }) {
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Report a problem</Text>
             <Text style={styles.muted}>Tell the team what’s wrong (unfair entry, scoring issue, appeal a decision).</Text>
-            <TextInput value={reportText} onChangeText={setReportText} multiline maxLength={1000} placeholder="What happened?" placeholderTextColor={colors.faint} style={styles.input} />
+            <DInput value={reportText} onChangeText={setReportText} multiline maxLength={1000} placeholder="What happened?" style={{ minHeight: 100, marginTop: 10 }} />
             <Button label="Send report" disabled={reportText.trim().length < 5} onPress={sendReport} style={{ marginTop: 10 }} />
           </View>
         </View>
@@ -685,7 +688,7 @@ function AudioPlayer({ uri }) {
   };
   return (
     <PressScale onPress={toggle} scaleTo={0.96} style={styles.audioBtn} accessibilityRole="button" accessibilityLabel={playing ? 'Pause' : 'Play'}>
-      <Icon name={playing ? 'pause' : 'play'} size={22} color="#FFFFFF" />
+      <Icon name={playing ? 'pause' : 'play'} size={22} color={d.plumDark} />
       <Text style={styles.audioText}>{playing ? 'Playing…' : 'Play entry'}</Text>
     </PressScale>
   );
@@ -701,7 +704,7 @@ export function ContestEntryScreen({ params = {} }) {
     try { setS(await api.request('GET', `/submissions/${params.id}`)); } catch (e) { setError(errorMessage(e, 'Couldn’t load this entry')); }
   }, [api, params.id]);
   useEffect(() => { load(); }, [load]);
-  if (!s) return <Screen back title="Entry">{error ? <Notice tint={colors.negative} text={error} /> : <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View>}</Screen>;
+  if (!s) return <Screen back title="Entry">{error ? <Notice tint={colors.negative} text={error} /> : <View style={styles.loading}><ActivityIndicator color={d.plum} /></View>}</Screen>;
   const canVote = s.contest.status === 'voting_open' && !s.contest.myVoteSubmissionId && (!s.mine || s.contest.allowSelfVote);
   const vote = async () => {
     try { await api.request('POST', `/contests/${s.contest.id}/vote`, { submissionId: s.id }); toast.show('Vote counted', { icon: 'heart', haptic: 'success' }); load(); }
@@ -726,7 +729,7 @@ export function ContestEntryScreen({ params = {} }) {
       <View style={styles.actions}>
         {canVote ? <Button label="Vote for this entry" icon={<Icon name="heart" size={14} color="#FFFFFF" />} onPress={vote} /> : null}
         {s.contest.myVoteSubmissionId === s.id ? <Text style={styles.okLine}>✓ You voted for this entry</Text> : null}
-        <Button kind="ghost" label="Share" icon={<Icon name="share" size={14} color={colors.primary} />} onPress={share} />
+        <Button kind="ghost" label="Share" icon={<Icon name="share" size={14} color={d.plum} />} onPress={share} />
         {s.mine && s.contest.status === 'live' ? <Button kind="ghost" label="Edit my entry" onPress={() => nav.push('ContestSubmit', { id: s.contest.id })} /> : null}
       </View>
     </Screen>
@@ -751,10 +754,10 @@ export function ContestSubmitScreen({ params = {} }) {
   useEffect(() => {
     (async () => {
       try {
-        const d = await api.request('GET', `/contests/${params.id}`);
-        setC(d); setKind(d.entryKinds[0]);
-        if (d.mySubmissionId) {
-          const s = await api.request('GET', `/submissions/${d.mySubmissionId}`);
+        const d2 = await api.request('GET', `/contests/${params.id}`);
+        setC(d2); setKind(d2.entryKinds[0]);
+        if (d2.mySubmissionId) {
+          const s = await api.request('GET', `/submissions/${d2.mySubmissionId}`);
           setKind(s.kind); setTitle(s.title); setDescription(s.description || ''); setText(s.body || '');
         }
       } catch (e) { toast.show(errorMessage(e, 'Couldn’t load'), { tone: 'error' }); }
@@ -788,26 +791,26 @@ export function ContestSubmitScreen({ params = {} }) {
     } catch (e) { toast.show(errorMessage(e, 'Couldn’t save your entry'), { tone: 'error', icon: 'x' }); }
     setSaving(false);
   };
-  if (!c) return <Screen back title="Your entry"><View style={styles.loading}><ActivityIndicator color={colors.primary} /></View></Screen>;
+  if (!c) return <Screen back title="Your entry"><View style={styles.loading}><ActivityIndicator color={d.plum} /></View></Screen>;
   const ready = title.trim() && (kind === 'text' ? text.trim().length >= 20 : (file && file.kind === kind) || c.mySubmissionId);
   return (
     <Screen back title={c.mySubmissionId ? 'Edit your entry' : 'Submit your entry'} subtitle={c.title}>
       {c.submissionRequirements ? <Notice text={c.submissionRequirements} /> : null}
-      {c.entryKinds.length > 1 ? <Pills items={c.entryKinds.map((k) => KIND_LABEL[k])} value={KIND_LABEL[kind]} onChange={(l) => setKind(Object.keys(KIND_LABEL).find((k) => KIND_LABEL[k] === l))} style={{ marginTop: 12 }} /> : null}
+      {c.entryKinds.length > 1 ? <Pills items={c.entryKinds.map((kk) => KIND_LABEL[kk])} value={KIND_LABEL[kind]} onChange={(l) => setKind(Object.keys(KIND_LABEL).find((kk) => KIND_LABEL[kk] === l))} style={{ marginTop: 12 }} /> : null}
       <View style={styles.panel}>
         <Text style={styles.label}>Title</Text>
-        <TextInput value={title} onChangeText={setTitle} maxLength={120} placeholder="Give your entry a title" placeholderTextColor={colors.faint} style={styles.input} />
+        <DInput value={title} onChangeText={setTitle} maxLength={120} placeholder="Give your entry a title" />
         <Text style={styles.label}>Description (optional)</Text>
-        <TextInput value={description} onChangeText={setDescription} maxLength={2000} multiline placeholder="Tell people about it" placeholderTextColor={colors.faint} style={[styles.input, { minHeight: 70 }]} />
+        <DInput value={description} onChangeText={setDescription} maxLength={2000} multiline placeholder="Tell people about it" style={{ minHeight: 70 }} />
         {kind === 'text' ? (
           <View>
             <Text style={styles.label}>Your writing</Text>
-            <TextInput value={text} onChangeText={setText} maxLength={20000} multiline placeholder="Write here…" placeholderTextColor={colors.faint} style={[styles.input, { minHeight: 200, textAlignVertical: 'top' }]} />
+            <DInput value={text} onChangeText={setText} maxLength={20000} multiline placeholder="Write here…" style={{ minHeight: 200, textAlignVertical: 'top' }} />
             <Text style={styles.fine}>{text.trim().split(/\s+/).filter(Boolean).length} words</Text>
           </View>
         ) : (
           <View>
-            <Button kind="ghost" label={file && file.kind === kind ? `Change ${KIND_LABEL[kind].toLowerCase()}` : `Choose ${KIND_LABEL[kind].toLowerCase()}`} icon={<Icon name={kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'headphones'} size={14} color={colors.primary} />} onPress={pick} disabled={progress !== null} style={{ marginTop: 10 }} />
+            <Button kind="ghost" label={file && file.kind === kind ? `Change ${KIND_LABEL[kind].toLowerCase()}` : `Choose ${KIND_LABEL[kind].toLowerCase()}`} icon={<Icon name={kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'headphones'} size={14} color={d.plum} />} onPress={pick} disabled={progress !== null} style={{ marginTop: 10 }} />
             {progress !== null ? <View style={{ marginTop: 10 }}><AnimatedBar progress={progress} delay={0} style={styles.bar} fillStyle={styles.barFill} /><Text style={styles.fine}>Uploading…</Text></View> : null}
             {file && file.kind === kind ? (file.preview ? <Image source={{ uri: file.preview }} style={styles.preview} /> : <Text style={styles.okLine}>✓ {file.name} uploaded</Text>) : null}
             {!file && c.mySubmissionId ? <Text style={styles.fine}>Your current file stays unless you choose a new one.</Text> : null}
@@ -831,9 +834,9 @@ export function CertificateScreen({ params = {} }) {
     (async () => {
       try {
         const res = await fetch(`${url}.json`);
-        const d = await res.json();
+        const data = await res.json();
         if (!res.ok) throw new Error('Certificate not found');
-        setCert(d);
+        setCert(data);
       } catch (e) { setError('Couldn’t load this certificate'); }
     })();
   }, [url]);
@@ -850,7 +853,7 @@ export function CertificateScreen({ params = {} }) {
       await Share.share({ message: `My BibleNestra certificate: ${cert.achievement}, ${cert.contest}. Verify it: ${url}` });
     } catch (e) { /* cancelled */ }
   };
-  if (!cert) return <Screen back title="Certificate">{error ? <Notice tint={colors.negative} text={error} /> : <View style={styles.loading}><ActivityIndicator color={colors.primary} /></View>}</Screen>;
+  if (!cert) return <Screen back title="Certificate">{error ? <Notice tint={colors.negative} text={error} /> : <View style={styles.loading}><ActivityIndicator color={d.plum} /></View>}</Screen>;
   return (
     <Screen back title="Certificate" subtitle={cert.contest}>
       <View ref={shot} collapsable={false} style={styles.cert}>
@@ -879,119 +882,117 @@ export function CertificateScreen({ params = {} }) {
 
 export const styles = StyleSheet.create({
   loading: { paddingVertical: 24, alignItems: 'center', gap: 8 },
-  muted: { marginTop: 6, fontSize: 13, lineHeight: 18, color: colors.muted },
-  fine: { marginTop: 8, fontSize: 12, lineHeight: 17, color: colors.faint },
-  body: { marginTop: 8, fontSize: 14.5, lineHeight: 21, color: colors.passage },
-  rules: { fontSize: 13, lineHeight: 19, color: colors.muted },
-  okLine: { marginTop: 6, fontSize: 14, fontWeight: '700', color: colors.positive },
-  headBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', ...shadow.sm },
-  roleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, padding: 12, borderRadius: radius.md, backgroundColor: colors.cardLavender },
-  roleText: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.fg },
-  hero: { marginTop: 12, padding: 18, borderRadius: 22, overflow: 'hidden', backgroundColor: colors.night, ...shadow.md },
-  heroEyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.goldLight },
-  heroTitle: { marginTop: 6, fontFamily: fonts.serifBold, fontSize: 23, lineHeight: 28, color: colors.nightFg },
-  heroSub: { marginTop: 6, fontSize: 13.5, lineHeight: 19, color: colors.nightMuted },
-  card: { marginTop: 12, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
-  cardArt: { width: '100%', height: 120, backgroundColor: colors.raised },
-  cardArtScrim: { position: 'absolute', left: 0, right: 0, top: 0, height: 120, backgroundColor: 'rgba(21,23,43,0.25)' },
+  muted: { marginTop: 6, fontFamily: df.sans, fontSize: 13, lineHeight: 18, color: d.muted },
+  fine: { marginTop: 8, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: d.muted },
+  body: { marginTop: 8, fontFamily: df.sans, fontSize: 14.5, lineHeight: 21, color: '#4A3A30' },
+  rules: { fontFamily: df.sans, fontSize: 13, lineHeight: 19, color: d.muted },
+  okLine: { marginTop: 6, fontFamily: df.sansBold, fontSize: 14, color: d.sageDark },
+  headBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: d.line, backgroundColor: 'rgba(255,255,255,0.78)' },
+  roleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, padding: 14, borderRadius: 18, backgroundColor: d.lavender },
+  roleText: { flex: 1, fontFamily: df.sansBold, fontSize: 14, color: d.ink },
+  hero: { marginTop: 14, padding: 20, borderRadius: 22 },
+  heroTitle: { marginTop: 8, fontFamily: df.displayBold, fontSize: 23, lineHeight: 28, color: '#FFF2E5' },
+  heroSub: { marginTop: 8, fontFamily: df.sans, fontSize: 13.5, lineHeight: 19, color: 'rgba(255,242,229,0.82)' },
+  card: { marginTop: 14, borderRadius: 22, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, shadowColor: '#281A11', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  cardArt: { width: '100%', height: 140, backgroundColor: d.lavender },
+  cardArtScrim: { position: 'absolute', left: 0, right: 0, top: 0, height: 140, backgroundColor: 'rgba(40,26,17,0.25)' },
   cardArtTop: { position: 'absolute', left: 10, right: 10, top: 10, flexDirection: 'row', justifyContent: 'space-between' },
-  statusPill: { paddingHorizontal: 9, height: 24, borderRadius: radius.pill, justifyContent: 'center' },
-  statusPillText: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
-  feePill: { paddingHorizontal: 9, height: 24, borderRadius: radius.pill, justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.92)' },
-  feePillText: { fontSize: 11, fontWeight: '700', color: colors.fg },
-  cardBody: { padding: 14 },
-  cardCat: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: colors.gold },
-  cardTitle: { marginTop: 4, fontFamily: fonts.serifBold, fontSize: 19, lineHeight: 24, color: colors.fg },
-  cardDesc: { marginTop: 4, fontSize: 13.5, lineHeight: 19, color: colors.muted },
+  statusPill: { paddingHorizontal: 10, height: 24, borderRadius: 999, justifyContent: 'center' },
+  statusPillText: { fontFamily: df.sansBold, fontSize: 11, color: '#FFFFFF' },
+  feePill: { paddingHorizontal: 10, height: 24, borderRadius: 999, justifyContent: 'center', backgroundColor: 'rgba(255,250,242,0.92)' },
+  feePillText: { fontFamily: df.sansBold, fontSize: 11, color: d.ink },
+  cardBody: { padding: 16 },
+  cardCat: { fontFamily: df.sansHeavy, fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', color: d.plum },
+  cardTitle: { marginTop: 4, fontFamily: df.displayBold, fontSize: 19, lineHeight: 24, color: d.ink },
+  cardDesc: { marginTop: 4, fontFamily: df.sans, fontSize: 13.5, lineHeight: 19, color: d.muted },
   prizeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
-  prizeText: { flexShrink: 1, fontSize: 13.5, fontWeight: '700', color: colors.goldMuted },
-  cardFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 },
-  cardMeta: { flexShrink: 1, fontSize: 12.5, color: colors.muted },
-  joinBtn: { paddingHorizontal: 14, height: 34, borderRadius: radius.pill, backgroundColor: colors.primary, justifyContent: 'center' },
-  joinBtnText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
-  certRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  certIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.cardGold, alignItems: 'center', justifyContent: 'center' },
+  prizeText: { flexShrink: 1, fontFamily: df.sansBold, fontSize: 13.5, color: d.goldDark },
+  cardFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 12 },
+  cardMeta: { flexShrink: 1, fontFamily: df.sans, fontSize: 12.5, color: d.muted },
+  joinBtn: { paddingHorizontal: 14, height: 34, borderRadius: 999, backgroundColor: d.plum, justifyContent: 'center' },
+  joinBtnText: { fontFamily: df.sansBold, fontSize: 13, color: '#FFFFFF' },
+  certRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: d.line },
+  certIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FBF0D2', alignItems: 'center', justifyContent: 'center' },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
-  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  boxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  toggleText: { fontSize: 14, color: colors.fg },
-  board: { marginTop: 10, borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  boardRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  boardRowMe: { backgroundColor: alpha(colors.primary, 0.07) },
-  boardPlace: { width: 24, textAlign: 'center', fontFamily: fonts.serifBold, fontSize: 16, color: colors.muted },
-  boardName: { fontSize: 14, fontWeight: '600', color: colors.fg },
-  boardMeta: { marginTop: 1, fontSize: 12, color: colors.muted },
-  churchDot: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#D9C7B0', alignItems: 'center', justifyContent: 'center' },
+  boxOn: { backgroundColor: d.plum, borderColor: d.plum },
+  toggleText: { fontFamily: df.sans, fontSize: 14, color: d.ink },
+  board: { marginTop: 10, borderRadius: 18, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  boardRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: d.line },
+  boardRowMe: { backgroundColor: d.lavender },
+  boardPlace: { width: 24, textAlign: 'center', fontFamily: df.displayBold, fontSize: 16, color: d.muted },
+  boardName: { fontFamily: df.sansSemi, fontSize: 14, color: d.ink },
+  boardMeta: { marginTop: 1, fontFamily: df.sans, fontSize: 12, color: d.muted },
+  churchDot: { width: 36, height: 36, borderRadius: 18, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
   coin: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  coinText: { fontSize: 13, fontWeight: '700', color: colors.goldMuted },
-  hofCard: { marginTop: 12, padding: 14, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
+  coinText: { fontFamily: df.sansBold, fontSize: 13, color: d.goldDark },
+  hofCard: { marginTop: 12, padding: 16, borderRadius: 22, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   podium: { flexDirection: 'row', gap: 8, marginTop: 12 },
   podiumItem: { flex: 1, alignItems: 'center', gap: 4 },
   podiumPlace: { fontSize: 20 },
-  podiumName: { fontSize: 12.5, fontWeight: '700', color: colors.fg, textAlign: 'center' },
-  detailHero: { marginTop: 12, height: 190, borderRadius: 22, overflow: 'hidden', padding: 16, justifyContent: 'flex-end', backgroundColor: colors.night, ...shadow.md },
-  detailScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(21,23,43,0.55)' },
-  detailTitle: { marginTop: 10, fontFamily: fonts.serifBold, fontSize: 24, lineHeight: 29, color: '#FFFFFF' },
-  detailTiming: { marginTop: 4, fontSize: 13, fontWeight: '700', color: colors.goldLight },
+  podiumName: { fontFamily: df.sansBold, fontSize: 12.5, color: d.ink, textAlign: 'center' },
+  detailHero: { marginTop: 12, height: 200, borderRadius: 22, overflow: 'hidden', padding: 18, justifyContent: 'flex-end', backgroundColor: d.plumDark },
+  detailScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(40,26,17,0.55)' },
+  detailTitle: { marginTop: 10, fontFamily: df.displayBold, fontSize: 24, lineHeight: 29, color: '#FFFFFF' },
+  detailTiming: { marginTop: 4, fontFamily: df.sansBold, fontSize: 13, color: d.gold },
   actions: { marginTop: 14, gap: 8 },
-  startBox: { padding: 14, borderRadius: radius.lg, backgroundColor: colors.primarySoft },
-  startLine: { fontSize: 14, fontWeight: '600', color: colors.primaryInk, textAlign: 'center' },
-  panel: { padding: 14, gap: 8, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginTop: 6 },
+  startBox: { padding: 16, borderRadius: 22, backgroundColor: d.lavender },
+  startLine: { fontFamily: df.sansSemi, fontSize: 14, color: d.plumDark, textAlign: 'center' },
+  panel: { padding: 16, gap: 8, borderRadius: 22, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, marginTop: 6 },
   prizeLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  prizePlace: { fontSize: 14.5, fontWeight: '600', color: colors.fg },
-  prizeValue: { flexShrink: 1, textAlign: 'right', fontSize: 13.5, fontWeight: '700', color: colors.goldMuted },
+  prizePlace: { fontFamily: df.sansSemi, fontSize: 14.5, color: d.ink },
+  prizeValue: { flexShrink: 1, textAlign: 'right', fontFamily: df.sansBold, fontSize: 13.5, color: d.goldDark },
   sponsor: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
-  score: { marginTop: 14, padding: 18, borderRadius: radius.lg, alignItems: 'center', backgroundColor: colors.cardGold },
-  scoreBig: { fontFamily: fonts.serifBold, fontSize: 40, lineHeight: 46, color: colors.fg },
-  scoreSub: { marginTop: 4, fontSize: 13, lineHeight: 18, color: colors.muted, textAlign: 'center' },
-  scoreWin: { marginTop: 6, fontSize: 15, fontWeight: '700', color: colors.goldMuted },
+  score: { marginTop: 14, padding: 20, borderRadius: 22, alignItems: 'center', backgroundColor: '#FBF0D2' },
+  scoreBig: { fontFamily: df.displayBold, fontSize: 40, lineHeight: 46, color: d.ink },
+  scoreSub: { marginTop: 4, fontFamily: df.sans, fontSize: 13, lineHeight: 18, color: d.muted, textAlign: 'center' },
+  scoreWin: { marginTop: 6, fontFamily: df.sansBold, fontSize: 15, color: d.goldDark },
   entryGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12, marginTop: 10 },
-  entry: { width: '48.5%', borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  entryImg: { width: '100%', aspectRatio: 1, backgroundColor: colors.raised },
-  entryKind: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.night },
-  entryText: { padding: 10, backgroundColor: colors.cardGold },
-  entryTextBody: { fontFamily: fonts.serif, fontSize: 13, lineHeight: 18, color: colors.passage },
-  voteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, height: 32, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.primary },
-  voteBtnOn: { backgroundColor: colors.primary },
-  voteText: { fontSize: 13, fontWeight: '700', color: colors.primary },
+  entry: { width: '48.5%', borderRadius: 18, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  entryImg: { width: '100%', aspectRatio: 1, backgroundColor: d.lavender },
+  entryKind: { alignItems: 'center', justifyContent: 'center', backgroundColor: d.plumDark },
+  entryText: { padding: 10, backgroundColor: '#FBF0D2' },
+  entryTextBody: { fontFamily: df.display, fontSize: 13, lineHeight: 18, color: '#4A3A30' },
+  voteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, height: 32, borderRadius: 999, borderWidth: 1.5, borderColor: d.plum },
+  voteBtnOn: { backgroundColor: d.plum },
+  voteText: { fontFamily: df.sansBold, fontSize: 13, color: d.plum },
   entryHead: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
-  entryFull: { width: '100%', height: 320, marginTop: 12, borderRadius: radius.lg, backgroundColor: '#000' },
-  audioBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 64, marginTop: 14, borderRadius: radius.lg, backgroundColor: colors.night },
-  audioText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-  textEntry: { fontFamily: fonts.serif, fontSize: 16, lineHeight: 25, color: colors.passage },
-  label: { marginTop: 6, fontSize: 12.5, fontWeight: '700', color: colors.muted },
-  input: { marginTop: 6, borderRadius: radius.md, backgroundColor: colors.raised, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: colors.fg },
-  preview: { width: '100%', height: 220, marginTop: 10, borderRadius: radius.md, backgroundColor: colors.raised },
+  entryFull: { width: '100%', height: 320, marginTop: 12, borderRadius: 22, backgroundColor: '#000' },
+  audioBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 64, marginTop: 14, borderRadius: 22, backgroundColor: d.gold },
+  audioText: { fontFamily: df.sansBold, fontSize: 16, color: d.plumDark },
+  textEntry: { fontFamily: df.display, fontSize: 16, lineHeight: 25, color: '#4A3A30' },
+  label: { marginTop: 8, fontFamily: df.sansBold, fontSize: 12.5, color: d.muted },
+  preview: { width: '100%', height: 220, marginTop: 10, borderRadius: 18, backgroundColor: d.lavender },
   quizTop: { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  timer: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 34, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
-  timerLow: { backgroundColor: colors.negativeFaint },
-  timerText: { fontSize: 15, fontWeight: '700', color: colors.primary },
-  bar: { marginTop: 12, height: 5, borderRadius: 3, backgroundColor: colors.raised, overflow: 'hidden' },
-  barFill: { height: 5, borderRadius: 3, backgroundColor: colors.primary },
-  question: { marginTop: 18, marginBottom: 16, fontFamily: fonts.serifBold, fontSize: 21, lineHeight: 28, color: colors.fg },
-  option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 52, paddingHorizontal: 16, paddingVertical: 12, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.border },
-  optionOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  optionText: { flex: 1, fontSize: 15, lineHeight: 20, color: colors.fg },
+  timer: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 34, borderRadius: 999, backgroundColor: d.lavender },
+  timerLow: { backgroundColor: '#F6DADA' },
+  timerText: { fontFamily: df.sansBold, fontSize: 15, color: d.plum },
+  bar: { marginTop: 12, height: 5, borderRadius: 3, backgroundColor: d.lavender, overflow: 'hidden' },
+  barFill: { height: 5, borderRadius: 3, backgroundColor: d.plum },
+  question: { marginTop: 18, marginBottom: 16, fontFamily: df.displayBold, fontSize: 21, lineHeight: 28, color: d.ink },
+  option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 54, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, backgroundColor: d.paper, borderWidth: 1.5, borderColor: d.line },
+  optionOn: { borderColor: d.plum, backgroundColor: d.lavender },
+  optionText: { flex: 1, fontFamily: df.sans, fontSize: 15, lineHeight: 20, color: d.ink },
   quizNav: { flexDirection: 'row', gap: 10, marginTop: 20 },
-  reviewCard: { marginTop: 8, padding: 14, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  reviewQ: { fontSize: 14.5, lineHeight: 20, fontWeight: '600', color: colors.fg },
-  reviewA: { marginTop: 5, fontSize: 13.5, lineHeight: 18 },
-  reviewRef: { marginTop: 5, fontSize: 12, fontWeight: '700', color: colors.gold },
+  reviewCard: { marginTop: 8, padding: 14, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  reviewQ: { fontFamily: df.sansSemi, fontSize: 14.5, lineHeight: 20, color: d.ink },
+  reviewA: { marginTop: 5, fontFamily: df.sans, fontSize: 13.5, lineHeight: 18 },
+  reviewRef: { marginTop: 5, fontFamily: df.sansBold, fontSize: 12, color: d.plum },
   reportLink: { alignSelf: 'center', marginTop: 14, padding: 10 },
-  reportText: { fontSize: 13, fontWeight: '600', color: colors.muted, textDecorationLine: 'underline' },
+  reportText: { fontFamily: df.sansBold, fontSize: 13, color: d.muted, textDecorationLine: 'underline' },
   modalBack: { flex: 1, justifyContent: 'flex-end' },
-  sheet: { padding: 18, paddingBottom: 34, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: colors.screen, ...shadow.lg },
-  sheetTitle: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.fg, marginBottom: 8 },
-  cert: { marginTop: 14, padding: 10, borderRadius: 18, backgroundColor: '#F8F1DF', borderWidth: 2, borderColor: colors.goldLight },
-  certInner: { padding: 20, borderRadius: 12, borderWidth: 1, borderColor: alpha(colors.gold, 0.5), alignItems: 'center', backgroundColor: '#FFFDF7' },
-  certBrand: { fontSize: 11, fontWeight: '700', letterSpacing: 2.5, color: colors.gold },
-  certHeading: { marginTop: 10, fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg, textAlign: 'center' },
-  certSmall: { marginTop: 10, fontSize: 12, color: colors.muted },
-  certName: { marginTop: 4, fontFamily: fonts.serifBoldItalic, fontSize: 28, color: colors.primaryInk, textAlign: 'center' },
-  certAch: { marginTop: 4, fontFamily: fonts.serifBold, fontSize: 19, color: colors.goldMuted },
-  certContest: { marginTop: 2, fontSize: 14, color: colors.fg, textAlign: 'center' },
+  sheet: { padding: 20, paddingBottom: 34, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: d.ivory, shadowColor: '#281A11', shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: -8 }, elevation: 8 },
+  sheetTitle: { fontFamily: df.displayBold, fontSize: 20, color: d.ink, marginBottom: 8 },
+  cert: { marginTop: 14, padding: 10, borderRadius: 18, backgroundColor: '#F8F1DF', borderWidth: 2, borderColor: d.gold },
+  certInner: { padding: 20, borderRadius: 12, borderWidth: 1, borderColor: alpha(d.gold, 0.5), alignItems: 'center', backgroundColor: '#FFFDF7' },
+  certBrand: { fontFamily: df.sansHeavy, fontSize: 11, letterSpacing: 2.5, color: d.plum },
+  certHeading: { marginTop: 10, fontFamily: df.displayBold, fontSize: 22, color: d.ink, textAlign: 'center' },
+  certSmall: { marginTop: 10, fontFamily: df.sans, fontSize: 12, color: d.muted },
+  certName: { marginTop: 4, fontFamily: df.displayItalic, fontSize: 28, color: d.plumDark, textAlign: 'center' },
+  certAch: { marginTop: 4, fontFamily: df.displayBold, fontSize: 19, color: d.goldDark },
+  certContest: { marginTop: 2, fontFamily: df.sans, fontSize: 14, color: d.ink, textAlign: 'center' },
   certFoot: { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', marginTop: 18 },
-  certLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: colors.faint },
-  certVal: { fontSize: 13, color: colors.fg, marginTop: 2 },
-  certCode: { marginTop: 14, fontSize: 11, color: colors.muted, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) },
+  certLabel: { fontFamily: df.sansBold, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: d.muted },
+  certVal: { fontFamily: df.sans, fontSize: 13, color: d.ink, marginTop: 2 },
+  certCode: { marginTop: 14, fontSize: 11, color: d.muted, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) },
 });

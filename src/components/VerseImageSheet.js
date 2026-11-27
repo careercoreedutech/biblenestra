@@ -13,7 +13,7 @@ try { captureRef = require('react-native-view-shot').captureRef; } catch (e) { c
 try { Sharing = require('expo-sharing'); } catch (e) { Sharing = null; }
 
 export const BACKGROUNDS = [
-  { key: 'night', label: 'Night', colors: ['#2A2F6B', '#15172B', '#0E0C1E'], fg: '#F4EFE6', accent: '#D4A852' },
+  { key: 'night', label: 'Night', colors: ['#2A2F6B', '#2A1B12', '#0E0C1E'], fg: '#F4EFE6', accent: '#D4A852' },
   { key: 'dawn', label: 'Dawn', colors: ['#F6C9A0', '#E7957B', '#7C4F8E'], fg: '#FFFFFF', accent: '#FFF1D6' },
   { key: 'paper', label: 'Paper', colors: ['#FBF7EF', '#F1E8D6', '#E7DBC2'], fg: '#2A251E', accent: '#A87A27' },
   { key: 'olive', label: 'Olive', colors: ['#7E9A73', '#4E6B52', '#2E4436'], fg: '#F5F1E6', accent: '#E9D9A6' },

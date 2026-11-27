@@ -9,12 +9,14 @@
 // Payments: Paystack (card, bank transfer, USSD) on Paystack's own page — src/billing/paystack.js; the server verifies
 // and grants access once. A test checkout appears for admins / testers. No card numbers are ever typed in the app.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen, Button, Empty, Notice, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { PressScale, FadeInUp, ScaleIn, AnimatedModal } from '../components/Motion';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { colors, fonts, radius, shadow } from '../theme';
+import { d, df, Grad } from '../design/sanctuary';
+import { DScreen } from '../design/profile/parts';
 import { useNav } from '../navigation';
 import { useToast } from '../components/Toast';
 import { useApi } from '../api/auth';
@@ -41,26 +43,15 @@ const SORTS = [
 // ---------------------------------------------------------------------------------------------------------------
 
 /** Two-option (or more) segmented toggle in the app's light segment style; the selected option slides. */
+/** Design .discover-toggle: two rounded paper pills; the selected one is orange-tinted. */
 export function SegmentToggle({ options, value, onChange, style }) {
-  const [w, setW] = useState(0);
-  const PAD = 3;
-  const tabW = w ? (w - PAD * 2) / options.length : 0;
-  const x = useRef(new Animated.Value(0)).current;
-  const placed = useRef(false);
-  useEffect(() => {
-    if (!tabW) return;
-    const to = PAD + Math.max(0, options.findIndex((o) => o.id === value)) * tabW;
-    if (!placed.current) { placed.current = true; x.setValue(to); return; }
-    Animated.spring(x, { toValue: to, useNativeDriver: false, speed: 20, bounciness: 6 }).start();
-  }, [value, tabW]);
   return (
-    <View style={[styles.segRow, style]} onLayout={(e) => setW(e.nativeEvent.layout.width)} accessibilityRole="tablist">
-      {tabW ? <Animated.View pointerEvents="none" style={[styles.segPill, { width: tabW, transform: [{ translateX: x }] }]} /> : null}
+    <View style={[styles.segRow, style]} accessibilityRole="tablist">
       {options.map((o) => {
         const on = value === o.id;
         return (
-          <Pressable key={o.id} onPress={() => onChange(o.id)} style={styles.segTab} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={o.label}>
-            {o.icon ? <Icon name={o.icon} size={14} color={on ? colors.primary : colors.muted} strokeWidth={on ? 2.4 : 2} /> : null}
+          <Pressable key={o.id} onPress={() => onChange(o.id)} style={[styles.segTab, on && styles.segTabOn]} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={o.label}>
+            {o.icon ? <Icon name={o.icon} size={14} color={on ? d.plum : d.plumDark} strokeWidth={on ? 2.4 : 2} /> : null}
             <Text style={[styles.segText, on && styles.segTextOn]} numberOfLines={1}>{o.label}</Text>
             {o.badge ? <View style={styles.segBadge}><Text style={styles.segBadgeText}>{o.badge}</Text></View> : null}
           </Pressable>
@@ -114,25 +105,22 @@ function PricePill({ label, style }) {
   return <View style={[styles.pricePill, style]}><Text style={styles.pricePillText} numberOfLines={1}>{label}</Text></View>;
 }
 
-/** The big catalogue card (reference: 16:9 cover + price pill, title, ★ rating (count), headline). */
+/** Catalogue row (design .membership-list): initials tile, category eyebrow, serif title, members and price. */
 export function MembershipCard({ m, onPress, index = 0 }) {
+  const free = !m.priceLabel || /free/i.test(m.priceLabel);
+  const initials = String(m.title || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || 'BN';
   return (
     <FadeInUp index={index} distance={12} stagger={50}>
-      <PressScale onPress={onPress} scaleTo={0.98} style={styles.card} accessibilityRole="button" accessibilityLabel={`${m.title}, ${m.priceLabel || ''}`}>
-        <Cover uri={m.coverUrl} style={styles.cardCover}>
-          <PricePill label={m.priceLabel} style={styles.pricePillPos} />
-          {m.hasPreview ? (
-            <View style={styles.previewBadge}><Icon name="play" size={10} color="#FFFFFF" fill="#FFFFFF" /><Text style={styles.previewText}>Preview</Text></View>
-          ) : null}
-        </Cover>
-        <View style={styles.cardBody}>
-          <Text style={styles.cardTitle} numberOfLines={1}>{m.title}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 3 }}>
-            <RatingLine rating={m.rating} />
-            <Text style={styles.cardMeta}>·  {m.memberCount.toLocaleString()} member{m.memberCount === 1 ? '' : 's'}</Text>
-          </View>
-          {m.headline ? <Text style={styles.cardHeadline} numberOfLines={2}>{m.headline}</Text> : null}
+      <PressScale onPress={onPress} scaleTo={0.98} style={styles.card} accessibilityRole="button" accessibilityLabel={`${m.title}, ${m.priceLabel || 'Free'}`}>
+        <View style={[styles.tile, free ? styles.tileFree : styles.tileGold]}>
+          <Text style={[styles.tileText, free && styles.tileTextFree]}>{initials}</Text>
         </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.cardEyebrow} numberOfLines={1}>{m.category || 'Membership'}{m.hasPreview ? '  ·  Preview' : ''}</Text>
+          <Text style={styles.cardTitle} numberOfLines={1}>{m.title}</Text>
+          <Text style={styles.cardMeta} numberOfLines={1}>{m.memberCount.toLocaleString()} member{m.memberCount === 1 ? '' : 's'}{m.headline ? `  ·  ${m.headline}` : ''}</Text>
+        </View>
+        <Text style={styles.cardPrice} numberOfLines={1}>{m.priceLabel || 'Free'}</Text>
       </PressScale>
     </FadeInUp>
   );
@@ -280,13 +268,33 @@ export function FindLoveSoon() {
 // ---------------------------------------------------------------------------------------------------------------
 // Full catalogue screen ("See all")
 // ---------------------------------------------------------------------------------------------------------------
+/** The design's .membership-feature hero, filled with the first trending membership (real data). */
+function MembershipFeature({ nav }) {
+  const cat = useMembershipCatalog({ category: 'All', sort: 'trending' });
+  const m = cat.items[0];
+  if (!cat.online || !m) return null;
+  return (
+    <Grad colors={['#2D1B10', '#B95019']} style={styles.feature}>
+      <Text style={styles.featureEyebrow}>Featured membership</Text>
+      <Text style={styles.featureTitle} numberOfLines={2}>{m.title}</Text>
+      {m.headline ? <Text style={styles.featureBody} numberOfLines={2}>{m.headline}</Text> : null}
+      <Text style={styles.featureBody}>{m.memberCount.toLocaleString()} member{m.memberCount === 1 ? '' : 's'}{m.priceLabel ? `  ·  ${m.priceLabel}` : ''}</Text>
+      <Pressable onPress={() => nav.push('Membership', { id: m.id, title: m.title })} style={styles.featureBtn} accessibilityRole="button" accessibilityLabel={`View ${m.title}`}>
+        <Text style={styles.featureBtnText}>View membership</Text>
+        <Icon name="arrow-right" size={13} color={d.ink} />
+      </Pressable>
+    </Grad>
+  );
+}
+
 export function MembershipsScreen() {
   const nav = useNav();
   return (
-    <Screen back title="Memberships" subtitle="Paid channels from trusted ministers">
-      <MyMembershipsRow nav={nav} style={{ marginBottom: 14 }} />
+    <DScreen title="Membership spaces" subtitle="Learn in community" back onBack={() => nav.pop()} action={null}>
+      <MembershipFeature nav={nav} />
+      <MyMembershipsRow nav={nav} style={{ marginBottom: 4 }} />
       <MembershipsCatalog nav={nav} />
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -996,198 +1004,219 @@ export function MyChannelsScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: colors.screen },
+  page: { flex: 1, backgroundColor: d.ivory },
   pad: { paddingHorizontal: 18 },
   inline: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  link: { color: colors.primary, fontWeight: '700', fontSize: 13.5 },
-  small: { color: colors.faint, fontSize: 12, marginTop: 4 },
-  smallLink: { color: colors.muted, fontSize: 12, textDecorationLine: 'underline', marginTop: 4 },
+  link: { color: d.plum, fontFamily: df.sansBold, fontSize: 12 },
+  small: { color: d.muted, fontFamily: df.sans, fontSize: 11, marginTop: 4 },
+  smallLink: { color: d.muted, fontFamily: df.sans, fontSize: 11, textDecorationLine: 'underline', marginTop: 4 },
 
-  segRow: { flexDirection: 'row', backgroundColor: colors.raised, borderRadius: radius.pill, padding: 3, borderWidth: 1, borderColor: colors.border },
-  segPill: { position: 'absolute', top: 3, bottom: 3, left: 0, borderRadius: radius.pill, backgroundColor: colors.surface, ...shadow.sm },
-  segTab: { flex: 1, height: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  segText: { fontSize: 13.5, fontWeight: '600', color: colors.muted },
-  segTextOn: { color: colors.primary, fontWeight: '800' },
-  segBadge: { backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 },
-  segBadgeText: { fontSize: 10, fontWeight: '800', color: colors.primary },
+  // SegmentToggle = the design's .discover-toggle: two rounded paper pills, the active one orange-tinted
+  segRow: { flexDirection: 'row', gap: 7, marginVertical: 10 },
+  segTab: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, paddingHorizontal: 8, borderRadius: 13, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  segTabOn: { backgroundColor: '#FFE9DA', borderColor: 'rgba(255,107,26,0.45)' },
+  segText: { fontFamily: df.sansHeavy, fontSize: 12, color: d.plumDark },
+  segTextOn: { color: d.plum },
+  segBadge: { backgroundColor: d.plum, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 },
+  segBadgeText: { fontSize: 10, fontFamily: df.sansBold, color: '#FFFFFF' },
 
-  catScroll: { marginHorizontal: -18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  catRow: { paddingHorizontal: 12, gap: 2 },
-  catTab: { paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  catTabOn: { borderBottomColor: colors.fg },
-  catText: { fontSize: 14, color: colors.muted, fontWeight: '500' },
-  catTextOn: { color: colors.fg, fontWeight: '700' },
-  totalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, zIndex: 5 },
-  totalText: { color: colors.faint, fontSize: 13.5 },
-  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.raised, borderWidth: 1, borderColor: colors.border },
-  sortText: { fontSize: 13, color: colors.fg, fontWeight: '600' },
-  sortMenu: { position: 'absolute', right: 0, top: 40, width: 200, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingVertical: 4, ...shadow.md, zIndex: 20 },
+  // Discover › Memberships: category filter row + sort (the design's .filter-row)
+  catScroll: { marginHorizontal: -18 },
+  catRow: { paddingHorizontal: 18, gap: 7, paddingVertical: 12 },
+  catTab: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  catTabOn: { backgroundColor: d.ink, borderColor: d.ink },
+  catText: { fontFamily: df.sansBold, fontSize: 12, color: d.muted },
+  catTextOn: { color: '#FFFFFF' },
+  totalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, zIndex: 5 },
+  totalText: { color: d.muted, fontFamily: df.sans, fontSize: 12 },
+  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 9, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  sortText: { fontSize: 12, color: d.ink, fontFamily: df.sansBold },
+  sortMenu: { position: 'absolute', right: 0, top: 40, width: 200, backgroundColor: d.paper, borderRadius: 14, borderWidth: 1, borderColor: d.line, paddingVertical: 4, zIndex: 20, shadowColor: '#362012', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   sortRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10 },
-  sortRowText: { fontSize: 13.5, color: colors.fg },
+  sortRowText: { fontSize: 13, fontFamily: df.sans, color: d.ink },
 
-  cover: { overflow: 'hidden', backgroundColor: colors.night },
-  card: { backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, ...shadow.sm },
+  // featured membership hero (the design's .membership-feature)
+  feature: { borderRadius: 25, padding: 23, marginTop: 13, overflow: 'hidden' },
+  featureEyebrow: { color: '#F4C294', fontFamily: df.sansHeavy, fontSize: 10, letterSpacing: 1.4, textTransform: 'uppercase' },
+  featureTitle: { fontFamily: df.displayBold, fontSize: 26, lineHeight: 31, color: '#FFFFFF', marginTop: 9 },
+  featureBody: { fontFamily: df.sans, fontSize: 12, lineHeight: 18, color: '#D8C5B8', marginTop: 5 },
+  featureBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, backgroundColor: '#FFFFFF', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, marginTop: 16 },
+  featureBtnText: { color: d.ink, fontFamily: df.sansHeavy, fontSize: 12 },
+
+  // catalogue list row (the design's .membership-list article)
+  cover: { overflow: 'hidden', backgroundColor: d.plumDark },
+  card: { minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: d.line },
+  tile: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  tileGold: { backgroundColor: d.gold },
+  tileFree: { backgroundColor: d.sage },
+  tileText: { fontFamily: df.displayBold, fontSize: 12, color: d.goldDark },
+  tileTextFree: { color: d.sageDark },
+  cardEyebrow: { color: d.plum, fontFamily: df.sansHeavy, fontSize: 9, letterSpacing: 0.8, textTransform: 'uppercase' },
   cardCover: { width: '100%', aspectRatio: 16 / 9 },
   cardBody: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 14 },
-  cardTitle: { fontSize: 15.5, fontWeight: '700', color: colors.fg },
-  cardMeta: { fontSize: 12.5, color: colors.faint },
-  cardHeadline: { fontSize: 14, color: colors.fg, marginTop: 5, lineHeight: 19 },
-  pricePill: { backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4, maxWidth: 220 },
-  pricePillText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  cardTitle: { fontFamily: df.display, fontSize: 15, color: d.ink, marginTop: 2 },
+  cardMeta: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 3 },
+  cardPrice: { fontFamily: df.displayBold, fontSize: 14, color: d.ink, textAlign: 'right' },
+  cardHeadline: { fontFamily: df.sans, fontSize: 12, color: d.ink, marginTop: 5, lineHeight: 17 },
+  pricePill: { backgroundColor: d.plum, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, maxWidth: 220 },
+  pricePillText: { color: '#FFFFFF', fontSize: 12, fontFamily: df.sansBold },
   pricePillPos: { position: 'absolute', top: 10, right: 10 },
-  previewBadge: { position: 'absolute', left: 10, bottom: 10, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(21,23,43,0.72)', borderRadius: radius.pill, paddingHorizontal: 9, paddingVertical: 4 },
-  previewText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
+  previewBadge: { position: 'absolute', left: 10, bottom: 10, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(40,26,17,0.72)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
+  previewText: { color: '#FFFFFF', fontSize: 11, fontFamily: df.sansBold },
   ratingLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  ratingNum: { fontSize: 13.5, fontWeight: '700', color: colors.gold },
-  ratingCount: { fontSize: 13, color: colors.faint },
-  seeAllBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14, paddingVertical: 12, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
-  seeAllText: { color: colors.primary, fontWeight: '700', fontSize: 14 },
+  ratingNum: { fontSize: 12, fontFamily: df.sansBold, color: d.gold },
+  ratingCount: { fontSize: 11, fontFamily: df.sans, color: d.muted },
+  seeAllBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14, paddingVertical: 12, borderRadius: 13, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  seeAllText: { color: d.plum, fontFamily: df.sansBold, fontSize: 12 },
 
-  rowHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  rowTitle: { fontFamily: fonts.serifBold, fontSize: 19, color: colors.fg },
+  rowHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 24, marginBottom: 12 },
+  rowTitle: { fontFamily: df.displayBold, fontSize: 20, color: d.ink },
   mineCard: { width: 150 },
-  mineCover: { width: 150, height: 84, borderRadius: radius.md },
-  mineLock: { position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(21,23,43,0.7)', alignItems: 'center', justifyContent: 'center' },
-  mineTitle: { fontSize: 13, fontWeight: '700', color: colors.fg, marginTop: 6 },
-  mineSub: { fontSize: 11.5, color: colors.faint, marginTop: 1 },
+  mineCover: { width: 150, height: 84, borderRadius: 16 },
+  mineLock: { position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(40,26,17,0.7)', alignItems: 'center', justifyContent: 'center' },
+  mineTitle: { fontFamily: df.display, fontSize: 13, color: d.ink, marginTop: 7 },
+  mineSub: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 1 },
 
-  railCard: { width: 220, backgroundColor: colors.surface, borderRadius: radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, ...shadow.sm },
+  railCard: { width: 220, backgroundColor: d.paper, borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: d.line },
   railCover: { width: 220, height: 124 },
-  railTitle: { fontSize: 14.5, fontWeight: '700', color: colors.fg },
-  railTag: { fontSize: 12.5, color: colors.muted, lineHeight: 17, minHeight: 34 },
+  railTitle: { fontFamily: df.display, fontSize: 14, color: d.ink },
+  railTag: { fontFamily: df.sans, fontSize: 11, color: d.muted, lineHeight: 16, minHeight: 32 },
   railFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
-  railPrice: { fontSize: 13, fontWeight: '800', color: colors.primary, flex: 1 },
-  railMembers: { fontSize: 12, color: colors.faint },
+  railPrice: { fontFamily: df.sansHeavy, fontSize: 12, color: d.plum, flex: 1 },
+  railMembers: { fontFamily: df.sans, fontSize: 11, color: d.muted },
 
-  loveCard: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: 22, alignItems: 'center', borderWidth: 1, borderColor: colors.border, marginTop: 8, ...shadow.sm },
-  loveIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.cardRose, alignItems: 'center', justifyContent: 'center' },
-  loveEyebrow: { marginTop: 14, fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.rose },
-  loveTitle: { fontFamily: fonts.display, fontSize: 30, color: colors.fg, marginTop: 4 },
-  loveBody: { fontSize: 14.5, color: colors.muted, textAlign: 'center', lineHeight: 21, marginTop: 8, marginBottom: 14 },
-  loveRow: { flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'stretch', paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  loveRowText: { fontSize: 14, color: colors.fg },
+  loveCard: { backgroundColor: d.paper, borderRadius: 24, padding: 22, alignItems: 'center', borderWidth: 1, borderColor: d.line, marginTop: 8 },
+  loveIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: d.rose, alignItems: 'center', justifyContent: 'center' },
+  loveEyebrow: { marginTop: 14, fontSize: 10, fontFamily: df.sansHeavy, letterSpacing: 1.2, textTransform: 'uppercase', color: d.roseDark },
+  loveTitle: { fontFamily: df.displayBold, fontSize: 28, color: d.ink, marginTop: 4 },
+  loveBody: { fontFamily: df.sans, fontSize: 13, color: d.muted, textAlign: 'center', lineHeight: 20, marginTop: 8, marginBottom: 14 },
+  loveRow: { flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'stretch', paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: d.line },
+  loveRowText: { fontFamily: df.sans, fontSize: 13, color: d.ink },
 
-  top: { height: 56, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, backgroundColor: colors.screen },
-  topBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  topTitle: { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '700', color: colors.fg },
-  heroCover: { width: '100%', aspectRatio: 16 / 9 },
-  heroPlay: { position: 'absolute', left: 14, bottom: 14, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
-  heroPlayText: { color: colors.night, fontWeight: '800', fontSize: 12.5 },
-  prodName: { fontSize: 17, color: colors.muted, textAlign: 'center', marginTop: 20, fontWeight: '600' },
-  prodHeadline: { fontFamily: fonts.display, fontSize: 31, lineHeight: 36, color: colors.fg, textAlign: 'center', marginTop: 8, letterSpacing: -0.5 },
+  // product page header + hero
+  top: { height: 64, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, backgroundColor: d.ivory, borderBottomWidth: 1, borderBottomColor: d.line },
+  topBtn: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: d.line, backgroundColor: 'rgba(255,255,255,0.78)', alignItems: 'center', justifyContent: 'center' },
+  topTitle: { flex: 1, textAlign: 'center', fontFamily: df.displayBold, fontSize: 16, color: d.ink },
+  heroCover: { marginHorizontal: 18, marginTop: 12, height: 230, borderRadius: 25 },
+  heroPlay: { position: 'absolute', left: 14, bottom: 14, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,250,242,0.94)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  heroPlayText: { color: d.ink, fontFamily: df.sansBold, fontSize: 12 },
+  prodName: { fontFamily: df.displayBold, fontSize: 26, lineHeight: 31, color: d.ink, textAlign: 'center', marginTop: 20, letterSpacing: -0.4 },
+  prodHeadline: { fontFamily: df.display, fontSize: 16, lineHeight: 22, color: d.plum, textAlign: 'center', marginTop: 8 },
   prodStats: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' },
-  prodDesc: { fontSize: 14.5, lineHeight: 21, color: colors.muted, textAlign: 'center', marginTop: 10 },
-  memberBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.positiveFaint, borderRadius: radius.md, padding: 12, marginTop: 16 },
-  memberBannerText: { flex: 1, color: colors.positive, fontWeight: '700', fontSize: 13 },
-  block: { marginTop: 22, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 16, borderWidth: 1, borderColor: colors.border },
-  blockTitle: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.fg },
-  blockSub: { fontSize: 13, color: colors.faint, marginTop: 2 },
+  prodDesc: { fontFamily: df.sans, fontSize: 13, lineHeight: 20, color: d.muted, textAlign: 'center', marginTop: 10 },
+  memberBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: d.sage, borderRadius: 14, padding: 12, marginTop: 16 },
+  memberBannerText: { flex: 1, color: d.sageDark, fontFamily: df.sansBold, fontSize: 12 },
+  block: { marginTop: 22, backgroundColor: d.paper, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: d.line },
+  blockTitle: { fontFamily: df.displayBold, fontSize: 19, color: d.ink },
+  blockSub: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
   benefit: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 10 },
-  benefitDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  benefitText: { flex: 1, fontSize: 14.5, color: colors.fg, lineHeight: 20 },
+  benefitDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  benefitText: { flex: 1, fontFamily: df.sans, fontSize: 13, color: d.ink, lineHeight: 19 },
   sample: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
-  sampleNum: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.raised, textAlign: 'center', lineHeight: 22, fontSize: 12, fontWeight: '700', color: colors.muted, overflow: 'hidden' },
-  sampleTitle: { flex: 1, fontSize: 14, color: colors.fg },
-  sampleMin: { fontSize: 12, color: colors.faint },
-  sectionCenter: { fontFamily: fonts.serifBold, fontSize: 23, color: colors.fg, textAlign: 'center', marginTop: 30, marginBottom: 12 },
-  creator: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
-  creatorName: { fontSize: 16, fontWeight: '800', color: colors.fg, marginTop: 10 },
-  creatorMeta: { fontSize: 12.5, color: colors.faint, marginTop: 2 },
-  creatorBio: { fontSize: 14, color: colors.fg, textAlign: 'center', lineHeight: 20, marginTop: 12 },
-  viewProfile: { alignSelf: 'stretch', marginTop: 16, paddingVertical: 11, borderRadius: radius.pill, backgroundColor: colors.raised, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
-  viewProfileText: { fontWeight: '700', color: colors.fg },
-  faq: { backgroundColor: colors.surface, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 14, borderWidth: 1, borderColor: colors.border },
+  sampleNum: { width: 22, height: 22, borderRadius: 11, backgroundColor: d.lavender, textAlign: 'center', lineHeight: 22, fontSize: 11, fontFamily: df.sansBold, color: d.plumDark, overflow: 'hidden' },
+  sampleTitle: { flex: 1, fontFamily: df.sans, fontSize: 13, color: d.ink },
+  sampleMin: { fontFamily: df.sans, fontSize: 11, color: d.muted },
+  sectionCenter: { fontFamily: df.displayBold, fontSize: 21, color: d.ink, textAlign: 'center', marginTop: 30, marginBottom: 12 },
+  creator: { backgroundColor: d.paper, borderRadius: 20, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: d.line },
+  creatorName: { fontFamily: df.sansHeavy, fontSize: 15, color: d.ink, marginTop: 10 },
+  creatorMeta: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
+  creatorBio: { fontFamily: df.sans, fontSize: 13, color: d.ink, textAlign: 'center', lineHeight: 20, marginTop: 12 },
+  viewProfile: { alignSelf: 'stretch', marginTop: 16, paddingVertical: 11, borderRadius: 13, backgroundColor: d.lavender, alignItems: 'center' },
+  viewProfileText: { fontFamily: df.sansBold, color: d.plumDark, fontSize: 12 },
+  faq: { backgroundColor: d.paper, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 14, borderWidth: 1, borderColor: d.line },
   faqHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  faqQ: { flex: 1, fontSize: 14, color: colors.fg, fontWeight: '600' },
-  faqA: { fontSize: 14, color: colors.muted, lineHeight: 20, marginTop: 8 },
-  reviewsHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 30, marginBottom: 10 },
-  review: { backgroundColor: colors.surface, borderRadius: radius.md, padding: 14, borderWidth: 1, borderColor: colors.border },
+  faqQ: { flex: 1, fontFamily: df.sansBold, fontSize: 13, color: d.ink },
+  faqA: { fontFamily: df.sans, fontSize: 13, color: d.muted, lineHeight: 20, marginTop: 8 },
+  reviewsHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 30, marginBottom: 10 },
+  review: { backgroundColor: d.paper, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: d.line },
   reviewHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  initials: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  initialsText: { color: colors.primary, fontWeight: '800', fontSize: 14 },
-  reviewName: { fontSize: 14.5, fontWeight: '700', color: colors.fg, flexShrink: 1 },
-  reviewDate: { fontSize: 12, color: colors.faint, marginTop: 2 },
-  reviewBody: { fontSize: 14, color: colors.fg, lineHeight: 20, marginTop: 10 },
-  sticky: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, backgroundColor: alpha(colors.screen, 0.96), borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  joinBtn: { height: 52, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', ...shadow.md },
-  joinText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  initials: { width: 40, height: 40, borderRadius: 14, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  initialsText: { color: d.plumDark, fontFamily: df.sansHeavy, fontSize: 13 },
+  reviewName: { fontFamily: df.sansBold, fontSize: 13, color: d.ink, flexShrink: 1 },
+  reviewDate: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
+  reviewBody: { fontFamily: df.sans, fontSize: 13, color: d.ink, lineHeight: 20, marginTop: 10 },
+  sticky: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, backgroundColor: 'rgba(248,241,231,0.96)', borderTopWidth: 1, borderTopColor: d.line },
+  joinBtn: { height: 52, borderRadius: 14, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', shadowColor: d.plum, shadowOpacity: 0.25, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
+  joinText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 14 },
 
-  sheet: { backgroundColor: colors.screen, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingBottom: 22, paddingTop: 8, maxHeight: '86%' },
-  grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, marginBottom: 12 },
-  sheetTitle: { fontFamily: fonts.serifBold, fontSize: 24, color: colors.fg },
-  plan: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 16, borderWidth: 1.5, borderColor: colors.border },
-  planOn: { borderColor: colors.primary, backgroundColor: alpha(colors.primary, 0.04) },
-  planName: { fontSize: 13.5, fontWeight: '700', color: colors.muted },
-  planPrice: { fontSize: 23, fontWeight: '800', color: colors.fg, marginTop: 4, letterSpacing: -0.3 },
-  planPer: { fontSize: 12.5, color: colors.faint, marginTop: 2 },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  radioOn: { borderColor: colors.primary },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
+  sheet: { backgroundColor: d.ivory, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 18, paddingBottom: 22, paddingTop: 8, maxHeight: '86%' },
+  grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: d.line, marginBottom: 12 },
+  sheetTitle: { fontFamily: df.displayBold, fontSize: 22, color: d.ink },
+  plan: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: d.paper, borderRadius: 18, padding: 16, borderWidth: 1.5, borderColor: d.line },
+  planOn: { borderColor: d.plum, backgroundColor: '#FFF1E6' },
+  planName: { fontFamily: df.sansBold, fontSize: 12, color: d.muted },
+  planPrice: { fontFamily: df.displayBold, fontSize: 22, color: d.ink, marginTop: 4 },
+  planPer: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#CDBBA6', alignItems: 'center', justifyContent: 'center' },
+  radioOn: { borderColor: d.plum },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: d.plum },
 
   coHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  coSeller: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.fg },
-  coPromoLink: { fontSize: 12.5, color: colors.muted, textDecorationLine: 'underline' },
-  coSummary: { alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.lg, padding: 16, marginTop: 12, borderWidth: 1, borderColor: colors.border },
-  coName: { fontSize: 14.5, color: colors.fg, fontWeight: '600' },
-  coHeadline: { fontSize: 12.5, color: colors.faint, textAlign: 'center', marginTop: 2 },
-  coPrice: { fontSize: 32, fontWeight: '800', color: colors.fg, marginTop: 10, letterSpacing: -0.6 },
-  coPer: { fontSize: 15, fontWeight: '600', color: colors.muted },
-  coDiscount: { fontSize: 12.5, color: colors.positive, fontWeight: '700', marginTop: 2 },
-  coAccess: { fontSize: 12.5, color: colors.faint, marginTop: 4, textAlign: 'center' },
+  coSeller: { flex: 1, fontFamily: df.sansBold, fontSize: 13, color: d.ink },
+  coPromoLink: { fontFamily: df.sans, fontSize: 11, color: d.muted, textDecorationLine: 'underline' },
+  coSummary: { alignItems: 'center', backgroundColor: d.paper, borderRadius: 20, padding: 16, marginTop: 12, borderWidth: 1, borderColor: d.line },
+  coName: { fontFamily: df.display, fontSize: 15, color: d.ink },
+  coHeadline: { fontFamily: df.sans, fontSize: 11, color: d.muted, textAlign: 'center', marginTop: 2 },
+  coPrice: { fontFamily: df.displayBold, fontSize: 30, color: d.ink, marginTop: 10 },
+  coPer: { fontFamily: df.sans, fontSize: 13, color: d.muted },
+  coDiscount: { fontFamily: df.sansBold, fontSize: 11, color: d.positive, marginTop: 2 },
+  coAccess: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 4, textAlign: 'center' },
   promoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, alignSelf: 'stretch' },
-  label: { fontSize: 13, fontWeight: '600', color: colors.fg, marginTop: 14, marginBottom: 6 },
-  input: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 11, fontSize: 14.5, color: colors.fg },
-  inputLocked: { backgroundColor: colors.raised },
-  inputLockedText: { fontSize: 14.5, color: colors.muted },
+  label: { fontFamily: df.sansBold, fontSize: 11, color: '#4C3D32', marginTop: 16, marginBottom: 7 },
+  input: { height: 52, paddingHorizontal: 14, borderRadius: 14, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, fontFamily: df.sans, fontSize: 13, color: d.ink },
+  inputLocked: { backgroundColor: d.raised, justifyContent: 'center' },
+  inputLockedText: { fontFamily: df.sans, fontSize: 13, color: d.muted },
   signedRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  methods: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
+  methods: { backgroundColor: d.paper, borderRadius: 16, borderWidth: 1, borderColor: d.line },
   methodRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 13 },
-  methodDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  methodIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  methodLabel: { fontSize: 14.5, color: colors.fg, fontWeight: '600' },
-  methodNote: { fontSize: 12, color: colors.faint, marginTop: 1 },
+  methodDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: d.line },
+  methodIcon: { width: 28, height: 28, borderRadius: 8, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  methodLabel: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
+  methodNote: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 1 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  checkBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
-  checkBoxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkText: { fontSize: 13.5, color: colors.fg, flex: 1 },
-  shopBtn: { height: 52, borderRadius: radius.md, backgroundColor: colors.fg, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
-  shopText: { color: '#FFFFFF', fontSize: 15.5, fontWeight: '800' },
-  legal: { fontSize: 11.5, color: colors.faint, textAlign: 'center', marginTop: 10, lineHeight: 16 },
+  checkBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: '#CDBBA6', alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
+  checkBoxOn: { backgroundColor: d.plum, borderColor: d.plum },
+  checkText: { fontFamily: df.sans, fontSize: 12, color: d.ink, flex: 1 },
+  shopBtn: { height: 52, borderRadius: 14, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
+  shopText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 14 },
+  legal: { fontFamily: df.sans, fontSize: 10, color: d.muted, textAlign: 'center', marginTop: 10, lineHeight: 15 },
 
-  summary: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 16, borderWidth: 1, borderColor: colors.border, marginBottom: 14 },
-  summaryNum: { fontSize: 34, fontWeight: '800', color: colors.fg },
-  barTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.raised, overflow: 'hidden' },
-  barFill: { height: 6, borderRadius: 3, backgroundColor: colors.gold },
+  summary: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: d.paper, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: d.line, marginBottom: 14 },
+  summaryNum: { fontFamily: df.displayBold, fontSize: 30, color: d.ink },
+  barTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: d.raised, overflow: 'hidden' },
+  barFill: { height: 6, borderRadius: 3, backgroundColor: d.gold },
 
-  homeTop: { height: 60, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, backgroundColor: colors.screen },
-  homeThumb: { width: 40, height: 40, borderRadius: 12 },
-  homeTitle: { fontSize: 15.5, fontWeight: '800', color: colors.fg },
-  homeSub: { fontSize: 12, color: colors.faint, marginTop: 1 },
-  progressCard: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 14, borderWidth: 1, borderColor: colors.border, gap: 10 },
-  progressTitle: { fontSize: 14, fontWeight: '700', color: colors.fg },
-  lesson: { backgroundColor: colors.surface, borderRadius: radius.md, padding: 14, borderWidth: 1, borderColor: colors.border },
+  // group home header (design MembershipDetail header)
+  homeTop: { height: 72, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, backgroundColor: d.ivory, borderBottomWidth: 1, borderBottomColor: d.line },
+  homeThumb: { width: 42, height: 42, borderRadius: 14 },
+  homeTitle: { fontFamily: df.displayBold, fontSize: 17, color: d.ink },
+  homeSub: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 1 },
+  progressCard: { backgroundColor: d.paper, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: d.line, gap: 10 },
+  progressTitle: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
+  lesson: { backgroundColor: d.paper, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: d.line },
   lessonHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  lessonNum: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
-  lessonNumText: { fontSize: 13, fontWeight: '800', color: colors.muted },
-  lessonTitle: { fontSize: 14.5, fontWeight: '700', color: colors.fg },
-  lessonBody: { fontSize: 14, color: colors.fg, lineHeight: 21 },
+  lessonNum: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: '#CDBBA6', alignItems: 'center', justifyContent: 'center' },
+  lessonNumText: { fontSize: 12, fontFamily: df.sansHeavy, color: d.muted },
+  lessonTitle: { fontFamily: df.display, fontSize: 14, color: d.ink },
+  lessonBody: { fontFamily: df.sans, fontSize: 13, color: d.ink, lineHeight: 21 },
   lockCover: { height: 220 },
-  lockScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(21,23,43,0.55)' },
-  lockCard: { marginHorizontal: 18, marginTop: -60, backgroundColor: colors.surface, borderRadius: radius.xl, padding: 22, alignItems: 'center', borderWidth: 1, borderColor: colors.border, ...shadow.md },
-  lockIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  lockTitle: { fontFamily: fonts.serifBold, fontSize: 23, color: colors.fg, marginTop: 12, textAlign: 'center' },
-  lockBody: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20, marginTop: 6 },
+  lockScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(40,26,17,0.55)' },
+  lockCard: { marginHorizontal: 18, marginTop: -60, backgroundColor: d.paper, borderRadius: 26, padding: 22, alignItems: 'center', borderWidth: 1, borderColor: d.line, shadowColor: '#362012', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
+  lockIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFE9DA', alignItems: 'center', justifyContent: 'center' },
+  lockTitle: { fontFamily: df.displayBold, fontSize: 22, color: d.ink, marginTop: 12, textAlign: 'center' },
+  lockBody: { fontFamily: df.sans, fontSize: 13, color: d.muted, textAlign: 'center', lineHeight: 20, marginTop: 6 },
 
-  myRow: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 12, borderWidth: 1, borderColor: colors.border },
-  myThumb: { width: 84, height: 48, borderRadius: radius.sm },
-  myBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
-  myBtnText: { fontSize: 11.5, fontWeight: '800', color: colors.primary, letterSpacing: 0.2 },
-  myIconBtn: { width: 38, height: 34, borderRadius: radius.pill, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  newDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.gold },
-  groupBar: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 8, gap: 8, backgroundColor: colors.screen, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  toolRow: { gap: 8, paddingRight: 6 },
-  tool: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  toolText: { fontSize: 12.5, fontWeight: '700', color: colors.fg },
-  renewTag: { backgroundColor: colors.terracottaFaint, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5 },
-  renewText: { color: colors.terracotta, fontWeight: '800', fontSize: 12 },
+  myRow: { backgroundColor: d.paper, borderRadius: 20, padding: 14, borderWidth: 1, borderColor: d.line },
+  myThumb: { width: 84, height: 48, borderRadius: 14 },
+  myBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 12, backgroundColor: '#FFE9DA' },
+  myBtnText: { fontSize: 11, fontFamily: df.sansHeavy, color: d.plumDark },
+  myIconBtn: { width: 38, height: 34, borderRadius: 12, backgroundColor: '#FFE9DA', alignItems: 'center', justifyContent: 'center' },
+  newDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: d.plum },
+  // group tabs row: Library, Media, Members, Settings (design .group-tabs as pills)
+  groupBar: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 10, backgroundColor: d.ivory, borderBottomWidth: 1, borderBottomColor: d.line },
+  toolRow: { gap: 7, paddingRight: 6 },
+  tool: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 13, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  toolText: { fontFamily: df.sansBold, fontSize: 11, color: d.ink },
+  renewTag: { backgroundColor: d.rose, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  renewText: { color: d.roseDark, fontFamily: df.sansHeavy, fontSize: 11 },
 });

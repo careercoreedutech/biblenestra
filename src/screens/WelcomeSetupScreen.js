@@ -1,18 +1,18 @@
 // One light personalisation step after the first sign-in (brief §4): your name, your Bible and Scripture
 // notifications. Shown only when the account has no name yet (email sign-ups) — Google / Apple accounts bring
 // their name along and go straight to Today. "Skip" is always there; everything can be changed later.
+// Rebuilt in the Figma design (the "Make it yours" setup in extendedScreens.tsx).
 import React, { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { colors, fonts, radius, shadow } from '../theme';
 import { Icon } from '../components/Icons';
 import { FadeInUp, PressScale } from '../components/Motion';
-import { BrandLogo } from '../components/BrandLogo';
 import { useStore } from '../store';
 import { useToast } from '../components/Toast';
 import { ensurePermission, supported as popsSupported } from '../notifications/scripturePop';
 import { TRANSLATIONS } from '../bible/catalog';
+import { d, df, Grad } from '../design/sanctuary';
 
 // A short list: the main English versions + the first Bible in the core African languages
 const LANGS = ['Yorùbá', 'Igbo', 'Hausa', 'Kiswahili', 'Twi', 'Français'];
@@ -25,6 +25,15 @@ function Chip({ on, label, onPress }) {
   return (
     <PressScale onPress={onPress} scaleTo={0.95} style={[styles.chip, on && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ selected: on }} accessibilityLabel={label}>
       <Text style={[styles.chipText, on && styles.chipTextOn]}>{label}</Text>
+    </PressScale>
+  );
+}
+
+// .toggle: the pill switch used on the reminder row
+function Toggle({ on, onPress, label }) {
+  return (
+    <PressScale onPress={onPress} scaleTo={0.95} style={[styles.toggle, on && styles.toggleOn]} accessibilityRole="switch" accessibilityState={{ checked: on }} accessibilityLabel={label}>
+      <View style={[styles.toggleKnob, on && styles.toggleKnobOn]} />
     </PressScale>
   );
 }
@@ -52,31 +61,39 @@ export function WelcomeSetupView({ initialName = '', onDone, saveName }) {
     setBusy(false);
     onDone({ name: n });
   };
+  const initials = (name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')) || 'BN';
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <StatusBar style="dark" />
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.topRow}>
-          <BrandLogo size={44} />
+          <Text style={styles.kicker}>Welcome setup</Text>
           <PressScale onPress={() => onDone(null)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Skip">
             <Text style={styles.skip}>Skip</Text>
           </PressScale>
         </View>
+
         <FadeInUp distance={10}>
+          <Grad colors={['#2F1D12', '#8C421C']} style={styles.intro}>
+            <View style={styles.introMark}><Text style={styles.introMarkText}>{initials}</Text></View>
+            <View style={styles.introText}>
+              <Text style={styles.introKicker}>Welcome to BibleNestra</Text>
+              <Text style={styles.introTitle}>Your sanctuary begins with a few simple choices.</Text>
+            </View>
+          </Grad>
           <Text style={styles.title}>Make it yours</Text>
           <Text style={styles.sub}>Three quick choices. You can change them any time in Settings.</Text>
         </FadeInUp>
 
         <FadeInUp index={1} distance={8}>
-          <Text style={styles.label}>Your name</Text>
+          <Text style={styles.label}>What should we call you?</Text>
           <View style={styles.field}>
-            <Icon name="user" size={18} color={colors.faint} />
-            <TextInput value={name} onChangeText={setName} placeholder="What should we call you?" placeholderTextColor={colors.faint} style={styles.input} autoComplete="name" textContentType="name" maxLength={60} accessibilityLabel="Your name" />
+            <TextInput value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor={d.muted} style={styles.input} autoComplete="name" textContentType="name" maxLength={60} accessibilityLabel="Your name" />
           </View>
         </FadeInUp>
 
         <FadeInUp index={2} distance={8}>
-          <Text style={styles.label}>Your Bible</Text>
+          <Text style={styles.label}>Preferred Bible translation</Text>
           <View style={styles.chips}>
             {QUICK_TRANSLATIONS.map((t) => (
               <Chip key={t.id} on={translation === t.id} label={t.lang === 'English' ? t.id : t.lang} onPress={() => setTranslation(t.id)} />
@@ -85,17 +102,20 @@ export function WelcomeSetupView({ initialName = '', onDone, saveName }) {
         </FadeInUp>
 
         <FadeInUp index={3} distance={8}>
-          <Text style={styles.label}>A verse through the day</Text>
-          <View style={styles.chips}>
-            <Chip on={notify} label="Yes, send Scripture pop-ups" onPress={() => setNotify(true)} />
-            <Chip on={!notify} label="Not now" onPress={() => setNotify(false)} />
+          <View style={styles.option}>
+            <View style={styles.optionIcon}><Icon name="bell" size={18} color={d.plum} strokeWidth={1.9} /></View>
+            <View style={styles.optionText}>
+              <Text style={styles.optionTitle}>Daily scripture reminder</Text>
+              <Text style={styles.optionBody}>A verse through the day, as Scripture pop-ups.</Text>
+            </View>
+            <Toggle on={notify} onPress={() => setNotify(!notify)} label="Daily scripture reminder" />
           </View>
         </FadeInUp>
 
         <View style={{ flex: 1, minHeight: 24 }} />
-        <PressScale onPress={save} disabled={busy} scaleTo={0.97} style={[styles.cta, busy && { opacity: 0.75 }]} accessibilityRole="button" accessibilityLabel="Continue">
-          {busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
-          <Text style={styles.ctaText}>Continue</Text>
+        <PressScale onPress={save} disabled={busy} scaleTo={0.97} style={[styles.cta, busy && { opacity: 0.75 }]} accessibilityRole="button" accessibilityLabel="Save and continue">
+          {busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.ctaText}>Save and continue</Text>}
+          {busy ? null : <Icon name="arrow-right" size={18} color="#FFFFFF" strokeWidth={2.2} />}
         </PressScale>
       </ScrollView>
     </SafeAreaView>
@@ -103,20 +123,45 @@ export function WelcomeSetupView({ initialName = '', onDone, saveName }) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#FFFFFF' },
+  safe: { flex: 1, backgroundColor: d.ivory },
   scroll: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 22, width: '100%', maxWidth: 520, alignSelf: 'center' },
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, marginBottom: 22 },
-  skip: { fontSize: 15, fontWeight: '600', color: colors.muted },
-  title: { fontFamily: fonts.serifBold, fontSize: 30, letterSpacing: -0.6, color: colors.fg },
-  sub: { marginTop: 6, fontSize: 15, lineHeight: 21, color: colors.muted },
-  label: { marginTop: 24, marginBottom: 10, fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', color: colors.muted },
-  field: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 54, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.raised, paddingHorizontal: 14 },
-  input: { flex: 1, height: 52, fontSize: 16, color: colors.fg },
+  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, marginBottom: 18 },
+  kicker: { color: d.plum, fontFamily: df.sansBold, fontSize: 10, letterSpacing: 1.7, textTransform: 'uppercase' },
+  skip: { fontSize: 13, fontFamily: df.sansBold, color: d.plum, paddingVertical: 6 },
+
+  intro: { flexDirection: 'row', alignItems: 'center', gap: 15, padding: 20, borderRadius: 22 },
+  introMark: { width: 62, height: 62, borderRadius: 20, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  introMarkText: { color: '#FFFFFF', fontFamily: df.displayBold, fontSize: 18 },
+  introText: { flex: 1, minWidth: 0 },
+  introKicker: { color: '#F5C19F', fontFamily: df.sansHeavy, fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase' },
+  introTitle: { color: '#FFFFFF', fontFamily: df.display, fontSize: 19, lineHeight: 24, marginTop: 5 },
+
+  title: { marginTop: 22, fontFamily: df.displayBold, fontSize: 30, lineHeight: 36, letterSpacing: -0.8, color: d.ink },
+  sub: { marginTop: 6, fontFamily: df.sans, fontSize: 14, lineHeight: 21, color: d.muted },
+  label: { marginTop: 22, marginBottom: 8, fontSize: 12, fontFamily: df.sansBold, color: '#4C3D32' },
+  field: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, paddingHorizontal: 14, justifyContent: 'center' },
+  input: { height: 50, fontFamily: df.sans, fontSize: 14, color: d.ink },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { minHeight: 40, paddingHorizontal: 14, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  chipOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  chipText: { fontSize: 14, fontWeight: '600', color: colors.muted },
-  chipTextOn: { color: colors.primary },
-  cta: { height: 54, borderRadius: radius.pill, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, ...shadow.sm },
-  ctaText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  chip: { minHeight: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, alignItems: 'center', justifyContent: 'center' },
+  chipOn: { borderColor: d.plum, backgroundColor: '#FFF1E5' },
+  chipText: { fontSize: 13, fontFamily: df.sansBold, color: d.muted },
+  chipTextOn: { color: d.plum },
+
+  option: { flexDirection: 'row', alignItems: 'center', gap: 11, marginTop: 20, padding: 14, borderRadius: 17, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  optionIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  optionText: { flex: 1, minWidth: 0 },
+  optionTitle: { fontSize: 13, fontFamily: df.sansBold, color: d.ink },
+  optionBody: { fontSize: 11, fontFamily: df.sans, color: d.muted, marginTop: 2 },
+  toggle: { width: 44, height: 26, padding: 3, borderRadius: 13, backgroundColor: '#D8CFC5', justifyContent: 'center' },
+  toggleOn: { backgroundColor: d.plum },
+  toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF' },
+  toggleKnobOn: { transform: [{ translateX: 18 }] },
+
+  cta: { height: 56, borderRadius: 18, backgroundColor: d.plum, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 24,
+    ...Platform.select({
+      web: { boxShadow: '0 14px 30px rgba(255,107,26,0.22)' },
+      default: { shadowColor: d.plum, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.22, shadowRadius: 22, elevation: 6 },
+    }),
+  },
+  ctaText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 15 },
 });

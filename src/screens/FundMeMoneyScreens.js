@@ -7,18 +7,22 @@
 //   PayoutKyc             identity check before any payout (Fund Me) or gift-earnings withdrawal: ID + legal name + bank
 //   <FundMeCreditsCard/>  "Publishing uses 1 credit · you have N" + Buy, used by the create / edit wizard
 // Server: backend/src/routes/fundmeMoney.js · docs: scratch/monetisation/fundme.md
+// Look: the Figma design's language (src/design/sanctuary.js tokens, src/design/profile/parts.js, src/design/fundme/parts.js).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Screen, Section, Button, Input, Badge, Notice, Empty, Eyebrow, alpha } from '../components/ui';
+import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { Icon } from '../components/Icons';
-import { FadeInUp, PressScale, Shimmer } from '../components/Motion';
+import { FadeInUp, Shimmer } from '../components/Motion';
 import { useToast } from '../components/Toast';
-import { colors, fonts, radius, shadow } from '../theme';
+import { colors } from '../theme';
 import { useNav, useIsFocused } from '../navigation';
 import { errorMessage } from '../api/client';
 import { BuyCoinsSheet, ConfirmSpend } from '../components/wallet';
-import { walletChanged, newIdempotencyKey, walletError, dateLabel, timeLabel } from '../api/wallet';
+import { walletChanged, newIdempotencyKey, dateLabel, timeLabel } from '../api/wallet';
 import { useFundMe, onFundMeChange, formatMoney, DONATION_STATUS, PAYOUT_STATUS, HELD_EXPLAINER, SYMBOL } from '../api/fundme';
+import { alpha } from '../components/ui';
+import { d, df, Tap, Grad, Eyebrow, SectionTitle } from '../design/sanctuary';
+import { DScreen, DCard, DInput, DLabel, DList, DRow } from '../design/profile/parts';
+import { FBtn, FNotice, FEmpty, FBadge, FKpi } from '../design/fundme/parts';
 
 const KYC_TINT = { approved: colors.positive, rejected: colors.negative, pending_review: colors.gold, none: colors.muted };
 const moneyAny = (m, c) => (SYMBOL[c] != null ? formatMoney(m, c) : `${c} ${formatMoney(m, c)}`);
@@ -37,19 +41,8 @@ function useLoad(load) {
 }
 
 function StatusPill({ map, status, label }) {
-  const s = map[status] || { label: label || status, tint: colors.muted };
-  return <Badge label={label || s.label} tint={s.tint} />;
-}
-
-function Card({ children, style }) { return <View style={[st.card, style]}>{children}</View>; }
-
-function Kpi({ label, value, tint }) {
-  return (
-    <View style={st.kpi}>
-      <Text style={[st.kpiValue, tint && { color: tint }]} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
-      <Text style={st.kpiLabel}>{label}</Text>
-    </View>
-  );
+  const sd = map[status] || { label: label || status, tint: colors.muted };
+  return <FBadge label={label || sd.label} tint={sd.tint} />;
 }
 
 function Timeline({ items }) {
@@ -57,14 +50,14 @@ function Timeline({ items }) {
   return (
     <View style={{ marginTop: 10 }}>
       {items.map((e, i) => (
-        <View key={`${e.at}-${i}`} style={st.tlRow}>
-          <View style={st.tlRail}>
-            <View style={[st.tlDot, i === items.length - 1 && { backgroundColor: colors.primary, borderColor: colors.primary }]} />
-            {i < items.length - 1 ? <View style={st.tlLine} /> : null}
+        <View key={`${e.at}-${i}`} style={s.tlRow}>
+          <View style={s.tlRail}>
+            <View style={[s.tlDot, i === items.length - 1 && { backgroundColor: d.plum, borderColor: d.plum }]} />
+            {i < items.length - 1 ? <View style={s.tlLine} /> : null}
           </View>
           <View style={{ flex: 1, paddingBottom: 10 }}>
-            <Text style={st.tlTitle}>{e.label}</Text>
-            <Text style={st.tlMeta}>{timeLabel(e.at)}{e.reason ? ` · ${e.reason}` : ''}</Text>
+            <Text style={s.tlTitle}>{e.label}</Text>
+            <Text style={s.tlMeta}>{timeLabel(e.at)}{e.reason ? ` · ${e.reason}` : ''}</Text>
           </View>
         </View>
       ))}
@@ -73,12 +66,7 @@ function Timeline({ items }) {
 }
 
 function HeldExplainer({ compact }) {
-  return (
-    <View style={st.held}>
-      <Icon name="shield" size={16} color={colors.positive} />
-      <Text style={st.heldText}>{compact ? 'Paid to BibleNestra, held safely, paid out after checks.' : HELD_EXPLAINER}</Text>
-    </View>
-  );
+  return <FNotice icon="shield" text={compact ? 'Paid to BibleNestra, held safely, paid out after checks.' : HELD_EXPLAINER} />;
 }
 
 // =============================================================================================
@@ -92,27 +80,27 @@ export function FundMeCreditsCard({ refreshKey, style }) {
   const load = useCallback(async () => { try { setC(await fm.credits()); } catch (e) { setC(null); } }, [fm]);
   useEffect(() => { load(); }, [load, refreshKey]);
   if (!c) return null;
-  if (c.demo || !c.cost) return <View style={style}><Notice text={c.explain} /></View>;
+  if (c.demo || !c.cost) return <View style={style}><FNotice tone="plum" text={c.explain} /></View>;
   const enough = c.available >= c.cost;
   return (
-    <View style={[st.creditCard, style, !enough && { borderColor: alpha(colors.negative, 0.4) }]}>
+    <DCard style={[s.creditCard, style, !enough && { borderColor: alpha(colors.negative, 0.4) }]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={st.creditIcon}><Icon name="heart" size={18} color="#B5523B" /></View>
+        <View style={s.creditIcon}><Icon name="heart" size={18} color="#B5523B" /></View>
         <View style={{ flex: 1 }}>
-          <Text style={st.creditTitle}>Publishing uses {c.cost} Fund Me credit{c.cost === 1 ? '' : 's'}</Text>
-          <Text style={st.creditSub}>
-            You have <Text style={{ fontWeight: '800', color: colors.fg }}>{c.balance}</Text>{c.reserved ? ` · ${c.reserved} set aside for requests in review` : ''}
+          <Text style={s.creditTitle}>Publishing uses {c.cost} Fund Me credit{c.cost === 1 ? '' : 's'}</Text>
+          <Text style={s.creditSub}>
+            You have <Text style={s.creditStrong}>{c.balance}</Text>{c.reserved ? ` · ${c.reserved} set aside for requests in review` : ''}
           </Text>
         </View>
       </View>
-      <Text style={st.creditNote}>The credit is only used when our team approves your request and it goes live. If it isn’t approved, nothing is used.</Text>
-      <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-        <Button small label={enough ? 'Buy more' : 'Buy credits'} onPress={() => setBuy(true)} style={{ flex: 1 }} kind={enough ? 'ghost' : 'primary'} />
-        <Button small kind="ghost" label="Credits & history" onPress={() => nav.push('FundMeCredits')} style={{ flex: 1 }} />
+      <Text style={s.creditNote}>The credit is only used when our team approves your request and it goes live. If it isn’t approved, nothing is used.</Text>
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+        <FBtn small kind={enough ? 'ghost' : 'primary'} label={enough ? 'Buy more' : 'Buy credits'} onPress={() => setBuy(true)} style={{ flex: 1 }} />
+        <FBtn small kind="ghost" label="Credits & history" onPress={() => nav.push('FundMeCredits')} style={{ flex: 1 }} />
       </View>
-      {!enough ? <Text style={st.short}>You need {c.cost - Math.max(0, c.available)} more credit{c.cost - c.available === 1 ? '' : 's'} to submit — or ask a friend to send you one.</Text> : null}
+      {!enough ? <Text style={s.short}>You need {c.cost - Math.max(0, c.available)} more credit{c.cost - c.available === 1 ? '' : 's'} to submit — or ask a friend to send you one.</Text> : null}
       <BuyCoinsSheet visible={buy} wallet="fundme_credits" onClose={() => setBuy(false)} onPurchased={() => { setBuy(false); walletChanged(); load(); }} />
-    </View>
+    </DCard>
   );
 }
 
@@ -139,60 +127,59 @@ export function FundMeCreditsScreen() {
     try { const h = await fm.creditHistory(cursor); setHist((x) => [...x, ...h.items]); setCursor(h.nextCursor); } catch (e) { toast.show(errorMessage(e), { tone: 'error' }); }
   };
   return (
-    <Screen title="Fund Me credits" back>
-      {error ? <Notice text={error} tint={colors.negative} /> : null}
-      {!c ? <Shimmer style={{ height: 180, borderRadius: radius.lg }} /> : (
+    <DScreen title="Fund Me credits" back onBack={() => nav.pop()}>
+      {error ? <FNotice text={error} tone="danger" /> : null}
+      {!c ? <Shimmer style={{ height: 180, borderRadius: 24 }} /> : (
         <FadeInUp>
-          <View style={st.hero}>
-            <Eyebrow tint={colors.goldLight}>Your balance</Eyebrow>
-            <Text style={st.heroNum}>{c.balance}</Text>
-            <Text style={st.heroSub}>Fund Me request credit{c.balance === 1 ? '' : 's'}{c.reserved ? ` · ${c.reserved} set aside for requests in review` : ''}</Text>
+          <Grad colors={['#3C2518', '#8A4B25']} style={s.hero}>
+            <Eyebrow light>Your balance</Eyebrow>
+            <Text style={s.heroNum}>{c.balance}</Text>
+            <Text style={s.heroSub}>Fund Me request credit{c.balance === 1 ? '' : 's'}{c.reserved ? ` · ${c.reserved} set aside for requests in review` : ''}</Text>
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-              <PressScale onPress={() => setBuy(true)} scaleTo={0.96} style={st.heroBtn} accessibilityLabel="Buy credits">
-                <Icon name="plus" size={15} color={colors.night} strokeWidth={2.4} /><Text style={st.heroBtnText}>Buy credits</Text>
-              </PressScale>
-              <PressScale onPress={() => nav.push('FundMeGiftCredits')} scaleTo={0.96} style={[st.heroBtn, st.heroBtnGhost]} accessibilityLabel="Send credits to a friend">
-                <Icon name="gift" size={15} color="#FFFFFF" /><Text style={[st.heroBtnText, { color: '#FFFFFF' }]}>Send to a friend</Text>
-              </PressScale>
+              <Tap onPress={() => setBuy(true)} style={s.heroBtn} accessibilityLabel="Buy credits">
+                <Icon name="plus" size={15} color="#FFFFFF" strokeWidth={2.4} /><Text style={s.heroBtnText}>Buy credits</Text>
+              </Tap>
+              <Tap onPress={() => nav.push('FundMeGiftCredits')} style={[s.heroBtn, s.heroBtnGhost]} accessibilityLabel="Send credits to a friend">
+                <Icon name="gift" size={15} color="#FFFFFF" /><Text style={s.heroBtnText}>Send to a friend</Text>
+              </Tap>
             </View>
-          </View>
+          </Grad>
         </FadeInUp>
       )}
       {c && !c.demo ? (
-        <Card style={{ marginTop: 14 }}>
-          <Text style={st.h3}>How credits work</Text>
-          <Text style={st.body}>{c.explain}</Text>
-          <Text style={st.body}>Credits are not money. You can send them to another member, but they can’t be withdrawn as cash or resold.</Text>
+        <DCard style={{ marginTop: 14 }}>
+          <Text style={s.h3}>How credits work</Text>
+          <Text style={s.body}>{c.explain}</Text>
+          <Text style={s.body}>Credits are not money. You can send them to another member, but they can’t be withdrawn as cash or resold.</Text>
           {c.limits ? (
-            <View style={st.kpis}>
-              <Kpi label="Today" value={`${c.usage.today || 0}${c.limits.perDay ? ` / ${c.limits.perDay}` : ''}`} />
-              <Kpi label="Last 30 days" value={`${c.usage.month || 0}${c.limits.perMonth ? ` / ${c.limits.perMonth}` : ''}`} />
-              <Kpi label="Active" value={`${c.usage.active || 0}${c.limits.maxActive ? ` / ${c.limits.maxActive}` : ''}`} />
+            <View style={s.kpis}>
+              <FKpi label="Today" value={`${c.usage.today || 0}${c.limits.perDay ? ` / ${c.limits.perDay}` : ''}`} />
+              <FKpi label="Last 30 days" value={`${c.usage.month || 0}${c.limits.perMonth ? ` / ${c.limits.perMonth}` : ''}`} />
+              <FKpi label="Active" value={`${c.usage.active || 0}${c.limits.maxActive ? ` / ${c.limits.maxActive}` : ''}`} />
             </View>
           ) : null}
-        </Card>
+        </DCard>
       ) : null}
-      <Section title="History" style={{ marginTop: 22 }}>
-        {hist === null ? <Shimmer style={{ height: 120, borderRadius: radius.lg }} /> : hist.length ? (
-          <Card style={{ paddingVertical: 4 }}>
-            {hist.map((e, i) => (
-              <View key={e.id} style={[st.row, i > 0 && st.rowBorder]}>
-                <View style={[st.rowIcon, { backgroundColor: alpha(e.amount > 0 ? colors.positive : colors.gold, 0.12) }]}>
-                  <Icon name={e.kind.includes('gift') ? 'gift' : e.kind === 'fundme_publish' ? 'check' : 'coin'} size={15} color={e.amount > 0 ? colors.positive : colors.gold} />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={st.rowTitle} numberOfLines={1}>{KIND_LABEL[e.kind] || e.label}{e.counterparty ? ` · ${e.counterparty.name || 'member'}` : ''}</Text>
-                  <Text style={st.rowMeta}>{timeLabel(e.createdAt)}{e.meta && e.meta.title ? ` · ${e.meta.title}` : ''}</Text>
-                </View>
-                <Text style={[st.rowAmt, { color: e.amount > 0 ? colors.positive : colors.fg }]}>{e.amount > 0 ? '+' : ''}{e.amount}</Text>
+      <SectionTitle title="History" />
+      {hist === null ? <Shimmer style={{ height: 120, borderRadius: 20 }} /> : hist.length ? (
+        <DCard style={{ padding: 0 }}>
+          {hist.map((e, i) => (
+            <View key={e.id} style={[s.row, i > 0 && s.rowBorder]}>
+              <View style={[s.rowIconSm, { backgroundColor: alpha(e.amount > 0 ? colors.positive : colors.gold, 0.14) }]}>
+                <Icon name={e.kind.includes('gift') ? 'gift' : e.kind === 'fundme_publish' ? 'check' : 'coin'} size={15} color={e.amount > 0 ? colors.positive : colors.gold} />
               </View>
-            ))}
-            {cursor ? <Button kind="ghost" small label="Show more" onPress={more} style={{ margin: 10 }} /> : null}
-          </Card>
-        ) : <Empty title="No credit activity yet" body="Buy credits to publish a Fund Me request, or receive some from a friend." />}
-      </Section>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={s.rowTitle} numberOfLines={1}>{KIND_LABEL[e.kind] || e.label}{e.counterparty ? ` · ${e.counterparty.name || 'member'}` : ''}</Text>
+                <Text style={s.rowMeta}>{timeLabel(e.createdAt)}{e.meta && e.meta.title ? ` · ${e.meta.title}` : ''}</Text>
+              </View>
+              <Text style={[s.rowAmt, { color: e.amount > 0 ? colors.positive : d.ink }]}>{e.amount > 0 ? '+' : ''}{e.amount}</Text>
+            </View>
+          ))}
+          {cursor ? <FBtn kind="ghost" small label="Show more" onPress={more} style={{ margin: 12 }} /> : null}
+        </DCard>
+      ) : <FEmpty title="No credit activity yet" body="Buy credits to publish a Fund Me request, or receive some from a friend." />}
       <BuyCoinsSheet visible={buy} wallet="fundme_credits" onClose={() => setBuy(false)} onPurchased={() => { setBuy(false); walletChanged(); load(); }} />
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -226,42 +213,42 @@ export function FundMeGiftCreditsScreen() {
   const max = c ? Math.max(1, Math.min(c.giftMax || 100, c.balance || 1)) : 1;
   const pick = (u) => { setTo(u); key.current = newIdempotencyKey(); };
   return (
-    <Screen title="Send Fund Me credits" back>
-      <Notice text="Credits only — this sends Fund Me request credits, not money. The person can use them to publish their own request. Credits can’t be withdrawn or resold." />
-      <Text style={st.label}>Who are you sending to?</Text>
+    <DScreen title="Send Fund Me credits" back onBack={() => nav.pop()}>
+      <FNotice tone="plum" text="Credits only — this sends Fund Me request credits, not money. The person can use them to publish their own request. Credits can’t be withdrawn or resold." />
+      <DLabel>Who are you sending to?</DLabel>
       {to ? (
-        <View style={[st.card, st.pickRow]}>
-          <View style={st.avatar}><Text style={st.avatarText}>{(to.displayName || '?').slice(0, 1).toUpperCase()}</Text></View>
-          <View style={{ flex: 1 }}><Text style={st.rowTitle}>{to.displayName}</Text>{to.handle ? <Text style={st.rowMeta}>@{to.handle}</Text> : null}</View>
-          <Pressable onPress={() => setTo(null)} hitSlop={10} accessibilityLabel="Choose someone else"><Text style={st.link}>Change</Text></Pressable>
-        </View>
+        <DCard style={s.pickRow}>
+          <View style={s.avatar}><Text style={s.avatarText}>{(to.displayName || '?').slice(0, 1).toUpperCase()}</Text></View>
+          <View style={{ flex: 1 }}><Text style={s.rowTitle}>{to.displayName}</Text>{to.handle ? <Text style={s.rowMeta}>@{to.handle}</Text> : null}</View>
+          <Pressable onPress={() => setTo(null)} hitSlop={10} accessibilityLabel="Choose someone else"><Text style={s.link}>Change</Text></Pressable>
+        </DCard>
       ) : (
         <>
-          <View style={st.search}>
-            <Icon name="search" size={16} color={colors.faint} />
-            <TextInput value={q} onChangeText={setQ} placeholder="Name or @handle" placeholderTextColor={colors.faint} style={st.searchInput} autoCapitalize="none" accessibilityLabel="Search members" />
-            {searching ? <ActivityIndicator size="small" color={colors.muted} /> : null}
+          <View style={s.search}>
+            <Icon name="search" size={16} color={d.muted} />
+            <TextInput value={q} onChangeText={setQ} placeholder="Name or @handle" placeholderTextColor={d.muted} style={s.searchInput} autoCapitalize="none" accessibilityLabel="Search members" />
+            {searching ? <ActivityIndicator size="small" color={d.muted} /> : null}
           </View>
           {found.map((u) => (
-            <PressScale key={u.id} onPress={() => pick(u)} scaleTo={0.98} style={[st.card, st.pickRow, { marginTop: 8 }]} accessibilityLabel={`Send to ${u.displayName}`}>
-              <View style={st.avatar}><Text style={st.avatarText}>{(u.displayName || '?').slice(0, 1).toUpperCase()}</Text></View>
-              <View style={{ flex: 1 }}><Text style={st.rowTitle}>{u.displayName}</Text>{u.handle ? <Text style={st.rowMeta}>@{u.handle}</Text> : null}</View>
-              <Icon name="plus" size={16} color={colors.primary} />
-            </PressScale>
+            <Tap key={u.id} onPress={() => pick(u)} style={[s.pickRow, s.pickCard, { marginTop: 8 }]} accessibilityLabel={`Send to ${u.displayName}`}>
+              <View style={s.avatar}><Text style={s.avatarText}>{(u.displayName || '?').slice(0, 1).toUpperCase()}</Text></View>
+              <View style={{ flex: 1 }}><Text style={s.rowTitle}>{u.displayName}</Text>{u.handle ? <Text style={s.rowMeta}>@{u.handle}</Text> : null}</View>
+              <Icon name="plus" size={16} color={d.plum} />
+            </Tap>
           ))}
-          {q.trim().length >= 2 && !searching && !found.length ? <Text style={[st.rowMeta, { marginTop: 8 }]}>No members found.</Text> : null}
+          {q.trim().length >= 2 && !searching && !found.length ? <Text style={[s.rowMeta, { marginTop: 8 }]}>No members found.</Text> : null}
         </>
       )}
-      <Text style={st.label}>How many credits?</Text>
-      <View style={st.stepper}>
-        <PressScale onPress={() => setN((x) => Math.max(1, x - 1))} scaleTo={0.9} style={st.stepBtn} accessibilityLabel="Fewer"><Text style={st.stepBtnText}>−</Text></PressScale>
-        <Text style={st.stepNum}>{n}</Text>
-        <PressScale onPress={() => setN((x) => Math.min(max, x + 1))} scaleTo={0.9} style={st.stepBtn} accessibilityLabel="More"><Text style={st.stepBtnText}>+</Text></PressScale>
-        <Text style={[st.rowMeta, { marginLeft: 8, flex: 1 }]}>You have {c ? c.balance : '…'}</Text>
+      <DLabel>How many credits?</DLabel>
+      <View style={s.stepper}>
+        <Tap onPress={() => setN((x) => Math.max(1, x - 1))} style={s.stepBtn} accessibilityLabel="Fewer"><Text style={s.stepBtnText}>−</Text></Tap>
+        <Text style={s.stepNum}>{n}</Text>
+        <Tap onPress={() => setN((x) => Math.min(max, x + 1))} style={s.stepBtn} accessibilityLabel="More"><Text style={s.stepBtnText}>+</Text></Tap>
+        <Text style={[s.rowMeta, { marginLeft: 8, flex: 1 }]}>You have {c ? c.balance : '…'}</Text>
       </View>
-      <Text style={st.label}>Note (optional)</Text>
-      <Input value={note} onChangeText={setNote} placeholder="A word of encouragement" maxLength={140} />
-      <Button label={to ? `Send ${n} credit${n === 1 ? '' : 's'} to ${to.displayName}` : 'Choose someone first'} disabled={!to} onPress={() => setConfirm(true)} style={{ marginTop: 18 }} icon={<Icon name="gift" size={16} color="#FFFFFF" />} />
+      <DLabel>Note (optional)</DLabel>
+      <DInput value={note} onChangeText={setNote} placeholder="A word of encouragement" maxLength={140} />
+      <FBtn label={to ? `Send ${n} credit${n === 1 ? '' : 's'} to ${to.displayName}` : 'Choose someone first'} disabled={!to} onPress={() => setConfirm(true)} style={{ marginTop: 18 }} icon={<Icon name="gift" size={16} color="#FFFFFF" />} />
       <ConfirmSpend
         visible={confirm}
         amount={n}
@@ -273,7 +260,7 @@ export function FundMeGiftCreditsScreen() {
         onClose={() => setConfirm(false)}
         onDone={() => { toast.show(`Sent ${n} credit${n === 1 ? '' : 's'} to ${to.displayName}`, { icon: 'gift', haptic: 'success' }); key.current = newIdempotencyKey(); nav.pop(); }}
       />
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -292,104 +279,93 @@ export function FundMeMoneyScreen({ params = {} }) {
   useLoad(load);
   if (!m) {
     return (
-      <Screen title="Money & payouts" subtitle={params.title} back>
-        {error ? <Empty title="Not available" body={error} action="Try again" onAction={load} /> : <Shimmer style={{ height: 240, borderRadius: radius.lg }} />}
-      </Screen>
+      <DScreen title="Money & payouts" subtitle={params.title} back onBack={() => nav.pop()}>
+        {error ? <FEmpty title="Not available" body={error} action="Try again" onAction={load} /> : <Shimmer style={{ height: 240, borderRadius: 20 }} />}
+      </DScreen>
     );
   }
   const cur = m.currency; const t = m.totals; const fmt = (x) => formatMoney(x, cur);
   const bank = m.bankAccount;
   return (
-    <Screen title="Money & payouts" subtitle={params.title} back>
+    <DScreen title="Money & payouts" subtitle={params.title} back onBack={() => nav.pop()}>
       <FadeInUp><HeldExplainer /></FadeInUp>
       <FadeInUp index={1}>
-        <View style={st.kpis}>
-          <Kpi label="Received" value={fmt(t.receivedMinor)} />
-          <Kpi label="Being checked" value={fmt(t.checkingMinor + t.verifiedMinor)} tint={colors.gold} />
-          <Kpi label="Paid to you" value={fmt(t.paidMinor)} tint={colors.positive} />
+        <View style={s.kpis}>
+          <FKpi label="Received" value={fmt(t.receivedMinor)} />
+          <FKpi label="Being checked" value={fmt(t.checkingMinor + t.verifiedMinor)} tint={colors.gold} />
+          <FKpi label="Paid to you" value={fmt(t.paidMinor)} tint={colors.positive} />
         </View>
-        <View style={st.kpis}>
-          <Kpi label="Ready to pay" value={fmt(t.approvedMinor)} />
-          <Kpi label="Fees" value={fmt(t.feesMinor)} />
-          <Kpi label="Refunded" value={fmt(t.refundedMinor)} />
+        <View style={s.kpis}>
+          <FKpi label="Ready to pay" value={fmt(t.approvedMinor)} />
+          <FKpi label="Fees" value={fmt(t.feesMinor)} />
+          <FKpi label="Refunded" value={fmt(t.refundedMinor)} />
         </View>
-        <Text style={st.rowMeta}>{m.rules.scheduleText || `Payouts are made after a ${m.rules.holdDays}-day hold and our checks.`}{m.rules.nextPayoutRun ? ` Next payout run: ${dateLabel(m.rules.nextPayoutRun)}.` : ''} Minimum payout {fmt(m.rules.minPayoutMinor)}. All amounts are in Naira.{m.rules.feeBps || m.rules.feeFixedMinor ? ` BibleNestra fee: ${m.rules.feeBps / 100}%${m.rules.feeFixedMinor ? ` + ${fmt(m.rules.feeFixedMinor)}` : ''} per donation, plus payment processing and VAT unless the donor covers them.` : ' No BibleNestra fee.'}</Text>
+        <Text style={s.rowMeta}>{m.rules.scheduleText || `Payouts are made after a ${m.rules.holdDays}-day hold and our checks.`}{m.rules.nextPayoutRun ? ` Next payout run: ${dateLabel(m.rules.nextPayoutRun)}.` : ''} Minimum payout {fmt(m.rules.minPayoutMinor)}. All amounts are in Naira.{m.rules.feeBps || m.rules.feeFixedMinor ? ` BibleNestra fee: ${m.rules.feeBps / 100}%${m.rules.feeFixedMinor ? ` + ${fmt(m.rules.feeFixedMinor)}` : ''} per donation, plus payment processing and VAT unless the donor covers them.` : ' No BibleNestra fee.'}</Text>
       </FadeInUp>
 
-      <Section title="Your bank account" style={{ marginTop: 22 }}>
-        <PressScale onPress={() => nav.push('FundMePayoutAccount')} scaleTo={0.98} style={[st.card, st.pickRow]} accessibilityLabel="Bank account for payouts">
-          <View style={[st.rowIcon, { backgroundColor: alpha(colors.primary, 0.1) }]}><Icon name="lock" size={15} color={colors.primary} /></View>
-          <View style={{ flex: 1 }}>
-            {bank ? (
-              <>
-                <Text style={st.rowTitle}>{bank.bankName} {bank.accountNumberMasked}</Text>
-                <Text style={st.rowMeta}>{bank.accountName} · {bank.status === 'verified' ? 'Verified' : bank.status === 'rejected' ? `Needs changes${bank.reviewNote ? `: ${bank.reviewNote}` : ''}` : 'Being checked by our team'}</Text>
-              </>
-            ) : (
-              <>
-                <Text style={st.rowTitle}>Add your bank account</Text>
-                <Text style={st.rowMeta}>Needed before we can pay out your donations</Text>
-              </>
-            )}
+      <SectionTitle title="Your bank account" />
+      <DList>
+        <DRow
+          icon="lock"
+          title={bank ? `${bank.bankName} ${bank.accountNumberMasked}` : 'Add your bank account'}
+          subtitle={bank ? `${bank.accountName} · ${bank.status === 'verified' ? 'Verified' : bank.status === 'rejected' ? `Needs changes${bank.reviewNote ? `: ${bank.reviewNote}` : ''}` : 'Being checked by our team'}` : 'Needed before we can pay out your donations'}
+          onPress={() => nav.push('FundMePayoutAccount')}
+          accessibilityLabel="Bank account for payouts"
+        />
+      </DList>
+
+      <SectionTitle title="Identity check (KYC)" />
+      <DList>
+        <DRow
+          icon="shield"
+          title={m.kyc && m.kyc.status !== 'none' ? m.kyc.statusLabel : 'Verify your identity'}
+          subtitle={m.kyc && m.kyc.approved ? `${m.kyc.idTypeLabel} ${m.kyc.idNumberMasked} · ${m.kyc.legalName}` : 'Needed before any payout: your BVN, NIN or national ID and a bank account in your name'}
+          onPress={() => nav.push('PayoutKyc')}
+          accessibilityLabel="Identity check for payouts"
+        />
+      </DList>
+
+      <SectionTitle title="Payouts" />
+      {m.payouts.length ? m.payouts.map((p) => (
+        <DCard key={p.id} style={{ marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={[s.rowAmt, { flex: 1, textAlign: 'left' }]}>{formatMoney(p.amountMinor, p.currency)}</Text>
+            <StatusPill map={PAYOUT_STATUS} status={p.status} />
           </View>
-          <Icon name="edit" size={15} color={colors.muted} />
-        </PressScale>
-      </Section>
+          <Text style={s.rowMeta}>{p.donations} donation{p.donations === 1 ? '' : 's'}{p.bank ? ` · to ${p.bank.bankName} •••• ${p.bank.last4}` : ''}{p.reference ? ` · ref ${p.reference}` : ''}</Text>
+          {p.status === 'failed' && p.failureReason ? <Text style={s.short}>{p.failureReason}</Text> : null}
+          <Timeline items={p.timeline} />
+        </DCard>
+      )) : <FEmpty title="No payouts yet" body="When donations are verified and the hold period has passed, our team approves a payout to your bank account. You’ll be notified when it’s paid." />}
 
-      <Section title="Identity check (KYC)" style={{ marginTop: 22 }}>
-        <PressScale onPress={() => nav.push('PayoutKyc')} scaleTo={0.98} style={[st.card, st.pickRow]} accessibilityLabel="Identity check for payouts">
-          <View style={[st.rowIcon, { backgroundColor: alpha(colors.primary, 0.1) }]}><Icon name="shield" size={15} color={colors.primary} /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={st.rowTitle}>{m.kyc && m.kyc.status !== 'none' ? m.kyc.statusLabel : 'Verify your identity'}</Text>
-            <Text style={st.rowMeta}>{m.kyc && m.kyc.approved ? `${m.kyc.idTypeLabel} ${m.kyc.idNumberMasked} · ${m.kyc.legalName}` : 'Needed before any payout: your BVN, NIN or national ID and a bank account in your name'}</Text>
-          </View>
-          <Icon name="chevron-right" size={15} color={colors.muted} />
-        </PressScale>
-      </Section>
-
-      <Section title="Payouts" style={{ marginTop: 22 }}>
-        {m.payouts.length ? m.payouts.map((p) => (
-          <Card key={p.id} style={{ marginBottom: 10 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={[st.rowAmt, { flex: 1, textAlign: 'left' }]}>{formatMoney(p.amountMinor, p.currency)}</Text>
-              <StatusPill map={PAYOUT_STATUS} status={p.status} />
-            </View>
-            <Text style={st.rowMeta}>{p.donations} donation{p.donations === 1 ? '' : 's'}{p.bank ? ` · to ${p.bank.bankName} •••• ${p.bank.last4}` : ''}{p.reference ? ` · ref ${p.reference}` : ''}</Text>
-            {p.status === 'failed' && p.failureReason ? <Text style={st.short}>{p.failureReason}</Text> : null}
-            <Timeline items={p.timeline} />
-          </Card>
-        )) : <Empty title="No payouts yet" body="When donations are verified and the hold period has passed, our team approves a payout to your bank account. You’ll be notified when it’s paid." />}
-      </Section>
-
-      <Section title="Donations" style={{ marginTop: 22 }}>
-        {m.donations.length ? (
-          <Card style={{ paddingVertical: 4 }}>
-            {m.donations.map((d, i) => (
-              <Pressable key={d.id} onPress={() => setOpen(open === d.id ? null : d.id)} style={[st.row, i > 0 && st.rowBorder, { flexWrap: 'wrap' }]} accessibilityLabel={`Donation from ${d.name}`}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={st.rowTitle} numberOfLines={1}>{d.name}{d.anonymous ? ' (anonymous publicly)' : ''}{d.test ? ' · test' : ''}</Text>
-                  <Text style={st.rowMeta}>{timeLabel(d.receivedAt || d.createdAt)}</Text>
+      <SectionTitle title="Donations" />
+      {m.donations.length ? (
+        <DCard style={{ padding: 0 }}>
+          {m.donations.map((x, i) => (
+            <Pressable key={x.id} onPress={() => setOpen(open === x.id ? null : x.id)} style={[s.row, i > 0 && s.rowBorder, { flexWrap: 'wrap' }]} accessibilityLabel={`Donation from ${x.name}`}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={s.rowTitle} numberOfLines={1}>{x.name}{x.anonymous ? ' (anonymous publicly)' : ''}{x.test ? ' · test' : ''}</Text>
+                <Text style={s.rowMeta}>{timeLabel(x.receivedAt || x.createdAt)}</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                <Text style={s.rowAmt}>{formatMoney(x.amountMinor, x.currency)}</Text>
+                <StatusPill map={DONATION_STATUS} status={x.status} />
+              </View>
+              {open === x.id ? (
+                <View style={{ width: '100%', marginTop: 8 }}>
+                  {x.message ? <Text style={s.body}>“{x.message}”</Text> : null}
+                  <Text style={s.rowMeta}>
+                    {x.original && x.original.currency !== x.currency ? `Gave ${moneyAny(x.original.amountMinor, x.original.currency)} · ` : ''}
+                    Fees {formatMoney(x.fees ? x.fees.totalMinor : x.feeMinor, x.currency)}{x.coverFees ? ' (covered by the donor)' : ''} · for you {formatMoney(x.netMinor, x.currency)}
+                    {x.payoutRun ? ` · payout run ${dateLabel(x.payoutRun)}` : ''}{x.receiptNo ? ` · receipt ${x.receiptNo}` : ''}
+                  </Text>
                 </View>
-                <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                  <Text style={st.rowAmt}>{formatMoney(d.amountMinor, d.currency)}</Text>
-                  <StatusPill map={DONATION_STATUS} status={d.status} />
-                </View>
-                {open === d.id ? (
-                  <View style={{ width: '100%', marginTop: 8 }}>
-                    {d.message ? <Text style={st.body}>“{d.message}”</Text> : null}
-                    <Text style={st.rowMeta}>
-                      {d.original && d.original.currency !== d.currency ? `Gave ${moneyAny(d.original.amountMinor, d.original.currency)} · ` : ''}
-                      Fees {formatMoney(d.fees ? d.fees.totalMinor : d.feeMinor, d.currency)}{d.coverFees ? ' (covered by the donor)' : ''} · for you {formatMoney(d.netMinor, d.currency)}
-                      {d.payoutRun ? ` · payout run ${dateLabel(d.payoutRun)}` : ''}{d.receiptNo ? ` · receipt ${d.receiptNo}` : ''}
-                    </Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            ))}
-          </Card>
-        ) : <Empty title="No donations yet" body="Share your link — every donation shows here with its status." />}
-      </Section>
-    </Screen>
+              ) : null}
+            </Pressable>
+          ))}
+        </DCard>
+      ) : <FEmpty title="No donations yet" body="Share your link — every donation shows here with its status." />}
+    </DScreen>
   );
 }
 
@@ -439,60 +415,61 @@ export function FundMePayoutAccountScreen() {
     } catch (e) { setErr(errorMessage(e, 'Couldn’t save')); }
     setBusy(null);
   };
-  if (cur === undefined) return <Screen title="Bank account" back><Shimmer style={{ height: 200, borderRadius: radius.lg }} /></Screen>;
+  if (cur === undefined) return <DScreen title="Bank account" back onBack={() => nav.pop()}><Shimmer style={{ height: 200, borderRadius: 20 }} /></DScreen>;
   return (
-    <Screen title="Bank account for payouts" back>
-      <Notice text="We only pay out to an account in your name. Your account number is stored encrypted and shown only as its last 4 digits. Every new or changed account is checked by our team, and payouts wait until then." />
-      <PressScale onPress={() => nav.push('PayoutKyc')} scaleTo={0.98} style={[st.card, st.pickRow, { marginTop: 12 }]} accessibilityLabel="Identity check (KYC)">
-        <View style={[st.rowIcon, { backgroundColor: alpha(colors.primary, 0.1) }]}><Icon name="shield" size={15} color={colors.primary} /></View>
-        <View style={{ flex: 1 }}>
-          <Text style={st.rowTitle}>Identity check (KYC)</Text>
-          <Text style={st.rowMeta}>Required before any payout. Submitting it also sets this bank account.</Text>
-        </View>
-        <Icon name="chevron-right" size={15} color={colors.muted} />
-      </PressScale>
+    <DScreen title="Bank account for payouts" back onBack={() => nav.pop()}>
+      <FNotice text="We only pay out to an account in your name. Your account number is stored encrypted and shown only as its last 4 digits. Every new or changed account is checked by our team, and payouts wait until then." />
+      <DList style={{ marginTop: 12 }}>
+        <DRow
+          icon="shield"
+          title="Identity check (KYC)"
+          subtitle="Required before any payout. Submitting it also sets this bank account."
+          onPress={() => nav.push('PayoutKyc')}
+          accessibilityLabel="Identity check (KYC)"
+        />
+      </DList>
       {cur ? (
-        <Card style={{ marginTop: 14 }}>
+        <DCard style={{ marginTop: 14 }}>
           <Eyebrow>Current account</Eyebrow>
-          <Text style={st.rowTitle}>{cur.bankName} {cur.accountNumberMasked}</Text>
-          <Text style={st.rowMeta}>{cur.accountName}{cur.nameResolved ? ' · name confirmed by the bank' : ''}</Text>
+          <Text style={s.rowTitle}>{cur.bankName} {cur.accountNumberMasked}</Text>
+          <Text style={s.rowMeta}>{cur.accountName}{cur.nameResolved ? ' · name confirmed by the bank' : ''}</Text>
           <View style={{ flexDirection: 'row', marginTop: 8 }}>
-            <Badge label={cur.status === 'verified' ? 'Verified' : cur.status === 'rejected' ? 'Needs changes' : 'Being checked'} tint={cur.status === 'verified' ? colors.positive : cur.status === 'rejected' ? colors.negative : colors.gold} />
+            <FBadge label={cur.status === 'verified' ? 'Verified' : cur.status === 'rejected' ? 'Needs changes' : 'Being checked'} tint={cur.status === 'verified' ? colors.positive : cur.status === 'rejected' ? colors.negative : colors.gold} />
           </View>
-          {cur.reviewNote ? <Text style={st.short}>{cur.reviewNote}</Text> : null}
-        </Card>
+          {cur.reviewNote ? <Text style={s.short}>{cur.reviewNote}</Text> : null}
+        </DCard>
       ) : null}
-      <Text style={st.label}>{cur ? 'Change to a different account' : 'Bank'}</Text>
+      <DLabel>{cur ? 'Change to a different account' : 'Bank'}</DLabel>
       {bank ? (
-        <View style={[st.card, st.pickRow]}>
-          <Text style={[st.rowTitle, { flex: 1 }]}>{bank.name}</Text>
-          <Pressable onPress={() => { setBank(null); setResolved(null); }} hitSlop={10}><Text style={st.link}>Change</Text></Pressable>
-        </View>
+        <DCard style={s.pickRow}>
+          <Text style={[s.rowTitle, { flex: 1 }]}>{bank.name}</Text>
+          <Pressable onPress={() => { setBank(null); setResolved(null); }} hitSlop={10}><Text style={s.link}>Change</Text></Pressable>
+        </DCard>
       ) : (
         <>
-          <View style={st.search}>
-            <Icon name="search" size={16} color={colors.faint} />
-            <TextInput value={bankQ} onChangeText={setBankQ} placeholder="Search your bank" placeholderTextColor={colors.faint} style={st.searchInput} accessibilityLabel="Search banks" />
+          <View style={s.search}>
+            <Icon name="search" size={16} color={d.muted} />
+            <TextInput value={bankQ} onChangeText={setBankQ} placeholder="Search your bank" placeholderTextColor={d.muted} style={s.searchInput} accessibilityLabel="Search banks" />
           </View>
-          <View style={[st.card, { paddingVertical: 2, marginTop: 8, maxHeight: 240 }]}>
+          <DCard style={{ padding: 0, marginTop: 8, maxHeight: 240 }}>
             {shown.slice(0, 40).map((b, i) => (
-              <Pressable key={b.code} onPress={() => { setBank(b); setResolved(null); }} style={[st.row, i > 0 && st.rowBorder]} accessibilityLabel={b.name}>
-                <Text style={st.rowTitle}>{b.name}</Text>
+              <Pressable key={b.code} onPress={() => { setBank(b); setResolved(null); }} style={[s.row, i > 0 && s.rowBorder]} accessibilityLabel={b.name}>
+                <Text style={s.rowTitle}>{b.name}</Text>
               </Pressable>
             ))}
-          </View>
+          </DCard>
         </>
       )}
-      <Text style={st.label}>Account number (NUBAN)</Text>
-      <Input value={num} onChangeText={(t) => { setNum(t.replace(/\D/g, '').slice(0, 10)); setResolved(null); }} placeholder="10 digits" keyboardType="number-pad" maxLength={10} />
-      {canResolve ? <Button kind="ghost" small label={busy === 'check' ? 'Checking…' : 'Check account name'} disabled={!bank || num.length !== 10 || !!busy} onPress={check} style={{ marginTop: 8 }} /> : null}
-      <Text style={st.label}>Account name</Text>
+      <DLabel>Account number (NUBAN)</DLabel>
+      <DInput value={num} onChangeText={(t) => { setNum(t.replace(/\D/g, '').slice(0, 10)); setResolved(null); }} placeholder="10 digits" keyboardType="number-pad" maxLength={10} />
+      {canResolve ? <FBtn kind="ghost" small label={busy === 'check' ? 'Checking…' : 'Check account name'} disabled={!bank || num.length !== 10 || !!busy} onPress={check} style={{ marginTop: 8 }} /> : null}
+      <DLabel>Account name</DLabel>
       {resolved ? (
-        <View style={[st.card, st.pickRow]}><Icon name="check" size={16} color={colors.positive} /><Text style={[st.rowTitle, { flex: 1 }]}>{resolved}</Text><Text style={st.rowMeta}>from your bank</Text></View>
-      ) : <Input value={name} onChangeText={setName} placeholder="Exactly as your bank shows it" maxLength={120} />}
-      {err ? <Text style={st.short}>{err}</Text> : null}
-      <Button label={busy === 'save' ? 'Saving…' : 'Save bank account'} disabled={!!busy} onPress={save} style={{ marginTop: 18 }} icon={<Icon name="lock" size={15} color="#FFFFFF" />} />
-    </Screen>
+        <DCard style={s.pickRow}><Icon name="check" size={16} color={d.sageDark} /><Text style={[s.rowTitle, { flex: 1 }]}>{resolved}</Text><Text style={s.rowMeta}>from your bank</Text></DCard>
+      ) : <DInput value={name} onChangeText={setName} placeholder="Exactly as your bank shows it" maxLength={120} />}
+      {err ? <Text style={s.short}>{err}</Text> : null}
+      <FBtn label={busy === 'save' ? 'Saving…' : 'Save bank account'} disabled={!!busy} onPress={save} style={{ marginTop: 18 }} icon={<Icon name="lock" size={15} color="#FFFFFF" />} />
+    </DScreen>
   );
 }
 
@@ -503,7 +480,7 @@ export function PayoutKycScreen() {
   const fm = useFundMe();
   const nav = useNav();
   const toast = useToast();
-  const [k, setK] = useState(undefined);
+  const [kyc, setKyc] = useState(undefined);
   const [info, setInfo] = useState(null);
   const [banks, setBanks] = useState([]);
   const [idType, setIdType] = useState('nin');
@@ -518,10 +495,10 @@ export function PayoutKycScreen() {
   const [err, setErr] = useState(null);
   useEffect(() => {
     Promise.all([fm.kyc(), fm.banks()]).then(([a, b]) => {
-      setInfo(a); setK(a.kyc); setBanks(b.banks || []);
+      setInfo(a); setKyc(a.kyc); setBanks(b.banks || []);
       if (a.kyc && a.kyc.status !== 'none') { setIdType(a.kyc.idType); setLegal(a.kyc.legalName); setBank({ code: a.kyc.bankCode, name: a.kyc.bankName }); }
       setEditing(!a.kyc || a.kyc.status === 'none' || a.kyc.status === 'rejected');
-    }).catch((e) => { setErr(errorMessage(e, 'Couldn’t load your identity check')); setK(null); });
+    }).catch((e) => { setErr(errorMessage(e, 'Couldn’t load your identity check')); setKyc(null); });
   }, [fm]);
   const shown = bankQ.trim() ? banks.filter((b) => b.name.toLowerCase().includes(bankQ.trim().toLowerCase())) : banks;
   const submit = async () => {
@@ -535,79 +512,79 @@ export function PayoutKycScreen() {
     setBusy(true);
     try {
       const r = await fm.saveKyc({ idType, idNumber: idNumber.trim(), legalName: legal.trim(), bankCode: bank.code, accountNumber: num, accountName: accName.trim() || legal.trim() });
-      setK(r.kyc); setEditing(false); setIdNumber(''); setNum('');
+      setKyc(r.kyc); setEditing(false); setIdNumber(''); setNum('');
       toast.show('Submitted — our team will check it', { icon: 'shield', duration: 3600 });
     } catch (e) { setErr(errorMessage(e, 'Couldn’t submit')); }
     setBusy(false);
   };
-  if (k === undefined) return <Screen title="Identity check" back><Shimmer style={{ height: 220, borderRadius: radius.lg }} /></Screen>;
-  const status = (k && k.status) || 'none';
+  if (kyc === undefined) return <DScreen title="Identity check" back onBack={() => nav.pop()}><Shimmer style={{ height: 220, borderRadius: 20 }} /></DScreen>;
+  const status = (kyc && kyc.status) || 'none';
   return (
-    <Screen title="Identity check (KYC)" back>
-      <Notice text={(info && info.explain) || 'Before BibleNestra pays out Fund Me donations or gift earnings, we check who you are.'} />
+    <DScreen title="Identity check (KYC)" back onBack={() => nav.pop()}>
+      <FNotice text={(info && info.explain) || 'Before BibleNestra pays out Fund Me donations or gift earnings, we check who you are.'} />
       {status !== 'none' ? (
-        <Card style={{ marginTop: 14 }}>
+        <DCard style={{ marginTop: 14 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={[st.rowTitle, { flex: 1 }]}>{k.legalName}</Text>
-            <Badge label={k.statusLabel} tint={KYC_TINT[status]} />
+            <Text style={[s.rowTitle, { flex: 1 }]}>{kyc.legalName}</Text>
+            <FBadge label={kyc.statusLabel} tint={KYC_TINT[status]} />
           </View>
-          <Text style={st.rowMeta}>{k.idTypeLabel} {k.idNumberMasked}</Text>
-          <Text style={st.rowMeta}>{k.bankName} {k.accountNumberMasked} · {k.accountName}{k.nameResolved ? ' (from your bank)' : ''}</Text>
-          {k.reviewNote ? <Text style={st.short}>{k.reviewNote}</Text> : null}
-          {!editing ? <Button kind="ghost" small label="Update my details" onPress={() => setEditing(true)} style={{ marginTop: 10 }} /> : null}
-        </Card>
+          <Text style={s.rowMeta}>{kyc.idTypeLabel} {kyc.idNumberMasked}</Text>
+          <Text style={s.rowMeta}>{kyc.bankName} {kyc.accountNumberMasked} · {kyc.accountName}{kyc.nameResolved ? ' (from your bank)' : ''}</Text>
+          {kyc.reviewNote ? <Text style={s.short}>{kyc.reviewNote}</Text> : null}
+          {!editing ? <FBtn kind="ghost" small label="Update my details" onPress={() => setEditing(true)} style={{ marginTop: 10 }} /> : null}
+        </DCard>
       ) : null}
       {editing ? (
         <>
-          <Text style={st.label}>ID type</Text>
+          <DLabel>ID type</DLabel>
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
             {((info && info.idTypes) || [{ value: 'bvn', label: 'BVN' }, { value: 'nin', label: 'NIN' }, { value: 'national_id', label: 'Other national ID' }]).map((t) => (
-              <PressScale key={t.value} onPress={() => setIdType(t.value)} scaleTo={0.95} style={[st.card, { paddingVertical: 8, paddingHorizontal: 12 }, idType === t.value && { borderColor: colors.primary, backgroundColor: alpha(colors.primary, 0.08) }]} accessibilityLabel={t.label}>
-                <Text style={[st.rowTitle, { fontSize: 13 }]}>{t.value === 'national_id' ? 'Other national ID' : t.value.toUpperCase()}</Text>
-              </PressScale>
+              <Tap key={t.value} onPress={() => setIdType(t.value)} style={[s.typeChip, idType === t.value && s.typeChipOn]} accessibilityLabel={t.label}>
+                <Text style={[s.typeChipText, idType === t.value && { color: d.plumDark }]}>{t.value === 'national_id' ? 'Other national ID' : t.value.toUpperCase()}</Text>
+              </Tap>
             ))}
           </View>
-          <Text style={st.label}>{idType === 'bvn' ? 'BVN' : idType === 'nin' ? 'NIN' : 'ID number'}</Text>
-          <Input value={idNumber} onChangeText={(t) => setIdNumber(idType === 'national_id' ? t.replace(/[^A-Za-z0-9]/g, '').slice(0, 30) : t.replace(/\D/g, '').slice(0, 11))} placeholder={idType === 'national_id' ? 'As printed on your ID' : '11 digits'} keyboardType={idType === 'national_id' ? 'default' : 'number-pad'} autoCapitalize="characters" />
-          <Text style={[st.short, { marginTop: 6 }]}>Instant BVN / NIN check is coming soon. For now our team checks your ID by hand before your first payout.</Text>
-          <Text style={st.label}>Legal name</Text>
-          <Input value={legal} onChangeText={setLegal} placeholder="As on your ID — first name and surname" maxLength={120} />
-          <Text style={st.label}>Bank</Text>
+          <DLabel>{idType === 'bvn' ? 'BVN' : idType === 'nin' ? 'NIN' : 'ID number'}</DLabel>
+          <DInput value={idNumber} onChangeText={(t) => setIdNumber(idType === 'national_id' ? t.replace(/[^A-Za-z0-9]/g, '').slice(0, 30) : t.replace(/\D/g, '').slice(0, 11))} placeholder={idType === 'national_id' ? 'As printed on your ID' : '11 digits'} keyboardType={idType === 'national_id' ? 'default' : 'number-pad'} autoCapitalize="characters" />
+          <FNotice tone="plum" icon="clock" text="Instant BVN / NIN check is coming soon. For now our team checks your ID by hand before your first payout." style={{ marginTop: 10 }} />
+          <DLabel>Legal name</DLabel>
+          <DInput value={legal} onChangeText={setLegal} placeholder="As on your ID — first name and surname" maxLength={120} />
+          <DLabel>Bank</DLabel>
           {bank ? (
-            <View style={[st.card, st.pickRow]}>
-              <Text style={[st.rowTitle, { flex: 1 }]}>{bank.name}</Text>
-              <Pressable onPress={() => setBank(null)} hitSlop={10}><Text style={st.link}>Change</Text></Pressable>
-            </View>
+            <DCard style={s.pickRow}>
+              <Text style={[s.rowTitle, { flex: 1 }]}>{bank.name}</Text>
+              <Pressable onPress={() => setBank(null)} hitSlop={10}><Text style={s.link}>Change</Text></Pressable>
+            </DCard>
           ) : (
             <>
-              <View style={st.search}>
-                <Icon name="search" size={16} color={colors.faint} />
-                <TextInput value={bankQ} onChangeText={setBankQ} placeholder="Search your bank" placeholderTextColor={colors.faint} style={st.searchInput} accessibilityLabel="Search banks" />
+              <View style={s.search}>
+                <Icon name="search" size={16} color={d.muted} />
+                <TextInput value={bankQ} onChangeText={setBankQ} placeholder="Search your bank" placeholderTextColor={d.muted} style={s.searchInput} accessibilityLabel="Search banks" />
               </View>
-              <View style={[st.card, { paddingVertical: 2, marginTop: 8, maxHeight: 220 }]}>
+              <DCard style={{ padding: 0, marginTop: 8, maxHeight: 220 }}>
                 {shown.slice(0, 40).map((b, i) => (
-                  <Pressable key={b.code} onPress={() => setBank(b)} style={[st.row, i > 0 && st.rowBorder]} accessibilityLabel={b.name}>
-                    <Text style={st.rowTitle}>{b.name}</Text>
+                  <Pressable key={b.code} onPress={() => setBank(b)} style={[s.row, i > 0 && s.rowBorder]} accessibilityLabel={b.name}>
+                    <Text style={s.rowTitle}>{b.name}</Text>
                   </Pressable>
                 ))}
-              </View>
+              </DCard>
             </>
           )}
-          <Text style={st.label}>Account number (NUBAN)</Text>
-          <Input value={num} onChangeText={(t) => setNum(t.replace(/\D/g, '').slice(0, 10))} placeholder="10 digits — an account in your own name" keyboardType="number-pad" maxLength={10} />
+          <DLabel>Account number (NUBAN)</DLabel>
+          <DInput value={num} onChangeText={(t) => setNum(t.replace(/\D/g, '').slice(0, 10))} placeholder="10 digits — an account in your own name" keyboardType="number-pad" maxLength={10} />
           {!(info && info.canResolve) ? (
             <>
-              <Text style={st.label}>Account name</Text>
-              <Input value={accName} onChangeText={setAccName} placeholder="Exactly as your bank shows it" maxLength={120} />
+              <DLabel>Account name</DLabel>
+              <DInput value={accName} onChangeText={setAccName} placeholder="Exactly as your bank shows it" maxLength={120} />
             </>
-          ) : <Text style={st.rowMeta}>We check the account name with your bank. It must match your legal name (any order; middle names don’t matter).</Text>}
-          {err ? <Text style={st.short}>{err}</Text> : null}
-          <Button label={busy ? 'Submitting…' : 'Submit for review'} disabled={busy} onPress={submit} style={{ marginTop: 18 }} icon={<Icon name="shield" size={15} color="#FFFFFF" />} />
-          <Text style={[st.rowMeta, { marginTop: 10 }]}>Your ID and account numbers are stored encrypted and shown only as their last digits.</Text>
+          ) : <Text style={[s.rowMeta, { marginTop: 10 }]}>We check the account name with your bank. It must match your legal name (any order; middle names don’t matter).</Text>}
+          {err ? <Text style={s.short}>{err}</Text> : null}
+          <FBtn label={busy ? 'Submitting…' : 'Submit for review'} disabled={busy} onPress={submit} style={{ marginTop: 18 }} icon={<Icon name="shield" size={15} color="#FFFFFF" />} />
+          <Text style={[s.rowMeta, { marginTop: 10 }]}>Your ID and account numbers are stored encrypted and shown only as their last digits.</Text>
         </>
       ) : null}
-      {status === 'approved' ? <Button kind="ghost" label="Done" onPress={() => nav.pop()} style={{ marginTop: 16 }} /> : null}
-    </Screen>
+      {status === 'approved' ? <FBtn kind="ghost" label="Done" onPress={() => nav.pop()} style={{ marginTop: 16 }} /> : null}
+    </DScreen>
   );
 }
 
@@ -624,28 +601,28 @@ export function FundMeMyDonationsScreen() {
   }, [fm]);
   useLoad(load);
   return (
-    <Screen title="My donations" back>
+    <DScreen title="My donations" back onBack={() => nav.pop()}>
       <HeldExplainer compact />
-      {error ? <Notice text={error} tint={colors.negative} /> : null}
+      {error ? <FNotice text={error} tone="danger" style={{ marginTop: 12 }} /> : null}
       <View style={{ marginTop: 14 }}>
-        {items === null ? <Shimmer style={{ height: 160, borderRadius: radius.lg }} /> : items.length ? (
-          <Card style={{ paddingVertical: 4 }}>
-            {items.map((d, i) => (
-              <PressScale key={d.id} onPress={() => (d.receiptNo ? nav.push('FundMeReceipt', { donationId: d.id }) : null)} scaleTo={0.99} style={[st.row, i > 0 && st.rowBorder]} accessibilityLabel={`Donation to ${d.fundraiserTitle}`}>
+        {items === null ? <Shimmer style={{ height: 160, borderRadius: 20 }} /> : items.length ? (
+          <DCard style={{ padding: 0 }}>
+            {items.map((x, i) => (
+              <Tap key={x.id} onPress={() => (x.receiptNo ? nav.push('FundMeReceipt', { donationId: x.id }) : null)} style={[s.row, i > 0 && s.rowBorder]} accessibilityLabel={`Donation to ${x.fundraiserTitle}`}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={st.rowTitle} numberOfLines={1}>{d.fundraiserTitle}</Text>
-                  <Text style={st.rowMeta}>{dateLabel(d.receivedAt || d.createdAt)}{d.receiptNo ? ' · tap for receipt' : ''}{d.test ? ' · test' : ''}</Text>
+                  <Text style={s.rowTitle} numberOfLines={1}>{x.fundraiserTitle}</Text>
+                  <Text style={s.rowMeta}>{dateLabel(x.receivedAt || x.createdAt)}{x.receiptNo ? ' · tap for receipt' : ''}{x.test ? ' · test' : ''}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                  <Text style={st.rowAmt}>{d.original ? moneyAny(d.original.amountMinor, d.original.currency) : formatMoney(d.amountMinor, d.currency)}</Text>
-                  <StatusPill map={DONATION_STATUS} status={d.status} />
+                  <Text style={s.rowAmt}>{x.original ? moneyAny(x.original.amountMinor, x.original.currency) : formatMoney(x.amountMinor, x.currency)}</Text>
+                  <StatusPill map={DONATION_STATUS} status={x.status} />
                 </View>
-              </PressScale>
+              </Tap>
             ))}
-          </Card>
-        ) : <Empty title="No donations yet" body="When you give to a Fund Me request, your receipts appear here." action="Discover fundraisers" onAction={() => nav.push('FundMe')} />}
+          </DCard>
+        ) : <FEmpty title="No donations yet" body="When you give to a Fund Me request, your receipts appear here." action="Discover fundraisers" onAction={() => nav.push('FundMe')} />}
       </View>
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -658,18 +635,24 @@ export function FundMeReceiptScreen({ params = {} }) {
     try { setR(await fm.receipt(params.donationId)); setError(null); } catch (e) { setError(errorMessage(e, 'Couldn’t load the receipt')); }
   }, [fm, params.donationId]);
   useLoad(load);
-  if (!r) return <Screen title="Receipt" back>{error ? <Empty title="Receipt not available" body={error} action="Try again" onAction={load} /> : <Shimmer style={{ height: 300, borderRadius: radius.lg }} />}</Screen>;
-  const line = (k, v, strong, oneLine) => (
-    <View style={st.rLine}><Text style={st.rKey}>{k}</Text><Text style={[st.rVal, strong && { fontWeight: '800', fontSize: 16 }]} numberOfLines={oneLine ? 1 : undefined} ellipsizeMode="middle" selectable>{v}</Text></View>
+  if (!r) {
+    return (
+      <DScreen title="Receipt" back onBack={() => nav.pop()}>
+        {error ? <FEmpty title="Receipt not available" body={error} action="Try again" onAction={load} /> : <Shimmer style={{ height: 300, borderRadius: 24 }} />}
+      </DScreen>
+    );
+  }
+  const line = (key, v, strong, oneLine) => (
+    <View style={s.rLine}><Text style={s.rKey}>{key}</Text><Text style={[s.rVal, strong && { fontFamily: df.displayBold, fontSize: 16 }]} numberOfLines={oneLine ? 1 : undefined} ellipsizeMode="middle" selectable>{v}</Text></View>
   );
   return (
-    <Screen title="Donation receipt" back>
+    <DScreen title="Donation receipt" back onBack={() => nav.pop()}>
       <FadeInUp>
-        <View style={st.receipt}>
+        <DCard style={s.receipt}>
           <View style={{ alignItems: 'center', marginBottom: 14 }}>
-            <View style={st.receiptIcon}><Icon name="heart" size={22} color="#FFFFFF" /></View>
-            <Text style={st.receiptTitle}>Thank you for your gift</Text>
-            <Text style={st.rowMeta}>{r.test ? 'TEST — no money moved · ' : ''}Receipt {r.receiptNo}</Text>
+            <View style={s.receiptIcon}><Icon name="heart" size={22} color="#FFFFFF" /></View>
+            <Text style={s.receiptTitle}>Thank you for your gift</Text>
+            <Text style={s.rowMeta}>{r.test ? 'TEST — no money moved · ' : ''}Receipt {r.receiptNo}</Text>
           </View>
           {r.breakdown ? r.breakdown.filter((b) => b.value).map((b, i) => <React.Fragment key={b.label}>{line(b.label, b.value, i === 0)}</React.Fragment>) : (
             <>
@@ -686,67 +669,68 @@ export function FundMeReceiptScreen({ params = {} }) {
           {line('Method', r.method)}
           {line('Reference', r.reference, false, true)}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-            <Text style={st.rKey}>Status</Text><StatusPill map={DONATION_STATUS} status={r.status} />
+            <Text style={s.rKey}>Status</Text><StatusPill map={DONATION_STATUS} status={r.status} />
           </View>
-        </View>
+        </DCard>
       </FadeInUp>
-      <Text style={[st.body, { marginTop: 14 }]}>{r.note}</Text>
-      {r.refundPolicy ? <Text style={[st.rowMeta, { marginTop: 8 }]}>{r.refundPolicy}</Text> : null}
-      <Section title="What happened" style={{ marginTop: 18 }}><Card><Timeline items={r.timeline} /></Card></Section>
-      <Button kind="ghost" label="Open the request" onPress={() => nav.push('Fundraiser', { id: r.request.id })} style={{ marginTop: 16 }} />
-    </Screen>
+      <Text style={[s.body, { marginTop: 14 }]}>{r.note}</Text>
+      {r.refundPolicy ? <Text style={[s.rowMeta, { marginTop: 8 }]}>{r.refundPolicy}</Text> : null}
+      <SectionTitle title="What happened" />
+      <DCard><Timeline items={r.timeline} /></DCard>
+      <FBtn kind="ghost" label="Open the request" onPress={() => nav.push('Fundraiser', { id: r.request.id })} style={{ marginTop: 16 }} />
+    </DScreen>
   );
 }
 
-const st = StyleSheet.create({
-  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 14, ...shadow.sm },
-  hero: { backgroundColor: colors.night || '#15172B', borderRadius: radius.xl, padding: 20, overflow: 'hidden' },
-  heroNum: { fontFamily: fonts.display, fontSize: 52, color: '#FFFFFF', marginTop: 4 },
-  heroSub: { color: 'rgba(255,255,255,0.75)', fontSize: 13.5 },
-  heroBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.goldLight || '#E8C77E', paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.pill },
-  heroBtnGhost: { backgroundColor: 'rgba(255,255,255,0.12)' },
-  heroBtnText: { fontWeight: '800', color: colors.night || '#15172B', fontSize: 13.5 },
-  h3: { fontFamily: fonts.serifBold, fontSize: 18, color: colors.fg, marginBottom: 6 },
-  body: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 4 },
-  label: { color: colors.muted, fontSize: 12.5, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 18, marginBottom: 8 },
-  link: { color: colors.primary, fontWeight: '800' },
+const s = {
+  // credits
+  creditCard: { padding: 16, borderRadius: 22 },
+  creditIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: alpha('#B5523B', 0.14), alignItems: 'center', justifyContent: 'center' },
+  creditTitle: { fontFamily: df.display, fontSize: 14, color: d.ink },
+  creditSub: { fontFamily: df.sans, color: d.muted, fontSize: 11, marginTop: 2 },
+  creditStrong: { color: d.ink, fontFamily: df.sansBold },
+  creditNote: { color: d.muted, fontFamily: df.sans, fontSize: 10.5, lineHeight: 16, marginTop: 10 },
+  hero: { borderRadius: 26, padding: 22, overflow: 'hidden' },
+  heroNum: { fontFamily: df.displayBold, fontSize: 46, color: '#FFFFFF', marginTop: 4 },
+  heroSub: { color: 'rgba(255,255,255,0.78)', fontFamily: df.sans, fontSize: 11.5 },
+  heroBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: d.plum, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999 },
+  heroBtnGhost: { backgroundColor: 'rgba(255,255,255,0.14)' },
+  heroBtnText: { fontFamily: df.sansBold, color: '#FFFFFF', fontSize: 11.5 },
+  h3: { fontFamily: df.displayBold, fontSize: 17, color: d.ink, marginBottom: 6 },
+  body: { color: d.muted, fontFamily: df.sans, fontSize: 12, lineHeight: 18, marginTop: 4 },
   kpis: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 6 },
-  kpi: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingVertical: 10, paddingHorizontal: 8, alignItems: 'center' },
-  kpiValue: { fontFamily: fonts.serifBold, fontSize: 17, color: colors.fg },
-  kpiLabel: { color: colors.muted, fontSize: 11.5, marginTop: 2, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 4 },
-  rowBorder: { borderTopWidth: 1, borderTopColor: colors.border },
-  rowIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  rowTitle: { color: colors.fg, fontWeight: '700', fontSize: 14.5 },
-  rowMeta: { color: colors.muted, fontSize: 12.5, marginTop: 2, lineHeight: 17 },
-  rowAmt: { color: colors.fg, fontWeight: '800', fontSize: 15, textAlign: 'right' },
-  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: alpha(colors.primary, 0.12), alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: colors.primary, fontWeight: '800' },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: 14, height: 44 },
-  searchInput: { flex: 1, color: colors.fg, fontSize: 15, outlineStyle: 'none' },
+  link: { color: d.plum, fontFamily: df.sansBold, fontSize: 12 },
+  short: { color: '#8A2F2F', fontFamily: df.sans, fontSize: 11, marginTop: 8, lineHeight: 17 },
+  rowMeta: { color: d.muted, fontFamily: df.sans, fontSize: 10.5, marginTop: 2, lineHeight: 16 },
+  rowTitle: { color: d.ink, fontFamily: df.display, fontSize: 13 },
+  rowAmt: { color: d.ink, fontFamily: df.sansBold, fontSize: 13, textAlign: 'right' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 16 },
+  rowBorder: { borderTopWidth: 1, borderTopColor: d.line },
+  rowIconSm: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 20, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
+  pickCard: { paddingVertical: 12 },
+  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: d.plumDark, fontFamily: df.sansHeavy, fontSize: 12 },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 999, paddingHorizontal: 14, height: 46 },
+  searchInput: { flex: 1, color: d.ink, fontFamily: df.sans, fontSize: 12, outlineStyle: 'none' },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  stepBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
-  stepBtnText: { fontSize: 22, color: colors.fg, fontWeight: '700' },
-  stepNum: { fontFamily: fonts.display, fontSize: 30, color: colors.fg, minWidth: 40, textAlign: 'center' },
-  creditCard: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 14, ...shadow.sm },
-  creditIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: alpha('#B5523B', 0.12), alignItems: 'center', justifyContent: 'center' },
-  creditTitle: { color: colors.fg, fontWeight: '800', fontSize: 14.5 },
-  creditSub: { color: colors.muted, fontSize: 13, marginTop: 2 },
-  creditNote: { color: colors.muted, fontSize: 12.5, lineHeight: 17, marginTop: 10 },
-  short: { color: colors.negative, fontSize: 13, marginTop: 8, lineHeight: 18 },
-  held: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: alpha(colors.positive, 0.08), borderRadius: radius.md, padding: 12, borderLeftWidth: 3, borderLeftColor: colors.positive },
-  heldText: { flex: 1, color: colors.fg, fontSize: 13.5, lineHeight: 19 },
+  stepBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: '#D8CFC5', alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
+  stepBtnText: { fontSize: 20, color: d.ink, fontFamily: df.sansBold },
+  stepNum: { fontFamily: df.displayBold, fontSize: 28, color: d.ink, minWidth: 40, textAlign: 'center' },
+
+  // payouts / timeline
   tlRow: { flexDirection: 'row', gap: 10 },
   tlRail: { width: 14, alignItems: 'center' },
-  tlDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: colors.borderStrong, backgroundColor: colors.surface, marginTop: 4 },
-  tlLine: { flex: 1, width: 2, backgroundColor: colors.border, marginTop: 2 },
-  tlTitle: { color: colors.fg, fontWeight: '700', fontSize: 13.5 },
-  tlMeta: { color: colors.muted, fontSize: 12, marginTop: 1 },
-  receipt: { backgroundColor: colors.surface, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, padding: 18, ...shadow.md },
-  receiptIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.positive, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  receiptTitle: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.fg },
-  rLine: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 7, borderTopWidth: 1, borderTopColor: colors.border },
-  rKey: { color: colors.muted, fontSize: 13, flexShrink: 0 },
-  rVal: { color: colors.fg, fontSize: 13.5, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
-});
+  tlDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: '#D8CFC5', backgroundColor: d.paper, marginTop: 4 },
+  tlLine: { flex: 1, width: 2, backgroundColor: d.line, marginTop: 2 },
+  tlTitle: { color: d.ink, fontFamily: df.sansBold, fontSize: 11.5 },
+  tlMeta: { color: d.muted, fontFamily: df.sans, fontSize: 10, marginTop: 1 },
+
+  // receipt
+  receipt: { padding: 18, borderRadius: 24 },
+  receiptIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: d.sageDark, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  receiptTitle: { fontFamily: df.displayBold, fontSize: 20, color: d.ink },
+  rLine: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: d.line },
+  rKey: { color: d.muted, fontFamily: df.sans, fontSize: 11, flexShrink: 0 },
+  rVal: { color: d.ink, fontFamily: df.sansBold, fontSize: 11, flexShrink: 1, textAlign: 'right' },
+};

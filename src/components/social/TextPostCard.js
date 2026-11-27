@@ -24,8 +24,8 @@ const MAX_CARD_W = 560; // cards never grow past this (desktop feed is full widt
 // fg = text colour, accent = quote mark / reference / frame, shade = extra dark veil for contrast.
 export const DESIGNS = [
   // Solid colours
-  { key: 'midnight', label: 'Midnight', group: 'Colours', color: '#15172B', fg: '#F4EFE6', accent: '#D4A852' },
-  { key: 'royal', label: 'Royal', group: 'Colours', color: '#232C6B', fg: '#FFFFFF', accent: '#E9D9A6' },
+  { key: 'midnight', label: 'Midnight', group: 'Colours', color: '#2A1B12', fg: '#F4EFE6', accent: '#D4A852' },
+  { key: 'royal', label: 'Royal', group: 'Colours', color: '#C24E0E', fg: '#FFFFFF', accent: '#E9D9A6' },
   { key: 'teal', label: 'Teal', group: 'Colours', color: '#2C7672', fg: '#FFFFFF', accent: '#F3DFA2' },
   { key: 'lavender', label: 'Lavender', group: 'Colours', color: '#6B52A3', fg: '#FFFFFF', accent: '#F1E3B8' },
   { key: 'charcoal', label: 'Charcoal', group: 'Colours', color: '#2B2B2E', fg: '#F5F2EC', accent: '#D4A852' },
@@ -43,7 +43,7 @@ export const DESIGNS = [
   { key: 'starlight', label: 'Starlight', group: 'Designs', colors: ['#1E2354', '#11132E', '#090A1A'], fg: '#F4EFE6', accent: '#E3BE6B', pattern: 'stars' },
   { key: 'parchment', label: 'Parchment', group: 'Designs', colors: ['#FCF8F0', '#F3EBDA', '#E9DCC1'], fg: '#2A251E', accent: '#9C6F22', frame: 'scripture', light: true },
   { key: 'scroll', label: 'Scroll', group: 'Designs', colors: ['#F3E4C4', '#E6CF9F', '#D7B97E'], fg: '#3B2A14', accent: '#7E5219', frame: 'double', pattern: 'grain', light: true },
-  { key: 'linen', label: 'Linen', group: 'Designs', colors: ['#F8F5EE', '#EEE8DA'], fg: '#1F2B4A', accent: '#2E3A87', pattern: 'grid', light: true },
+  { key: 'linen', label: 'Linen', group: 'Designs', colors: ['#F8F5EE', '#EEE8DA'], fg: '#1F2B4A', accent: '#FF6B1A', pattern: 'grid', light: true },
   { key: 'rays', label: 'Glory rays', group: 'Designs', colors: ['#E39A39', '#BD5E2B', '#6A2619'], fg: '#FFFFFF', accent: '#FFE7B8', pattern: 'rays', shade: 0.2 },
   { key: 'waves', label: 'Living water', group: 'Designs', colors: ['#2A67A8', '#1A3E72', '#0E2244'], fg: '#FFFFFF', accent: '#BFE3FF', pattern: 'waves' },
   { key: 'cross', label: 'The Cross', group: 'Designs', colors: ['#2E1D45', '#1A1029', '#0D0815'], fg: '#F4EFE6', accent: '#D4A852', pattern: 'cross' },
@@ -83,7 +83,7 @@ export function resolveDesign(theme) {
   return { design, font: FONT_BY_KEY[font] || FONT_BY_KEY.italic, align: ALIGNS.includes(align) ? align : 'center' };
 }
 
-/** "#15172B" (old composer presets) or "dawn" → { key, font, align } for the composer's state */
+/** "#2A1B12" (old composer presets) or "dawn" → { key, font, align } for the composer's state */
 export function designStateFrom(theme) {
   const r = resolveDesign(theme);
   if (!r || r.design.key === 'custom') return null;

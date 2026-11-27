@@ -60,15 +60,15 @@ export function DatingPlansScreen({ params = {} }) {
     if (!p) return null;
     const isVip = tier === 'vip';
     const fg = isVip ? love.goldBright : '#FFFFFF';
-    const sub2 = isVip ? 'rgba(244,228,192,0.78)' : 'rgba(255,255,255,0.85)';
+    const sub2 = isVip ? 'rgba(246,228,210,0.78)' : 'rgba(255,255,255,0.85)';
     return (
-      <FadeInUp index={index} style={[s.planCard, current ? (isVip ? lshadow.gold : lshadow.glow) : lshadow.md, isVip && { borderColor: 'rgba(217,176,97,0.55)', borderWidth: 1 }, current && { borderColor: love.goldBright, borderWidth: 2 }]}>
+      <FadeInUp index={index} style={[s.planCard, current ? (isVip ? lshadow.gold : lshadow.glow) : lshadow.md, isVip && { borderColor: 'rgba(244,216,140,0.55)', borderWidth: 1 }, current && { borderColor: love.goldBright, borderWidth: 2 }]}>
         <LinearGradient colors={isVip ? grad.vip : grad.rose} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
         <Grain width={420} height={520} opacity={isVip ? 0.05 : 0.07} />
         <Glow size={260} color={isVip ? love.goldBright : '#FFFFFF'} opacity={isVip ? 0.16 : 0.18} style={{ top: -120, right: -90 }} />
         {current ? <View style={s.ribbon}><Text style={s.ribbonText}>Your plan</Text></View> : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={[s.planIcon, { borderColor: isVip ? 'rgba(217,176,97,0.6)' : 'rgba(255,255,255,0.45)' }]}>
+          <View style={[s.planIcon, { borderColor: isVip ? 'rgba(244,216,140,0.6)' : 'rgba(255,255,255,0.45)' }]}>
             {isVip ? <Crown size={22} /> : <Icon name="star" size={18} color="#FFFFFF" fill="#FFFFFF" />}
           </View>
           <View style={{ flex: 1 }}>
@@ -77,10 +77,10 @@ export function DatingPlansScreen({ params = {} }) {
           </View>
         </View>
         <Text style={[s.planPrice, { color: isVip ? love.onDark : '#FFFFFF' }]}>{p.displayPrice}{/month|\/\s*mo/i.test(String(p.displayPrice || '')) ? null : <Text style={[s.planPer, { color: sub2 }]}> / month</Text>}</Text>
-        <View style={[s.planRule, { backgroundColor: isVip ? 'rgba(217,176,97,0.3)' : 'rgba(255,255,255,0.25)' }]} />
+        <View style={[s.planRule, { backgroundColor: isVip ? 'rgba(244,216,140,0.3)' : 'rgba(255,255,255,0.25)' }]} />
         {(p.benefits.features || []).map((f) => (
           <View key={f} style={s.featRow}>
-            <View style={[s.featIcon, { backgroundColor: isVip ? 'rgba(217,176,97,0.16)' : 'rgba(255,255,255,0.18)' }]}><Icon name={featIcon(f)} size={13} color={fg} strokeWidth={2.2} /></View>
+            <View style={[s.featIcon, { backgroundColor: isVip ? 'rgba(244,216,140,0.16)' : 'rgba(255,255,255,0.18)' }]}><Icon name={featIcon(f)} size={13} color={fg} strokeWidth={2.2} /></View>
             <Text style={[s.featText, { color: isVip ? love.onDark : '#FFFFFF' }]}>{f}</Text>
           </View>
         ))}
@@ -163,7 +163,7 @@ export function DatingBoostScreen() {
     const spotlight = title === 'SPOTLIGHT';
     return (
       <FadeInUp style={[s.boostLive, lshadow.glow]}>
-        <LinearGradient colors={spotlight ? ['#5A3A10', '#2A1A08'] : ['#7A2540', '#2A0E1C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={spotlight ? ['#6F4A12', '#6F4A12'] : ['#8A451F', '#2D1B10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
         <Grain width={420} height={420} opacity={0.07} />
         <Glow size={320} color={spotlight ? love.goldBright : love.roseBright} opacity={0.45} style={{ top: -60, left: -40 }} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
@@ -195,7 +195,7 @@ export function DatingBoostScreen() {
       {live(spot, spotLeft, 'SPOTLIGHT')}
       {!active && !spot ? (
         <FadeInUp style={[s.boostHero, lshadow.md]}>
-          <LinearGradient colors={['#7A2540', '#2A0E1C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={['#8A451F', '#2D1B10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
           <Grain width={420} height={300} opacity={0.07} />
           <Glow size={300} color={love.roseBright} opacity={0.5} style={{ top: -110, right: -80 }} />
           <View style={s.flameDisc}><LinearGradient colors={grad.gold} style={[StyleSheet.absoluteFill, { borderRadius: 30 }]} /><View><Icon name="flame" size={26} color={love.plum} /></View></View>
@@ -209,7 +209,7 @@ export function DatingBoostScreen() {
         const spotlight = o.kind === 'spotlight_24h';
         return (
           <FadeInUp key={o.kind} index={i} distance={8}>
-            <PressScale onPress={() => start(o)} style={[s.boostOpt, spotlight && { borderColor: 'rgba(180,133,47,0.45)', backgroundColor: '#FFFBF1' }]} scaleTo={0.98} accessibilityRole="button"
+            <PressScale onPress={() => start(o)} style={[s.boostOpt, spotlight && { borderColor: 'rgba(166,109,34,0.45)', backgroundColor: '#FFFBF1' }]} scaleTo={0.98} accessibilityRole="button"
               accessibilityLabel={`${o.label}. ${o.note}. ${o.kind === 'boost_30m' && freeBoosts > 0 ? 'Free' : `${d.prices[o.kind]} coins`}`}>
               <View style={s.boostIcon}>
                 <LinearGradient colors={spotlight ? grad.gold : grad.heart} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />
@@ -503,7 +503,7 @@ const s = StyleSheet.create({
   codeCard: { borderRadius: 28, padding: 20, overflow: 'hidden', marginTop: 14, alignItems: 'center' },
   codeEyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: love.goldBright, textTransform: 'uppercase', textAlign: 'center' },
   codeRow: { flexDirection: 'row', gap: 6, marginTop: 14, flexWrap: 'wrap', justifyContent: 'center' },
-  codeCell: { minWidth: 40, height: 52, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(217,176,97,0.5)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  codeCell: { minWidth: 40, height: 52, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(244,216,140,0.5)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   codeChar: { fontFamily: fonts.serifBold, fontSize: 30, color: '#FFFFFF' },
   gesture: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.08)' },
   gestureText: { flexShrink: 1, fontSize: 14, color: love.onDark, lineHeight: 19 },
@@ -511,7 +511,7 @@ const s = StyleSheet.create({
   capRow: { flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 12 },
   thumb: { width: 84, height: 104, borderRadius: 14, backgroundColor: love.blush },
   thumbDone: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(62,123,87,0.35)' },
-  fastCheck: { marginTop: 16, padding: 14, borderRadius: 18, backgroundColor: '#FFFBF1', borderWidth: 1, borderColor: 'rgba(180,133,47,0.3)' },
+  fastCheck: { marginTop: 16, padding: 14, borderRadius: 18, backgroundColor: '#FFFBF1', borderWidth: 1, borderColor: 'rgba(166,109,34,0.3)' },
   fastTitle: { fontSize: 14, fontWeight: '800', color: love.goldInk },
   soon: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: '#fff', backgroundColor: love.gold, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, overflow: 'hidden', marginLeft: 'auto' },
 });

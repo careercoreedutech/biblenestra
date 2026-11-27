@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Audio } from 'expo-av';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Eyebrow, alpha, NightGlow } from '../components/ui';
-import { Toggle } from './PrayerScreen';
+import { DScreen, DTabs, DToggle as Toggle, DInput, DLabel, DRow, DList, DCard, DButton } from '../design/profile/parts';
+import { Grad, Tap, gradients, d as D, df as DF, IconButton, SectionTitle as DSection } from '../design/sanctuary';
 import Svg, { Path } from 'react-native-svg';
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
@@ -13,7 +14,7 @@ import { useNarration } from '../audio/Narration';
 import { PressScale, FadeInUp, ScaleIn, Pop, Burst, Pulse, LiveRing, AnimatedNumber, AnimatedBar, AnimatedModal, EASE_OUT } from '../components/Motion';
 import { DEVOTIONALS, MEMORY_DECK, COURSES, CHURCHES } from '../data/seed';
 import { TRANSLATIONS, BOOKS, getChapter, refLabel } from '../data/bible';
-import { dayKey } from '../data/rhythm';
+import { dayKey, computeStreak, weekDays, addDays } from '../data/rhythm';
 import { GAME_COUNTS, DAILY_SIZE, GAME_TITLES, dailyQuestions, practiceSession, dateKey as gameDateKey, resetLabel } from '../data/games';
 import { useAds } from '../ads/Ads';
 import { AD_RULES } from '../ads/config';
@@ -26,7 +27,8 @@ import { useCloudRecordings, uploadRecording, SERMON_RECORDING, MAX_MINUTES } fr
 import { CloudRecordingList } from './RecordScreens'; // DISCOVER TOOLS (round 3)
 import { LearnCourses, LearnDevotionals } from './LearnContentScreens'; // LEARN CMS: courses + devotionals from the admin (online mode)
 import { useApi } from '../api/auth'; // LEARN CMS
-import { TERMS_URL, PRIVACY_URL, DELETE_ACCOUNT_URL } from '../data/onboarding'; // LEGAL: Terms / Privacy / delete-account pages
+import { TERMS_URL, PRIVACY_URL, DELETE_ACCOUNT_URL } from '../data/onboarding';
+import { SPage, SSection, SGroup, SRow, SButton, SInput, SLabel, SEyebrow, SChips, SEmpty, SNotice, SBadge, STimestamp, SAIDraft, SWaveBar, SRecordButton, SCard, SHero, SConfirm, SAvatar, ss as sd } from '../design/study/parts'; // DESIGN: study screens kit // LEGAL: Terms / Privacy / delete-account pages
 
 // ---------- Local building blocks ----------
 
@@ -833,9 +835,83 @@ export function LearnScreen({ params = {} }) {
   const memorized = MEMORY_DECK.filter((m) => conf(m) >= 5).length;
   const gospel = state.plans.find((p) => p.id === 'pl1');
   const todayGame = (id) => { const d = (state.gameDaily || {})[id]; return d && d.date === gameDateKey() ? d : null; };
+  // Real data for the design's Learn and Games pages: the plan in progress, the featured course, the rhythm streak, game totals
+  const activePlan = state.plans.find((p) => !p.startsOn && p.done < p.days) || null;
+  const featuredCourse = COURSES.find((c) => (courseDone[c.id] != null ? courseDone[c.id] : c.done) < c.lessons) || COURSES[0];
+  const featuredDone = featuredCourse ? (courseDone[featuredCourse.id] != null ? courseDone[featuredCourse.id] : featuredCourse.done) : 0;
+  const rhythmStreak = computeStreak(state.rhythm || {}, new Date()).streak;
+  const streaksOn = state.streaksEnabled !== false;
+  const totalCorrect = Object.values(state.gameStats || {}).reduce((n, x) => n + ((x && x.correct) || 0), 0);
+  const badgeDefs = [
+    { icon: 'book', label: 'Gospel reader', earned: !!(gospel && gospel.done >= gospel.days) },
+    { icon: 'star', label: 'Group leader', earned: (courseDone.co3 != null ? courseDone.co3 : 5) >= 5 },
+    { icon: 'sparkles', label: 'Memory', earned: memorized >= MEMORY_DECK.length },
+  ];
   return (
-    <Screen back title="Learn" subtitle="Plans · devotionals · memory · courses" right={<ProfileButton size={34} />}>
+    <DScreen title="Learn" subtitle="Formed by the Word" back={nav.stack.length > 0} onBack={() => nav.pop()}>
       <Pills items={['Plans', 'Devotionals', 'Memorize', 'Courses', 'Games', 'Badges']} value={tab} onChange={(t) => { setTab(t); setGame(null); }} />
+      {tab === 'Plans' ? (
+        <View style={{ marginTop: 12 }}>
+          {/* .learn-hero: the plan in progress */}
+          <Grad colors={['#2B1B12', '#87431F']} style={ld.hero}>
+            <Text style={ld.heroKicker}>{activePlan ? 'CONTINUE YOUR PLAN' : 'BUILD YOUR FOUNDATION'}</Text>
+            <Text style={ld.heroTitle}>{activePlan ? activePlan.name : 'Start a reading plan'}</Text>
+            <Text style={ld.heroSub}>
+              {activePlan ? `Day ${activePlan.done + 1} of ${activePlan.days}${activePlan.today ? ' · ' + refLabel(activePlan.today.bookId, activePlan.today.chapter) : ''}` : 'Choose a ready-made plan or build your own study.'}
+            </Text>
+            {activePlan ? (
+              <View style={ld.bar}><View style={[ld.barFill, { width: `${Math.min(100, Math.round((activePlan.done / activePlan.days) * 100))}%` }]} /></View>
+            ) : null}
+            <Tap onPress={() => (activePlan ? nav.push('Plan', { id: activePlan.id }) : setBrowse(true))} style={ld.heroBtn} accessibilityLabel={activePlan ? `Continue day ${activePlan.done + 1}` : 'Browse public plans'}>
+              <Text style={ld.heroBtnText}>{activePlan ? `Continue day ${activePlan.done + 1}` : 'Browse public plans'}</Text>
+              <Icon name="arrow-right" size={14} color="#FFC49B" />
+            </Tap>
+          </Grad>
+
+          {/* Ways to learn: each tile opens its tab */}
+          <DSection eyebrow="Build your foundation" title="Ways to learn" />
+          <View style={ld.grid}>
+            {[
+              { icon: 'quiz', title: 'Games', sub: `${GAMES.length - 1} daily challenges`, go: 'Games' },
+              { icon: 'devotional', title: 'Devotionals', sub: 'Read and reflect each morning', go: 'Devotionals' },
+              { icon: 'book', title: 'Courses', sub: `${COURSES.length} courses`, go: 'Courses' },
+              { icon: 'sparkles', title: 'Memorize', sub: `${memorized} of ${MEMORY_DECK.length} memorized`, go: 'Memorize' },
+            ].map((w) => (
+              <Tap key={w.go} onPress={() => setTab(w.go)} style={ld.tile} accessibilityLabel={w.title}>
+                <Icon name={w.icon} size={20} color={D.plum} />
+                <Text style={ld.tileTitle}>{w.title}</Text>
+                <Text style={ld.tileSub}>{w.sub}</Text>
+              </Tap>
+            ))}
+          </View>
+
+          {/* Featured course: the first course not yet finished */}
+          {featuredCourse ? (
+            <>
+              <DSection eyebrow="Featured course" title="Continue a course" link="View all" onLink={() => setTab('Courses')} />
+              <Tap onPress={() => nav.push('Lesson', { id: featuredCourse.id })} style={ld.course} accessibilityLabel={`Open ${featuredCourse.title}`}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={ld.courseKicker}>{featuredCourse.lessons} LESSON COURSE</Text>
+                  <Text style={ld.courseTitle}>{featuredCourse.title}</Text>
+                  <Text style={ld.courseSub}>{featuredCourse.provider}</Text>
+                </View>
+                <View style={ld.ring}><Text style={ld.ringText}>{Math.round((Math.min(featuredDone, featuredCourse.lessons) / featuredCourse.lessons) * 100)}%</Text></View>
+              </Tap>
+            </>
+          ) : null}
+
+          {/* Badges: earned ones are highlighted */}
+          <DSection title="Badges" link="All badges" onLink={() => setTab('Badges')} />
+          <View style={ld.badges}>
+            {badgeDefs.map((b) => (
+              <View key={b.label} style={[ld.badge, !b.earned && { opacity: 0.55 }]}>
+                <Icon name={b.icon} size={22} color={b.earned ? D.plum : D.muted} />
+                <Text style={ld.badgeLabel} numberOfLines={1}>{b.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
       {tab === 'Plans' ? (
         <View style={{ marginTop: 6 }}>
           {state.plans.map((p, idx) => {
@@ -1001,22 +1077,72 @@ export function LearnScreen({ params = {} }) {
           {game === 'trivia' || game === 'who' || game === 'chronology' ? <FadeInUp key={game} distance={10}><QuizGame kind={game} todayResult={todayGame(game)} onExit={() => setGame(null)} onFinish={(c, t) => finishGame(game, c, t)} /></FadeInUp> : null}
           {game === 'scramble' ? <FadeInUp key="scramble" distance={10}><ScrambleGame todayResult={todayGame('scramble')} onExit={() => setGame(null)} onFinish={(c, t) => finishGame('scramble', c, t)} /></FadeInUp> : null}
           {!game ? (
-            <View style={styles.grid}>
-              {GAMES.map((g, idx) => {
-                const daily = (state.gameDaily || {})[g.id];
-                const today = daily && daily.date === gameDateKey() ? daily : null;
-                const best = today ? today.correct : null;
-                return (
-                  <FadeInUp key={g.id} index={idx} style={styles.gameCell}>
-                    <PressScale scaleTo={0.96} onPress={() => (g.id === 'memory' ? setTab('Memorize') : setGame(g.id))} style={styles.gameTile}>
-                      <IconBadge name={g.icon} tint={g.tint} />
-                      <Text style={styles.gameTitle} numberOfLines={2}>{g.title}</Text>
-                      <Text style={styles.gameSub}>{g.id === 'memory' ? `${memorized} of ${MEMORY_DECK.length} memorized` : today ? `Today ${today.correct}/${today.total} · keep playing in practice` : `${DAILY_SIZE[g.id]} new today · ${(GAME_COUNTS[g.id] || 0).toLocaleString()} ${g.unit}`}</Text>
-                      {best != null && g.id !== 'memory' ? <View style={styles.bestDot}><Icon name="star" size={10} color={colors.gold} /></View> : null}
-                    </PressScale>
-                  </FadeInUp>
-                );
-              })}
+            <View>
+              {/* .battle-card: opens the battles hub (Contests > Battles) */}
+              <Grad colors={['#271810', '#C45A1D']} style={ld.battle}>
+                <View style={ld.battleRing} />
+                <Text style={ld.battleKicker}>BIBLE BATTLE</Text>
+                <Text style={ld.battleTitle}>Challenge a believer to a Bible battle</Text>
+                <Tap onPress={() => nav.push('Contests', { tab: 'Battles' })} style={ld.battleBtn} accessibilityLabel="Find an opponent">
+                  <Text style={ld.battleBtnText}>Find an opponent</Text>
+                  <Icon name="arrow-right" size={14} color={D.plumDark} />
+                </Tap>
+              </Grad>
+
+              {/* .game-stats: real rhythm streak, coins and correct answers */}
+              <View style={ld.stats}>
+                {[
+                  { icon: 'flame', value: streaksOn ? String(rhythmStreak) : 'Off', label: 'day streak' },
+                  { icon: 'coin', value: (state.coins || 0).toLocaleString(), label: 'coins' },
+                  { icon: 'star', value: totalCorrect.toLocaleString(), label: 'correct answers' },
+                ].map((x) => (
+                  <View key={x.label} style={ld.stat}>
+                    <Icon name={x.icon} size={17} color={D.plum} />
+                    <Text style={ld.statValue}>{x.value}</Text>
+                    <Text style={ld.statLabel}>{x.label}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* .challenge-list: today's games */}
+              <DSection eyebrow="Today" title="Daily challenges" />
+              <View style={ld.challenges}>
+                {GAMES.map((g, idx) => {
+                  const isMemory = g.id === 'memory';
+                  const daily = (state.gameDaily || {})[g.id];
+                  const dailyToday = daily && daily.date === gameDateKey() ? daily : null;
+                  const tile = [{ bg: D.lavender, fg: D.plum }, { bg: D.gold, fg: D.goldDark }, { bg: D.sage, fg: D.sageDark }][idx % 3];
+                  return (
+                    <Tap key={g.id} onPress={() => (isMemory ? setTab('Memorize') : setGame(g.id))} style={ld.challenge} accessibilityLabel={g.title}>
+                      <View style={[ld.challengeIcon, { backgroundColor: tile.bg }]}><Icon name={g.icon} size={20} color={tile.fg} /></View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={ld.challengeKicker}>{isMemory ? 'VERSE MEMORY' : `${DAILY_SIZE[g.id] || 0} QUESTIONS`}</Text>
+                        <Text style={ld.challengeTitle}>{g.title}</Text>
+                        <Text style={ld.challengeSub} numberOfLines={2}>
+                          {isMemory ? `${memorized} of ${MEMORY_DECK.length} memorized` : dailyToday ? `Today ${dailyToday.correct}/${dailyToday.total} · keep playing in practice` : `${(GAME_COUNTS[g.id] || 0).toLocaleString()} ${g.unit} in the bank`}
+                        </Text>
+                      </View>
+                      <View style={ld.playBtn}><Icon name="play" size={12} color="#FFFFFF" /></View>
+                    </Tap>
+                  );
+                })}
+              </View>
+
+              {/* Contests and leaderboards: the real Contest centre (no sample players or timers) */}
+              <DSection eyebrow="Contests" title="Tournaments & leaderboards" />
+              <Tap onPress={() => nav.push('Contests')} style={ld.contest} accessibilityLabel="Open contests">
+                <Icon name="star" size={22} color={D.gold} />
+                <Text style={ld.contestTitle}>Compete in Bible contests</Text>
+                <Text style={ld.contestSub}>Enter open contests, read the results and see who is leading.</Text>
+                <View style={ld.contestBtn}>
+                  <Text style={ld.battleBtnText}>Enter contests</Text>
+                  <Icon name="arrow-right" size={13} color={D.plumDark} />
+                </View>
+              </Tap>
+              <DList style={{ marginTop: 12 }}>
+                <DRow icon="sparkles" title="Leaderboards" subtitle="Ranks from contests and games" onPress={() => nav.push('Contests', { tab: 'Leaderboards' })} />
+                <DRow icon="star" title="Hall of Fame" subtitle="Past champions and their results" onPress={() => nav.push('Contests', { tab: 'Hall of Fame' })} />
+              </DList>
             </View>
           ) : null}
           <Notice text={`Fresh questions every day (resets in ${resetLabel()}) — coins for your first round of each game. Then keep playing in endless practice (no coins). Every question carries a KJV reference.`} />
@@ -1040,9 +1166,55 @@ export function LearnScreen({ params = {} }) {
           <Notice text="Badges are never proof of spiritual maturity, authority, or biblical correctness." />
         </FadeInUp>
       ) : null}
-    </Screen>
+    </DScreen>
   );
 }
+
+// Design styles for Learn (hero, ways, course, badges) and Games (battle card, stats, challenges)
+const ld = StyleSheet.create({
+  hero: { borderRadius: 25, padding: 22, minHeight: 210 },
+  heroKicker: { fontFamily: DF.sansBold, fontSize: 9, letterSpacing: 1.3, color: '#FFC49B' },
+  heroTitle: { fontFamily: DF.display, fontSize: 25, lineHeight: 29, color: '#FFFFFF', marginTop: 10 },
+  heroSub: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: '#D7C1B2', marginTop: 5 },
+  bar: { height: 4, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)', marginTop: 20, overflow: 'hidden' },
+  barFill: { height: 4, backgroundColor: D.plum },
+  heroBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16, alignSelf: 'flex-start' },
+  heroBtnText: { fontFamily: DF.sansBold, fontSize: 11, color: '#FFC49B' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  tile: { width: '48%', minHeight: 115, padding: 14, borderRadius: 18, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line, alignItems: 'flex-start' },
+  tileTitle: { fontFamily: DF.display, fontSize: 13, color: D.ink, marginTop: 26 },
+  tileSub: { fontFamily: DF.sans, fontSize: 10, color: D.muted, marginTop: 3 },
+  course: { minHeight: 150, borderRadius: 22, padding: 20, backgroundColor: D.gold, flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
+  courseKicker: { fontFamily: DF.sansBold, fontSize: 9, letterSpacing: 1, color: D.goldDark },
+  courseTitle: { fontFamily: DF.display, fontSize: 21, lineHeight: 25, color: D.goldDark, marginTop: 7 },
+  courseSub: { fontFamily: DF.sans, fontSize: 10, color: D.goldDark, marginTop: 6 },
+  ring: { width: 56, height: 56, borderRadius: 28, borderWidth: 5, borderColor: 'rgba(111,74,18,0.18)', borderTopColor: D.goldDark, alignItems: 'center', justifyContent: 'center' },
+  ringText: { fontFamily: DF.sansHeavy, fontSize: 9, color: D.goldDark },
+  badges: { flexDirection: 'row', gap: 10 },
+  badge: { flex: 1, height: 88, borderRadius: 18, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  badgeLabel: { fontFamily: DF.sans, fontSize: 9, color: D.muted, marginTop: 7 },
+  battle: { borderRadius: 27, padding: 22, overflow: 'hidden', alignItems: 'center' },
+  battleRing: { position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 25, borderColor: 'rgba(255,255,255,0.05)', right: -80, top: -80 },
+  battleKicker: { fontFamily: DF.sansBold, fontSize: 9, letterSpacing: 1.3, color: '#FFC49B' },
+  battleTitle: { fontFamily: DF.display, fontSize: 25, lineHeight: 29, color: '#FFFFFF', textAlign: 'center', marginTop: 12, marginBottom: 20 },
+  battleBtn: { height: 40, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  battleBtnText: { fontFamily: DF.sansBold, fontSize: 11, color: D.plumDark },
+  stats: { flexDirection: 'row', gap: 7, marginTop: 10 },
+  stat: { flex: 1, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 6, alignItems: 'center' },
+  statValue: { fontFamily: DF.displayBold, fontSize: 14, color: D.ink, marginTop: 5 },
+  statLabel: { fontFamily: DF.sans, fontSize: 9, color: D.muted, marginTop: 2, textAlign: 'center' },
+  challenges: { gap: 9 },
+  challenge: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line, borderRadius: 18, padding: 12 },
+  challengeIcon: { width: 48, height: 48, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  challengeKicker: { fontFamily: DF.sansBold, fontSize: 8, letterSpacing: 1, color: D.plum },
+  challengeTitle: { fontFamily: DF.display, fontSize: 14, color: D.ink, marginTop: 2 },
+  challengeSub: { fontFamily: DF.sans, fontSize: 10, color: D.muted, marginTop: 2 },
+  playBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: D.ink, alignItems: 'center', justifyContent: 'center' },
+  contest: { borderRadius: 21, padding: 19, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line, gap: 6 },
+  contestTitle: { fontFamily: DF.display, fontSize: 18, lineHeight: 23, color: D.ink, marginTop: 8 },
+  contestSub: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: D.muted },
+  contestBtn: { marginTop: 10, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF1E5', paddingHorizontal: 14, height: 38, borderRadius: 12 },
+});
 
 const PLAN_REMINDERS = ['Off', '06:30', '12:00', '20:00'];
 const PLAN_CATCHUP = ['Skip missed', 'Catch up', 'Restart'];
@@ -1056,11 +1228,11 @@ export function PlanScreen({ params = {} }) {
   const p = state.plans.find((x) => x.id === params.id);
   if (!p) {
     return (
-      <Screen back title="Reading plan">
-        <View style={[styles.emptyCard, { marginTop: 12 }]}>
-          <Empty title="Plan not found" body="This plan may have been removed. Browse plans in Learn to start a new one." action="Open Learn" onAction={() => nav.replace('Learn')} />
+      <SPage back title="Reading plan">
+        <View style={[sd.emptyCard, { marginTop: 12 }]}>
+          <SEmpty title="Plan not found" body="This plan may have been removed. Browse plans in Learn to start a new one." action="Open Learn" onAction={() => nav.replace('Learn')} />
         </View>
-      </Screen>
+      </SPage>
     );
   }
   const pct = p.days ? p.done / p.days : 0;
@@ -1072,42 +1244,44 @@ export function PlanScreen({ params = {} }) {
     if (msg) toast.show(msg, { icon: 'check', haptic: 'select' });
   };
   return (
-    <Screen back title={p.name} subtitle={finished ? 'Completed' : `Day ${Math.min(p.done + 1, p.days)} of ${p.days}`}>
-      <FadeInUp style={styles.nightCard}><NightGlow />
-        <Eyebrow tint={colors.goldLight}>{finished ? 'Plan complete' : 'Reading plan'}</Eyebrow>
+    <SPage back title={p.name} subtitle={finished ? 'Completed' : `Day ${Math.min(p.done + 1, p.days)} of ${p.days}`}>
+      <FadeInUp>
+      <SHero>
+        <SEyebrow tint="#FFD8BD">{finished ? 'Plan complete' : 'Reading plan'}</SEyebrow>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 8 }}>
           <View>
             <Pop trigger={p.done} amount={1.08} style={{ alignSelf: 'flex-start' }}>
-              <CountUp value={Math.round(pct * 100)} format={(n) => `${Math.round(n)}%`} style={styles.nightBig} />
+              <CountUp value={Math.round(pct * 100)} format={(n) => `${Math.round(n)}%`} style={sd.nightBig} />
             </Pop>
-            <Text style={styles.nightMeta}>{p.done} of {p.days} days complete</Text>
+            <Text style={sd.nightMeta}>{p.done} of {p.days} days complete</Text>
           </View>
           {state.streaksEnabled && p.streak ? (
-            <View style={styles.streakChip}>
+            <View style={sd.streakChip}>
               <Pulse min={0.9} max={1.12} duration={1100}><Icon name="sun" size={13} color={colors.goldLight} /></Pulse>
-              <Pop trigger={p.streak} amount={1.12}><Text style={styles.streakText}>{p.streak}-day streak</Text></Pop>
+              <Pop trigger={p.streak} amount={1.12}><Text style={sd.streakText}>{p.streak}-day streak</Text></Pop>
             </View>
           ) : null}
         </View>
-        <Progress value={pct} tint={colors.goldLight} track={colors.nightRaised} delay={220} style={{ marginTop: 16 }} />
+        <Progress value={pct} tint="#FFB27A" track="rgba(255,255,255,0.18)" delay={220} style={{ marginTop: 16 }} />
+      </SHero>
       </FadeInUp>
       <FadeInUp index={1}>
-      <Section title="Today's reading">
-        <PressScale scaleTo={0.98} style={styles.todayCard} onPress={() => nav.push('Bible', p.today)}>
+      <SSection title="Today's reading">
+        <PressScale scaleTo={0.98} style={sd.todayCard} onPress={() => nav.push('Bible', p.today)}>
           <IconBadge name="book" tint={colors.primary} size={46} iconSize={21} />
           <View style={{ flex: 1 }}>
-            <Eyebrow>Day {Math.min(p.done + 1, p.days)}</Eyebrow>
-            <Text style={styles.todayRef}>{refLabel(p.today.bookId, p.today.chapter)}</Text>
-            <Text style={styles.cardMeta}>Tap to read</Text>
+            <SEyebrow>Day {Math.min(p.done + 1, p.days)}</SEyebrow>
+            <Text style={sd.todayRef}>{refLabel(p.today.bookId, p.today.chapter)}</Text>
+            <Text style={sd.cardMeta}>Tap to read</Text>
           </View>
-          <View style={styles.roundArrow}><Icon name="arrow-right" size={16} color={colors.primary} /></View>
+          <View style={sd.roundArrow}><Icon name="arrow-right" size={16} color={colors.primary} /></View>
         </PressScale>
         {p.startsOn ? (
-          <Button label="Start this plan today" onPress={() => update({ startsOn: null }, `${p.name} started`)} style={{ marginTop: 12 }} icon={<Icon name="calendar" size={15} color="#FFFFFF" />} />
+          <SButton label="Start this plan today" onPress={() => update({ startsOn: null }, `${p.name} started`)} style={{ marginTop: 12 }} icon={<Icon name="calendar" size={15} color="#FFFFFF" />} />
         ) : (
           <View style={{ position: 'relative', marginTop: 12 }}>
           <Pop trigger={p.done} amount={1.04}>
-          <Button
+          <SButton
             label={finished ? 'Plan complete' : doneToday ? 'Done for today · mark next day' : 'Mark today complete'}
             onPress={() => {
               dispatch({ type: 'planDone', id: p.id });
@@ -1128,36 +1302,36 @@ export function PlanScreen({ params = {} }) {
           <Burst trigger={p.done} radius={70} count={12} color={colors.gold} />
           </View>
         )}
-      </Section>
+      </SSection>
       </FadeInUp>
       <FadeInUp index={2}>
       {p.shared ? (
-        <Section title="Reading with">
-          <Group>
-            {p.participants.map((n) => <Item key={n} left={<Avatar name={n} />} title={n} subtitle="Shares progress with you" />)}
-            <Item icon="chat" tint={colors.sage} title="Day discussion" subtitle="Private space for this plan" onPress={() => nav.push('Group', { id: 'g2' })} />
-            <Item icon="users" tint={colors.primary} title="Invite friends" onPress={() => shareText(toast, `Read “${p.name}” with me on BibleNestra — today: ${refLabel(p.today.bookId, p.today.chapter)}.`, { done: 'Invite shared' })} />
-          </Group>
-        </Section>
+        <SSection title="Reading with">
+          <SGroup>
+            {p.participants.map((n) => <SRow key={n} left={<SAvatar name={n} />} title={n} subtitle="Shares progress with you" />)}
+            <SRow icon="chat" tint={colors.sage} title="Day discussion" subtitle="Private space for this plan" onPress={() => nav.push('Group', { id: 'g2' })} />
+            <SRow icon="users" tint={colors.primary} title="Invite friends" onPress={() => shareText(toast, `Read “${p.name}” with me on BibleNestra — today: ${refLabel(p.today.bookId, p.today.chapter)}.`, { done: 'Invite shared' })} />
+          </SGroup>
+        </SSection>
       ) : (
-        <Section title="Share">
-          <Group>
-            <Item icon="users" tint={colors.primary} title="Invite friends to read with you" subtitle="Send an invite link to this plan" onPress={() => shareText(toast, `Read “${p.name}” with me on BibleNestra — ${p.days} days, starting with ${refLabel(p.today.bookId, p.today.chapter)}.`, { done: 'Invite shared' })} />
-          </Group>
-        </Section>
+        <SSection title="Share">
+          <SGroup>
+            <SRow icon="users" tint={colors.primary} title="Invite friends to read with you" subtitle="Send an invite link to this plan" onPress={() => shareText(toast, `Read “${p.name}” with me on BibleNestra — ${p.days} days, starting with ${refLabel(p.today.bookId, p.today.chapter)}.`, { done: 'Invite shared' })} />
+          </SGroup>
+        </SSection>
       )}
       </FadeInUp>
       <FadeInUp index={3}>
-      <Section title="Settings">
-        <Group>
-          <Item title="Reminder" subtitle="Tap to change" right={p.reminder || 'Off'} onPress={() => { const v = cycle(PLAN_REMINDERS, p.reminder || 'Off'); update({ reminder: v === 'Off' ? null : v }, v === 'Off' ? 'Reminder off' : `Reminder set for ${v}`); }} />
-          <Item title="Catch-up behaviour" subtitle="Tap to change" right={p.catchUp || 'Skip missed'} onPress={() => { const v = cycle(PLAN_CATCHUP, p.catchUp || 'Skip missed'); update({ catchUp: v }, `Catch-up: ${v}`); }} />
-          <Item title="Rest days" subtitle="Tap to change" right={p.rest || 'Sundays'} onPress={() => { const v = cycle(PLAN_REST, p.rest || 'Sundays'); update({ rest: v }, `Rest days: ${v}`); }} />
-          <Item title="Streaks" right={<Toggle value={state.streaksEnabled} onChange={(v) => { dispatch({ type: 'set', patch: { streaksEnabled: v } }); toast.show(v ? 'Streaks on' : 'Streaks hidden', { icon: 'sun' }); }} />} />
-          <Item title="Leave plan" subtitle={p.shared ? 'Others keep reading' : 'Removes it from your plans'} titleStyle={{ color: colors.negative }} onPress={() => setConfirmLeave(true)} />
-        </Group>
+      <SSection title="Settings">
+        <SGroup>
+          <SRow title="Reminder" subtitle="Tap to change" right={p.reminder || 'Off'} onPress={() => { const v = cycle(PLAN_REMINDERS, p.reminder || 'Off'); update({ reminder: v === 'Off' ? null : v }, v === 'Off' ? 'Reminder off' : `Reminder set for ${v}`); }} />
+          <SRow title="Catch-up behaviour" subtitle="Tap to change" right={p.catchUp || 'Skip missed'} onPress={() => { const v = cycle(PLAN_CATCHUP, p.catchUp || 'Skip missed'); update({ catchUp: v }, `Catch-up: ${v}`); }} />
+          <SRow title="Rest days" subtitle="Tap to change" right={p.rest || 'Sundays'} onPress={() => { const v = cycle(PLAN_REST, p.rest || 'Sundays'); update({ rest: v }, `Rest days: ${v}`); }} />
+          <SRow title="Streaks" right={<Toggle value={state.streaksEnabled} onChange={(v) => { dispatch({ type: 'set', patch: { streaksEnabled: v } }); toast.show(v ? 'Streaks on' : 'Streaks hidden', { icon: 'sun' }); }} />} />
+          <SRow title="Leave plan" subtitle={p.shared ? 'Others keep reading' : 'Removes it from your plans'} titleStyle={{ color: colors.negative }} onPress={() => setConfirmLeave(true)} />
+        </SGroup>
         {confirmLeave ? (
-          <InlineConfirm
+          <SConfirm
             title={`Leave “${p.name}”?`}
             body="Your progress on this plan will be removed from this device."
             confirmLabel="Leave plan"
@@ -1165,17 +1339,17 @@ export function PlanScreen({ params = {} }) {
             onConfirm={() => { nav.pop(); dispatch({ type: 'set', patch: { plans: state.plans.filter((x) => x.id !== p.id) } }); toast.show(`Left ${p.name}`, { icon: 'book' }); }}
           />
         ) : null}
-      </Section>
+      </SSection>
       </FadeInUp>
-    </Screen>
+    </SPage>
   );
 }
 
 function Avatar({ name, size = 34 }) {
   const initials = String(name || '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
-    <View style={[styles.miniAvatar, { width: size, height: size, borderRadius: size / 2 }]}>
-      <Text style={[styles.miniAvatarText, { fontSize: size * 0.38 }]}>{initials}</Text>
+    <View style={[sd.miniAvatar, { width: size, height: size, borderRadius: size / 2 }]}>
+      <Text style={[sd.miniAvatarText, { fontSize: size * 0.38 }]}>{initials}</Text>
     </View>
   );
 }
@@ -1212,11 +1386,11 @@ export function LessonScreen({ params = {} }) {
   const [reflection, setReflection] = useState((c && notes[c.id]) || '');
   if (!c) {
     return (
-      <Screen back title="Lesson">
-        <View style={[styles.emptyCard, { marginTop: 12 }]}>
-          <Empty title="Lesson not found" body="This course isn't available on this device." action="Browse courses" onAction={() => nav.replace('Learn', { tab: 'Courses' })} />
+      <SPage back title="Lesson">
+        <View style={[sd.emptyCard, { marginTop: 12 }]}>
+          <SEmpty title="Lesson not found" body="This course isn't available on this device." action="Browse courses" onAction={() => nav.replace('Learn', { tab: 'Courses' })} />
         </View>
-      </Screen>
+      </SPage>
     );
   }
   const done = (state.courseProgress || {})[c.id] != null ? state.courseProgress[c.id] : c.done;
@@ -1236,47 +1410,48 @@ export function LessonScreen({ params = {} }) {
     }
   };
   return (
-    <Screen back title={c.title} subtitle={`Lesson ${lesson} · ${c.provider}`}>
+    <SPage back title={c.title} subtitle={`Lesson ${lesson} · ${c.provider}`}>
       <FadeInUp>
-      <PressScale scaleTo={0.985} onPress={play} style={styles.player} accessibilityLabel={playing ? 'Pause lesson audio' : 'Play lesson audio'}><NightGlow />
-        <View style={styles.playBtnWrap}>
-          {playing ? <View style={styles.playHalo}><Pulse min={0.9} max={1.25} duration={1000}><View style={styles.playHaloRing} /></Pulse></View> : null}
+      <PressScale scaleTo={0.985} onPress={play} accessibilityLabel={playing ? 'Pause lesson audio' : 'Play lesson audio'}><SHero>
+        <View style={sd.playBtnWrap}>
+          {playing ? <View style={sd.playHalo}><Pulse min={0.9} max={1.25} duration={1000}><View style={sd.playHaloRing} /></Pulse></View> : null}
           <Pulse active={playing} min={0.97} max={1.05} duration={800}>
-            <View style={styles.playBtn}>{playing ? <Icon name="pause" size={24} color={colors.night} /> : <PlayGlyph size={24} />}</View>
+            <View style={sd.playBtn}>{playing ? <Icon name="pause" size={24} color={colors.primary} /> : <PlayGlyph size={24} color={colors.primary} />}</View>
           </Pulse>
         </View>
-        <Text style={styles.playerTitle}>Lesson {lesson} · {refLabel(passage.bookId, passage.chapter)}</Text>
-        <Text style={styles.playerMeta}>{mine ? `${playing ? 'Reading' : 'Paused at'} verse ${nar.verse} of ${nar.total}` : 'Tap to hear the lesson passage read aloud'}</Text>
-        <AnimatedBar progress={progress} delay={0} style={styles.playerTrack} fillStyle={styles.playerTrackFill} />
+        <Text style={sd.playerTitle}>Lesson {lesson} · {refLabel(passage.bookId, passage.chapter)}</Text>
+        <Text style={sd.playerMeta}>{mine ? `${playing ? 'Reading' : 'Paused at'} verse ${nar.verse} of ${nar.total}` : 'Tap to hear the lesson passage read aloud'}</Text>
+        <AnimatedBar progress={progress} delay={0} style={sd.playerTrack} fillStyle={sd.playerTrackFill} />
+      </SHero>
       </PressScale>
       </FadeInUp>
       <FadeInUp index={1}>
-      <FieldLabel style={{ marginTop: 18 }}>Playback speed</FieldLabel>
-      <Pills small items={SPEED_CHIPS} value={speed} onChange={(s) => { nar.setRate(parseFloat(s)); toast.show(`Playback speed ${s}`, { icon: 'headphones', haptic: 'select' }); }} />
+      <SLabel style={{ marginTop: 18 }}>Playback speed</SLabel>
+      <SChips small items={SPEED_CHIPS} value={speed} onChange={(s) => { nar.setRate(parseFloat(s)); toast.show(`Playback speed ${s}`, { icon: 'headphones', haptic: 'select' }); }} />
       </FadeInUp>
       <FadeInUp index={2}>
-      <Section title="Transcript">
-        <Group>
+      <SSection title="Transcript">
+        <SGroup>
           {content.transcript.map(([t, s]) => (
-            <Item key={t} left={<Timestamp t={t} />} title={s} serif />
+            <SRow key={t} left={<STimestamp t={t} />} title={s} serif />
           ))}
-        </Group>
-      </Section>
-      <Section title="Teacher notes">
-        <Group>
-          <Item icon="book" tint={colors.primary} title={`Open ${refLabel(passage.bookId, passage.chapter)}`} onPress={() => nav.push('Bible', passage)} />
-          <Item icon="chat" tint={colors.sage} title="Discussion prompt" subtitle={`${content.prompt} · Discuss in your group`} onPress={() => nav.push('Group', { id: 'g2' })} />
-          <Item icon="highlight" tint={colors.gold} title="Assignment" subtitle={content.assignment} />
-        </Group>
-      </Section>
+        </SGroup>
+      </SSection>
+      <SSection title="Teacher notes">
+        <SGroup>
+          <SRow icon="book" tint={colors.primary} title={`Open ${refLabel(passage.bookId, passage.chapter)}`} onPress={() => nav.push('Bible', passage)} />
+          <SRow icon="chat" tint={colors.sage} title="Discussion prompt" subtitle={`${content.prompt} · Discuss in your group`} onPress={() => nav.push('Group', { id: 'g2' })} />
+          <SRow icon="highlight" tint={colors.gold} title="Assignment" subtitle={content.assignment} />
+        </SGroup>
+      </SSection>
       </FadeInUp>
       <FadeInUp index={3}>
-      <Section title="Your reflection">
-        <Input multiline placeholder="Private reflection (saved to this lesson)" value={reflection} onChangeText={setReflection} />
-        <Button small kind="ghost" label={notes[c.id] && notes[c.id] === reflection.trim() ? 'Saved' : 'Save reflection'} disabled={!reflection.trim() || notes[c.id] === reflection.trim()} style={{ alignSelf: 'flex-start', marginTop: 10 }} onPress={() => { dispatch({ type: 'set', patch: { lessonNotes: { ...notes, [c.id]: reflection.trim() } } }); toast.show('Reflection saved', { icon: 'edit' }); }} />
-      </Section>
+      <SSection title="Your reflection">
+        <SInput multiline placeholder="Private reflection (saved to this lesson)" value={reflection} onChangeText={setReflection} />
+        <SButton small kind="ghost" label={notes[c.id] && notes[c.id] === reflection.trim() ? 'Saved' : 'Save reflection'} disabled={!reflection.trim() || notes[c.id] === reflection.trim()} style={{ alignSelf: 'flex-start', marginTop: 10 }} onPress={() => { dispatch({ type: 'set', patch: { lessonNotes: { ...notes, [c.id]: reflection.trim() } } }); toast.show('Reflection saved', { icon: 'edit' }); }} />
+      </SSection>
       </FadeInUp>
-      <Button
+      <SButton
         label={complete ? 'Course complete' : `Mark lesson ${lesson} complete`}
         style={{ marginTop: 18 }}
         disabled={complete}
@@ -1288,7 +1463,7 @@ export function LessonScreen({ params = {} }) {
         }}
         icon={<Icon name="check" size={15} color="#FFFFFF" strokeWidth={2.4} />}
       />
-    </Screen>
+    </SPage>
   );
 }
 
@@ -1520,55 +1695,61 @@ export function SermonStudioScreen() {
   const statusLabel = { transcribed: 'Transcribed', draft: 'Draft', failed: 'Not transcribed', transcribing: 'Transcribing…' };
   const busy = rec === 'starting' || rec === 'saving';
   return (
-    <Screen back title="Sermon Studio" subtitle={online ? 'Record · transcribe · sermon notes' : 'Record · play back · share safely'}>
+    <SPage back title="Sermon Studio" subtitle={online ? 'Record · transcribe · sermon notes' : 'Record · play back · share safely'}>
       {!consent ? (
-        <FadeInUp style={styles.card}>
+        <FadeInUp style={sd.card}>
           <ScaleIn delay={120} style={{ alignSelf: 'flex-start' }}><IconBadge name="mic" tint={colors.primary} size={46} iconSize={21} /></ScaleIn>
-          <Text style={[styles.cardTitleLg, { marginTop: 14 }]}>Before you record</Text>
-          <Text style={styles.cardBody}>{online ? 'Recording other people may require their permission under local law. Recordings upload privately to your account so you get a transcript and sermon notes — only you can listen to them. The app never publishes automatically.' : 'Recording other people may require their permission under local law. Recordings stay private drafts on this device until you choose what to do with them. The app never publishes automatically.'}</Text>
-          <Button small label="I understand · allow microphone" style={{ alignSelf: 'flex-start', marginTop: 16 }} onPress={allow} icon={<Icon name="mic" size={13} color="#FFFFFF" />} />
+          <Text style={[sd.cardTitleLg, { marginTop: 14 }]}>Before you record</Text>
+          <Text style={sd.cardBody}>{online ? 'Recording other people may require their permission under local law. Recordings upload privately to your account so you get a transcript and sermon notes — only you can listen to them. The app never publishes automatically.' : 'Recording other people may require their permission under local law. Recordings stay private drafts on this device until you choose what to do with them. The app never publishes automatically.'}</Text>
+          <SButton small label="I understand · allow microphone" style={{ alignSelf: 'flex-start', marginTop: 16 }} onPress={allow} icon={<Icon name="mic" size={13} color="#FFFFFF" />} />
         </FadeInUp>
       ) : (
         <View>
-          <ScaleIn from={0.94} style={styles.nightCard}><NightGlow />
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
-              {rec === 'recording' ? <LiveRing color={colors.rose} size={8} />
-                : rec === 'starting' || rec === 'saving' ? <Pulse min={0.6} max={1.1} duration={500}><View style={[styles.recDot, { backgroundColor: colors.goldLight }]} /></Pulse>
-                  : <View style={[styles.recDot, rec === 'paused' && { backgroundColor: colors.goldLight }]} />}
-              <Eyebrow tint={rec === 'recording' ? colors.nightFg : colors.nightMuted}>{rec === 'recording' ? 'Recording' : rec === 'paused' ? 'Paused' : rec === 'starting' ? 'Starting microphone…' : rec === 'saving' ? 'Saving…' : 'Ready to record'}</Eyebrow>
+          <FadeInUp style={sd.recorder}>
+            <View style={[sd.orb, rec === 'recording' && sd.orbRec]}>
+              <Icon name={rec === 'recording' ? 'pause' : 'mic'} size={34} color={rec === 'recording' ? '#C9435A' : colors.primary} />
             </View>
-            <Blink active={rec === 'paused'}><Text style={styles.recTime}>{fmtMs(ms)}</Text></Blink>
-            <View style={styles.wave}>{levels.map((l, i) => <WaveBar key={i} level={l} live={rec === 'recording'} />)}</View>
-            <Text style={styles.recMeta}>{micError === 'denied' ? 'Microphone permission denied · enable it in Settings' : micError === 'unavailable' ? 'Microphone unavailable on this device' : `Mic: ${rec === 'recording' ? 'live' : 'ready'} · ${online ? 'Uploads privately for a transcript & notes · up to 60 min' : 'Saved privately on this device'}`}</Text>
-            <View style={styles.recBtns}>
-              {rec === 'idle' || rec === 'starting' ? <NightBtn kind="gold" icon="mic" label={rec === 'starting' ? 'Starting…' : 'Record'} onPress={busy ? undefined : start} /> : null}
-              {rec === 'recording' ? <NightBtn icon="pause" label="Pause" onPress={pause} /> : null}
-              {rec === 'paused' ? <NightBtn kind="gold" icon="play" label="Resume" onPress={resume} /> : null}
-              {rec === 'recording' || rec === 'paused' ? <NightBtn icon="check" label={online ? 'Stop & get notes' : 'Stop & save draft'} onPress={() => finish(true)} /> : null}
-              {rec === 'recording' || rec === 'paused' ? <NightBtn icon="trash" label="Discard" onPress={() => finish(false)} /> : null}
-            </View>
-          </ScaleIn>
+            <Blink active={rec === 'paused'}><Text style={sd.recTime}>{fmtMs(ms)}</Text></Blink>
+            <Text style={sd.recStatus}>{rec === 'recording' ? 'Recording' : rec === 'paused' ? 'Paused' : rec === 'starting' ? 'Starting microphone…' : rec === 'saving' ? 'Saving…' : 'Ready when the message begins'}</Text>
+            <View style={sd.wave}>{levels.map((l, i) => <SWaveBar key={i} level={l} live={rec === 'recording'} />)}</View>
+            <SRecordButton
+              label={rec === 'recording' ? 'Pause recording' : rec === 'paused' ? 'Resume recording' : 'Start recording'}
+              active={rec === 'recording'}
+              disabled={busy}
+              onPress={rec === 'recording' ? pause : rec === 'paused' ? resume : start}
+            >
+              <Icon name={rec === 'recording' ? 'pause' : rec === 'paused' ? 'play' : 'mic'} size={26} color="#FFFFFF" />
+            </SRecordButton>
+            <Text style={sd.recHint}>{rec === 'recording' ? 'Tap to pause' : rec === 'paused' ? 'Tap to resume' : busy ? ' ' : 'Tap to record'}</Text>
+            <Text style={sd.recMeta}>{micError === 'denied' ? 'Microphone permission denied · enable it in Settings' : micError === 'unavailable' ? 'Microphone unavailable on this device' : `Mic: ${rec === 'recording' ? 'live' : 'ready'} · ${online ? 'Uploads privately for a transcript & notes · up to 60 min' : 'Saved privately on this device'}`}</Text>
+            {rec === 'recording' || rec === 'paused' ? (
+              <View style={sd.recBtns}>
+                <SButton small label={online ? 'Stop & get notes' : 'Stop & save draft'} icon={<Icon name="check" size={13} color="#FFFFFF" />} onPress={() => finish(true)} />
+                <SButton small kind="ghost" label="Discard" icon={<Icon name="trash" size={13} color={colors.fg} />} onPress={() => finish(false)} />
+              </View>
+            ) : null}
+          </FadeInUp>
           {micError ? (
-            <FadeInUp distance={8} style={[styles.confirmBox, { marginTop: 12 }]}>
-              <Text style={[styles.itemTitle, { color: colors.negative }]}>{micError === 'denied' ? 'Microphone access is off' : 'No microphone found'}</Text>
-              <Text style={[styles.cardMeta, { marginTop: 4 }]}>{micError === 'denied' ? 'Allow microphone access for BibleNestra in your device settings, then try again.' : 'This device or browser didn’t provide a microphone. Try again on your phone.'}</Text>
-              <Button small kind="ghost" label="Try again" style={{ alignSelf: 'flex-start', marginTop: 10 }} onPress={start} />
+            <FadeInUp distance={8} style={[sd.confirmBox, { marginTop: 12 }]}>
+              <Text style={[sd.itemTitle, { color: colors.negative }]}>{micError === 'denied' ? 'Microphone access is off' : 'No microphone found'}</Text>
+              <Text style={[sd.cardMeta, { marginTop: 4 }]}>{micError === 'denied' ? 'Allow microphone access for BibleNestra in your device settings, then try again.' : 'This device or browser didn’t provide a microphone. Try again on your phone.'}</Text>
+              <SButton small kind="ghost" label="Try again" style={{ alignSelf: 'flex-start', marginTop: 10 }} onPress={start} />
             </FadeInUp>
           ) : null}
-          <FadeInUp index={1} style={styles.card}>
-            <FieldLabel>Details</FieldLabel>
-            <Input placeholder="Title" value={title} onChangeText={setTitle} />
-            <Input placeholder="Bible passage (e.g. Matthew 1)" value={passage} onChangeText={setPassage} style={{ marginTop: 10 }} />
-            {online ? <Text style={[styles.cardMeta, { marginTop: 12 }]}>Private to you · only you can play it, read the transcript and the notes.</Text> : (<>
-            <FieldLabel style={{ marginTop: 16 }}>Who can access</FieldLabel>
-            <Chips items={['Private', 'Selected people', 'Church', 'Public']} value={privacy} onChange={setPrivacy} />
+          <FadeInUp index={1} style={sd.card}>
+            <SLabel>Details</SLabel>
+            <SInput placeholder="Title" value={title} onChangeText={setTitle} />
+            <SInput placeholder="Bible passage (e.g. Matthew 1)" value={passage} onChangeText={setPassage} style={{ marginTop: 10 }} />
+            {online ? <Text style={[sd.cardMeta, { marginTop: 12 }]}>Private to you · only you can play it, read the transcript and the notes.</Text> : (<>
+            <SLabel style={{ marginTop: 16 }}>Who can access</SLabel>
+            <SChips items={['Private', 'Selected people', 'Church', 'Public']} value={privacy} onChange={setPrivacy} />
             </>)}
           </FadeInUp>
-          {!online ? <Notice text="Sign in to get transcripts & notes — recordings stay on this device in local mode." /> : null}
+          {!online ? <SNotice text="Sign in to get transcripts & notes — recordings stay on this device in local mode." /> : null}
         </View>
       )}
       {online ? <CloudRecordingList cloud={cloud} seen={cloudSeen.current} /> : (
-      <Section title="Your recordings">
+      <SSection title="Your recordings">
         {recordings.length ? recordings.map((r, idx) => {
           const mine = player && player.id === r.id;
           const Enter = seenIds.current.has(r.id) ? FadeInUp : ScaleIn;
@@ -1576,37 +1757,37 @@ export function SermonStudioScreen() {
           const pos = mine ? player.pos : 0;
           const dur = (mine && player.dur) || r.durationMs || 0;
           return (
-            <Enter key={r.id} index={idx + 2} from={0.9} style={[styles.card, mine && styles.cardActive]}>
-              <View style={styles.cardHead}>
+            <Enter key={r.id} index={idx + 2} from={0.9} style={[sd.card, mine && sd.cardActive]}>
+              <View style={sd.cardHead}>
                 <Pulse active={!!playing} min={0.96} max={1.06} duration={700}>
-                  <PressScale scaleTo={0.88} onPress={() => togglePlay(r)} accessibilityLabel={`${playing ? 'Pause' : 'Play'} ${r.title}`} style={[styles.recPlay, playing && { backgroundColor: colors.primary }]}>
+                  <PressScale scaleTo={0.88} onPress={() => togglePlay(r)} accessibilityLabel={`${playing ? 'Pause' : 'Play'} ${r.title}`} style={[sd.recPlay, playing && { backgroundColor: colors.primary }]}>
                     {playing ? <Icon name="pause" size={16} color="#FFFFFF" /> : <PlayGlyph size={16} color={colors.primary} />}
                   </PressScale>
                 </Pulse>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.cardTitle} numberOfLines={2}>{r.title}</Text>
-                  <Text style={[styles.cardMeta, { marginTop: 2 }]}>{[r.speaker, r.passage !== '—' ? r.passage : null, r.duration, r.privacy].filter(Boolean).join(' · ')}</Text>
+                  <Text style={sd.cardTitle} numberOfLines={2}>{r.title}</Text>
+                  <Text style={[sd.cardMeta, { marginTop: 2 }]}>{[r.speaker, r.passage !== '—' ? r.passage : null, r.duration, r.privacy].filter(Boolean).join(' · ')}</Text>
                 </View>
-                <Pop trigger={r.status}><Badge label={statusLabel[r.status] || r.status} tint={statusTint[r.status] || colors.muted} /></Pop>
+                <Pop trigger={r.status}><SBadge label={statusLabel[r.status] || r.status} tint={statusTint[r.status] || colors.muted} /></Pop>
               </View>
               {mine ? (
                 <FadeInUp distance={6} duration={260} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 }}>
-                  <Text style={styles.timeChipText}>{fmtMs(pos)}</Text>
+                  <Text style={sd.timeChipText}>{fmtMs(pos)}</Text>
                   <Progress value={dur ? pos / dur : 0} tint={colors.primary} height={4} delay={0} style={{ flex: 1 }} />
-                  <Text style={styles.timeChipText}>{fmtMs(dur)}</Text>
+                  <Text style={sd.timeChipText}>{fmtMs(dur)}</Text>
                 </FadeInUp>
               ) : null}
-              {(r.refs || []).length ? <Text style={[styles.cardMeta, { color: colors.sage, marginTop: 10 }]}>Detected references (confirm before verified): {r.refs.join(', ')}</Text> : null}
+              {(r.refs || []).length ? <Text style={[sd.cardMeta, { color: colors.sage, marginTop: 10 }]}>Detected references (confirm before verified): {r.refs.join(', ')}</Text> : null}
               {renaming && renaming.id === r.id ? (
                 <FadeInUp distance={6} duration={260} style={{ marginTop: 12 }}>
-                  <Input value={renaming.value} onChangeText={(v) => setRenaming({ ...renaming, value: v })} placeholder="Recording title" autoFocus />
-                  <View style={[styles.btnRow, { marginTop: 10 }]}>
-                    <Button small label="Save name" disabled={!renaming.value.trim() || renaming.value.trim() === r.title} onPress={() => { dispatch({ type: 'renameRecording', id: r.id, title: renaming.value.trim() }); setRenaming(null); toast.show('Recording renamed', { icon: 'edit' }); }} />
-                    <Button small kind="ghost" label="Cancel" onPress={() => setRenaming(null)} />
+                  <SInput value={renaming.value} onChangeText={(v) => setRenaming({ ...renaming, value: v })} placeholder="Recording title" autoFocus />
+                  <View style={[sd.btnRow, { marginTop: 10 }]}>
+                    <SButton small label="Save name" disabled={!renaming.value.trim() || renaming.value.trim() === r.title} onPress={() => { dispatch({ type: 'renameRecording', id: r.id, title: renaming.value.trim() }); setRenaming(null); toast.show('Recording renamed', { icon: 'edit' }); }} />
+                    <SButton small kind="ghost" label="Cancel" onPress={() => setRenaming(null)} />
                   </View>
                 </FadeInUp>
               ) : confirmDel === r.id ? (
-                <InlineConfirm
+                <SConfirm
                   title="Delete this recording?"
                   body="The audio and its details will be removed from this device. This can't be undone."
                   confirmLabel="Delete"
@@ -1614,32 +1795,32 @@ export function SermonStudioScreen() {
                   onConfirm={async () => { if (mine) await unloadSound(); dispatch({ type: 'deleteRecording', id: r.id }); setConfirmDel(null); toast.show('Recording deleted', { icon: 'trash' }); }}
                 />
               ) : (
-                <View style={styles.btnRow}>
-                  {r.status === 'draft' ? <Button small kind="ghost" label="Transcribe" onPress={() => transcribe(r)} /> : null}
-                  {r.status === 'failed' ? <Button small label="Retry transcription" onPress={() => transcribe(r)} /> : null}
-                  {r.status === 'transcribed' ? <Button small kind="ghost" label="Transcript" onPress={() => nav.push('Transcript', { id: r.id })} /> : null}
-                  <Button small kind="ghost" label="Rename" onPress={() => { setConfirmDel(null); setRenaming({ id: r.id, value: r.title }); }} />
-                  <Button small kind="ghost" label="Share" icon={<Icon name="share" size={12} color={colors.fg} />} onPress={() => share(r)} />
-                  <Button small kind="ghost" label="Delete" onPress={() => { setRenaming(null); setConfirmDel(r.id); }} />
+                <View style={sd.btnRow}>
+                  {r.status === 'draft' ? <SButton small kind="ghost" label="Transcribe" onPress={() => transcribe(r)} /> : null}
+                  {r.status === 'failed' ? <SButton small label="Retry transcription" onPress={() => transcribe(r)} /> : null}
+                  {r.status === 'transcribed' ? <SButton small kind="ghost" label="Transcript" onPress={() => nav.push('Transcript', { id: r.id })} /> : null}
+                  <SButton small kind="ghost" label="Rename" onPress={() => { setConfirmDel(null); setRenaming({ id: r.id, value: r.title }); }} />
+                  <SButton small kind="ghost" label="Share" icon={<Icon name="share" size={12} color={colors.fg} />} onPress={() => share(r)} />
+                  <SButton small kind="ghost" label="Delete" onPress={() => { setRenaming(null); setConfirmDel(r.id); }} />
                 </View>
               )}
               {r.status === 'transcribing' ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                  <Pulse min={0.6} max={1.1} duration={500}><View style={[styles.recDot, { backgroundColor: colors.lavender }]} /></Pulse>
-                  <Text style={[styles.cardMeta, { color: colors.lavender, marginTop: 0 }]}>Checking for a transcription service…</Text>
+                  <Pulse min={0.6} max={1.1} duration={500}><View style={[sd.recDot, { backgroundColor: colors.lavender }]} /></Pulse>
+                  <Text style={[sd.cardMeta, { color: colors.lavender, marginTop: 0 }]}>Checking for a transcription service…</Text>
                 </View>
               ) : null}
-              {r.status === 'failed' ? <FadeInUp distance={6} duration={260}><Text style={[styles.cardMeta, { color: colors.negative, marginTop: 10 }]}>{r.error || 'Transcription failed. Your audio is safe and was not deleted.'}</Text></FadeInUp> : null}
+              {r.status === 'failed' ? <FadeInUp distance={6} duration={260}><Text style={[sd.cardMeta, { color: colors.negative, marginTop: 10 }]}>{r.error || 'Transcription failed. Your audio is safe and was not deleted.'}</Text></FadeInUp> : null}
             </Enter>
           );
         }) : (
-          <ScaleIn from={0.94} style={styles.emptyCard}>
-            <Empty title="No recordings yet" body="Sermons you record appear here as private drafts you can play back, rename, share or delete." />
+          <ScaleIn from={0.94} style={sd.emptyCard}>
+            <SEmpty title="No recordings yet" body="Sermons you record appear here as private drafts you can play back, rename, share or delete." />
           </ScaleIn>
         )}
-      </Section>
+      </SSection>
       )}
-    </Screen>
+    </SPage>
   );
 }
 
@@ -1652,11 +1833,11 @@ export function TranscriptScreen({ params = {} }) {
   const [editing, setEditing] = useState(null);
   if (!r) {
     return (
-      <Screen back title="Transcript">
-        <View style={[styles.emptyCard, { marginTop: 12 }]}>
-          <Empty title="Recording not found" body="This recording may have been removed or hasn't synced to this device yet." action="Open Sermon Studio" onAction={() => nav.replace('SermonStudio')} />
+      <SPage back title="Transcript">
+        <View style={[sd.emptyCard, { marginTop: 12 }]}>
+          <SEmpty title="Recording not found" body="This recording may have been removed or hasn't synced to this device yet." action="Open Sermon Studio" onAction={() => nav.replace('SermonStudio')} />
         </View>
-      </Screen>
+      </SPage>
     );
   }
   // transcript may be a string or [[time, text], …]
@@ -1664,61 +1845,61 @@ export function TranscriptScreen({ params = {} }) {
   const plain = lines.map(([t, s]) => (t ? `[${t}] ${s}` : s)).join('\n');
   if (!lines.length) {
     return (
-      <Screen back title={r.title} subtitle="Transcript">
-        <View style={[styles.emptyCard, { marginTop: 12 }]}>
-          <Empty
+      <SPage back title={r.title} subtitle="Transcript">
+        <View style={[sd.emptyCard, { marginTop: 12 }]}>
+          <SEmpty
             title={r.status === 'transcribing' ? 'Transcription in progress' : 'No transcript yet'}
             body={r.status === 'failed' ? (r.error || 'Transcription failed. Your audio is safe.') : 'This recording hasn’t been transcribed. Transcription needs a server connection, which isn’t set up in this build yet.'}
             action="Back to Sermon Studio"
             onAction={() => { const prev = nav.stack[nav.stack.length - 2]; if (prev && prev.name === 'SermonStudio') nav.pop(); else nav.replace('SermonStudio'); }}
           />
         </View>
-      </Screen>
+      </SPage>
     );
   }
   const extras = [['Summary', r.summary], ['Outline', r.outline], ['Questions', r.questions]].filter(([, v]) => v);
   const confirmed = r.confirmedRefs || [];
   return (
-    <Screen back title={r.title} subtitle="Transcript · edits never destroy the original">
-      {extras.length ? <Pills items={['Transcript', ...extras.map(([k]) => k)]} value={tab} onChange={setTab} /> : null}
+    <SPage back title={r.title} subtitle="Transcript · edits never destroy the original">
+      {extras.length ? <SChips items={['Transcript', ...extras.map(([k]) => k)]} value={tab} onChange={setTab} /> : null}
       {tab === 'Transcript' ? (
         editing != null ? (
           <View style={{ marginTop: 12 }}>
-            <Input multiline value={editing} onChangeText={setEditing} style={{ minHeight: 220 }} />
-            <View style={[styles.btnRow, { marginTop: 10 }]}>
-              <Button small label="Save transcript" onPress={() => {
+            <SInput multiline value={editing} onChangeText={setEditing} style={{ minHeight: 220 }} />
+            <View style={[sd.btnRow, { marginTop: 10 }]}>
+              <SButton small label="Save transcript" onPress={() => {
                 const next = editing.split(/\n+/).filter(Boolean).map((l) => { const m = l.match(/^\[([^\]]+)\]\s*(.*)$/); return m ? [m[1], m[2]] : [null, l]; });
                 dispatch({ type: 'recordingStatus', id: r.id, status: r.status, patch: { transcript: next, originalTranscript: r.originalTranscript || r.transcript } });
                 setEditing(null); toast.show('Transcript saved · original kept', { icon: 'edit' });
               }} />
-              <Button small kind="ghost" label="Cancel" onPress={() => setEditing(null)} />
+              <SButton small kind="ghost" label="Cancel" onPress={() => setEditing(null)} />
             </View>
           </View>
         ) : (
           <FadeInUp distance={8} style={{ marginTop: 12 }}>
-            <Group>
-              {lines.map(([t, s], i) => <Item key={i} left={t ? <Timestamp t={t} /> : null} title={s} serif />)}
-            </Group>
+            <SGroup>
+              {lines.map(([t, s], i) => <SRow key={i} left={t ? <STimestamp t={t} /> : null} title={s} serif />)}
+            </SGroup>
           </FadeInUp>
         )
       ) : null}
-      {extras.map(([k, v]) => (tab === k ? <FadeInUp key={k} distance={8}><AIDraft>{v}</AIDraft></FadeInUp> : null))}
+      {extras.map(([k, v]) => (tab === k ? <FadeInUp key={k} distance={8}><SAIDraft>{v}</SAIDraft></FadeInUp> : null))}
       {(r.refs || []).length ? (
-        <Section title="Detected references">
-          <Group>
+        <SSection title="Detected references">
+          <SGroup>
             {r.refs.map((x) => {
               const ok = confirmed.includes(x);
-              return <Item key={x} icon="book" tint={colors.gold} title={x} subtitle={ok ? 'Confirmed' : 'Suggestion · confirm to verify'} right={ok ? <ScaleIn from={0.5}><Badge label="Verified" tint={colors.teal} /></ScaleIn> : <Button small kind="ghost" label="Confirm" onPress={() => { dispatch({ type: 'recordingStatus', id: r.id, status: r.status, patch: { confirmedRefs: [...confirmed, x] } }); toast.show(`${x} confirmed`, { icon: 'check' }); }} />} />;
+              return <SRow key={x} icon="book" tint={colors.gold} title={x} subtitle={ok ? 'Confirmed' : 'Suggestion · confirm to verify'} right={ok ? <ScaleIn from={0.5}><SBadge label="Verified" tint={colors.teal} /></ScaleIn> : <SButton small kind="ghost" label="Confirm" onPress={() => { dispatch({ type: 'recordingStatus', id: r.id, status: r.status, patch: { confirmedRefs: [...confirmed, x] } }); toast.show(`${x} confirmed`, { icon: 'check' }); }} />} />;
             })}
-          </Group>
-        </Section>
+          </SGroup>
+        </SSection>
       ) : null}
-      <View style={[styles.btnRow, { marginTop: 18 }]}>
-        <Button small kind="ghost" label="Edit transcript" onPress={() => { setTab('Transcript'); setEditing(plain); }} />
-        <Button small label="Share…" onPress={() => shareText(toast, `${r.title} — ${r.speaker}\n\n${plain}`, { done: 'Transcript shared' })} icon={<Icon name="share" size={13} color="#FFFFFF" />} />
+      <View style={[sd.btnRow, { marginTop: 18 }]}>
+        <SButton small kind="ghost" label="Edit transcript" onPress={() => { setTab('Transcript'); setEditing(plain); }} />
+        <SButton small label="Share…" onPress={() => shareText(toast, `${r.title} — ${r.speaker}\n\n${plain}`, { done: 'Transcript shared' })} icon={<Icon name="share" size={13} color="#FFFFFF" />} />
       </View>
-      <Notice text="Publishing requires confirming you hold the rights. Private recordings are never publicly searchable." />
-    </Screen>
+      <SNotice text="Publishing requires confirming you hold the rights. Private recordings are never publicly searchable." />
+    </SPage>
   );
 }
 
@@ -1822,24 +2003,34 @@ export function CreateScreen({ params = {} }) {
   };
   const toggleIn = (list, set, v) => set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   return (
-    <Screen back title="Create" subtitle="Share something with your community">
-      <Eyebrow tint={colors.muted} style={{ marginBottom: 10 }}>What would you like to create?</Eyebrow>
-      <View style={styles.kindGrid}>
-        {kinds.map((k, idx) => {
-          const on = kind === k;
-          const m = KIND_META[k];
+    <DScreen title="Create something" subtitle="Share what gives life" action={<IconButton icon="close" label="Close" onPress={() => nav.pop()} />}>
+      {/* .create-intro */}
+      <View style={ed.intro}>
+        <Icon name="sparkles" size={23} color={D.goldDark} />
+        <Text style={ed.introTitle}>{'What would you\nlike to begin?'}</Text>
+        <Text style={ed.introBody}>Every creation has visibility and safety controls before it is shared.</Text>
+      </View>
+      {/* .create-grid: pick a kind, its composer opens below */}
+      <DList style={{ marginTop: 13 }}>
+        {kinds.map((kn, idx) => {
+          const on = kind === kn;
+          const m = KIND_META[kn];
           return (
-            <FadeInUp key={k} index={idx} stagger={35} distance={10} style={styles.kindCell}>
-              <PressScale scaleTo={0.94} onPress={() => setKind(k)} style={[styles.kindTile, on && styles.kindTileOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
-                <PopOn on={on} amount={1.22}>
-                  <IconBadge name={m.icon} tint={on ? '#FFFFFF' : m.tint} bg={on ? colors.primary : alpha(m.tint, 0.12)} size={34} iconSize={16} />
-                </PopOn>
-                <Text style={[styles.kindText, on && { color: colors.primary }]} numberOfLines={2}>{k}</Text>
-              </PressScale>
-            </FadeInUp>
+            <Tap key={kn} onPress={() => setKind(kn)} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={kn} style={[ed.createRow, on && ed.createRowOn]}>
+              <Grad colors={CREATE_GRADS[idx % 4]} style={ed.createTile}>
+                <Icon name={m.icon} size={21} color="#FFFFFF" />
+              </Grad>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={ed.createTitle}>{kn}</Text>
+                <Text style={ed.createDesc} numberOfLines={2}>{CREATE_DESC[kn]}</Text>
+              </View>
+              <Text style={ed.createNum}>{'0' + (idx + 1)}</Text>
+              <Icon name={on ? 'check-circle' : 'chevron-right'} size={15} color={on ? D.plum : '#AAA6AD'} />
+            </Tap>
           );
         })}
-      </View>
+      </DList>
+      <DSection eyebrow="Compose" title={kind} />
       <FadeInUp key={kind} distance={10} duration={320}>
       {kind === 'Prayer request' ? (
         <View style={styles.card}>
@@ -1952,7 +2143,7 @@ export function CreateScreen({ params = {} }) {
         </View>
       ) : null}
       </FadeInUp>
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -2127,6 +2318,20 @@ export function ProfileScreen({ params = {} }) {
   const children = state.children || [];
   const acceptsChat = u.acceptsChat || [];
   const interests = u.interests || [];
+  // Real rhythm, saved verses and answered prayers for the editorial profile card
+  const today = new Date();
+  const { streak, graceUsedThisWeek } = computeStreak(state.rhythm || {}, today);
+  const bestStreak = Math.max(state.bestStreak || 0, streak);
+  const streaksOn = state.streaksEnabled !== false;
+  const weekDone = weekDays(today).map((day) => (state.rhythm && state.rhythm[dayKey(day)] || []).length > 0);
+  const weekCount = weekDone.filter(Boolean).length;
+  const todayIdx = (today.getDay() + 6) % 7;
+  const savedVerses = (state.bookmarks || []).length;
+  const answeredPrayers = (state.prayers || []).filter((p) => p.mine && p.status === 'answered').length;
+  const milestone = streak >= 30 ? 'Anchored' : streak >= 14 ? 'Steadfast' : streak >= 7 ? 'Rooted' : streak >= 3 ? 'Sprouting' : 'Beginning';
+  const weekLine = weekCount >= 5 ? 'Beautiful consistency' : weekCount >= 1 ? 'Keep showing up' : 'A fresh week begins';
+  const place = [u.church && u.church.visible && u.church.name ? u.church.name : null, u.country].filter(Boolean).join(' · ');
+  const isMain = tab === 'Profile';
   const doReset = () => {
     dispatch({ type: 'reset' });
     setConfirmReset(false);
@@ -2135,71 +2340,132 @@ export function ProfileScreen({ params = {} }) {
   };
 
   return (
-    <Screen back={nav.stack.length > 0} title="Profile" subtitle={`@${u.username}`}>
-      {tab === 'Profile' ? (
-        <FadeInUp distance={10} style={styles.heroCard}>
-          <View style={[styles.cover, u.bannerUrl && { height: 124 }]}>{u.bannerUrl ? <BannerImage uri={u.bannerUrl} /> : <><NightGlow />
-            <Text style={styles.coverMark}>✦</Text></>}
-            <EditProfileButton onPress={() => nav.push('EditProfile')} />
-          </View>
-          <ScaleIn delay={140} from={0.6} style={styles.avatarRing}>
-            <PressScale onPress={() => nav.push('EditProfile')} scaleTo={0.94} accessibilityLabel="Change profile photo">
-              {u.avatarUrl ? <AvatarImage uri={u.avatarUrl} size={84} /> : <View style={styles.avatar}><Text style={styles.avatarText}>{initial}</Text></View>}
-              <AvatarEditBadge />
-            </PressScale>
-          </ScaleIn>
-          <FadeInUp delay={220} distance={8} style={styles.heroBody}>
-            <Text style={styles.heroName}>{u.displayName}</Text>
-            <Text style={styles.heroHandle}>@{u.username}</Text>
-            {u.headline ? <Text style={styles.heroMeta}>{u.headline}</Text> : null}
-            {u.bio ? <Text style={[styles.heroMetaFaint, { color: colors.muted, textAlign: 'center', marginTop: 6 }]}>{u.bio}</Text> : null}
-            <FollowSummary />
-            <Text style={styles.heroMetaFaint}>{[u.country, (u.languages || []).join(', ')].filter(Boolean).join('  ·  ')}</Text>
-            <View style={styles.heroChips}>
-              {u.church?.visible ? (
-                <View style={styles.churchChip}>
-                  <Icon name="church" size={14} color={colors.primary} />
-                  <Text style={styles.churchChipText} numberOfLines={1}>{u.church?.name}</Text>
-                </View>
-              ) : null}
-              <Pressable onPress={() => setTab('Privacy')} style={({ pressed }) => [styles.visChip, pressed && { opacity: 0.7 }]}>
-                <Icon name="shield" size={12} color={colors.muted} />
-                <Text style={styles.visChipText}>{cap(u.profileVisibility)}</Text>
-              </Pressable>
-              {state.premium ? (
-                <View style={[styles.visChip, { backgroundColor: colors.cardGold }]}>
-                  <Icon name="star" size={12} color={colors.goldMuted} />
-                  <Text style={[styles.visChipText, { color: colors.goldMuted }]}>Plus supporter</Text>
-                </View>
-              ) : null}
-              {u.openToOpportunities ? (
-                <View style={[styles.visChip, { backgroundColor: colors.cardSage }]}>
-                  <Icon name="briefcase" size={12} color={colors.sage} />
-                  <Text style={[styles.visChipText, { color: colors.sage }]}>Open to opportunities</Text>
-                </View>
-              ) : null}
-            </View>
-          </FadeInUp>
-        </FadeInUp>
-      ) : (
-        <View style={styles.compactId}>
-          {u.avatarUrl ? <AvatarImage uri={u.avatarUrl} size={46} /> : <View style={[styles.avatar, styles.avatarSm]}><Text style={[styles.avatarText, { fontSize: 19 }]}>{initial}</Text></View>}
-          <View style={{ flex: 1 }}>
-            <Text style={styles.compactName}>{u.displayName}</Text>
-            <Text style={styles.cardMeta}>@{u.username} · {cap(u.profileVisibility)}</Text>
-          </View>
-          <PressScale scaleTo={0.92} onPress={() => setTab('Wallet & Gifts')} style={styles.coinPill} accessibilityLabel={`${state.coins || 0} coins · open wallet`}>
-            <Pop trigger={state.coins}><Icon name="coin" size={14} color={colors.gold} /></Pop>
-            <AnimatedNumber value={state.coins || 0} style={styles.coinPillText} />
-          </PressScale>
-        </View>
-      )}
-
-      <TabStrip items={tabs} value={tab} onChange={setTab} />
+    <DScreen
+      title={isMain ? 'My sanctuary' : tab}
+      subtitle={isMain ? 'A life becoming' : 'My sanctuary'}
+      back={isMain ? nav.stack.length > 0 : true}
+      onBack={isMain ? () => nav.pop() : () => setTab('Profile')}
+      action={isMain ? <IconButton icon="settings" label="Account settings" onPress={() => setTab('Account')} /> : null}
+    >
+      <DTabs items={tabs} value={tab} onChange={setTab} />
 
       <FadeInUp key={tab} distance={10} duration={320}>
       {tab === 'Profile' ? (
         <View>
+          {/* .profile-card--editorial: real name, bio, church/country, rhythm, saved verses and answered prayers */}
+          <Grad colors={['#2B1B12', '#3D2415', '#6F3518']} locations={[0, 0.45, 1]} style={ed.card}>
+            <View style={ed.glow} />
+            <View style={ed.cardTop}>
+              <Text style={ed.kicker}>SPIRITUAL PORTRAIT</Text>
+              <Tap onPress={() => nav.push('EditProfile')} style={ed.editBtn} accessibilityLabel="Edit profile" hitSlop={6}>
+                <Icon name="edit" size={12} color="#FFFFFF" />
+                <Text style={ed.editText}>Edit</Text>
+              </Tap>
+            </View>
+            <Tap onPress={() => nav.push('EditProfile')} style={ed.avatarWrap} accessibilityLabel="Change profile photo">
+              {u.avatarUrl ? <AvatarImage uri={u.avatarUrl} size={84} /> : <View style={ed.avatar}><Text style={ed.avatarText}>{initial}</Text></View>}
+              <View style={ed.check}><Icon name="check" size={12} color="#FFFFFF" strokeWidth={2.6} /></View>
+            </Tap>
+            <Text style={ed.name}>{u.displayName}</Text>
+            <Text style={ed.handle}>@{u.username}</Text>
+            {u.bio || u.headline ? <Text style={ed.bio}>{u.bio || u.headline}</Text> : null}
+            {place ? (
+              <View style={ed.placeRow}>
+                <Icon name="sparkles" size={13} color="#F5BC94" />
+                <Text style={ed.place} numberOfLines={1}>{place}</Text>
+              </View>
+            ) : null}
+            <View style={ed.stats}>
+              {streaksOn ? (
+                <View style={ed.stat}><Text style={ed.statNum}>{streak}</Text><Text style={ed.statLbl}>day rhythm</Text></View>
+              ) : null}
+              <View style={ed.stat}><Text style={ed.statNum}>{savedVerses}</Text><Text style={ed.statLbl}>saved verses</Text></View>
+              <View style={[ed.stat, { borderRightWidth: 0 }]}><Text style={ed.statNum}>{answeredPrayers}</Text><Text style={ed.statLbl}>answered</Text></View>
+            </View>
+          </Grad>
+
+          <View style={[styles.heroChips, { marginTop: 12 }]}>
+            {u.church?.visible && u.church?.name ? (
+              <View style={styles.churchChip}>
+                <Icon name="church" size={14} color={colors.primary} />
+                <Text style={styles.churchChipText} numberOfLines={1}>{u.church?.name}</Text>
+              </View>
+            ) : null}
+            <Pressable onPress={() => setTab('Privacy')} style={({ pressed }) => [styles.visChip, pressed && { opacity: 0.7 }]}>
+              <Icon name="shield" size={12} color={colors.muted} />
+              <Text style={styles.visChipText}>{cap(u.profileVisibility)}</Text>
+            </Pressable>
+            {state.premium ? (
+              <View style={[styles.visChip, { backgroundColor: colors.cardGold }]}>
+                <Icon name="star" size={12} color={colors.goldMuted} />
+                <Text style={[styles.visChipText, { color: colors.goldMuted }]}>Plus supporter</Text>
+              </View>
+            ) : null}
+            {u.openToOpportunities ? (
+              <View style={[styles.visChip, { backgroundColor: colors.cardSage }]}>
+                <Icon name="briefcase" size={12} color={colors.sage} />
+                <Text style={[styles.visChipText, { color: colors.sage }]}>Open to opportunities</Text>
+              </View>
+            ) : null}
+          </View>
+          <FollowSummary />
+
+          {/* .profile-highlights: longest streak and the current milestone, both from the real rhythm */}
+          <View style={ed.highlights}>
+            <View style={[ed.hl, { backgroundColor: D.plum }]}>
+              <View style={[ed.hlIcon, { backgroundColor: 'rgba(255,255,255,0.18)' }]}><Icon name="flame" size={17} color="#FFFFFF" /></View>
+              <View>
+                <Text style={[ed.hlKicker, { color: '#FFFFFF' }]}>LONGEST RHYTHM</Text>
+                <Text style={[ed.hlValue, { color: '#FFFFFF' }]}>{streaksOn ? `${bestStreak} ${bestStreak === 1 ? 'day' : 'days'}` : 'Off'}</Text>
+                <Text style={[ed.hlSub, { color: '#FFFFFF' }]}>{!streaksOn ? 'Streaks are off in Today.' : bestStreak ? 'Keep meeting grace daily.' : 'Begin your rhythm today.'}</Text>
+              </View>
+            </View>
+            <View style={[ed.hl, { backgroundColor: D.gold }]}>
+              <View style={[ed.hlIcon, { backgroundColor: 'rgba(111,74,18,0.12)' }]}><Icon name="star" size={17} color={D.goldDark} /></View>
+              <View>
+                <Text style={[ed.hlKicker, { color: D.goldDark }]}>THIS SEASON</Text>
+                <Text style={[ed.hlValue, { color: D.goldDark }]}>{milestone}</Text>
+                <Text style={[ed.hlSub, { color: D.goldDark }]}>Your current milestone.</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* .week-card: the real daily rhythm for this week */}
+          <DSection eyebrow="Your journey" title="This week" />
+          <DCard>
+            <View style={ed.week}>
+              {weekDays(today).map((day, i) => {
+                const done = weekDone[i];
+                const isToday = i === todayIdx;
+                return (
+                  <View key={dayKey(day)} style={[ed.day, done && ed.dayDone, !done && isToday && ed.dayToday]}>
+                    {done ? <Icon name="check" size={13} color="#FFFFFF" strokeWidth={2.6} /> : <Text style={[ed.dayText, isToday && { color: D.plum }]}>{'MTWTFSS'[i]}</Text>}
+                  </View>
+                );
+              })}
+            </View>
+            <View style={{ marginTop: 15 }}>
+              <Text style={ed.weekCount}>{weekCount} of 7 days</Text>
+              <Text style={ed.weekLine}>{weekLine}</Text>
+              <Text style={ed.weekNote}>{graceUsedThisWeek ? 'A grace day bridged a missed day this week.' : 'Your grace day is still available this week.'}</Text>
+            </View>
+          </DCard>
+
+          {/* .settings-list: every profile section is one tap away */}
+          <DSection eyebrow="Your world" title="Everything in one place" />
+          <DList>
+            <DRow icon="gift" title="Wallet & gifts" subtitle="Coins, credits, earnings & payouts" onPress={() => setTab('Wallet & Gifts')} />
+            <DRow icon="video" title="Creator" subtitle="Your ministry videos and the gifts they receive" onPress={() => setTab('Creator')} />
+            <DRow icon="briefcase" title="Jobs" subtitle="Proposals and marketplace activity" onPress={() => setTab('Jobs')} />
+            <DRow icon="book" title="Study" subtitle="Translation, study presets, reading and interests" onPress={() => setTab('Study')} />
+            <DRow icon="bell" title="Notifications" subtitle="Daily moments, types and quiet hours" onPress={() => setTab('Notifications')} />
+            <DRow icon="lock" title="Privacy" subtitle="Visibility, discovery, chat and your data" onPress={() => setTab('Privacy')} />
+            <DRow icon="shield" title="Account" subtitle="Sync, plan, sign out and account deletion" onPress={() => setTab('Account')} />
+            <DRow icon="user" title="Family & child profiles" subtitle="Guardian controls and child activities" onPress={() => setTab('Family')} />
+            <DRow icon="sparkles" title="Scripture pop-ups" subtitle={popSub} onPress={() => nav.push('ScripturePop')} />
+            <DRow icon="clock" title="Reminders" subtitle="Personal reminders to read, pray or call" onPress={() => nav.push('Reminders')} />
+          </DList>
+
           <View style={styles.statRow}>
             {[
               { icon: 'coin', tint: colors.gold, value: state.coins || 0, label: 'Kingdom Coins', go: () => setTab('Wallet & Gifts') },
@@ -2264,12 +2530,6 @@ export function ProfileScreen({ params = {} }) {
                 onPress={() => setCoinSheet(true)}
               />
             </Group>
-          </Section>
-          </FadeInUp>
-
-          <FadeInUp index={2} delay={100}>
-          <Section title="Account & sync">
-            <AccountSync />
           </Section>
           </FadeInUp>
 
@@ -2577,6 +2837,10 @@ export function ProfileScreen({ params = {} }) {
 
       {tab === 'Account' ? (
         <View style={{ marginTop: 18 }}>
+          {/* Sync status and sign out live here; delete account is in the section below */}
+          <Section title="Account & sync">
+            <AccountSync />
+          </Section>
           <Group>
             <Item icon="check" tint={sync.status === 'failed' ? colors.negative : colors.teal} title="Sync status" subtitle={sync.at ? 'Last saved ' + sync.at.toLocaleTimeString() : 'Saved locally on this device'} right={sync.status === 'failed' && sync.retry ? <Button small kind="ghost" label="Retry" onPress={sync.retry} /> : <Badge label={sync.status} tint={sync.status === 'failed' ? colors.negative : colors.teal} />} />
             <Item icon="share" tint={colors.primary} title="Back up my data" subtitle="Export a JSON copy you can keep" onPress={() => exportData(state, toast)} />
@@ -2649,7 +2913,7 @@ export function ProfileScreen({ params = {} }) {
           </View>
         </View>
       </AnimatedModal>
-    </Screen>
+    </DScreen>
   );
 }
 
@@ -2693,152 +2957,212 @@ export function OnboardingScreen({ params }) {
     if (asRoute) nav.pop();
   };
   return (
-    <Screen
+    <SPage
       title="BibleNestra"
       subtitle={`Step ${step + 1} of ${steps.length} · skippable`}
       back={asRoute}
-      right={<Pressable onPress={() => finish(true)} hitSlop={10} style={({ pressed }) => [styles.skipBtn, pressed && { opacity: 0.6 }]}><Text style={styles.skipText}>Skip</Text></Pressable>}
+      right={<Pressable onPress={() => finish(true)} hitSlop={10} style={({ pressed }) => [sd.skipBtn, pressed && { opacity: 0.6 }]}><Text style={sd.skipText}>Skip</Text></Pressable>}
     >
-      <View style={styles.stepper5} accessibilityLabel={`Step ${step + 1} of ${steps.length}`}>
-        {steps.map((s, i) => <AnimatedBar key={s} progress={i <= step ? 1 : 0} delay={i === step ? 60 : 0} style={styles.stepSeg} fillStyle={styles.stepSegOn} />)}
+      <View style={sd.stepper5} accessibilityLabel={`Step ${step + 1} of ${steps.length}`}>
+        {steps.map((s, i) => <AnimatedBar key={s} progress={i <= step ? 1 : 0} delay={i === step ? 60 : 0} style={sd.stepSeg} fillStyle={sd.stepSegOn} />)}
       </View>
 
       <StepSlide key={step} dir={dir}>
       {step === 0 ? (
-        <View style={{ alignItems: 'center', marginTop: 26 }}>
-          <ScaleIn from={0.6} delay={60}>
-            <View style={styles.welcomeOrb}>
-              <Pulse min={0.96} max={1.04} duration={2200} style={styles.welcomeHalo} />
-              <View style={styles.welcomeOrbInner}><OpenBook size={38} color={colors.goldLight} /></View>
-            </View>
-          </ScaleIn>
-          <FadeInUp delay={180} distance={8} style={{ alignItems: 'center' }}>
-            <View style={styles.ornament}><View style={styles.ornamentLine} /><Text style={styles.ornamentStar}>✦</Text><View style={styles.ornamentLine} /></View>
-            <Eyebrow style={{ marginTop: 12 }}>A home for Scripture & fellowship</Eyebrow>
-            <Text style={[styles.h1, { textAlign: 'center', marginTop: 8 }]}>Welcome</Text>
-            <Text style={[styles.sub, { textAlign: 'center', maxWidth: 310 }]}>One connected place for Bible study, prayer, community and care. You control what you reveal.</Text>
+        <View style={{ marginTop: 14 }}>
+          <FadeInUp distance={10}>
+            <Grad colors={['#2F1D12', '#8C421C']} style={sd.introCard}>
+              <View style={sd.introMark}><Text style={sd.introMarkText}>{(name.trim().split(/s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')) || 'BN'}</Text></View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={sd.introKicker}>Welcome to BibleNestra</Text>
+                <Text style={sd.introTitle}>Your sanctuary begins with a few simple choices.</Text>
+              </View>
+            </Grad>
           </FadeInUp>
-          <Group style={{ alignSelf: 'stretch', marginTop: 24 }}>
-            {WELCOME_POINTS.map((w, i) => <FadeInUp key={w.title} index={i} delay={280} distance={8}><Item icon={w.icon} tint={w.tint} title={w.title} subtitle={w.body} /></FadeInUp>)}
-          </Group>
+          <FadeInUp delay={180} distance={8}>
+            <SEyebrow style={{ marginTop: 22 }}>A home for Scripture & fellowship</SEyebrow>
+            <Text style={sd.h1}>Make it yours</Text>
+            <Text style={sd.sub}>One connected place for Bible study, prayer, community and care. You control what you reveal.</Text>
+          </FadeInUp>
+          <SGroup style={{ alignSelf: 'stretch', marginTop: 24 }}>
+            {WELCOME_POINTS.map((w, i) => <FadeInUp key={w.title} index={i} delay={280} distance={8}><SRow icon={w.icon} tint={w.tint} title={w.title} subtitle={w.body} /></FadeInUp>)}
+          </SGroup>
           <View style={{ alignSelf: 'stretch', marginTop: 24 }}>
-            <FieldLabel>What should we call you?</FieldLabel>
-            <Input placeholder="What should we call you?" value={name} onChangeText={setName} />
+            <SLabel>What should we call you?</SLabel>
+            <SInput placeholder="What should we call you?" value={name} onChangeText={setName} />
           </View>
         </View>
       ) : null}
       {step === 1 ? (
         <View>
-          <Eyebrow style={{ marginTop: 22 }}>Step 2 · Bible</Eyebrow>
-          <Text style={styles.h1}>Your Bible</Text>
-          <Text style={styles.sub}>Pick a default translation. You can switch any time without losing your place.</Text>
-          <Section title="Translation">
-            <Chips items={TRANSLATIONS.filter((t) => t.lang === 'English').map((t) => t.id)} value={translation} onChange={(t) => TRANSLATIONS.find((x) => x.id === t).available && setTranslation(t)} />
-            <Text style={[styles.cardMeta, { marginTop: 10 }]}>MSG, NIV, NLT, GNB, AMP and AMP Classic appear once licensed for your region.</Text>
-          </Section>
-          <Section title="Study interests">
-            <Chips items={['Gospels', 'Psalms', 'Doctrine', 'Prayer', 'Worship', 'Leadership', 'Marriage', 'Parenting', 'Youth', 'Missions', 'Evangelism', 'Career', 'New believer']} value={interests} onChange={(i) => setInterests(interests.includes(i) ? interests.filter((x) => x !== i) : [...interests, i])} />
-          </Section>
-          <Section title="Reminders">
-            <Group>
-              <Item icon="sun" tint={colors.gold} title="Daily devotional" right={<Toggle value={devotional} onChange={setDevotional} />} />
-              <Item icon="calendar" tint={colors.primary} title="Reading reminder" subtitle="Tap to change" right={reminder} onPress={() => setReminder(cycle(['06:30', '07:00', '12:00', '20:00', 'Off'], reminder))} />
-              <Item icon="audio" tint={colors.lavender} title="Audio narration" subtitle="Offer to read chapters aloud" right={<Toggle value={autoAudio} onChange={setAutoAudio} />} />
-            </Group>
-          </Section>
+          <SEyebrow style={{ marginTop: 22 }}>Step 2 · Bible</SEyebrow>
+          <Text style={sd.h1}>Your Bible</Text>
+          <Text style={sd.sub}>Pick a default translation. You can switch any time without losing your place.</Text>
+          <SSection title="Translation">
+            <SChips items={TRANSLATIONS.filter((t) => t.lang === 'English').map((t) => t.id)} value={translation} onChange={(t) => TRANSLATIONS.find((x) => x.id === t).available && setTranslation(t)} />
+            <Text style={[sd.cardMeta, { marginTop: 10 }]}>MSG, NIV, NLT, GNB, AMP and AMP Classic appear once licensed for your region.</Text>
+          </SSection>
+          <SSection title="Study interests">
+            <SChips items={['Gospels', 'Psalms', 'Doctrine', 'Prayer', 'Worship', 'Leadership', 'Marriage', 'Parenting', 'Youth', 'Missions', 'Evangelism', 'Career', 'New believer']} value={interests} onChange={(i) => setInterests(interests.includes(i) ? interests.filter((x) => x !== i) : [...interests, i])} />
+          </SSection>
+          <SSection title="Reminders">
+            <SGroup>
+              <SRow icon="sun" tint={colors.gold} title="Daily devotional" right={<Toggle value={devotional} onChange={setDevotional} />} />
+              <SRow icon="calendar" tint={colors.primary} title="Reading reminder" subtitle="Tap to change" right={reminder} onPress={() => setReminder(cycle(['06:30', '07:00', '12:00', '20:00', 'Off'], reminder))} />
+              <SRow icon="audio" tint={colors.lavender} title="Audio narration" subtitle="Offer to read chapters aloud" right={<Toggle value={autoAudio} onChange={setAutoAudio} />} />
+            </SGroup>
+          </SSection>
         </View>
       ) : null}
       {step === 2 ? (
         <View>
-          <Eyebrow style={{ marginTop: 22 }}>Step 3 · Church</Eyebrow>
-          <Text style={styles.h1}>What is the name of your church?</Text>
-          <Text style={styles.sub}>Optional. We will never attach you to a church just because the names are similar.</Text>
-          <View style={styles.searchWrap}>
-            <View style={styles.searchIcon}><Icon name="search" size={16} color={colors.faint} /></View>
-            <Input placeholder="Start typing a church or ministry name" value={churchQ} onChangeText={(t) => { setChurchQ(t); setChurch(null); }} style={{ paddingLeft: 40 }} />
+          <SEyebrow style={{ marginTop: 22 }}>Step 3 · Church</SEyebrow>
+          <Text style={sd.h1}>What is the name of your church?</Text>
+          <Text style={sd.sub}>Optional. We will never attach you to a church just because the names are similar.</Text>
+          <View style={sd.searchWrap}>
+            <View style={sd.searchIcon}><Icon name="search" size={16} color={colors.faint} /></View>
+            <SInput placeholder="Start typing a church or ministry name" value={churchQ} onChangeText={(t) => { setChurchQ(t); setChurch(null); }} style={{ paddingLeft: 40 }} />
           </View>
           {matches.length ? (
             <View style={{ marginTop: 12, gap: 8 }}>
               {matches.map((c) => {
                 const on = church && church.id === c.id;
                 return (
-                  <PressScale key={c.id} scaleTo={0.98} onPress={() => { setChurch(c); setChurchQ(c.name); }} style={[styles.churchRow, on && styles.churchRowOn]}>
+                  <PressScale key={c.id} scaleTo={0.98} onPress={() => { setChurch(c); setChurchQ(c.name); }} style={[sd.churchRow, on && sd.churchRowOn]}>
                     <IconBadge name="church" tint={on ? colors.primary : colors.muted} />
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.itemTitle, on && { color: colors.primary }]}>{c.name}</Text>
-                      <Text style={styles.itemSub}>{`${c.location} · ${c.tradition} · ${c.members} members · ${c.join === 'auto' ? 'Joins automatically' : c.join === 'approval' ? 'Requires approval' : 'Invite only'}`}</Text>
+                      <Text style={[sd.itemTitle, on && { color: colors.primary }]}>{c.name}</Text>
+                      <Text style={sd.itemSub}>{`${c.location} · ${c.tradition} · ${c.members} members · ${c.join === 'auto' ? 'Joins automatically' : c.join === 'approval' ? 'Requires approval' : 'Invite only'}`}</Text>
                     </View>
-                    {on ? <ScaleIn from={0.3}><View style={styles.checkCircle}><Icon name="check" size={13} color="#FFFFFF" strokeWidth={2.8} /></View></ScaleIn> : c.verified ? <Badge label="Verified" tint={colors.teal} /> : <Tag label="Unverified" />}
+                    {on ? <ScaleIn from={0.3}><View style={sd.checkCircle}><Icon name="check" size={13} color="#FFFFFF" strokeWidth={2.8} /></View></ScaleIn> : c.verified ? <SBadge label="Verified" tint={colors.teal} /> : <Tag label="Unverified" />}
                   </PressScale>
                 );
               })}
             </View>
           ) : null}
           {churchQ.length > 1 && !matches.length ? (
-            <FadeInUp distance={8} style={styles.card}>
-              <Text style={styles.cardTitleLg}>Can't find your church?</Text>
+            <FadeInUp distance={8} style={sd.card}>
+              <Text style={sd.cardTitleLg}>Can't find your church?</Text>
               <View style={{ gap: 8, marginTop: 12 }}>
-                <Button small kind="ghost" label="Add it for verification (no public listing yet)" onPress={() => setChurch({ id: 'manual', name: churchQ })} />
-                <Button small kind="ghost" label="Invite a church administrator" onPress={() => shareText(toast, `Hi! Our church "${churchQ}" isn't on BibleNestra yet. Could you set it up so members can join? It's free for churches.`, { done: 'Invite shared' })} />
-                <Button small kind="ghost" label="Continue without joining" onPress={() => setStep(3)} />
+                <SButton small kind="ghost" label="Add it for verification (no public listing yet)" onPress={() => setChurch({ id: 'manual', name: churchQ })} />
+                <SButton small kind="ghost" label="Invite a church administrator" onPress={() => shareText(toast, `Hi! Our church "${churchQ}" isn't on BibleNestra yet. Could you set it up so members can join? It's free for churches.`, { done: 'Invite shared' })} />
+                <SButton small kind="ghost" label="Continue without joining" onPress={() => setStep(3)} />
               </View>
             </FadeInUp>
           ) : null}
-          {church ? <FadeInUp key={church.id} distance={6} duration={280}><Notice tint={colors.teal} text={church.join === 'auto' ? `You'll join ${church.name} automatically.` : church.join === 'approval' ? `A membership request will be sent to ${church.name}.` : church.id === 'manual' ? `${church.name} will be reviewed before any public listing is created.` : `${church.name} is invite-only. Ask an administrator for a code.`} /></FadeInUp> : null}
+          {church ? <FadeInUp key={church.id} distance={6} duration={280}><SNotice tint={colors.teal} text={church.join === 'auto' ? `You'll join ${church.name} automatically.` : church.join === 'approval' ? `A membership request will be sent to ${church.name}.` : church.id === 'manual' ? `${church.name} will be reviewed before any public listing is created.` : `${church.name} is invite-only. Ask an administrator for a code.`} /></FadeInUp> : null}
           {!churchQ ? (
-            <View style={styles.hintCard}>
+            <View style={sd.hintCard}>
               <Icon name="church" size={18} color={colors.gold} />
-              <Text style={styles.hintText}>Try "Grace", "Anglican" or a city like "Lagos".</Text>
+              <Text style={sd.hintText}>Try "Grace", "Anglican" or a city like "Lagos".</Text>
             </View>
           ) : null}
         </View>
       ) : null}
       {step === 3 ? (
         <View>
-          <Eyebrow style={{ marginTop: 22 }}>Step 4 · Connect</Eyebrow>
-          <Text style={styles.h1}>Connect on your terms</Text>
-          <Text style={styles.sub}>Choose who can find you and what you're open to. Nothing is shared without your say.</Text>
-          <Section title="Who can discover you">
-            <Group>
-              {Object.keys(disc).map((k) => <Item key={k} icon={{ people: 'user', professionals: 'briefcase', communities: 'users', churches: 'church' }[k] || 'user'} tint={colors.primary} title={k[0].toUpperCase() + k.slice(1)} right={<Toggle value={disc[k]} onChange={(v) => setDisc({ ...disc, [k]: v })} />} />)}
-            </Group>
-          </Section>
-          <Section title="I'd like to offer or receive">
-            <Chips items={['Prayer', 'Mentoring', 'Encouragement', 'Bible study', 'Pastoral care', 'Counseling', 'Professional collaboration']} value={offer} onChange={(o) => setOffer(offer.includes(o) ? offer.filter((x) => x !== o) : [...offer, o])} />
-          </Section>
-          <Notice text="Sensitive answers are optional. You can change all of this later in Profile → Privacy." />
+          <SEyebrow style={{ marginTop: 22 }}>Step 4 · Connect</SEyebrow>
+          <Text style={sd.h1}>Connect on your terms</Text>
+          <Text style={sd.sub}>Choose who can find you and what you're open to. Nothing is shared without your say.</Text>
+          <SSection title="Who can discover you">
+            <SGroup>
+              {Object.keys(disc).map((k) => <SRow key={k} icon={{ people: 'user', professionals: 'briefcase', communities: 'users', churches: 'church' }[k] || 'user'} tint={colors.primary} title={k[0].toUpperCase() + k.slice(1)} right={<Toggle value={disc[k]} onChange={(v) => setDisc({ ...disc, [k]: v })} />} />)}
+            </SGroup>
+          </SSection>
+          <SSection title="I'd like to offer or receive">
+            <SChips items={['Prayer', 'Mentoring', 'Encouragement', 'Bible study', 'Pastoral care', 'Counseling', 'Professional collaboration']} value={offer} onChange={(o) => setOffer(offer.includes(o) ? offer.filter((x) => x !== o) : [...offer, o])} />
+          </SSection>
+          <SNotice text="Sensitive answers are optional. You can change all of this later in Profile → Privacy." />
         </View>
       ) : null}
       {step === 4 ? (
         <View style={{ alignItems: 'center', marginTop: 34 }}>
           <View>
             <ScaleIn from={0.4} delay={80}>
-              <View style={styles.doneOrb}><Icon name="check" size={38} color="#FFFFFF" strokeWidth={2.6} /></View>
+              <View style={sd.doneOrb}><Icon name="check" size={38} color="#FFFFFF" strokeWidth={2.6} /></View>
             </ScaleIn>
             <MountBurst delay={260} radius={72} count={14} size={14} color={colors.gold} />
           </View>
           <FadeInUp delay={260} distance={8} style={{ alignItems: 'center' }}>
-            <View style={styles.ornament}><View style={styles.ornamentLine} /><Text style={styles.ornamentStar}>✦</Text><View style={styles.ornamentLine} /></View>
-            <Text style={[styles.h1, { textAlign: 'center', marginTop: 14 }]}>You're set, {name || 'friend'}.</Text>
-            <Text style={[styles.sub, { textAlign: 'center' }]}>Reading in {translation}{church ? ` · ${church.name}` : ''}. Everything here can be changed later.</Text>
+            <Text style={[sd.h1, { textAlign: 'center', marginTop: 14 }]}>You're set, {name || 'friend'}.</Text>
+            <Text style={[sd.sub, { textAlign: 'center' }]}>Reading in {translation}{church ? ` · ${church.name}` : ''}. Everything here can be changed later.</Text>
           </FadeInUp>
           <FadeInUp delay={380} distance={10} style={{ alignSelf: 'stretch', marginTop: 24 }}>
-            <Group>
-              <Item icon="book" tint={colors.primary} title="Translation" right={translation} />
-              <Item icon="sparkles" tint={colors.gold} title="Interests" right={interests.length ? interests.slice(0, 2).join(', ') + (interests.length > 2 ? ` +${interests.length - 2}` : '') : 'None'} />
-              <Item icon="church" tint={colors.sage} title="Church" right={church ? church.name : 'Not set'} />
-            </Group>
+            <SGroup>
+              <SRow icon="book" tint={colors.primary} title="Translation" right={translation} />
+              <SRow icon="sparkles" tint={colors.gold} title="Interests" right={interests.length ? interests.slice(0, 2).join(', ') + (interests.length > 2 ? ` +${interests.length - 2}` : '') : 'None'} />
+              <SRow icon="church" tint={colors.sage} title="Church" right={church ? church.name : 'Not set'} />
+            </SGroup>
           </FadeInUp>
         </View>
       ) : null}
       </StepSlide>
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 30 }}>
-        {step > 0 ? <Button kind="ghost" label="Back" onPress={() => setStep(step - 1)} /> : null}
-        <Button label={step === steps.length - 1 ? 'Start' : 'Continue'} style={{ flex: 1 }} onPress={() => (step === steps.length - 1 ? finish(false) : setStep(step + 1))} />
+        {step > 0 ? <SButton kind="ghost" label="Back" onPress={() => setStep(step - 1)} /> : null}
+        <SButton label={step === steps.length - 1 ? 'Start' : 'Continue'} style={{ flex: 1 }} onPress={() => (step === steps.length - 1 ? finish(false) : setStep(step + 1))} />
       </View>
-    </Screen>
+    </SPage>
   );
 }
+
+// Design styles for the Profile landing: editorial card, highlights and the week strip
+const ed = StyleSheet.create({
+  card: { borderRadius: 26, padding: 20, minHeight: 360, overflow: 'hidden', alignItems: 'flex-start' },
+  glow: { position: 'absolute', width: 270, height: 270, right: -90, top: -95, borderRadius: 135, borderWidth: 42, borderColor: 'rgba(255,107,26,0.22)' },
+  cardTop: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  kicker: { fontFamily: DF.sansBold, fontSize: 9, letterSpacing: 1.6, color: '#EFB58F' },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10 },
+  editText: { color: '#FFFFFF', fontSize: 10, fontFamily: DF.sansBold },
+  avatarWrap: { marginTop: 34, marginBottom: 14 },
+  avatar: { width: 84, height: 84, borderRadius: 42, backgroundColor: D.plum, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 14, shadowOffset: { width: 0, height: 10 } },
+  avatarText: { color: '#FFFFFF', fontFamily: DF.displayBold, fontSize: 30 },
+  check: { position: 'absolute', right: 0, bottom: 2, width: 24, height: 24, borderRadius: 12, backgroundColor: D.plum, borderWidth: 3, borderColor: '#4A2917', alignItems: 'center', justifyContent: 'center' },
+  name: { fontFamily: DF.displayBold, fontSize: 28, lineHeight: 32, color: '#FFFFFF' },
+  handle: { fontFamily: DF.sans, fontSize: 11, color: '#D3C1B4', marginTop: 3 },
+  bio: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: '#D3C1B4', marginTop: 8 },
+  placeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
+  place: { fontFamily: DF.sans, fontSize: 11, color: '#F5BC94', flexShrink: 1 },
+  stats: { width: '100%', flexDirection: 'row', marginTop: 22, paddingTop: 15, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)' },
+  stat: { flex: 1, borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.1)', paddingLeft: 2 },
+  statNum: { fontFamily: DF.displayBold, fontSize: 20, color: '#FFFFFF' },
+  statLbl: { fontFamily: DF.sans, fontSize: 9, color: '#BDA99A', marginTop: 2 },
+  highlights: { flexDirection: 'row', gap: 9, marginTop: 10 },
+  hl: { flex: 1, minHeight: 125, borderRadius: 20, padding: 15, justifyContent: 'space-between' },
+  hlIcon: { width: 33, height: 33, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  hlKicker: { fontFamily: DF.sansBold, fontSize: 8, letterSpacing: 1, opacity: 0.85 },
+  hlValue: { fontFamily: DF.displayBold, fontSize: 19, marginTop: 2 },
+  hlSub: { fontFamily: DF.sans, fontSize: 9, opacity: 0.85, marginTop: 2 },
+  week: { flexDirection: 'row', justifyContent: 'space-between' },
+  day: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EFEDE8' },
+  dayDone: { backgroundColor: D.plum },
+  dayToday: { borderWidth: 2, borderColor: D.plum, backgroundColor: '#FFFFFF' },
+  dayText: { fontFamily: DF.sansHeavy, fontSize: 10, color: '#9B979F' },
+  weekCount: { fontFamily: DF.sansBold, fontSize: 9, color: D.plum },
+  weekLine: { fontFamily: DF.display, fontSize: 15, color: D.ink, marginTop: 2 },
+  weekNote: { fontFamily: DF.sans, fontSize: 9, color: D.muted, marginTop: 3 },
+  intro: { padding: 21, borderRadius: 23, backgroundColor: D.gold },
+  introTitle: { fontFamily: DF.display, fontSize: 27, lineHeight: 30, color: D.goldDark, marginTop: 20, marginBottom: 6 },
+  introBody: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: D.goldDark },
+  createRow: { minHeight: 80, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: D.line },
+  createRowOn: { backgroundColor: '#FFF1E5', borderRadius: 16, borderBottomColor: 'transparent' },
+  createTile: { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  createTitle: { fontFamily: DF.display, fontSize: 13, color: D.ink },
+  createDesc: { fontFamily: DF.sans, fontSize: 10, lineHeight: 14, color: D.muted, marginTop: 2 },
+  createNum: { fontFamily: DF.displayBold, fontSize: 9, color: '#C4B3A5' },
+});
+
+const CREATE_GRADS = [['#FF9952', '#E85C12'], ['#E4C77D', '#9D681F'], ['#A8BB83', '#5D713F'], ['#6C4931', '#281A11']];
+const CREATE_DESC = {
+  Post: 'Reflection, testimony, photo or video',
+  'Prayer request': 'Public, private, or anonymous',
+  Wish: 'Share a prayer wish with believers',
+  Study: 'Create a shared scripture study',
+  Event: 'Invite your church or community',
+  'Sermon recording': 'Record, transcribe, and add notes',
+  Resource: 'Upload audio, a book, or document',
+  Group: 'Start a new conversation space',
+  'Live stream': 'Go live with study or worship',
+};
 
 const styles = StyleSheet.create({
   signOutConfirm: { paddingHorizontal: 16, paddingVertical: 14 },

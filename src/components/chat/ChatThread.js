@@ -193,11 +193,11 @@ export const ChatThread = forwardRef(function ChatThread(props, ref) {
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 14 },
   dayWrap: { alignItems: 'center', marginTop: 16, marginBottom: 4 },
-  dayText: { fontSize: 11.5, fontWeight: '600', color: colors.muted, backgroundColor: colors.raised, paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill, overflow: 'hidden' },
+  dayText: { fontSize: 11, fontFamily: 'DMSans-SemiBold', color: colors.muted, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill, overflow: 'hidden' },
   sysWrap: { alignItems: 'center', marginVertical: 6, paddingHorizontal: 20 },
   sysText: { fontSize: 12, lineHeight: 17, color: colors.muted, textAlign: 'center', backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, overflow: 'hidden' },
   swipeHint: { position: 'absolute', left: 4, top: 0, bottom: 0, justifyContent: 'center' },
-  swipeHintText: { fontSize: 18, color: colors.primary, fontWeight: '700' },
+  swipeHintText: { fontSize: 18, color: colors.primary, fontFamily: 'DMSans-Bold' },
   typing: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginTop: 8, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, borderBottomLeftRadius: 6, paddingVertical: 8, paddingHorizontal: 12 },
   typingDots: { flexDirection: 'row', gap: 3 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.muted },

@@ -12,6 +12,7 @@ import { Toggle } from './PrayerScreen';
 import { colors, fonts, radius, shadow } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
+import { d, df, k, Tap, PageHeader, IconButton, SectionTitle } from '../design/sanctuary';
 import { useApi } from '../api/auth';
 import { errorMessage } from '../api/client';
 import { BOOKS, refLabel } from '../data/bible';
@@ -152,91 +153,103 @@ export default function RemindersScreen() {
   };
 
   return (
-    <View style={{ flex: 1 }}>
-      <Screen back title="Reminders" subtitle="Daily rhythms · prayer · Scripture">
-        {/* Hero: next reminder */}
-        <ScaleIn from={0.95} style={styles.hero}>
-          <NightGlow />
-          <Eyebrow tint={colors.goldLight}>{upcoming ? 'Next reminder' : 'Reminders'}</Eyebrow>
-          <Text style={styles.heroTitle} numberOfLines={2}>{upcoming ? upcoming.r.purpose : 'Build a daily rhythm with God'}</Text>
-          <Text style={styles.heroSub}>{upcoming ? whenLabel(upcoming.t) : 'Read, pray, call someone or study a chapter — we’ll nudge you at the time you choose.'}</Text>
-          <PressScale scaleTo={0.95} onPress={() => setEditing(blank())} style={styles.heroBtn} accessibilityRole="button" accessibilityLabel="New reminder">
-            <Icon name="plus" size={15} color={colors.night} />
-            <Text style={styles.heroBtnText}>New reminder</Text>
-          </PressScale>
+    <View style={k.screen}>
+      <ScrollView contentContainerStyle={[k.scroll, { paddingBottom: 60 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <PageHeader
+          back
+          onBack={() => nav.pop()}
+          title="Sacred reminders"
+          subtitle="Gentle moments through the day"
+          action={<IconButton icon="plus" label="New reminder" onPress={() => setEditing(blank())} />}
+        />
+
+        {/* .quiet-hours style card: the next reminder */}
+        <ScaleIn from={0.95} style={rs.next}>
+          <View style={rs.nextIcon}><Icon name="moon" size={18} color={d.gold} /></View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={rs.nextKicker}>{upcoming ? 'Next reminder' : 'Reminders'}</Text>
+            <Text style={rs.nextTitle} numberOfLines={2}>{upcoming ? upcoming.r.purpose : 'Build a daily rhythm with God'}</Text>
+            <Text style={rs.nextSub}>{upcoming ? whenLabel(upcoming.t) : 'Read, pray, call someone or study a chapter — we’ll nudge you at the time you choose.'}</Text>
+          </View>
         </ScaleIn>
 
-        <Section title="Your reminders">
+        {/* .reminder-list */}
+        <SectionTitle eyebrow="Daily moments" title="Your rhythm" />
+        <View>
           {sorted.length ? sorted.map((r, i) => {
             const Enter = seen.current.has(r.id) ? FadeInUp : ScaleIn;
-            const k = KINDS.find((x) => x.kind === r.kind) || KINDS[4];
+            const kind = KINDS.find((x) => x.kind === r.kind) || KINDS[4];
             const passage = r.passage && r.passage.bookId ? refLabel(r.passage.bookId, r.passage.chapter) : null;
             return (
               <Enter key={r.id} index={i + 1} from={0.92}>
-                <PressScale scaleTo={0.985} onPress={() => setEditing({ ...blank(), ...r, days: r.days && r.days.length ? r.days : [new Date().getDay()], date: r.date || dateKey(new Date()) })} style={[styles.card, !r.enabled && { opacity: 0.62 }]} accessibilityRole="button" accessibilityLabel={`Edit ${r.purpose}`}>
-                  <View style={styles.row}>
-                    <View style={[styles.kindIcon, { backgroundColor: r.enabled ? colors.cardGold : colors.raised }]}><Icon name={k.icon} size={17} color={r.enabled ? colors.amber : colors.faint} /></View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.time}>{fmtTime(r.hour, r.minute)}</Text>
-                      <Text style={styles.purpose} numberOfLines={2}>{r.purpose}</Text>
-                      <Text style={styles.meta} numberOfLines={1}>{[repeatLabel(r), passage, `opens ${(TARGETS.find((t) => t.id === r.target) || TARGETS[2]).label}`].filter(Boolean).join(' · ')}</Text>
-                    </View>
-                    <Toggle value={!!r.enabled} onChange={(v) => toggle(r, v)} />
+                <Tap onPress={() => setEditing({ ...blank(), ...r, days: r.days && r.days.length ? r.days : [new Date().getDay()], date: r.date || dateKey(new Date()) })} style={[rs.row, !r.enabled && { opacity: 0.6 }]} accessibilityRole="button" accessibilityLabel={`Edit ${r.purpose}`}>
+                  <Text style={rs.time}>{fmtTime(r.hour, r.minute)}</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={rs.purpose} numberOfLines={2}>{r.purpose}</Text>
+                    <Text style={rs.meta} numberOfLines={1}>{[repeatLabel(r), passage, `opens ${(TARGETS.find((t) => t.id === r.target) || TARGETS[2]).label}`].filter(Boolean).join(' · ')}</Text>
                   </View>
-                </PressScale>
+                  <Toggle value={!!r.enabled} onChange={(v) => toggle(r, v)} />
+                </Tap>
               </Enter>
             );
           }) : (
-            <ScaleIn from={0.94} style={styles.emptyCard}>
+            <ScaleIn from={0.94} style={rs.card}>
               <Empty title="No reminders yet" body="Add one for reading, prayer, a call you mustn’t forget, or a chapter you want to study." action="New reminder" onAction={() => setEditing(blank())} />
             </ScaleIn>
           )}
-        </Section>
+        </View>
 
         {/* Daily Bible verse */}
-        <Section title="Daily Bible verse">
-          <FadeInUp index={3} style={styles.card}>
-            <View style={styles.row}>
-              <View style={[styles.kindIcon, { backgroundColor: colors.cardIndigo }]}><Icon name="sun" size={17} color={colors.primary} /></View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.purpose}>Receive a verse every day</Text>
-                <Text style={styles.meta}>{dv.enabled ? `Every day at ${fmtTime(dv.hour, dv.minute)} · ${translation}` : 'Off — turn on to get the verse of the day'}</Text>
-              </View>
-              <Toggle value={!!dv.enabled} onChange={(v) => setVerse({ enabled: v })} />
+        <SectionTitle eyebrow="Daily Bible verse" title="Verse of the day" />
+        <FadeInUp index={3} style={rs.card}>
+          <View style={rs.cardTop}>
+            <View style={[rs.iconBox, { backgroundColor: d.lavender }]}><Icon name="sun" size={17} color={d.plum} /></View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={rs.purpose}>Receive a verse every day</Text>
+              <Text style={rs.meta}>{dv.enabled ? `Every day at ${fmtTime(dv.hour, dv.minute)} · ${translation}` : 'Off — turn on to get the verse of the day'}</Text>
             </View>
-            <PressScale scaleTo={0.98} onPress={() => setVerseTime({ hour: dv.hour, minute: dv.minute })} style={styles.timeRow} accessibilityRole="button" accessibilityLabel="Change daily verse time">
-              <Icon name="clock" size={16} color={colors.primary} />
-              <Text style={styles.timeRowLabel}>Preferred time</Text>
-              <Pop trigger={`${dv.hour}:${dv.minute}`}><Text style={styles.timeRowValue}>{fmtTime(dv.hour, dv.minute)}</Text></Pop>
-              <Icon name="chevron-right" size={15} color={colors.faint} />
-            </PressScale>
-            <View style={styles.versePreview}>
-              <Text style={styles.verseEyebrow}>{nextVerse.when} · {nextVerse.label}</Text>
-              <Text style={styles.verseText} numberOfLines={4}>{nextVerse.text || nextVerse.reflection}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-              <Button small kind="ghost" label={supported ? 'Send me one now' : 'Preview notification'} icon={<Icon name="bell" size={12} color={colors.fg} />} onPress={testVerse} />
-              <Button small kind="ghost" label="Read today’s verse" icon={<Icon name="book" size={12} color={colors.fg} />} onPress={() => { const v = verseFor(new Date(), translation); nav.push('Bible', { bookId: v.bookId, chapter: v.chapter, verse: v.verse }); }} />
-            </View>
-          </FadeInUp>
-          <FadeInUp index={4}>
-            <PressScale scaleTo={0.985} onPress={() => nav.push('ScripturePop')} style={[styles.card, styles.row]} accessibilityRole="button">
-              <View style={[styles.kindIcon, { backgroundColor: colors.cardLavender }]}><Icon name="sparkles" size={17} color={colors.lavender} /></View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.purpose}>Scripture pop-ups</Text>
-                <Text style={styles.meta}>{state.scripturePop && state.scripturePop.enabled ? 'On · verses & prayers through the day' : 'Verses & prayers at an interval you choose'}</Text>
-              </View>
-              <Icon name="chevron-right" size={15} color={colors.faint} />
-            </PressScale>
-          </FadeInUp>
-        </Section>
+            <Toggle value={!!dv.enabled} onChange={(v) => setVerse({ enabled: v })} />
+          </View>
+          <Tap onPress={() => setVerseTime({ hour: dv.hour, minute: dv.minute })} style={rs.timeRow} accessibilityRole="button" accessibilityLabel="Change daily verse time">
+            <Icon name="clock" size={16} color={d.plum} />
+            <Text style={rs.timeLabel}>Preferred time</Text>
+            <Pop trigger={`${dv.hour}:${dv.minute}`}><Text style={rs.timeValue}>{fmtTime(dv.hour, dv.minute)}</Text></Pop>
+            <Icon name="chevron-right" size={15} color={d.muted} />
+          </Tap>
+          <View style={rs.verseBox}>
+            <Text style={rs.verseEyebrow}>{nextVerse.when} · {nextVerse.label}</Text>
+            <Text style={rs.verseText} numberOfLines={4}>{nextVerse.text || nextVerse.reflection}</Text>
+          </View>
+          <View style={rs.smallBtns}>
+            <Tap onPress={testVerse} style={rs.smallBtn} accessibilityRole="button">
+              <Icon name="bell" size={12} color={d.ink} />
+              <Text style={rs.smallBtnText}>{supported ? 'Send me one now' : 'Preview notification'}</Text>
+            </Tap>
+            <Tap onPress={() => { const v = verseFor(new Date(), translation); nav.push('Bible', { bookId: v.bookId, chapter: v.chapter, verse: v.verse }); }} style={rs.smallBtn} accessibilityRole="button">
+              <Icon name="book" size={12} color={d.ink} />
+              <Text style={rs.smallBtnText}>Read today’s verse</Text>
+            </Tap>
+          </View>
+        </FadeInUp>
 
-        <Text style={styles.foot}>
+        {/* .popup-setting */}
+        <FadeInUp index={4}>
+          <Tap onPress={() => nav.push('ScripturePop')} style={rs.popup} accessibilityRole="button">
+            <Icon name="sparkles" size={24} color={d.goldDark} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={rs.popupTitle}>Scripture pop-ups</Text>
+              <Text style={rs.popupSub}>{state.scripturePop && state.scripturePop.enabled ? 'On · verses & prayers through the day' : 'Verses & prayers at an interval you choose'}</Text>
+            </View>
+            <Icon name="chevron-right" size={14} color={d.goldDark} />
+          </Tap>
+        </FadeInUp>
+
+        <Text style={rs.foot}>
           {supported
             ? `Reminders are scheduled on this phone, so they arrive even offline.${api.online ? ' They’re also saved to your account and come back on a new phone.' : ''}`
             : 'Reminders arrive as phone notifications in the mobile app. On the web you’ll see a preview like this one.'}
         </Text>
-      </Screen>
+      </ScrollView>
 
       <ReminderSheet draft={editing} onClose={() => setEditing(null)} onSave={save} onDelete={remove} existing={!!(editing && editing.id && reminders.some((x) => x.id === editing.id))} />
 
@@ -469,4 +482,34 @@ const styles = StyleSheet.create({
   bannerApp: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6, color: colors.faint },
   bannerTitle: { fontSize: 14, fontWeight: '700', color: colors.fg, marginTop: 1 },
   bannerBody: { fontFamily: fonts.serif, fontSize: 14, lineHeight: 19, color: colors.passage, marginTop: 2 },
+});
+
+
+// ---- Figma design (Reminders page): next-reminder card, rhythm list, verse card, pop-up row ----
+const rs = StyleSheet.create({
+  next: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 16, borderRadius: 19, backgroundColor: d.ink, marginTop: 4 },
+  nextIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  nextKicker: { fontFamily: df.sansHeavy, fontSize: 9, letterSpacing: 1, textTransform: 'uppercase', color: '#D7A985' },
+  nextTitle: { fontFamily: df.displayBold, fontSize: 17, color: '#FFFFFF', marginTop: 3 },
+  nextSub: { fontFamily: df.sans, fontSize: 11.5, lineHeight: 16, color: '#B9A99D', marginTop: 3 },
+  row: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: d.line },
+  time: { fontFamily: df.displayBold, fontSize: 16, color: d.plum, width: 56, fontVariant: ['tabular-nums'] },
+  purpose: { fontFamily: df.display, fontSize: 15, color: d.ink },
+  meta: { fontFamily: df.sans, fontSize: 11, lineHeight: 16, color: d.muted, marginTop: 2 },
+  card: { padding: 16, borderRadius: 20, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, marginBottom: 10 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  iconBox: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingVertical: 11, paddingHorizontal: 12, borderRadius: 13, backgroundColor: d.ivory },
+  timeLabel: { flex: 1, fontFamily: df.sansBold, fontSize: 13, color: d.ink },
+  timeValue: { fontFamily: df.displayBold, fontSize: 16, color: d.plum },
+  verseBox: { marginTop: 12, padding: 14, borderRadius: 14, backgroundColor: d.ivory, borderLeftWidth: 3, borderLeftColor: d.gold },
+  verseEyebrow: { fontFamily: df.sansHeavy, fontSize: 9.5, letterSpacing: 1, textTransform: 'uppercase', color: d.goldDark },
+  verseText: { fontFamily: df.displayItalic, fontSize: 15, lineHeight: 23, color: d.ink, marginTop: 6 },
+  smallBtns: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  smallBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: 11, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
+  smallBtnText: { fontFamily: df.sansBold, fontSize: 11.5, color: d.ink },
+  popup: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 17, backgroundColor: d.gold, marginTop: 10 },
+  popupTitle: { fontFamily: df.displayBold, fontSize: 14, color: d.goldDark },
+  popupSub: { fontFamily: df.sans, fontSize: 11, color: d.goldDark, marginTop: 2 },
+  foot: { fontFamily: df.sans, fontSize: 11.5, lineHeight: 17, color: d.muted, textAlign: 'center', marginTop: 20 },
 });

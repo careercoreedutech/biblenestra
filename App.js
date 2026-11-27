@@ -6,6 +6,8 @@ import { useFonts } from 'expo-font';
 import { StoreProvider, useStore } from './src/store';
 import { NavProvider, useNav, FocusCtx, EXIT_MS } from './src/navigation';
 import TabBar from './src/components/TabBar';
+import { applyDesignFonts } from './src/design/globalFont'; // FIGMA DESIGN: DM Sans for all interface text
+applyDesignFonts();
 import MiniPlayer from './src/components/MiniPlayer';
 import NowPlayingSheet from './src/components/NowPlayingSheet';
 import { ToastProvider } from './src/components/Toast';
@@ -32,6 +34,7 @@ import { colors, fonts, FONT_ASSETS, readerThemes } from './src/theme';
 import HomeScreen from './src/screens/HomeScreen';
 import TodayScreen from './src/screens/TodayScreen';
 import DiscoverScreen, { CommunitiesScreen, GroupScreen, ChatListScreen, ChatScreen, CalendarScreen, PeopleScreen, PersonScreen, CareScreen, WishesScreen, LiveScreen, FeedScreen } from './src/screens/DiscoverScreen';
+import BibleHomeScreen from './src/screens/BibleHomeScreen'; // FIGMA DESIGN: the Bible tab's home; the reader opens on top
 import BibleScreen, { StudyScreen, FactbookScreen, SearchScreen, LibraryScreen } from './src/screens/BibleScreen';
 import GodModeScreen, { ReadingScreen, BibleChatScreen, CompanionScreen } from './src/screens/GodModeScreen';
 import PrayerScreen, { PrayerDetailScreen, NewPrayerScreen } from './src/screens/PrayerScreen';
@@ -191,7 +194,7 @@ function StackLayer({ entering, leaving, covered, initialCovered, children }) {
 
 const TABS = {
   Today: TodayScreen,
-  Bible: BibleScreen,
+  Bible: BibleHomeScreen,
   Discover: DiscoverScreen,
   Socials: SocialsScreen,
 };
@@ -280,7 +283,7 @@ function Root() {
   // Socials: light Facebook-style feed, dark only while the full-screen Videos reels are showing
   const isSocials = ((tab === 'Socials' && !top) || socialRoute) && socialsDark;
   // The Bible tab follows the reader theme (Paper / Sepia / Night) so the chrome matches the page.
-  const reader = tab === 'Bible' && !top ? readerThemes[state.readerTheme] : null;
+  const reader = null; // FIGMA DESIGN: the Bible tab is now the ivory Bible home; reader themes apply inside the pushed reader
   const pageBg = isSocials ? '#000000' : reader ? reader.bg : colors.screen;
   const variant = isSocials ? 'dark' : reader && reader.key !== 'paper' ? reader.key : 'light';
   const lightStatus = isSocials || (reader && reader.dark);
@@ -293,9 +296,9 @@ function Root() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           {layers}
         </KeyboardAvoidingView>
-        {!immersive && !(tab === 'Bible' && !top) && !(top && top.name === 'Bible') ? <MiniPlayer bg={top ? colors.screen : pageBg} /> : null}
+        {!immersive && !(top && top.name === 'Bible') ? <MiniPlayer bg={top ? colors.screen : pageBg} /> : null}
         {(tab === 'Bible' && !top) || (top && top.name === 'Bible') ? <LibraryMiniBar bg={pageBg} /> : null}{/* MEDIA LIBRARY: library audio keeps its bar in the Bible reader */}
-        {!top && !immersive ? <TabBar active={tab} variant={variant} hidden={tab === 'Bible' && bibleImmersive} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
+        {!top && !immersive ? <TabBar active={tab} variant={variant} hidden={tab === 'Bible' && bibleImmersive} onCreate={() => nav.push('Create')} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
         <NowPlayingSheet />
         {onboardedAtLaunch.current ? <EngagementPopup /> : null}{/* not on the very first launch: new users reach Today in few taps */}
         <ChatLimitHost />{/* CHAT LIMITS: subscription prompt when a free user hits the 5-chat limit */}

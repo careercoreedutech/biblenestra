@@ -131,8 +131,8 @@ const ART = {
           <Stop offset="1" stopColor={love.roseSoft} stopOpacity={0} />
         </RadialGradient>
         <SvgLinear id={`${id}h`} x1="0" y1="0" x2="1" y2="1">
-          <Stop offset="0" stopColor="#D35C75" />
-          <Stop offset="1" stopColor="#9C2C48" />
+          <Stop offset="0" stopColor="#FF8B3D" />
+          <Stop offset="1" stopColor="#ED5C12" />
         </SvgLinear>
       </Defs>
       <Circle cx={80} cy={78} r={74} fill={`url(#${id}g)`} />
