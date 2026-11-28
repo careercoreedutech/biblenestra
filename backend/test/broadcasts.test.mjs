@@ -272,8 +272,11 @@ test('Socials: post from the official verified account, pinned on top of the fee
   const un = await call('boss', 'PATCH', `/admin/api/broadcasts/${r.json.id}`, { pinned: false });
   assert.equal(un.json.pinned, false);
   const feed2 = await call('ann', 'GET', '/feed');
-  assert.notEqual(feed2.json.items[0].id, r.json.postId);
-  assert.ok(feed2.json.items.some((p) => p.id === r.json.postId));
+  // For you is ranked per viewer now (PERSONALISATION), so after unpinning the post is ranked like any other:
+  // it is still in the feed, no longer flagged pinned, and no longer forced to the top.
+  const back = feed2.json.items.find((p) => p.id === r.json.postId);
+  assert.ok(back, 'still in the feed');
+  assert.ok(!back.pinned, 'no longer pinned');
 });
 
 test('history lists broadcasts with status and stats', async () => {

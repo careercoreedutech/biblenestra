@@ -14,6 +14,7 @@ import SupportAdsCard from '../components/SupportAdsCard';
 import ChannelVideosRow from '../components/ChannelVideosRow';
 import AnnouncementCards from '../components/AnnouncementCards';
 import TodaysJourney from '../components/TodaysJourney'; // Your Time With God: floating cards (Daily Bread, Blessing, Prayer)
+import { PortfolioEntryCard } from './PortfolioScreens'; // PORTFOLIO & PARTNER MANAGERS: Today entry for managers
 import TodayJourneyCard from '../components/journey/TodayJourneyCard'; // MY SCRIPTURE JOURNEY: compact card after the rhythm and shortcuts
 import { useNarration } from '../audio/Narration';
 import { useChapter } from '../bible/loader';
@@ -93,6 +94,8 @@ export default function TodayScreen() {
       <ScrollView contentContainerStyle={[k.scroll, { paddingBottom: 24 }]} showsVerticalScrollIndicator={false}>
         <PageHeader title={<>{greeting}, <Text style={{ color: d.plum }}>{name}</Text></>} subtitle={today.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })} />
 
+        <PortfolioEntryCard />
+
         {/* EXPLORE NESTRA: quick doors to Membership, Fund me, Jobs and Websites (client's home mock-up) */}
         <Eyebrow style={s.exploreKicker}>Explore Nestra</Eyebrow>
         <Text style={s.exploreTitle}>More ways to flourish</Text>
@@ -168,7 +171,7 @@ export default function TodayScreen() {
                 {done ? (
                   <Grad colors={gradients.step} style={s.stepBadge}><Icon name="check" size={13} color="#fff" strokeWidth={3} /></Grad>
                 ) : (
-                  <View style={[s.stepBadge, { backgroundColor: (isDarkScheme() ? '#32271E' : '#EEE5DB') }]}><Text style={s.stepNum}>{i + 1}</Text></View>
+                  <View style={[s.stepBadge, { backgroundColor: (isDarkScheme() ? '#1a1a1a' : '#f4f4f4') }]}><Text style={s.stepNum}>{i + 1}</Text></View>
                 )}
                 <Text style={[s.stepLabel, done && { color: d.plum }]}>{STEP_LABEL[st]}</Text>
               </Tap>
@@ -212,7 +215,7 @@ export default function TodayScreen() {
         {/* .still-card */}
         <SectionTitle eyebrow="One quiet minute" title="Be still" link="Begin" onLink={() => nav.push('BlessingVideos')} />
         <Tap style={s.still} onPress={() => nav.push('BlessingVideos')}>
-          <Grad colors={isDarkScheme() ? ['#3A2A1E', '#2A211A'] : ['#F2D2B5', '#F5E8D5']} style={s.stillArt}>
+          <Grad colors={isDarkScheme() ? ['#1A1A1A', '#111111'] : ['#FFEDE3', '#FBF3DC']} style={s.stillArt}>
             <View style={s.stillRing3} /><View style={s.stillRing2} /><View style={s.stillRing1} />
             <Icon name="volume" size={30} color={d.plum} />
           </Grad>
@@ -306,10 +309,10 @@ export default function TodayScreen() {
 }
 
 function QuickCard({ bg, ink, icon, small, title, sub, onPress }) {
-  const fg = ink ? (isDarkScheme() ? d.ivory : '#fff') : d.ink;
+  const fg = ink ? (isDarkScheme() ? '#FFFFFF' : '#fff') : d.ink;
   return (
     <Tap style={[s.quick, { backgroundColor: ink ? d.ink : bg }]} onPress={onPress}>
-      <View style={[s.quickIcon, ink && { backgroundColor: isDarkScheme() ? 'rgba(20,16,13,0.14)' : 'rgba(255,255,255,0.12)' }]}><Icon name={icon} size={19} color={fg} /></View>
+      <View style={[s.quickIcon, ink && { backgroundColor: isDarkScheme() ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.12)' }]}><Icon name={icon} size={19} color={fg} /></View>
       <Text style={[s.quickSmall, { color: fg }]} numberOfLines={1}>{small}</Text>
       <Text style={[s.quickTitle, { color: fg }]} numberOfLines={1}>{title}</Text>
       <Text style={[s.quickSub, { color: fg }]} numberOfLines={1}>{sub}</Text>
@@ -338,26 +341,26 @@ const s = StyleSheet.create({
   heroBtnText: { color: '#fff', fontSize: 11, fontFamily: df.sansBold },
   heroShare: { marginLeft: 'auto', paddingHorizontal: 0, width: 38, justifyContent: 'center' },
   rhythm: { marginTop: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 20 },
-  ring: { width: 58, height: 58, borderRadius: 29, borderWidth: 5, borderColor: (isDarkScheme() ? '#3A2E24' : '#F3D8C0'), borderTopColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  ring: { width: 58, height: 58, borderRadius: 29, borderWidth: 5, borderColor: (isDarkScheme() ? '#262626' : '#ffede3'), borderTopColor: d.plum, alignItems: 'center', justifyContent: 'center' },
   ringNum: { fontFamily: df.sansHeavy, fontSize: 18, lineHeight: 20, color: d.ink },
   ringSmall: { fontSize: 8, color: d.muted, textTransform: 'uppercase', fontFamily: df.sans },
   rhythmTitle: { fontSize: 13, marginTop: 4, marginBottom: 2, color: d.ink, fontFamily: df.sansMedium },
   rhythmSub: { color: d.muted, fontSize: 10, fontFamily: df.sans },
   flame: { position: 'absolute', right: 15 },
   steps: { flexDirection: 'row', gap: 6, marginTop: 11 },
-  stepsLine: { position: 'absolute', height: 2, left: '12%', right: '12%', top: 22, backgroundColor: (isDarkScheme() ? '#32271E' : '#E3D7CA') },
-  step: { flex: 1, height: 73, borderRadius: 17, backgroundColor: isDarkScheme() ? 'rgba(30,24,19,0.94)' : 'rgba(255,250,242,0.94)', borderWidth: 1, borderColor: d.line, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  stepsLine: { position: 'absolute', height: 2, left: '12%', right: '12%', top: 22, backgroundColor: (isDarkScheme() ? '#1a1a1a' : '#e8e8e8') },
+  step: { flex: 1, height: 73, borderRadius: 17, backgroundColor: isDarkScheme() ? 'rgba(17,17,17,0.94)' : 'rgba(255,255,255,0.94)', borderWidth: 1, borderColor: d.line, alignItems: 'center', justifyContent: 'center', gap: 6 },
   stepBadge: { width: 30, height: 30, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: 4, borderColor: d.ivory },
   stepNum: { fontSize: 9, fontFamily: df.sansHeavy, color: d.muted },
   stepLabel: { fontSize: 8, fontFamily: df.sansHeavy, color: d.muted },
   shortcut: { minHeight: 62, paddingVertical: 9, paddingHorizontal: 11, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   shortcutIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  shortcutDot: { position: 'absolute', width: 11, height: 11, borderRadius: 6, right: -2, top: -2, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF2E7'), borderWidth: 2, borderColor: d.paper },
+  shortcutDot: { position: 'absolute', width: 11, height: 11, borderRadius: 6, right: -2, top: -2, backgroundColor: (isDarkScheme() ? '#2a1a10' : '#ffede3'), borderWidth: 2, borderColor: d.paper },
   shortcutTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
   shortcutSub: { fontSize: 9, color: d.muted, marginTop: 2, fontFamily: df.sans },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   quick: { width: '48.4%', flexGrow: 1, flexBasis: '45%', minHeight: 154, padding: 15, borderRadius: 20 },
-  quickIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: isDarkScheme() ? 'rgba(243,233,220,0.10)' : 'rgba(255,255,255,0.55)', borderRadius: 12, marginBottom: 'auto' },
+  quickIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: isDarkScheme() ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', borderRadius: 12, marginBottom: 'auto' },
   quickSmall: { fontSize: 8, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.65, fontFamily: df.sansBold, marginTop: 30 },
   quickTitle: { marginTop: 4, fontFamily: df.displayBold, fontSize: 16 },
   quickSub: { fontSize: 10, opacity: 0.65, marginTop: 3, fontFamily: df.sans },

@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 11, fontFamily: df.sansBold, color: d.muted },
   chipTextOn: { color: '#FFFFFF' },
   footer: { fontSize: 10, fontFamily: df.sans, color: d.muted, lineHeight: 15, marginTop: 22 },
-  label: { marginTop: 18, marginBottom: 8, fontSize: 10, fontFamily: df.sansBold, color: (isDarkScheme() ? '#CDBBA6' : '#4C3D32') },
+  label: { marginTop: 18, marginBottom: 8, fontSize: 10, fontFamily: df.sansBold, color: (isDarkScheme() ? '#cccccc' : '#333333') },
   input: { height: 52, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, borderRadius: 14, paddingHorizontal: 14, fontSize: 12, fontFamily: df.sans, color: d.ink },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 18 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.borderStrong || colors.border, alignItems: 'center', justifyContent: 'center' },

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { DARK_COLORS, isDarkScheme } from './design/palette'; // APPEARANCE (item 14): palette chosen at boot
+import { LIGHT_COLORS, DARK_COLORS, isDarkScheme } from './design/palette'; // APPEARANCE (item 14): palette chosen at boot
 
 /*
  * BibleNestra design system — "Sanctuary Paper"
@@ -154,7 +154,9 @@ export const colors = {
   surfaceWhite: '#FFFFFF',  // white card fills (light); warm dark card in dark mode
   peachTint: '#FFF2E5',     // pale peach chips (light); warm dark tint in dark mode
 };
-// APPEARANCE: in dark mode the warm dark palette replaces the ivory values above (set once at boot, see src/design/palette.js)
+// APPEARANCE: White (pure white) replaces the ivory values above; Black (true black) replaces both in dark mode.
+// Set once at boot, see src/design/palette.js.
+Object.assign(colors, LIGHT_COLORS);
 if (isDarkScheme()) Object.assign(colors, DARK_COLORS);
 
 export const radius = { xs: 6, sm: 10, md: 14, lg: 18, xl: 24, pill: 999 };
@@ -189,9 +191,9 @@ export const type = {
 export const readerThemes = {
   paper: {
     key: 'paper', label: 'Paper', dark: false,
-    bg: '#F8F1E7', surface: '#FFFAF2', chip: '#FFFAF2', border: '#EADFCE', borderStrong: '#DCCDB8',
-    fg: '#281A11', passage: '#2E2016', muted: '#7C6C60', faint: '#A8998B',
-    accent: '#FF6B1A', accentSoft: '#FFE9DA', gold: '#A87A27', sel: '#F8EBC4', raised: '#F3E9DC',
+    bg: '#FFFFFF', surface: '#FFFFFF', chip: '#FFFFFF', border: '#ECECEC', borderStrong: '#D6D6D6',
+    fg: '#111111', passage: '#111111', muted: '#6B6B6B', faint: '#9E9E9E',
+    accent: '#FF6B1A', accentSoft: '#FFEDE3', gold: '#A87A27', sel: '#FBF3DC', raised: '#F4F4F4',
   },
   sepia: {
     key: 'sepia', label: 'Sepia', dark: false,
@@ -201,9 +203,9 @@ export const readerThemes = {
   },
   night: {
     key: 'night', label: 'Night', dark: true,
-    bg: '#1C120C', surface: '#2A1B12', chip: '#2A1B12', border: '#3B2A1E', borderStrong: '#4A3526',
-    fg: '#F3E9DC', passage: '#E2D6C6', muted: '#A9998A', faint: '#7A6A5C',
-    accent: '#FF9A53', accentSoft: '#4A2A16', gold: '#D4A852', sel: 'rgba(212,168,82,0.17)', raised: '#33221A',
+    bg: '#000000', surface: '#111111', chip: '#111111', border: '#262626', borderStrong: '#3A3A3A',
+    fg: '#FFFFFF', passage: '#E5E5E5', muted: '#A3A3A3', faint: '#737373',
+    accent: '#FF9A53', accentSoft: '#2A1A10', gold: '#D4A852', sel: 'rgba(212,168,82,0.17)', raised: '#1A1A1A',
   },
 };
 

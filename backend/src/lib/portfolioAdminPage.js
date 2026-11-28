@@ -11,7 +11,7 @@ function when(s){ if (!s) return '\\u2014'; return new Date(s).toLocaleString(un
 function esc(s){ return String(s == null ? '' : s); }
 window.registerAdminTab('Portfolio & Partners', function(box, ctx){
   var h = ctx.h, api = ctx.api, toast = window.adminToast || function(){};
-  var SECTIONS = [['overview','Overview'],['recruit','Recruit & invites'],['members','Managers'],['applications','Applications'],['partners','Partner Managers'],['withdrawals','Withdrawals'],['reports','Reports'],['settings','Commission settings']];
+  var SECTIONS = [['overview','Overview'],['recruit','Recruit & invites'],['members','Managers'],['applications','Applications'],['partners','Partner Managers'],['withdrawals','Withdrawals'],['reports','Reports'],['monitor','Referrals & subscriptions'],['settings','Commission settings']];
   var current = 'overview';
   var nav = h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin-bottom:14px' });
   var body = h('div');
@@ -116,6 +116,8 @@ window.registerAdminTab('Portfolio & Partners', function(box, ctx){
         var acts = h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' });
         if (m.status === 'active') acts.appendChild(act('Suspend', function(){ var r = window.prompt('Reason for suspension (the member sees it)'); if (!r) return; run(function(){ return api('POST', '/admin/api/portfolio/members/' + m.userId + '/suspend', { reason: r }); }, 'Suspended'); }));
         if (m.status === 'suspended') acts.appendChild(act('Reactivate', function(){ run(function(){ return api('POST', '/admin/api/portfolio/members/' + m.userId + '/reactivate', {}); }, 'Reactivated'); }));
+        if (m.status !== 'pending') acts.appendChild(act('Deactivate', function(){ var r = window.prompt('Reason for deactivation (final until an admin reactivates)'); if (!r) return; run(function(){ return api('POST', '/admin/api/portfolio/members/' + m.userId + '/deactivate', { reason: r }); }, 'Deactivated'); }));
+        if (m.role === 'partner_manager') acts.appendChild(act('Reassign', function(){ var handle = window.prompt('Handle of the Portfolio Manager to move this Partner Manager to (without @). Only the Super Admin can do this.'); if (!handle) return; run(async function(){ var pms = await api('GET', '/admin/api/portfolio/members?role=portfolio_manager&status=active'); var pm = pms.items.filter(function(x){ return String(x.handle || '').toLowerCase() === handle.replace(/^@/, '').toLowerCase(); })[0]; if (!pm) throw new Error('No active Portfolio Manager with that handle'); return api('POST', '/admin/api/portfolio/members/' + m.userId + '/reassign', { pmId: pm.userId }); }, 'Reassigned'); }));
         acts.appendChild(act('Details', function(){ viewDetail(m.userId); }));
         var recruiter = m.recruitedBy ? (m.recruitedBy.displayName || '@' + m.recruitedBy.handle) : (m.appointedByAdmin ? 'Super Admin' : '\\u2014');
         return [h('div', null, [h('b', { text: esc(m.displayName) }), h('div', { class: 'meta', text: m.handle ? '@' + m.handle : '' })]), esc(m.roleLabel), esc(m.status), esc(recruiter), esc(m.recruitmentSource), when(m.createdAt), acts];
@@ -123,6 +125,17 @@ window.registerAdminTab('Portfolio & Partners', function(box, ctx){
       if (!d.items.length) out.appendChild(h('div', { class: 'card empty', text: 'No managers match.' }));
     }
     load();
+  }
+
+  // Monitor: every referral (who recruited whom), network subscriptions and the commission ledger. Read-only.
+  async function viewMonitor(){
+    body.innerHTML = '';
+    var d = await api('GET', '/admin/api/portfolio/monitor');
+    var t = d.totals || {};
+    body.appendChild(h('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap' }, [stat('Referred users', t.referrals), stat('Creators recruited', t.creatorsRecruited), stat('Invitations sent', t.invitations), stat('Invitations registered', t.invitationsRegistered)]));
+    body.appendChild(card([h('h3', { text: 'Referrals (latest 100)' }), table(['Member','Partner Manager','Portfolio Manager','Joined'], d.referrals.map(function(r){ return ['@' + esc(r.handle), esc(r.partnerName || r.partnerHandle || '\\u2014'), esc(r.portfolioManagerName || '\\u2014'), when(r.createdAt)]; }))]));
+    body.appendChild(card([h('h3', { text: 'Network subscriptions and creator plans (latest 100)' }), table(['Reference','Kind','Amount','Payer','Partner','Paid'], d.subscriptions.map(function(p){ return [esc(p.reference), esc(p.kind), money(p.amountMinor, p.currency), '@' + esc(p.payerHandle), esc(p.partnerName || '\\u2014'), when(p.paidAt)]; }))]));
+    body.appendChild(card([h('h3', { text: 'Commission ledger by role and status' }), table(['Role','Status','Currency','Entries','Amount'], d.commissions.map(function(c){ return [esc(c.role), esc(c.status), esc(c.currency), String(c.count), money(c.amountMinor, c.currency)]; }))]));
   }
 
   async function viewDetail(id){
@@ -230,7 +243,7 @@ window.registerAdminTab('Portfolio & Partners', function(box, ctx){
     var pmAppr = select([['manual','Manual (Super Admin decides)'],['auto','Automatic']], c.pmApproval);
     var pnAppr = select([['manual','Manual (their PM decides)'],['auto','Automatic']], c.partnerApproval);
     var kinds = c.eligibleKinds || {};
-    var kindBoxes = [['coins','Coins (gifting coin packs)'],['dating','Find Love (coins, Dating Plus, VIP)'],['plus','BibleNestra Plus'],['memberships','Memberships'],['fundme_fees','Fund Me fees (credit packs)']].map(function(k){
+    var kindBoxes = [['coins','Coins (gifting coin packs)'],['dating','Find Love (coins, Dating Plus, VIP)'],['plus','BibleNestra Plus'],['memberships','Memberships'],['fundme_fees','Fund Me fees (credit packs)'],['creator_plan','Creator plans (Standard and Premium)']].map(function(k){
       var cb = h('input', { type: 'checkbox' }); cb.checked = !!kinds[k[0]]; cb.setAttribute('data-kind', k[0]);
       return h('label', { style: 'display:flex;gap:8px;align-items:center' }, [cb, k[1]]);
     });
@@ -245,6 +258,28 @@ window.registerAdminTab('Portfolio & Partners', function(box, ctx){
         save('portfolio_pm_bps', Math.round(Number(pm.value) * 100));
         save('portfolio_hold_days', Number(hold.value));
         save('portfolio_min_withdrawal_minor', Math.round(Number(minW.value) * 100));
+      }, 'btn')])]));
+    // Membership override: a % of BibleNestra's take on subscriptions to memberships owned by referred creators (0 = off)
+    var memPct = input(String((c.membershipCommissionBps || 0) / 100), 'percent, 0 = off');
+    body.appendChild(card([h('h3', { text: 'Membership subscriptions of referred creators' }),
+      h('p', { class: 'meta', text: 'Off while the percentage is 0. It is a percentage of BibleNestra\\u2019s take on those subscriptions. The take is the creator\\u2019s plan withdrawal fee (Free 0.5%, Standard 0.3%, Premium 0.131%).' }),
+      h('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap' }, [field('Partner Manager commission (% of BibleNestra take)', memPct)]),
+      h('div', { style: 'margin-top:10px' }, [act('Save membership commission', function(){
+        save('portfolio_membership_commission_bps', Math.round(Number(memPct.value) * 100), 'Saved');
+      }, 'btn')])]));
+    // Landing page template: headline, benefit copy and an accent colour from the design palette
+    var lt = c.landingTemplate || {};
+    var headline = input(lt.headline || '', 'invites you to BibleNestra');
+    var benefits = h('textarea', { rows: 4, style: 'width:100%' }, []);
+    benefits.value = (lt.benefits || []).join('\\n');
+    var accent = select([['orange','Orange (brand)'],['gold','Gold'],['sage','Sage']], lt.accent || 'orange');
+    body.appendChild(card([h('h3', { text: 'Partner landing page template' }),
+      h('p', { class: 'meta', text: 'Shown on every partner page at /partner/handle. One benefit per line, up to 8.' }),
+      h('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap' }, [field('Headline (after the partner name)', headline), field('Accent colour', accent)]),
+      field('Benefit copy', benefits),
+      h('div', { style: 'margin-top:10px' }, [act('Save landing template', function(){
+        var list = benefits.value.split('\\n').map(function(x){ return x.trim(); }).filter(Boolean);
+        save('portfolio_landing_template', { headline: headline.value.trim(), benefits: list, accent: accent.value }, 'Landing template saved');
       }, 'btn')])]));
     body.appendChild(card([h('h3', { text: 'Eligible payment kinds' }), h('div', null, kindBoxes),
       h('div', { style: 'margin-top:10px' }, [act('Save eligible kinds', function(){
@@ -264,7 +299,7 @@ window.registerAdminTab('Portfolio & Partners', function(box, ctx){
     ]));
   }
 
-  var views = { overview: viewOverview, recruit: viewRecruit, members: viewMembers, applications: viewApplications, partners: viewPartners, withdrawals: viewWithdrawals, reports: viewReports, settings: viewSettings };
+  var views = { overview: viewOverview, recruit: viewRecruit, members: viewMembers, applications: viewApplications, partners: viewPartners, withdrawals: viewWithdrawals, reports: viewReports, monitor: viewMonitor, settings: viewSettings };
   function show(){ body.innerHTML = ''; body.appendChild(h('div', { class: 'meta', text: 'Loading\\u2026' })); Promise.resolve().then(function(){ return views[current](); }).catch(function(e){ body.innerHTML = ''; body.appendChild(h('div', { class: 'card empty', text: e.message })); }); }
   drawNav();
   show();

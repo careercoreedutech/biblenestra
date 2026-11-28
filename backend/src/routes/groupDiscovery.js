@@ -30,6 +30,12 @@ async function myRole(env, convId, userId) {
   return r ? r.role : null;
 }
 
+// PERSONALISATION: without a search text, groups near the viewer (same country, city or church) come first, then the
+// biggest. Interests are not used here: group categories are not the same vocabulary as the topics.
+const LOCAL_FIRST = `(COALESCE(c.country = (SELECT u.country FROM users u WHERE u.id = $1) AND c.country <> '', false)::int * 2
+  + COALESCE(c.city = (SELECT u.city FROM users u WHERE u.id = $1) AND c.city <> '', false)::int
+  + COALESCE(c.church_name = (SELECT u.church FROM users u WHERE u.id = $1) AND c.church_name <> '', false)::int) DESC, `;
+
 // GET /groups/search — public-facing search over groups whose admins listed them (never membership sections)
 groupDiscovery.get('/groups/search', async (c) => {
   const me = c.get('user');
@@ -61,7 +67,7 @@ groupDiscovery.get('/groups/search', async (c) => {
       FROM conversations c
       LEFT JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = $1
       WHERE ${where.join(' AND ')}
-      ORDER BY (m.role IS NOT NULL) DESC, members_count DESC, c.created_at DESC
+      ORDER BY (m.role IS NOT NULL) DESC, ${text ? '' : LOCAL_FIRST}members_count DESC, c.created_at DESC
       LIMIT 40`, params);
 
   return c.json({

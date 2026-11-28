@@ -226,6 +226,7 @@ test('dev claim route needs ADS_CLIENT_CLAIM and an enabled gate', async () => {
 });
 
 test('creation fee preview: free or paid, and the amount comes from admin settings', async () => {
+  await setConfig(env, 'membership_creation_fee_enabled', true, ids.boss); // CREATOR PLANS: the per-membership fee is dormant by default; this test covers it
   const free = await call('ann', 'GET', '/memberships/creation-fee?category=Prayer&type=free');
   assert.equal(free.status, 200, JSON.stringify(free.json));
   assert.equal(free.json.free, true);

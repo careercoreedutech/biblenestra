@@ -214,7 +214,7 @@ export function CompanionScreen() {
 
             {/* .crisis-note */}
             <View style={styles.crisisNote}>
-              <Icon name="heart" size={18} color={isDarkScheme() ? '#B8A797' : '#745D45'} />
+              <Icon name="heart" size={18} color={isDarkScheme() ? '#a3a3a3' : '#6b6b6b'} />
               <Text style={styles.crisisNoteText}>If you may be in immediate danger, BibleNestra will show local crisis support before anything else.</Text>
             </View>
 
@@ -262,7 +262,7 @@ export function CompanionScreen() {
 
             {c.medicalNote ? (
               <View style={styles.crisisNote}>
-                <Icon name="shield" size={16} color={isDarkScheme() ? '#B8A797' : '#745D45'} />
+                <Icon name="shield" size={16} color={isDarkScheme() ? '#a3a3a3' : '#6b6b6b'} />
                 <Text style={styles.crisisNoteText}>{c.medicalNote}</Text>
               </View>
             ) : null}
@@ -442,8 +442,8 @@ const styles = StyleSheet.create({
   privacyText: { fontFamily: df.sans, fontSize: 11, color: d.muted, textAlign: 'center', marginTop: 12 },
 
   // crisis note (.crisis-note)
-  crisisNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, padding: 12, marginTop: 10, borderRadius: 14, backgroundColor: (isDarkScheme() ? '#32271E' : '#F2E8D5') },
-  crisisNoteText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: (isDarkScheme() ? '#B8A797' : '#745D45') },
+  crisisNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, padding: 12, marginTop: 10, borderRadius: 14, backgroundColor: (isDarkScheme() ? '#1a1a1a' : '#fbf3dc') },
+  crisisNoteText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: (isDarkScheme() ? '#a3a3a3' : '#6b6b6b') },
   crisis: { backgroundColor: d.rose, borderWidth: 1, borderColor: d.roseDark, borderRadius: 20, padding: 16 },
   crisisTitle: { color: d.roseDark, fontFamily: df.sansBold, fontSize: 14.5, flexShrink: 1 },
   crisisText: { color: d.ink, fontFamily: df.sans, fontSize: 13, lineHeight: 19, marginTop: 6 },

@@ -34,6 +34,7 @@ import { useUnlocks } from '../api/unlocks';
 import { CloudRecordingList } from './RecordScreens'; // DISCOVER TOOLS (round 3)
 import { LearnCourses, LearnDevotionals } from './LearnContentScreens'; // LEARN CMS: courses + devotionals from the admin (online mode)
 import { useApi } from '../api/auth'; // LEARN CMS
+import { TOPIC_OPTIONS, topicLabel, topicIdFor, loadInterests, saveInterests } from '../api/personalisation'; // PERSONALISATION: interests feed the For you ranking
 import { TERMS_URL, PRIVACY_URL, DELETE_ACCOUNT_URL } from '../data/onboarding';
 import { SPage, SSection, SGroup, SRow, SButton, SInput, SLabel, SEyebrow, SChips, SEmpty, SNotice, SBadge, STimestamp, SAIDraft, SWaveBar, SRecordButton, SCard, SHero, SConfirm, SAvatar, ss as sd } from '../design/study/parts'; // DESIGN: study screens kit // LEGAL: Terms / Privacy / delete-account pages
 
@@ -1220,7 +1221,7 @@ const ld = StyleSheet.create({
   contest: { borderRadius: 21, padding: 19, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line, gap: 6 },
   contestTitle: { fontFamily: DF.display, fontSize: 18, lineHeight: 23, color: D.ink, marginTop: 8 },
   contestSub: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: D.muted },
-  contestBtn: { marginTop: 10, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E5'), paddingHorizontal: 14, height: 38, borderRadius: 12 },
+  contestBtn: { marginTop: 10, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: (isDarkScheme() ? '#2a1a10' : '#ffede3'), paddingHorizontal: 14, height: 38, borderRadius: 12 },
 });
 
 const PLAN_REMINDERS = ['Off', '06:30', '12:00', '20:00'];
@@ -1999,7 +2000,7 @@ export function CreateScreen({ params = {} }) {
                 <Text style={ed.createDesc} numberOfLines={2}>{CREATE_DESC[kn]}</Text>
               </View>
               <Text style={ed.createNum}>{'0' + (idx + 1)}</Text>
-              <Icon name={on ? 'check-circle' : 'chevron-right'} size={15} color={on ? D.plum : (isDarkScheme() ? '#8A7A6C' : '#AAA6AD')} />
+              <Icon name={on ? 'check-circle' : 'chevron-right'} size={15} color={on ? D.plum : (isDarkScheme() ? '#737373' : '#AAA6AD')} />
             </Tap>
           );
         })}
@@ -2139,9 +2140,9 @@ const READ_SPEEDS = [0.75, 1, 1.25, 1.5];
 // APPEARANCE (dev update v1, item 14): Profile › Account › Appearance. Light, Dark or System default (follows the phone).
 // The choice is saved, then the app reloads so every screen picks up the palette (a production native build asks for a restart).
 const APPEARANCE_CHOICES = [
-  { key: 'light', title: 'Light', subtitle: 'Warm ivory pages', icon: 'sun' },
-  { key: 'dark', title: 'Dark', subtitle: 'Warm dark pages, easier on the eyes at night', icon: 'moon' },
-  { key: 'system', title: 'System default', subtitle: 'Follows your phone’s light or dark setting', icon: 'settings' },
+  { key: 'light', title: 'White', subtitle: 'Pure white pages', icon: 'sun' },
+  { key: 'dark', title: 'Black', subtitle: 'True black pages, easier on the eyes at night', icon: 'moon' },
+  { key: 'system', title: 'Automatic (follows your phone)', subtitle: 'Switches with your phone’s light or dark setting', icon: 'settings' },
 ];
 function AppearanceSettings() {
   const toast = useToast();
@@ -2869,6 +2870,7 @@ export function ProfileScreen({ params = {} }) {
           <Group style={{ marginTop: 14 }}>
             <Item title="This device" subtitle={`${Platform.OS === 'web' ? 'Web browser' : Platform.OS === 'ios' ? 'iPhone' : 'Android'} · signed in locally`} right={<Badge label="Active" tint={colors.teal} />} />
             <Item icon="star" tint={colors.gold} title={state.premium ? 'BibleNestra Plus' : 'Plan · Free'} subtitle={state.premium ? 'Ad-free games · supporter badge · manage your plan' : 'Go ad-free with BibleNestra Plus'} onPress={() => nav.push('Plans')} />
+            <Item title="Your interests" subtitle="Topics that shape your For you feed" onPress={() => nav.push('Onboarding', { step: 1 })} />
             <Item title="Redo onboarding" subtitle="Walk through setup again" onPress={() => nav.push('Onboarding', { step: 0 })} />
           </Group>
           <AccountLegal />{/* LEGAL: Terms, Privacy, Delete my account */}
@@ -2956,7 +2958,16 @@ export function OnboardingScreen({ params }) {
   const [reminder, setReminder] = useState('06:30');
   const [name, setName] = useState(state.user.displayName);
   const [translation, setTranslation] = useState('KJV');
-  const [interests, setInterests] = useState(['Gospels', 'Prayer']);
+  const api = useApi(); // PERSONALISATION: interests are saved to the account (skipped when offline)
+  const [interests, setInterests] = useState([]); // topic ids, see TOPIC_OPTIONS
+  const [city, setCity] = useState('');
+  const [denomination, setDenomination] = useState('');
+  useEffect(() => {
+    // Existing users see what they picked before (Profile → Your interests)
+    let live = true;
+    if (api.online) Promise.resolve().then(() => loadInterests(api)).then((d) => { if (live && d) { setInterests(d.interests || []); setCity(d.city || ''); setDenomination(d.denomination || ''); } }).catch(() => {});
+    return () => { live = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [churchQ, setChurchQ] = useState('');
   const [church, setChurch] = useState(null);
   const [disc, setDisc] = useState({ people: true, professionals: false, communities: true, churches: true });
@@ -2968,6 +2979,8 @@ export function OnboardingScreen({ params }) {
   const steps = ['Welcome', 'Bible', 'Church', 'Connect', 'Done'];
   const finish = (skipped) => {
     dispatch({ type: 'onboard', user: { displayName: name.trim() || state.user.displayName || 'Friend', translation, interests, church: church ? { name: church.name, visible: true } : state.user.church, discoverable: disc, acceptsChat: offer } });
+    // PERSONALISATION: optional and skippable; a skip saves nothing
+    if (!skipped && api.online) Promise.resolve().then(() => saveInterests(api, { interests, city: city.trim(), denomination: denomination.trim() })).catch(() => {});
     if (!skipped) {
       dispatch({ type: 'set', patch: {
         notifications: { ...state.notifications, bible: devotional, readingReminder: reminder },
@@ -3023,8 +3036,13 @@ export function OnboardingScreen({ params }) {
             <SChips items={TRANSLATIONS.filter((t) => t.lang === 'English').map((t) => t.id)} value={translation} onChange={(t) => TRANSLATIONS.find((x) => x.id === t).available && setTranslation(t)} />
             <Text style={[sd.cardMeta, { marginTop: 10 }]}>MSG, NIV, NLT, GNB, AMP and AMP Classic appear once licensed for your region.</Text>
           </SSection>
-          <SSection title="Study interests">
-            <SChips items={['Gospels', 'Psalms', 'Doctrine', 'Prayer', 'Worship', 'Leadership', 'Marriage', 'Parenting', 'Youth', 'Missions', 'Evangelism', 'Career', 'New believer']} value={interests} onChange={(i) => setInterests(interests.includes(i) ? interests.filter((x) => x !== i) : [...interests, i])} />
+          <SSection title="What you care about">
+            <Text style={[sd.cardMeta, { marginBottom: 10 }]}>Optional. Your feed will favour these topics; you can change them any time in Profile.</Text>
+            <SChips items={TOPIC_OPTIONS.map((t) => t.label)} value={interests.map(topicLabel)} onChange={(l) => { const id = topicIdFor(l); setInterests(interests.includes(id) ? interests.filter((x) => x !== id) : [...interests, id]); }} />
+          </SSection>
+          <SSection title="Where you are (optional)">
+            <SInput placeholder="City" value={city} onChangeText={setCity} maxLength={60} accessibilityLabel="City" />
+            <SInput placeholder="Denomination" value={denomination} onChangeText={setDenomination} maxLength={60} style={{ marginTop: 10 }} accessibilityLabel="Denomination" />
           </SSection>
           <SSection title="Reminders">
             <SGroup>
@@ -3111,7 +3129,7 @@ export function OnboardingScreen({ params }) {
           <FadeInUp delay={380} distance={10} style={{ alignSelf: 'stretch', marginTop: 24 }}>
             <SGroup>
               <SRow icon="book" tint={colors.primary} title="Translation" right={translation} />
-              <SRow icon="sparkles" tint={colors.gold} title="Interests" right={interests.length ? interests.slice(0, 2).join(', ') + (interests.length > 2 ? ` +${interests.length - 2}` : '') : 'None'} />
+              <SRow icon="sparkles" tint={colors.gold} title="Interests" right={interests.length ? interests.slice(0, 2).map(topicLabel).join(', ') + (interests.length > 2 ? ` +${interests.length - 2}` : '') : 'None'} />
               <SRow icon="church" tint={colors.sage} title="Church" right={church ? church.name : 'Not set'} />
             </SGroup>
           </FadeInUp>
@@ -3154,10 +3172,10 @@ const ed = StyleSheet.create({
   hlValue: { fontFamily: DF.displayBold, fontSize: 19, marginTop: 2 },
   hlSub: { fontFamily: DF.sans, fontSize: 9, opacity: 0.85, marginTop: 2 },
   week: { flexDirection: 'row', justifyContent: 'space-between' },
-  day: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: (isDarkScheme() ? '#32271E' : '#EFEDE8') },
+  day: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: (isDarkScheme() ? '#1a1a1a' : '#f4f4f4') },
   dayDone: { backgroundColor: D.plum },
   dayToday: { borderWidth: 2, borderColor: D.plum, backgroundColor: colors.surfaceWhite },
-  dayText: { fontFamily: DF.sansHeavy, fontSize: 10, color: (isDarkScheme() ? '#B8A797' : '#9B979F') },
+  dayText: { fontFamily: DF.sansHeavy, fontSize: 10, color: (isDarkScheme() ? '#a3a3a3' : '#9B979F') },
   weekCount: { fontFamily: DF.sansBold, fontSize: 9, color: D.plum },
   weekLine: { fontFamily: DF.display, fontSize: 15, color: D.ink, marginTop: 2 },
   weekNote: { fontFamily: DF.sans, fontSize: 9, color: D.muted, marginTop: 3 },
@@ -3165,11 +3183,11 @@ const ed = StyleSheet.create({
   introTitle: { fontFamily: DF.display, fontSize: 27, lineHeight: 30, color: D.goldDark, marginTop: 20, marginBottom: 6 },
   introBody: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: D.goldDark },
   createRow: { minHeight: 80, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: D.line },
-  createRowOn: { backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E5'), borderRadius: 16, borderBottomColor: 'transparent' },
+  createRowOn: { backgroundColor: (isDarkScheme() ? '#2a1a10' : '#ffede3'), borderRadius: 16, borderBottomColor: 'transparent' },
   createTile: { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   createTitle: { fontFamily: DF.display, fontSize: 13, color: D.ink },
   createDesc: { fontFamily: DF.sans, fontSize: 10, lineHeight: 14, color: D.muted, marginTop: 2 },
-  createNum: { fontFamily: DF.displayBold, fontSize: 9, color: (isDarkScheme() ? '#8A7A6C' : '#C4B3A5') },
+  createNum: { fontFamily: DF.displayBold, fontSize: 9, color: (isDarkScheme() ? '#737373' : '#C4B3A5') },
 });
 
 const CREATE_GRADS = [['#FF9952', '#E85C12'], ['#E4C77D', '#9D681F'], ['#A8BB83', '#5D713F'], ['#6C4931', '#281A11']];

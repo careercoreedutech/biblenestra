@@ -22,6 +22,9 @@ export const checkCreationFee = (v) => !!v && typeof v === 'object'
   && isMinor(v.free) && isMinor(v.paid)
   && (v.categories == null || (typeof v.categories === 'object' && Object.values(v.categories).every(isMinor)));
 registerConfig('membership_creation_fee', DEFAULT_CREATION_FEE, checkCreationFee);
+// CREATOR PLANS: off by default. On = the per-membership fee applies again (the creator plan replaces it).
+registerConfig('membership_creation_fee_enabled', false, (v) => typeof v === 'boolean');
+export const creationFeeEnabled = async (env) => (await getConfig(env)).membership_creation_fee_enabled === true;
 
 /** free | paid, from the plans: paid when any active plan costs more than 0. */
 export function feeTypeOf(plans = []) {
@@ -65,7 +68,9 @@ export async function creationFeeStatus(env, m, plans, now = new Date()) {
   const fee = feeFor(cfg, { category: m.category, plans });
   const row = await creationFeeRow(env, m.id);
   const active = feeIsActive(row, now);
-  const required = !!m.creation_fee_required && fee.amountMinor > 0;
+  // CREATOR PLANS: the per-membership creation fee is replaced by the creator's plan. Kept dormant behind
+  // registerConfig 'membership_creation_fee_enabled' (default off), so nothing is charged unless an admin turns it on.
+  const required = (await creationFeeEnabled(env)) && !!m.creation_fee_required && fee.amountMinor > 0;
   return {
     required,
     amountMinor: fee.amountMinor,
@@ -118,6 +123,7 @@ export async function applyCreationFee(env, { membershipId, userId, cycle, amoun
  * pay and publish again). Only memberships that carry a fee are touched. → number of memberships moved to draft.
  */
 export async function lapseCreationFees(env, now = new Date()) {
+  if (!(await creationFeeEnabled(env))) return 0; // CREATOR PLANS: dormant fee never moves a membership back to draft
   const rows = await q(env, `WITH lapsed AS (
       UPDATE membership_creation_fees SET status = 'lapsed', auto_renew = false, updated_at = now()
        WHERE status = 'active' AND paid_until IS NOT NULL AND paid_until <= $1 RETURNING membership_id)

@@ -41,7 +41,7 @@ export default function Boot() {
 
   if (!boot) {
     // Same page colour as the chosen palette, so there is no flash before the app appears.
-    return <View style={{ flex: 1, backgroundColor: isDarkScheme() ? '#14100D' : '#F8F1E7' }} />;
+    return <View style={{ flex: 1, backgroundColor: isDarkScheme() ? '#000000' : '#FFFFFF' }} />;
   }
   const App = boot.App;
   return <App />;

@@ -14,6 +14,7 @@ import { ToastProvider } from './src/components/Toast';
 import { NarrationProvider } from './src/audio/Narration';
 import { AdsProvider, useAds } from './src/ads/Ads';
 import { useAdBreaks } from './src/ads/breaks'; // INTERSTITIAL BREAKS (dev update v1, item 4)
+import { usePlansLaunchGate, markPlansShown } from './src/ads/plansGate'; // AD NETWORKS: Plans page on every cold start (signed in, no Plus)
 import { AdsBridge } from './src/ads/AdsBridge'; // ADS: authenticated transport for ad event logging
 import { AuthGate } from './src/api/auth';
 import { IntroGate } from './src/screens/IntroScreens';
@@ -78,13 +79,15 @@ import { AudioPlayerProvider } from './src/audio/Player'; // MEDIA LIBRARY: glob
 import { LibraryMiniBar } from './src/components/MiniPlayer'; // MEDIA LIBRARY
 import NotificationSettingsScreen from './src/screens/NotificationSettingsScreen'; // NOTIFICATIONS: Settings › Notifications › Daily moments
 import { MembershipsScreen, MembershipScreen, MembershipReviewsScreen, MembershipHomeScreen, MyChannelsScreen, MembershipLibraryScreen } from './src/screens/MembershipScreens'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
-import { MembershipHubScreen } from './src/screens/MembershipHubScreens'; // MEMBERSHIP HUB (Development Update v1, item 4): full-screen Memberships
+import { MembershipHubScreen } from './src/screens/MembershipHubScreens';
+import { CreatorPlanScreen, CreatorWithdrawScreen } from './src/screens/CreatorPlanScreens'; // CREATOR PLANS: My creator plan + withdrawals // MEMBERSHIP HUB (Development Update v1, item 4): full-screen Memberships
 import { MembershipMediaScreen, MembershipMembersScreen, MembershipAdminsScreen, MembershipSettingsScreen, MembershipWelcomeGate } from './src/screens/MembershipGroupScreens'; // MEMBERSHIP GROUPS: MASTER CLASS + EXECUTIVE CLASS
 import { WalletScreen } from './src/screens/WalletScreen'; // WALLET CORE: separate wallets, Buy sheets, history, Dating Plus / VIP
 import { DatingProfileEditScreen, DatingProfileViewScreen, DatingChatScreen, DatingPlansScreen, DatingBoostScreen, DatingSettingsScreen, DatingVerifyScreen, FindLoveHubScreen } from './src/screens/FindLoveScreens'; // FIND LOVE: profile, chat, plans, boost, safety, verification
 import { GiftStoreScreen, GiftHistoryScreen, GiftEarningsScreen } from './src/screens/GiftScreens'; // VIRTUAL GIFTS & STARS: store, history, earnings
-import { PortfolioHomeScreen, PortfolioApplyScreen } from './src/screens/PortfolioScreens'; // PORTFOLIO & PARTNER MANAGERS: dashboards, Apply
+import { PortfolioHomeScreen, PortfolioApplyScreen, PortfolioToolsScreen, PortfolioSettingsScreen } from './src/screens/PortfolioScreens'; // PORTFOLIO & PARTNER MANAGERS: dashboards, Apply, tools, settings
 import { UserSearchScreen } from './src/screens/UserSearchScreen'; // USER SEARCH: find members by username
+import WatchEarnScreen from './src/screens/WatchEarnScreen'; // WATCH & EARN: full-screen rewarded-ad page (Kingdom Coins)
 import { useDailyMoments } from './src/notifications/daily'; // NOTIFICATIONS: daily moments (local, user's time zone)
 import { useDeepLinks } from './src/notifications/deepLinks'; // NOTIFICATIONS + WIDGETS: biblenestra:// deep links
 import { useGroupInviteLinks } from './src/notifications/deepLinks'; // CHAT GAPS: biblenestra://join/<code> → Join with a link
@@ -159,13 +162,16 @@ Object.assign(ROUTES, { MembershipLibrary: MembershipLibraryScreen, MembershipMe
 ROUTES.Wallet = WalletScreen; // WALLET CORE
 Object.assign(ROUTES, { FundMeCredits: FundMeCreditsScreen, FundMeGiftCredits: FundMeGiftCreditsScreen, FundMeMoney: FundMeMoneyScreen, FundMePayoutAccount: FundMePayoutAccountScreen, FundMeMyDonations: FundMeMyDonationsScreen, FundMeReceipt: FundMeReceiptScreen, PayoutKyc: PayoutKycScreen }); // FUND ME MONEY (+ payout KYC)
 Object.assign(ROUTES, { GiftStore: GiftStoreScreen, GiftHistory: GiftHistoryScreen, GiftEarnings: GiftEarningsScreen }); // VIRTUAL GIFTS & STARS
-Object.assign(ROUTES, { PortfolioHome: PortfolioHomeScreen, PortfolioApply: PortfolioApplyScreen }); // PORTFOLIO & PARTNER MANAGERS
+Object.assign(ROUTES, { PortfolioHome: PortfolioHomeScreen, PortfolioApply: PortfolioApplyScreen, PortfolioTools: PortfolioToolsScreen, PortfolioSettings: PortfolioSettingsScreen }); // PORTFOLIO & PARTNER MANAGERS
 Object.assign(ROUTES, { UserSearch: UserSearchScreen }); // USER SEARCH: Socials header search icon → username search
 Object.assign(ROUTES, { DatingProfileEdit: DatingProfileEditScreen, DatingProfileView: DatingProfileViewScreen, DatingChat: DatingChatScreen, DatingPlans: DatingPlansScreen, DatingBoost: DatingBoostScreen, DatingSettings: DatingSettingsScreen, DatingVerify: DatingVerifyScreen }); // FIND LOVE
 Object.assign(ROUTES, { PaymentReport: PaymentReportScreen, MembershipInvite: MembershipInviteScreen }); // PAYMENT VERIFICATION
 ROUTES.FindLoveHub = FindLoveHubScreen; // FIND LOVE HUB: full-screen Find Love (Discover / Likes / Matches / Profile); pushed, so the tab bar is hidden
+ROUTES.CreatorPlan = CreatorPlanScreen; // CREATOR PLANS: pushed full-screen from Memberships > Manage
+ROUTES.CreatorWithdraw = CreatorWithdrawScreen; // CREATOR PLANS: creator withdrawals (KYC, fee shown separately)
 ROUTES.MembershipHub = MembershipHubScreen; // MEMBERSHIP HUB: pushed full-screen (Explore / My Memberships / Create / Manage); the tab bar is hidden while it is open
 Object.assign(ROUTES, { Journey: JourneyHomeScreen, JourneySetup: JourneySetupScreen, JourneyGroups: JourneyGroupsScreen, JourneyGroup: JourneyGroupScreen }); // MY SCRIPTURE JOURNEY
+ROUTES.WatchEarn = WatchEarnScreen; // WATCH & EARN
 
 // Gentle enter animation: pushed screens slide in from the right, tab switches cross-fade up.
 function Transition({ kind, children, skip }) {
@@ -207,7 +213,7 @@ function StackLayer({ entering, leaving, covered, initialCovered, children }) {
       <FocusCtx.Provider value={!covered && !leaving}>{children}</FocusCtx.Provider>
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { backgroundColor: '#15172B', opacity: cover.interpolate({ inputRange: [0, 1], outputRange: [0, 0.16] }) }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: '#000000', opacity: cover.interpolate({ inputRange: [0, 1], outputRange: [0, 0.16] }) }]}
       />
     </Animated.View>
   );
@@ -244,7 +250,8 @@ function Root() {
   useScripturePop(ready ? state.scripturePop : null, nav);
   // INTERSTITIAL BREAKS (dev update v1, item 4): foreground-time break after the admin interval; held back on reading/recording/prayer/checkout screens
   const adTop = nav.stack[nav.stack.length - 1];
-  useAdBreaks(adTop ? adTop.name : `tab:${tab}`, useAds().showInterstitial);
+  const ads = useAds();
+  useAdBreaks(adTop ? adTop.name : `tab:${tab}`, ads.showInterstitial);
   useReminders(nav); // DISCOVER TOOLS (round 3): reminders + daily verse (local notifications)
   useLivePushOpen(nav); // YOUTUBE LIVE: tapping a LIVE NOW push opens the Watch screen
   useBroadcastPushOpen(nav); // BROADCASTS: tapping an official-message push opens it in Activity
@@ -275,10 +282,25 @@ function Root() {
   // First-run taps: the Plus offer waits until the next launch for someone who onboarded in this one
   const onboardedAtLaunch = useRef(null);
   if (ready && onboardedAtLaunch.current === null) onboardedAtLaunch.current = !!state.onboarded;
+  // AD NETWORKS: the Plans page opens on every cold start for signed-in users without Plus (admin: extras.plansPage)
+  const plansDecision = usePlansLaunchGate({ ready, onboarded: !!state.onboarded, signedIn: !!chatPushApi.online, premium: !!state.premium });
+  const [plansDone, setPlansDone] = useState(false);
+  const plansBusy = useRef(false);
+  const onPlansDone = async (reason) => {
+    if (plansBusy.current) return;
+    plansBusy.current = true;
+    markPlansShown();
+    // "Continue free" (or close) → an interstitial through the ad chain, then the app continues
+    if (reason === 'free') { try { await ads.showInterstitial({ surface: 'other', placement: 'plans_exit', loadTimeoutMs: 8000 }); } catch (e) { /* no ad: continue */ } }
+    dispatch({ type: 'set', patch: { plansSeen: true } });
+    setPlansDone(true);
+    plansBusy.current = false;
+  };
+  const plansPending = plansDecision === null && ready && !!state.onboarded && !!chatPushApi.online && !state.premium;
   if (!ready) return <SplashView />; // ONBOARDING: same logo splash while the saved state loads
   if (!state.onboarded) return <OnboardingScreen />;
-  // BibleNestra Plus (/week · $35/year): shown once after onboarding, with 'Continue free'
-  if (!state.plansSeen && onboardedAtLaunch.current) return <PlansGate onDone={() => dispatch({ type: 'set', patch: { plansSeen: true } })} />;
+  if (plansPending) return <SplashView />; // the one-off launch check is a moment long: wait for it, no flicker of the app
+  if (plansDecision === true && !plansDone && !state.premium) return <PlansGate onDone={onPlansDone} />; // Plus members never see it
   const top = nav.stack[nav.stack.length - 1];
   const animating = Date.now() - changedAt.current < 440;
   const Tab = TABS[tab];
@@ -372,7 +394,7 @@ export default function App() {
 const styles = StyleSheet.create({
   layerShadow: Platform.select({
     web: { boxShadow: '-8px 0 24px rgba(21,23,43,0.14)' },
-    default: { shadowColor: '#15172B', shadowOffset: { width: -6, height: 0 }, shadowOpacity: 0.14, shadowRadius: 16, elevation: 12 },
+    default: { shadowColor: '#000000', shadowOffset: { width: -6, height: 0 }, shadowOpacity: 0.14, shadowRadius: 16, elevation: 12 },
   }),
   safe: { flex: 1, backgroundColor: colors.screen },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.screen },

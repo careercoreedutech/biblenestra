@@ -24,8 +24,8 @@ import { requireApprovedKyc, getKyc, kycShape } from './kyc.js';
 import { notifyUser } from '../hub.js';
 
 // ─── configuration (admin editable through the Portfolio & Partners tab) ───────────────────────────────────────────
-export const ELIGIBLE_KINDS = ['coins', 'dating', 'plus', 'memberships', 'fundme_fees'];
-const DEFAULT_ELIGIBLE = { coins: true, dating: true, plus: true, memberships: true, fundme_fees: true };
+export const ELIGIBLE_KINDS = ['coins', 'dating', 'plus', 'memberships', 'fundme_fees', 'creator_plan'];
+const DEFAULT_ELIGIBLE = { coins: true, dating: true, plus: true, memberships: true, fundme_fees: true, creator_plan: true };
 const int = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
 registerConfig('portfolio_partner_bps', 1000, (v) => int(v, 0, 10000));
 registerConfig('portfolio_pm_bps', 1000, (v) => int(v, 0, 10000));
@@ -39,6 +39,21 @@ registerConfig('portfolio_pm_auto_approve', false, (v) => typeof v === 'boolean'
 registerConfig('portfolio_partner_auto_approve', false, (v) => typeof v === 'boolean');
 registerConfig('portfolio_pm_partner_limit', 100, (v) => int(v, 0, 100000));
 registerConfig('portfolio_pm_invite_limit', 50, (v) => int(v, 0, 100000));
+// Membership override: a commission on the subscription revenue of memberships owned by referred creators, as a % of
+// BibleNestra's take from those subscriptions. BibleNestra's take is the creator's plan withdrawal fee (creator_plans):
+// Free 0.5%, Standard 0.3%, Premium 0.131%. Default 0 (off).
+registerConfig('portfolio_membership_commission_bps', 0, (v) => int(v, 0, 10000));
+// Landing page template (headline, benefit copy, accent colour from the design palette: orange | gold | sage).
+export const LANDING_ACCENTS = { orange: '#FF6B1A', gold: '#F4D88C', sage: '#E7EAD7' };
+export const DEFAULT_LANDING_TEMPLATE = {
+  headline: 'invites you to BibleNestra',
+  benefits: ['The Bible in many translations, with study tools', 'Prayer wall and daily Bible readings', 'Christian chat groups, memberships and events'],
+  accent: 'orange',
+};
+registerConfig('portfolio_landing_template', DEFAULT_LANDING_TEMPLATE, (v) => !!v && typeof v === 'object' && !Array.isArray(v)
+  && typeof v.headline === 'string' && v.headline.length <= 120
+  && Array.isArray(v.benefits) && v.benefits.length <= 8 && v.benefits.every((b) => typeof b === 'string' && b.length <= 160)
+  && Object.prototype.hasOwnProperty.call(LANDING_ACCENTS, v.accent));
 
 export const ROLE_LABEL = { portfolio_manager: 'Portfolio Manager', partner_manager: 'Partner Manager' };
 export const ROLE_OF_KIND = { portfolio_manager: 'portfolio_manager', partner_manager: 'partner_manager' };
@@ -61,9 +76,30 @@ export async function portfolioConfig(env) {
     partnerApproval: cfg.portfolio_partner_auto_approve ? 'auto' : 'manual',
     partnerLimit: cfg.portfolio_pm_partner_limit,
     inviteLimit: cfg.portfolio_pm_invite_limit,
+    membershipCommissionBps: cfg.portfolio_membership_commission_bps,
+    landingTemplate: { ...DEFAULT_LANDING_TEMPLATE, ...(cfg.portfolio_landing_template || {}) },
     currency: DEFAULT_CURRENCY,
     raw: cfg,
   };
+}
+
+/** The membership override: BibleNestra's take on a subscription (parts per million) × the override %. Pure. */
+export function membershipOverrideMinor(baseMinor, { takePpm, membershipCommissionBps }) {
+  const take = Math.floor((Number(baseMinor) * Number(takePpm)) / 1e6);
+  return { takeMinor: take, amountMinor: bpsOf(take, membershipCommissionBps) };
+}
+
+/**
+ * BibleNestra's take rate on a creator's memberships, in parts per million: the withdrawal fee of the creator's active
+ * plan (creator_plans config). A creator with no active paid plan is on Free. Falls back to Free when unreadable.
+ */
+export async function creatorTakePpm(env, ownerId) {
+  const cfg = await getConfig(env);
+  const plans = (cfg.creator_plans && cfg.creator_plans.plans) || {};
+  const row = await one(env, 'SELECT plan_id, status, current_period_end FROM creator_plan_subscriptions WHERE user_id = $1', [ownerId]).catch(() => null);
+  const paidActive = row && row.plan_id !== 'free' && row.status === 'active' && row.current_period_end && new Date(row.current_period_end).getTime() > Date.now();
+  const plan = (paidActive && plans[row.plan_id]) || plans.free || { withdrawalPercent: 0.5 };
+  return Math.round(Number(plan.withdrawalPercent) * 10000);
 }
 
 // ─── commission maths (pure, tested) ──────────────────────────────────────────────────────────────────────────────
@@ -92,6 +128,7 @@ export function kindOfWalletArea(area) {
 export async function paymentKindOf(env, p) {
   if (p.kind === 'membership') return 'memberships';
   if (p.kind === 'plus') return 'plus';
+  if (p.kind === 'creator_plan') return 'creator_plan'; // Standard / Premium creator plans (another agent's Paystack kind)
   if (p.kind === 'wallet') {
     const row = await one(env, `SELECT pr.area FROM wallet_purchases wp JOIN wallet_products pr ON pr.id = wp.product_id
       WHERE wp.id::text = $1`, [String(p.target_id || '')]);
@@ -204,7 +241,8 @@ export async function balances(env, userId) {
   for (const s of Object.values(out)) {
     // matured commissions, minus money already promised to the member or paid out
     s.withdrawableMinor = Math.max(0, s.availableMinor - s.requestedMinor - s.paidMinor);
-    s.earnedMinor = s.heldMinor + s.availableMinor + s.paidMinor + s.requestedMinor;
+    // available already contains every matured commission, including what was later requested or paid out
+    s.earnedMinor = s.heldMinor + s.availableMinor;
   }
   return out;
 }
@@ -274,18 +312,24 @@ export async function decideWithdrawal(env, admin, id, action, { note = null, re
  */
 export async function recordPaymentCommissions(env, p) {
   if (!p || !p.reference || !p.user_id || p.test) return { skipped: 'not_eligible_payment' };
-  const attr = await one(env, 'SELECT * FROM partner_attributions WHERE user_id = $1', [p.user_id]);
-  if (!attr) return { skipped: 'not_referred' };
-  const kind = await paymentKindOf(env, p);
   const cfg = await portfolioConfig(env);
-  if (!kind || !cfg.eligibleKinds[kind]) return { skipped: 'kind_not_eligible', kind };
-  const partner = await activeMember(env, attr.partner_id, 'partner_manager');
-  if (!partner) return { skipped: 'partner_not_active' };
-  const plan = commissionPlan(Number(p.amount_minor), cfg);
-  const pm = attr.portfolio_manager_id ? await activeMember(env, attr.portfolio_manager_id, 'portfolio_manager') : null;
-  const availableAt = new Date(Date.now() + cfg.holdDays * DAY).toISOString();
   const currency = String(p.currency || DEFAULT_CURRENCY).toUpperCase();
-  const out = { partnerMinor: 0, portfolioMinor: 0, pmId: pm ? pm.user_id : null, plan };
+  const availableAt = new Date(Date.now() + cfg.holdDays * DAY).toISOString();
+  // the membership override applies to a referred creator's membership, whoever subscribes to it
+  const membershipMinor = await recordMembershipOverride(env, p, cfg, currency, availableAt);
+  const out = { partnerMinor: 0, portfolioMinor: 0, membershipMinor, pmId: null, plan: null };
+  const attr = await one(env, 'SELECT * FROM partner_attributions WHERE user_id = $1', [p.user_id]);
+  if (!attr) return { ...out, skipped: membershipMinor ? undefined : 'not_referred' };
+  const kind = await paymentKindOf(env, p);
+  if (!kind || !cfg.eligibleKinds[kind]) return { ...out, skipped: 'kind_not_eligible', kind };
+  const partner = await activeMember(env, attr.partner_id, 'partner_manager');
+  if (!partner) return { ...out, skipped: 'partner_not_active' };
+  if (partner.user_id === p.user_id) return { ...out, skipped: 'self_referral' };
+  const plan = commissionPlan(Number(p.amount_minor), cfg);
+  // the PM override follows the partner's current Portfolio Manager, so an admin reassignment moves future commissions
+  const pm = partner.recruited_by ? await activeMember(env, partner.recruited_by, 'portfolio_manager') : null;
+  out.plan = plan;
+  out.pmId = pm ? pm.user_id : null;
   if (plan.partnerMinor > 0) {
     const r = await one(env, `INSERT INTO portfolio_commissions (payment_reference, role, recipient_id, source_user_id, partner_id, payment_kind,
         base_minor, rate_bps, amount_minor, currency, status, available_at)
@@ -302,6 +346,31 @@ export async function recordPaymentCommissions(env, p) {
   }
   if (out.partnerMinor) await notify(env, partner.user_id, 'Commission earned', `You earned a commission on a referred member's payment. It becomes withdrawable after ${cfg.holdDays} days.`, { screen: 'PortfolioHome' }).catch(() => {});
   return out;
+}
+
+/**
+ * Membership override: when a membership owned by a referred creator is subscribed to, the creator's Partner Manager earns
+ * membershipCommissionBps of BibleNestra's take (membershipTakeBps of the payment). Off while the % is 0. The creator
+ * never earns from their own membership, and a Partner Manager never earns from their own subscription.
+ * Idempotent per payment reference (the ledger's unique key). Returns the minor units credited (0 when none).
+ */
+async function recordMembershipOverride(env, p, cfg, currency, availableAt) {
+  if (p.kind !== 'membership' || !(cfg.membershipCommissionBps > 0)) return 0;
+  const m = await one(env, 'SELECT owner_id FROM memberships WHERE id::text = $1', [String(p.target_id || '')]);
+  if (!m || !m.owner_id || String(m.owner_id) === String(p.user_id)) return 0;
+  const attr = await one(env, 'SELECT partner_id FROM partner_attributions WHERE user_id = $1', [m.owner_id]);
+  if (!attr || String(attr.partner_id) === String(p.user_id)) return 0;
+  const partner = await activeMember(env, attr.partner_id, 'partner_manager');
+  if (!partner) return 0;
+  const takePpm = await creatorTakePpm(env, m.owner_id);
+  const { takeMinor, amountMinor } = membershipOverrideMinor(Number(p.amount_minor), { takePpm, membershipCommissionBps: cfg.membershipCommissionBps });
+  if (amountMinor <= 0) return 0;
+  const r = await one(env, `INSERT INTO portfolio_commissions (payment_reference, role, recipient_id, source_user_id, partner_id, payment_kind,
+      base_minor, rate_bps, amount_minor, currency, status, available_at)
+    VALUES ($1, 'membership', $2, $3, $2, 'memberships', $4, $5, $6, $7, 'held', $8) ON CONFLICT (payment_reference, role) DO NOTHING RETURNING id`,
+  [p.reference, partner.user_id, p.user_id, takeMinor, cfg.membershipCommissionBps, amountMinor, currency, availableAt]);
+  if (r) await notify(env, partner.user_id, 'Commission earned', 'You earned a commission on a membership subscription from your network.', { screen: 'PortfolioHome' }).catch(() => {});
+  return r ? amountMinor : 0;
 }
 
 /** Reversal (refund or chargeback): every commission of that payment that is not yet reversed. Ledger-safe: the balance
@@ -327,13 +396,43 @@ export async function attributePartner(env, userId, inviterId) {
   if (!inviterId || inviterId === userId) return { attributed: false, reason: 'self' };
   const partner = await activeMember(env, inviterId, 'partner_manager');
   if (!partner) return { attributed: false, reason: 'not_partner' };
+  // no self-referrals by the same contact details: the same billing email as the partner is the same person
+  const emails = await q(env, 'SELECT id, lower(billing_email) AS mail FROM users WHERE id = ANY($1::uuid[])', [[userId, inviterId]]);
+  const mailOf = (id) => (emails.find((e) => String(e.id) === String(id)) || {}).mail || null;
+  if (mailOf(userId) && mailOf(userId) === mailOf(inviterId)) return { attributed: false, reason: 'self' };
   const inv = await one(env, 'SELECT invite_code FROM users WHERE id = $1', [inviterId]);
   const r = await one(env, `INSERT INTO partner_attributions (user_id, partner_id, portfolio_manager_id, code) VALUES ($1,$2,$3,$4)
     ON CONFLICT (user_id) DO NOTHING RETURNING user_id`, [userId, inviterId, partner.recruited_by, inv ? inv.invite_code : null]);
-  return r ? { attributed: true, partnerId: inviterId, portfolioManagerId: partner.recruited_by } : { attributed: false, reason: 'already_attributed' };
+  if (!r) return { attributed: false, reason: 'already_attributed' };
+  // a tracked invitation to this person's billing email becomes a successful invitation
+  if (mailOf(userId)) await q(env, `UPDATE partner_invitations SET registered_user_id = $2, registered_at = now()
+    WHERE inviter_id = $1 AND registered_user_id IS NULL AND lower(email) = $3`, [inviterId, userId, mailOf(userId)]).catch(() => {});
+  return { attributed: true, partnerId: inviterId, portfolioManagerId: partner.recruited_by };
+}
+
+/**
+ * Super Admin only (the route is admin-only): move a Partner Manager to another Portfolio Manager. Logged with the old and
+ * new Portfolio Manager. Past commissions keep their recipients; new commissions follow the partner's current PM.
+ */
+export async function reassignPartner(env, admin, partnerId, newPmId) {
+  const pn = await memberOf(env, partnerId);
+  if (!pn || pn.role !== 'partner_manager') throw notFound('Partner Manager not found');
+  if (pn.status === 'pending') throw new ApiError(409, 'MEMBER_STATE', 'This application is still pending');
+  const pm = await activeMember(env, newPmId, 'portfolio_manager');
+  if (!pm) throw bad('That Portfolio Manager is not active', 'PM_NOT_ACTIVE');
+  if (String(pm.user_id) === String(pn.recruited_by)) return memberShape(env, pn);
+  const cfg = await portfolioConfig(env);
+  if (await partnerSlotsUsed(env, pm.user_id, partnerId) >= cfg.partnerLimit) throw new ApiError(409, 'LIMIT_REACHED', 'That Portfolio Manager has reached their Partner Manager limit');
+  await q(env, `UPDATE portfolio_members SET recruited_by = $2, recruitment_source = 'admin_reassigned', updated_at = now() WHERE user_id = $1`, [partnerId, pm.user_id]);
+  await logEvent(env, { actor: admin, admin: true, action: 'partner.reassigned', targetId: partnerId, details: { from: pn.recruited_by ? String(pn.recruited_by) : null, to: String(pm.user_id) } });
+  await notify(env, partnerId, 'Your Portfolio Manager changed', 'An administrator moved you to a new Portfolio Manager.', { screen: 'PortfolioHome' });
+  return memberShape(env, await memberOf(env, partnerId));
 }
 
 // ─── invitations ──────────────────────────────────────────────────────────────────────────────────────────────────
+/** A Partner Manager's landing page path: their handle when they have one, otherwise the /p/:code alias. */
+export const landingPathOf = (handle, code) => (handle ? `/partner/${handle}` : `/p/${code}`);
+
 /** Share links for a URL: WhatsApp, email compose (mailto), Facebook and X. No email service is involved. */
 export function shareLinks(kind, url) {
   const subject = kind === 'partner_manager' ? 'Join me as a Partner Manager on BibleNestra' : kind === 'portfolio_manager' ? 'Join BibleNestra as a Portfolio Manager' : 'Join me on BibleNestra';
@@ -348,6 +447,7 @@ export function shareLinks(kind, url) {
     whatsapp: `https://wa.me/?text=${enc(`${text} ${url}`)}`,
     email: `mailto:?subject=${enc(subject)}&body=${enc(`${text}\n\n${url}`)}`,
     facebook: `https://www.facebook.com/sharer/sharer.php?u=${enc(url)}`,
+    telegram: `https://t.me/share/url?url=${enc(url)}&text=${enc(text)}`,
     x: `https://twitter.com/intent/tweet?text=${enc(text)}&url=${enc(url)}`,
   };
 }
@@ -362,7 +462,16 @@ export function inviteShape(inv, origin = '') {
     createdAt: iso(inv.created_at), createdByAdmin: !!inv.created_by_admin, portfolioManagerId: inv.portfolio_manager_id || null,
     link: url,
     share: shareLinks(inv.kind, url),
+    status: inviteStatus(inv),
   };
+}
+
+/** For the invitation tracker: open, used up, expired or revoked. */
+export function inviteStatus(inv, now = Date.now()) {
+  if (inv.revoked) return 'revoked';
+  if (inv.expires_at && new Date(inv.expires_at).getTime() < now) return 'expired';
+  if (inv.max_uses != null && inv.uses >= inv.max_uses) return 'used_up';
+  return 'open';
 }
 
 export function inviteIsOpen(inv, now = Date.now()) {
@@ -552,18 +661,21 @@ export async function decideApplication(env, actor, id, action, { reason = null,
 export async function setMemberStatus(env, admin, userId, action, reason = null) {
   const m = await memberOf(env, userId);
   if (!m) throw notFound('Member not found');
-  if (action === 'suspend') {
-    if (m.status !== 'active') throw new ApiError(409, 'MEMBER_STATE', `This member is ${m.status}`);
+  if (action === 'suspend' || action === 'deactivate') {
+    if (m.status !== 'active' && !(action === 'deactivate' && m.status === 'suspended')) throw new ApiError(409, 'MEMBER_STATE', `This member is ${m.status}`);
     const text = String(reason || '').trim().slice(0, 300);
     if (text.length < 3) throw bad('Give a reason for the suspension', 'REASON_REQUIRED');
-    await q(env, `UPDATE portfolio_members SET status = 'suspended', suspended_at = now(), suspended_by = $2, suspend_reason = $3, updated_at = now() WHERE user_id = $1`, [userId, admin.id, text]);
-    await notify(env, userId, 'Account suspended', text, { screen: 'PortfolioHome' });
+    // deactivation is a suspension that is recorded as final (deactivated_at): the member earns nothing and cannot withdraw
+    await q(env, `UPDATE portfolio_members SET status = 'suspended', suspended_at = COALESCE(suspended_at, now()), suspended_by = $2, suspend_reason = $3,
+      deactivated_at = CASE WHEN $4 THEN now() ELSE deactivated_at END, updated_at = now() WHERE user_id = $1`, [userId, admin.id, text, action === 'deactivate']);
+    await notify(env, userId, action === 'deactivate' ? 'Account deactivated' : 'Account suspended', text, { screen: 'PortfolioHome' });
   } else if (action === 'reactivate') {
     if (m.status !== 'suspended') throw new ApiError(409, 'MEMBER_STATE', `This member is ${m.status}`);
-    await q(env, `UPDATE portfolio_members SET status = 'active', updated_at = now() WHERE user_id = $1`, [userId]);
+    await q(env, `UPDATE portfolio_members SET status = 'active', deactivated_at = NULL, updated_at = now() WHERE user_id = $1`, [userId]);
     await notify(env, userId, 'Account reactivated', 'Your Portfolio & Partners account is active again.', { screen: 'PortfolioHome' });
-  } else throw bad('action must be suspend or reactivate');
-  await logEvent(env, { actor: admin, admin: true, action: action === 'suspend' ? 'member.suspended' : 'member.reactivated', targetId: userId, details: { reason: reason || null } });
+  } else throw bad('action must be suspend, deactivate or reactivate');
+  const logAction = { suspend: 'member.suspended', deactivate: 'member.deactivated', reactivate: 'member.reactivated' }[action];
+  await logEvent(env, { actor: admin, admin: true, action: logAction, targetId: userId, details: { reason: reason || null } });
   return memberShape(env, await memberOf(env, userId));
 }
 
@@ -597,14 +709,15 @@ export async function meSummary(env, user, origin = '') {
   const m = await memberOf(env, user.id);
   const pending = await one(env, `SELECT * FROM portfolio_applications WHERE applicant_id = $1 AND status = 'pending'`, [user.id]);
   const cfg = await portfolioConfig(env);
-  const code = m ? (await one(env, 'SELECT invite_code FROM users WHERE id = $1', [user.id]))?.invite_code || null : null;
+  const me2 = m ? await one(env, 'SELECT invite_code, handle FROM users WHERE id = $1', [user.id]) : null;
+  const code = me2 ? me2.invite_code || null : null;
   return {
     member: m ? await memberShape(env, m) : null,
     isPortfolioManager: !!m && m.role === 'portfolio_manager',
     isPartnerManager: !!m && m.role === 'partner_manager',
     isActive: !!m && m.status === 'active',
     pendingApplication: pending ? applicationShape(pending) : null,
-    landingUrl: m && m.role === 'partner_manager' && code ? `${origin}/p/${code}` : null,
+    landingUrl: m && m.role === 'partner_manager' && code ? `${origin}${landingPathOf(me2.handle, code)}` : null,
     commission: { partnerPercent: cfg.partnerBps / 100, pmPercent: cfg.pmBps / 100, holdDays: cfg.holdDays, currency: cfg.currency },
   };
 }
@@ -643,7 +756,9 @@ export async function partnerDashboard(env, user, origin = '') {
   const pn = await activeMember(env, user.id, 'partner_manager');
   if (!pn) throw forbidden('Partner Managers only', 'PARTNER_ONLY');
   const cfg = await portfolioConfig(env);
-  const code = (await one(env, 'SELECT invite_code FROM users WHERE id = $1', [user.id])).invite_code;
+  const meRow = await one(env, 'SELECT invite_code, handle FROM users WHERE id = $1', [user.id]);
+  const code = meRow.invite_code;
+  const landingPath = landingPathOf(meRow.handle, code);
   const [bal, counts, recent, withdrawals] = await Promise.all([
     balances(env, user.id),
     one(env, `SELECT (SELECT count(*)::int FROM partner_attributions WHERE partner_id = $1) AS referred,
@@ -654,9 +769,9 @@ export async function partnerDashboard(env, user, origin = '') {
   const kyc = await getKyc(env, user.id);
   return {
     member: await memberShape(env, pn),
-    landingUrl: `${origin}/p/${code}`,
+    landingUrl: `${origin}${landingPath}`,
     code,
-    share: shareLinks('partner_manager', `${origin}/p/${code}`),
+    share: shareLinks('partner_manager', `${origin}${landingPath}`),
     referredUsers: counts.referred,
     eligiblePayments: counts.payments,
     earnings: Object.values(bal),

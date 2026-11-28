@@ -8,9 +8,12 @@ import { meResponse } from './me.js';
 import { recordDatingAdSsv } from '../lib/dating.js'; // FIND LOVE: SSV for dating message unlocks
 import { applyUnlockAd, isUnlockFeature } from '../lib/featureUnlocks.js'; // FEATURE UNLOCKS: purpose 'unlock:<feature>' credits the unlock's coins
 import { applyMembershipGateAd, AD_GATE_PURPOSE } from '../lib/membershipAdGate.js'; // MEMBERSHIP AD GATE: purpose 'membership_gate:<id>'
+import { applyWatchEarnAd, earnStatus, EARN_PURPOSE } from '../lib/watchEarn.js'; // WATCH & EARN: purpose 'earn' credits Kingdom Coins
 
-// Applies one watched ad. Returns { unlocked } (job purpose), { counted } (support purpose) or the unlock result.
+// Applies one watched ad. Returns { unlocked } (job purpose), { counted } (support purpose), the unlock result, or the
+// Watch & Earn result for purpose 'earn'.
 export async function applyAdReward(env, userId, purpose, { transactionId = null, verified = false } = {}) {
+  if (purpose === EARN_PURPOSE) return applyWatchEarnAd(env, userId, { transactionId, verified });
   if (typeof purpose === 'string' && purpose.startsWith('unlock:')) {
     return applyUnlockAd(env, userId, purpose.slice('unlock:'.length), { transactionId, verified });
   }
@@ -52,8 +55,12 @@ rewards.post('/ads/claim', async (c) => {
   const res = await applyAdReward(c.env, me.id, b.purpose);
   const m = await meResponse(c.env, me.id);
   const unlockAd = res.adsNeeded !== undefined ? res : null; // FEATURE UNLOCKS: progress of an unlock:<feature> ad
-  return c.json({ supportAdsToday: m.supportAdsToday, jobAdCredits: m.jobAdCredits, coins: m.coins, unlocked: res.unlocked || 0, counted: res.counted, unlockAd });
+  const earn = b.purpose === EARN_PURPOSE ? res : null; // WATCH & EARN: result of the earn ad (credited, capped, duplicate, disabled)
+  return c.json({ supportAdsToday: m.supportAdsToday, jobAdCredits: m.jobAdCredits, coins: m.coins, unlocked: res.unlocked || 0, counted: res.counted, unlockAd, earn });
 });
+
+// WATCH & EARN: GET /earn/status → today's ads and cap, coins today, total coins, next reward, streak, config.
+rewards.get('/earn/status', async (c) => c.json(await earnStatus(c.env, c.get('user').id)));
 
 rewards.post('/games/results', async (c) => {
   const me = c.get('user');
@@ -105,6 +112,12 @@ ssv.get('/ads/ssv', async (c) => {
     const exists = await one(c.env, 'SELECT id FROM users WHERE id = $1', [userId]);
     if (!exists) return c.json({ ok: true, ignored: true });
     await applyUnlockAd(c.env, userId, feature, { transactionId: p.transaction_id, verified: true });
+    return c.json({ ok: true });
+  }
+  // WATCH & EARN: custom_data 'earn' (purpose 'earn' in applyAdReward; disabled or capped ads are acknowledged, not credited)
+  if (isUuid(userId) && purpose === EARN_PURPOSE && p.transaction_id) {
+    if (!(await one(c.env, 'SELECT id FROM users WHERE id = $1', [userId]))) return c.json({ ok: true, ignored: true });
+    await applyWatchEarnAd(c.env, userId, { transactionId: p.transaction_id, verified: true });
     return c.json({ ok: true });
   }
   if (!isUuid(userId) || !['support', 'job'].includes(purpose) || !p.transaction_id) return c.json({ ok: true, ignored: true }); // still 200 so AdMob stops retrying

@@ -56,10 +56,10 @@ const DISCOVER_TILES = [
 const HUB_TONES = {
   gold: { bg: d.gold, fg: d.goldDark },
   plum: { bg: d.lavender, fg: '#FF6B1A' },
-  blue: { bg: (isDarkScheme() ? '#1B2A36' : '#DCE9F5'), fg: (isDarkScheme() ? '#7FB2DB' : '#365D82') },
+  blue: { bg: (isDarkScheme() ? '#161c22' : '#dce9f5'), fg: (isDarkScheme() ? '#7FB2DB' : '#365D82') },
   rose: { bg: d.rose, fg: d.roseDark },
   sage: { bg: d.sage, fg: d.sageDark },
-  ink: { bg: '#281A11', fg: '#FFFFFF' },
+  ink: { bg: '#111111', fg: '#FFFFFF' },
 };
 const DISCOVER_HUBS = [
   { label: 'Memberships', desc: 'Master Class & Executive Class', to: 'Memberships', crown: true, tone: 'gold' },
@@ -103,7 +103,7 @@ export default function DiscoverScreen() {
   const [discoverTab, setDiscoverTab] = useState('memberships');
   // MEMBERSHIP HUB / FIND LOVE HUB (Development Update v1, items 4 and 13): each side is its own full-screen page now.
   // Swiping left opens Find Love the same way a tap does; the toggle itself stays on Memberships.
-  const swipe = useSwipeTabs(useCallback(() => nav.push('FindLoveHub'), [nav]), useCallback(() => setDiscoverTab('memberships'), []));
+  const swipe = useSwipeTabs(useCallback(() => {}, []), useCallback(() => setDiscoverTab('memberships'), [])); // CLIENT (2026-11-28): no swipe to Find Love any more (the top pair is Chats | Watch & Earn)
 
   // Interactive Games State — a fresh, date-seeded set every day (see data/games.js)
   const ads = useAds();
@@ -389,12 +389,27 @@ export default function DiscoverScreen() {
           )}
         />
 
-        {/* MEMBERSHIPS (brief 8.5): segmented toggle instead of the search bar; tap or swipe sideways to switch */}
-        <SegmentToggle
-          value={discoverTab}
-          onChange={(id) => nav.push(id === 'love' ? 'FindLoveHub' : 'MembershipHub')} // MEMBERSHIP HUB / FIND LOVE HUB: pushed full-screen pages
-          options={[{ id: 'memberships', label: 'Memberships', icon: 'star' }, { id: 'love', label: 'Find Love', icon: 'heart' }]}
-        />
+        {/* CLIENT (2026-11-28): the top pair is now Chats | Watch & Earn — two bold gradient doors, each a full-screen page.
+            Memberships stay in Explore BibleNestra and Today's tiles; Find Love is the centre tab button. */}
+        <View style={styles.boldDoors}>
+          <Tap style={styles.boldDoorWrap} onPress={() => nav.push('ChatList')} accessibilityRole="button" accessibilityLabel="Chats">
+            <Grad colors={['#FF9A53', '#ED5C12', '#C2410C']} style={styles.boldDoor}>
+              <View style={styles.boldDoorRing} />
+              <View style={styles.boldDoorIcon}><Icon name="chat" size={22} color="#FFFFFF" /></View>
+              <Text style={styles.boldDoorTitle}>Chats</Text>
+              <Text style={styles.boldDoorSub}>Message friends & groups</Text>
+            </Grad>
+          </Tap>
+          <Tap style={styles.boldDoorWrap} onPress={() => nav.push('WatchEarn')} accessibilityRole="button" accessibilityLabel="Watch and earn">
+            <Grad colors={['#3B2417', '#7A4A12', '#D4A852']} style={styles.boldDoor}>
+              <View style={styles.boldDoorRing} />
+              <View style={styles.boldDoorIcon}><Icon name="play" size={20} color="#FFFFFF" fill="solid" /></View>
+              <Text style={styles.boldDoorTitle}>Watch & Earn</Text>
+              <Text style={styles.boldDoorSub}>Earn coins every day</Text>
+              <View style={styles.boldDoorBadge}><Icon name="coin" size={12} color="#3B2417" /><Text style={styles.boldDoorBadgeText}>FREE COINS</Text></View>
+            </Grad>
+          </Tap>
+        </View>
       </View>
 
       {discoverTab === 'love' ? (
@@ -445,7 +460,7 @@ export default function DiscoverScreen() {
                 <Text style={styles.hubTitle}>{h.label}</Text>
                 <Text style={styles.hubDesc}>{h.desc}</Text>
               </View>
-              <Icon name="chevron-right" size={16} color={isDarkScheme() ? '#8A7A6C' : '#AAA6AD'} />
+              <Icon name="chevron-right" size={16} color={isDarkScheme() ? '#737373' : '#AAA6AD'} />
             </PressScale>
           ))}
         </View>
@@ -2553,6 +2568,15 @@ export function FeedScreen() {
 const eyebrowBase = { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase' };
 
 const styles = StyleSheet.create({
+  boldDoors: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  boldDoorWrap: { flex: 1, borderRadius: 22, shadowColor: '#C2410C', shadowOpacity: 0.28, shadowRadius: 14, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  boldDoor: { minHeight: 118, borderRadius: 22, padding: 14, overflow: 'hidden', justifyContent: 'flex-end' },
+  boldDoorRing: { position: 'absolute', width: 120, height: 120, borderRadius: 60, borderWidth: 22, borderColor: 'rgba(255,255,255,0.10)', right: -40, top: -46 },
+  boldDoorIcon: { position: 'absolute', top: 14, left: 14, width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)', alignItems: 'center', justifyContent: 'center' },
+  boldDoorTitle: { fontFamily: 'Playfair-Bold', fontSize: 21, lineHeight: 25, color: '#FFFFFF', letterSpacing: -0.3 },
+  boldDoorSub: { fontFamily: 'DMSans-Bold', fontSize: 11, color: 'rgba(255,255,255,0.86)', marginTop: 2 },
+  boldDoorBadge: { position: 'absolute', top: 16, right: 12, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F4D88C', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  boldDoorBadgeText: { fontFamily: 'DMSans-ExtraBold', fontSize: 9, letterSpacing: 0.6, color: '#3B2417' },
   liveFeature: { borderRadius: radius.xl, padding: 18, overflow: 'hidden', marginTop: 4, marginBottom: 4, ...shadow.lg },
   liveFeatureMeta: { fontSize: 11.5, fontWeight: '600', color: colors.nightMuted },
   liveFeatureEyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase', color: colors.goldLight },

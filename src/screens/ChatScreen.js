@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
   iconOn: { backgroundColor: d.lavender, borderColor: d.plum },
   groupAv: { width: 42, height: 42, borderRadius: 21, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
   initials: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
-  initialsText: { fontFamily: df.sansHeavy, color: (isDarkScheme() ? '#E9C9A8' : '#704426'), letterSpacing: 0.3 },
+  initialsText: { fontFamily: df.sansHeavy, color: (isDarkScheme() ? '#e5e5e5' : '#704426'), letterSpacing: 0.3 },
   onlineDot: { position: 'absolute', right: -1, bottom: -1, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: d.ivory },
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 14, height: 48, borderRadius: 15, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   searchInput: { flex: 1, fontSize: 14, color: d.ink, paddingVertical: 4, outlineStyle: 'none' },

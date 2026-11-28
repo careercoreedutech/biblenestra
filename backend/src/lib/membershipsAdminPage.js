@@ -79,6 +79,104 @@ window.registerAdminTab('Memberships', function(box, ctx){
   box.appendChild(h('p', { class: 'sub', text: 'One membership group shows in Discover \\u203A Memberships, in the Membership groups list and (for members) in My membership groups. The first time you publish it, it gets two sections: MASTER CLASS (lessons, videos and files: only the owner and admins allowed to publish post there) and EXECUTIVE CLASS (members discuss; every MASTER CLASS post appears there automatically for comments). Access is checked by the server on every MASTER CLASS, EXECUTIVE CLASS and library request; when a membership lapses the person is removed within 15 minutes and renewing brings them back. Owners manage admins, permissions, members and group settings from the group in the app.' }));
   var flagsLine = h('div', { class: 'card', style: 'background:var(--raised)' });
   box.appendChild(flagsLine);
+  // ================= creator plans (round 3): Free / Standard / Premium, creators, withdrawals =================
+  var cpBox = h('div', { class: 'card' });
+  box.appendChild(cpBox);
+  var CP_IDS = ['free', 'standard', 'premium'];
+  var CP_STATUS = { active: 'Active', past_due: 'Payment failed', expired: 'Expired', none: 'No plan' };
+  var CP_ACTION = { approve: 'Approve', reject: 'Reject', cancel: 'Cancel', paid: 'Mark paid' };
+  function cpShowError(e){ cpBox.appendChild(h('div', { class: 'meta', text: e.message || 'Something went wrong' })); }
+  function cpLoad(){ api('GET', '/admin/api/creator-plans').then(cpCard).catch(function(e){ cpBox.innerHTML = ''; cpShowError(e); }); }
+  function cpCard(d){
+    cpBox.innerHTML = '';
+    var cfg = d.config || {};
+    var plans = cfg.plans || {};
+    var rate = d.rate || {};
+    cpBox.appendChild(h('h3', { class: 'serif', text: 'Creator plans' }));
+    cpBox.appendChild(h('p', { class: 'meta', text: 'Free: creating costs nothing; members who join a Free creator see one ad a day per account. Standard and Premium renew monthly, charged in NGN at the live USD rate (' + (rate.usdChargeable ? 'charged in USD' : 'NGN ' + (rate.ngnPerUsd || '?') + ' per USD') + ').' }));
+    var enIn = h('input', { type: 'checkbox' }); enIn.checked = !!cfg.enabled;
+    var adIn = h('input', { type: 'checkbox' }); adIn.checked = !!(cfg.joinAd && cfg.joinAd.enabled);
+    var feeIn = h('input', { type: 'checkbox' }); feeIn.checked = !!d.creationFeeEnabled;
+    var minIn = inp(h, '1000', 12, 'number'); minIn.value = String((cfg.minWithdrawalMinor || 0) / 100);
+    cpBox.appendChild(field(h, 'Plan gating', h('label', {}, [enIn, ' Creators must hold a plan that lets them create'])));
+    cpBox.appendChild(field(h, 'Join ads', h('label', {}, [adIn, ' Show the Free-plan join ad (once a day per user)'])));
+    cpBox.appendChild(field(h, 'Minimum withdrawal', minIn, 'In NGN, whole naira.'));
+    cpBox.appendChild(field(h, 'Creation fee', h('label', {}, [feeIn, ' Charge the old per-membership creation fee again (off = dormant)'])));
+    var rowsIn = {};
+    CP_IDS.forEach(function(id){
+      var p = plans[id] || {};
+      var nm = inp(h, 'Name', 40); nm.value = p.name || id;
+      var pr = inp(h, 'USD / month', 12, 'number'); pr.value = String((p.priceUsdCents || 0) / 100);
+      var pc = inp(h, 'withdrawal %', 8, 'number'); pc.value = String(p.withdrawalPercent == null ? '' : p.withdrawalPercent); pc.step = '0.001';
+      var ja = h('input', { type: 'checkbox' }); ja.checked = !!p.joinAds;
+      var en = h('input', { type: 'checkbox' }); en.checked = p.enabled !== false;
+      rowsIn[id] = { nm: nm, pr: pr, pc: pc, ja: ja, en: en };
+      cpBox.appendChild(h('div', { class: 'card', style: 'margin-top:10px;background:var(--raised)' }, [
+        h('b', { text: id.toUpperCase() }),
+        field(h, 'Name', nm),
+        field(h, 'Price (USD)', pr, id === 'free' ? 'Free must stay 0' : 'Paid plans must be above 0'),
+        field(h, 'Withdrawal fee %', pc, 'Up to 3 decimals, e.g. 0.131'),
+        field(h, 'Join ad', h('label', {}, [ja, ' Ads when members join'])),
+        field(h, 'Offered', h('label', {}, [en, ' Available to pick'])),
+      ]));
+    });
+    var saveBtn = h('button', { class: 'btn', text: 'Save creator plans', onclick: async function(){
+      var body = {
+        enabled: enIn.checked, minWithdrawalMinor: Math.round(Number(minIn.value || 0) * 100), joinAd: { enabled: adIn.checked },
+        creationFeeEnabled: feeIn.checked, plans: {},
+      };
+      CP_IDS.forEach(function(id){
+        var r = rowsIn[id];
+        body.plans[id] = { name: r.nm.value.trim(), priceUsdCents: Math.round(Number(r.pr.value || 0) * 100), withdrawalPercent: Number(r.pc.value || 0), joinAds: r.ja.checked, enabled: r.en.checked };
+      });
+      try { var saved = await api('PUT', '/admin/api/creator-plans', body); toast('Creator plans saved'); cpCard(saved); }
+      catch (e) { toast(e.message, true); }
+    } });
+    cpBox.appendChild(h('div', { class: 'row', style: 'margin-top:12px' }, [saveBtn]));
+    cpBox.appendChild(h('h3', { class: 'serif', style: 'margin-top:18px', text: 'Creators and their plans' }));
+    var creators = d.creators || [];
+    if (!creators.length) cpBox.appendChild(h('div', { class: 'meta', text: 'No creator has chosen a plan yet.' }));
+    creators.forEach(function(c){
+      var line = (c.name || 'Creator') + (c.handle ? ' (@' + c.handle + ')' : '') + ' \u00B7 ' + (c.planId || '') + ' \u00B7 ' + (CP_STATUS[c.status] || c.status) + (c.canCreate ? '' : ' \u00B7 cannot create') + ' \u00B7 ' + c.memberships + ' membership' + (c.memberships === 1 ? '' : 's') + (c.renewsOn ? ' \u00B7 renews ' + fmtDate(c.renewsOn) : '') + (c.pendingPlanId ? ' \u00B7 changing to ' + c.pendingPlanId : '');
+      cpBox.appendChild(h('div', { class: 'meta', style: 'margin-top:6px', text: line }));
+    });
+    cpBox.appendChild(h('h3', { class: 'serif', style: 'margin-top:18px', text: 'Creator withdrawals (to decide and to pay)' }));
+    var queue = h('div', {});
+    cpBox.appendChild(queue);
+    cpQueue(queue);
+  }
+  function cpQueue(box2){
+    box2.innerHTML = '';
+    Promise.all([api('GET', '/admin/api/creator-withdrawals?status=requested'), api('GET', '/admin/api/creator-withdrawals?status=approved')]).then(function(res){
+      var items = (res[0].items || []).concat(res[1].items || []);
+      if (!items.length) { box2.appendChild(h('div', { class: 'meta', text: 'No withdrawals waiting for a decision or payment.' })); return; }
+      items.forEach(function(w){
+        var who = (w.creator && w.creator.name) || 'Creator';
+        var acts = w.status === 'requested' ? ['approve', 'reject'] : ['paid', 'reject'];
+        box2.appendChild(h('div', { class: 'card', style: 'margin-top:8px;background:var(--raised)' }, [
+          h('b', { text: who + ' \\u00B7 ' + w.status }),
+          h('div', { class: 'meta', text: 'Gross ' + w.grossText + ' \\u00B7 BibleNestra fee ' + w.feeText + ' (' + w.feePercent + '% on the ' + w.planId + ' plan)' + (w.bankChargeText ? ' \\u00B7 bank charge ' + w.bankChargeText : '') + (w.netText ? ' \\u00B7 net ' + w.netText : '') + (w.reference ? ' \\u00B7 ref ' + w.reference : '') }),
+          h('div', { class: 'row', style: 'gap:6px;margin-top:6px' }, acts.map(function(act){
+            return h('button', { class: 'btn', text: CP_ACTION[act], onclick: async function(){
+              try {
+                var extra = {};
+                if (act === 'paid') {
+                  var ref = window.prompt('Bank or transfer reference for this payout:');
+                  if (!ref) return;
+                  var bank = window.prompt('Gateway or bank charge in NGN (0 if none):', '0');
+                  extra = { reference: ref, bankChargeMinor: Math.round(Number(bank || 0) * 100) };
+                }
+                if (act === 'reject') { extra = { reason: window.prompt('Reason for rejecting (optional):', '') || '' }; }
+                await api('POST', '/admin/api/creator-withdrawals/' + w.id + '/' + act, extra);
+                toast(CP_ACTION[act] + ' done'); cpQueue(box2);
+              } catch (e) { toast(e.message, true); }
+            } });
+          })),
+        ]));
+      });
+    }).catch(function(e){ box2.innerHTML = ''; box2.appendChild(h('div', { class: 'meta', text: e.message })); });
+  }
+  cpLoad();
 
   // ================= creation fee (Development Update v1, item 4.2) =================
   var feeBox = h('div', { class: 'card' });

@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
   badge: { minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
   badgeText: { fontSize: 10.5, fontFamily: df.sansBold, color: '#FFFFFF' },
   initials: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
-  initialsText: { fontFamily: df.sansHeavy, color: (isDarkScheme() ? '#E9C9A8' : '#704426'), letterSpacing: 0.3 },
+  initialsText: { fontFamily: df.sansHeavy, color: (isDarkScheme() ? '#e5e5e5' : '#704426'), letterSpacing: 0.3 },
   groupIcon: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
   onlineDot: { position: 'absolute', right: 1, bottom: 1, width: 12, height: 12, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: colors.surface },
 });

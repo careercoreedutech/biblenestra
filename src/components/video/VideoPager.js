@@ -16,6 +16,7 @@ import { Icon } from '../Icons';
 import VideoPoster from './VideoPoster';
 import { useVideoPlayCount } from './useVideoPlayCount'; // VIEW COUNTS: plays on every reel
 import VideoControls from './VideoControls';
+import EmbedPlayer from '../social/EmbedPlayer'; // POST FROM A LINK
 import { IS_WEB, LONG_VIDEO_SEC, VIDEO_FILL, posterSize } from './videoUtils';
 
 const ND = Platform.OS !== 'web';
@@ -461,7 +462,13 @@ export default function VideoPager({
             />
           ) : null}
           <Pressable style={StyleSheet.absoluteFill} onPress={current ? onTap : undefined} accessibilityRole="button" accessibilityLabel={current ? (playing ? 'Pause video' : 'Play video') : undefined} testID={current ? 'video-tap' : undefined} />
-          {current && (status === 'loading' || (status === 'idle' && !playing)) && phase === 'ready' && !breakOn ? (
+          {/* POST FROM A LINK: a linked YouTube / Facebook video plays its provider embed on this page */}
+          {current && it.embed ? (
+            <View style={[StyleSheet.absoluteFill, { paddingTop: topInset, paddingBottom: controlsH }]} pointerEvents="box-none">
+              <EmbedPlayer postId={it.id} embed={it.embed} autoplay fill />
+            </View>
+          ) : null}
+          {current && !it.embed && (status === 'loading' || (status === 'idle' && !playing)) && phase === 'ready' && !breakOn ? (
             <View style={styles.center} pointerEvents="none"><ActivityIndicator color={WHITE} size="large" /></View>
           ) : null}
           {current && status === 'error' ? (

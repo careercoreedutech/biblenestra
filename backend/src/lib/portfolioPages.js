@@ -59,21 +59,44 @@ function commissionCard(cfg, kind) {
 <li>A dashboard to see every Partner Manager, their referrals and their earnings.</li></ul></div>`;
 }
 
-export function partnerLandingPage({ name, code, origin, cfg, playUrl }) {
+// Personal landing page (/partner/:username and /p/:code). Everything the partner controls comes from the Settings profile
+// and the admin landing template; the membership plans come live from the 'creator_plans' config (or a names-only fallback).
+export function partnerLandingPage({ name, intro, photoUrl, code, handle, origin, cfg, template, plans, playUrl, landingUrl, bannerUrl, shares }) {
   const first = String(name || 'A BibleNestra partner').split(' ')[0];
   const join = `${origin}/i/${code}`;
-  const title = `${first} invites you to BibleNestra`;
+  const t = template || { headline: 'invites you to BibleNestra', benefits: [], accent: 'orange' };
+  const accent = { orange: '#FF6B1A', gold: '#F4D88C', sage: '#E7EAD7' }[t.accent] || '#FF6B1A';
+  const title = `${first} ${t.headline}`.trim();
+  const planList = plans && plans.plans && plans.plans.length ? plans.plans : [];
+  const planCard = planList.length
+    ? `<div class="card"><h2>Membership plans</h2><ul>${planList.map((p) => `<li><b>${esc(p.name)}</b>${p.priceLabel ? ` · ${esc(p.priceLabel)}` : ''}${p.feeLabel ? ` · ${esc(p.feeLabel)}` : ''}</li>`).join('')}</ul>
+<small>Create a membership for your community. Free creators can upgrade at any time.</small></div>`
+    : '';
+  const benefits = (t.benefits || []).map((b) => `<li>${esc(b)}</li>`).join('');
+  const sh = shares || {};
+  const shareRow = [['WhatsApp', sh.whatsapp], ['Facebook', sh.facebook], ['Telegram', sh.telegram], ['Email', sh.email]]
+    .filter(([, u]) => u).map(([label, u]) => `<a class="btn ghost" href="${esc(u)}">${esc(label)}</a>`).join('');
   return shell(title, 'Read the Bible, pray and chat with believers. Join BibleNestra with my invitation.', `
 <div class="brand">BibleNestra</div>
-<div class="hero" style="margin-top:14px"><h1>${esc(first)} invites you to BibleNestra</h1>
-<p>Read the Bible together, pray with believers, study with trusted tools and find a Christian community near you.</p></div>
+<div class="hero" style="margin-top:14px;background:linear-gradient(135deg,#FFF2E5 0%,${accent} 100%)">
+${photoUrl ? `<img src="${esc(photoUrl)}" alt="" style="width:72px;height:72px;border-radius:50%;object-fit:cover;margin-bottom:10px">` : ''}
+<h1>${esc(first)} ${esc(t.headline)}</h1>
+<p>${esc(intro || 'Read the Bible together, pray with believers, study with trusted tools and find a Christian community near you.')}</p></div>
 <div class="card" style="text-align:center"><p style="margin:0 0 10px">Your invitation code</p><span class="code">${esc(code)}</span>
-<a class="btn" href="${esc(join)}">Join BibleNestra</a>
+<a class="btn" href="${esc(join)}">Sign up with ${esc(first)}'s code</a>
 ${playUrl ? `<a class="btn ghost" href="${esc(playUrl)}">Get the app</a>` : ''}
-<small>After you install the app, enter the code <b>${esc(code)}</b> under Chats › Invite friends › “Have an invite code?”.</small></div>
+<small>After you install the app, enter the code <b>${esc(code)}</b> under Chats › Invite friends › “Have an invite code?”. Every sign-up through this page is linked to ${esc(first)}.</small></div>
 <h2>What you will find</h2>
-<div class="card"><ul><li>The Bible in many translations, with study tools</li><li>Prayer wall and daily Bible readings</li><li>Christian chat groups, memberships and events</li></ul></div>
-<small style="text-align:center">Promoted by ${esc(first)}.BibleNestra is a Christian app.</small>`);
+<div class="card"><ul>${benefits || '<li>The Bible in many translations, with study tools</li><li>Prayer wall and daily Bible readings</li>'}</ul></div>
+<h2>Create a membership</h2>
+<div class="card"><p>Start a group for your church, Bible study or prayer circle. Members join and learn together.</p></div>
+${planCard}
+<h2>Partner with BibleNestra</h2>
+<div class="card"><p>Share BibleNestra with people you know and earn commissions on their eligible payments. Ask ${esc(first)} how to become a Partner Manager.</p></div>
+<h2>Share</h2>
+<div class="card" style="text-align:center">${shareRow || ''}<a class="btn ghost" href="${esc(landingUrl || '')}">Open this page</a>
+${bannerUrl ? `<small><a href="${esc(bannerUrl)}">Download a promotion banner</a></small>` : ''}</div>
+<small style="text-align:center">Promoted by ${esc(first)}${handle ? ` (@${esc(handle)})` : ''}. BibleNestra is a Christian app.</small>`);
 }
 
 export function recruitmentPage({ kind, info, cfg, origin, playUrl }) {

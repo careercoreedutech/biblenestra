@@ -15,6 +15,7 @@ import { useStore } from '../store';
 import { isTestUnit, logAdEvent } from './remote';
 import { useAdRules } from './AdBreaks';
 import { surfaceAllowed } from './rules';
+import { HouseCard } from './HouseAd'; // AD NETWORKS: our own house ad fills an empty slot when AdMob has no ad
 import { colors, radius } from '../theme';
 
 function usePremium() {
@@ -50,7 +51,8 @@ export function BannerSlot({ style }) {
   useEffect(() => {
     if (!premium && on && native && !requested.current) { requested.current = true; logAdEvent('requested', BANNER_META); }
   }, [premium, on, native]);
-  if (premium || failed || !on) return null;
+  if (premium || !on) return null;
+  if (failed) return <HouseCard style={style} />; // AD NETWORKS: our own house ad when AdMob has no ad
   if (!native) return <DemoBox label="Banner ad appears here in the app" style={style} meta={{ ...BANNER_META, test: true }} />;
   const { BannerAd, BannerAdSize } = GMA;
   return (
@@ -104,7 +106,8 @@ export function FeedNativeAd({ style, surface = 'feed', variant }) {
     return () => { alive = false; subs.forEach((u) => { try { if (u && u.remove) u.remove(); else if (typeof u === 'function') u(); } catch (e) { /* ignore */ } }); if (loaded) loaded.destroy(); };
   }, [premium, native, on]);
 
-  if (premium || failed || !on) return null;
+  if (premium || !on) return null;
+  if (failed) return <HouseCard style={style} variant={article ? 'article' : undefined} />; // AD NETWORKS: house ad fallback
   if (!native) {
     if (article) return null; // no ad can load in this build: the article shows nothing in the slot
     return <DemoBox label="A native ad card appears here between posts" height={120} style={[styles.feedCard, style]} meta={{ ...NATIVE_META, test: true }} />;

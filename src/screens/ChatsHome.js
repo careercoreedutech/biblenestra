@@ -21,6 +21,7 @@ import { ChatActionsSheet } from '../components/chat/ChatActionsSheet'; // PACKA
 import { deleteConfirmText } from '../chat/chatActions'; // PACKAGE F
 import { pinChat, hideChat, deleteGroup } from '../api/groupDiscovery'; // PACKAGE F
 import { relTime } from '../chat/messages';
+import { linkByHandle } from '../api/contacts'; // USERNAME CONTACTS: an exact @username match skips the free chat slots
 import { ChatSlotsCounter, ChatPassBadge } from '../components/ChatLimit'; // CHAT LIMITS: "3 of 5 free chats used" (prompt itself is global, App.js)
 
 const TABS = ['Chats', 'Groups', 'Communities', 'Channels', 'Find Believers'];
@@ -88,6 +89,7 @@ export function useOpenDm() {
   return useCallback(async (person) => {
     if (!api.online) { nav.push('Chat', { to: person.name || person.displayName }); return; }
     try {
+      await linkByHandle(api, person); // USERNAME CONTACTS: before the chat opens (exact match only; a refusal keeps the normal rule)
       const r = await api.request('POST', '/conversations/dm', { userId: person.id });
       nav.push('Chat', { id: r.id, to: person.displayName, userId: person.id });
       if (sync.refresh) sync.refresh({ quiet: true });
@@ -145,6 +147,67 @@ function FindBelievers() {
           </View>
         </FadeInUp>
       ))}
+    </View>
+  );
+}
+
+// USERNAME SEARCH (Chats search bar): "@ben" or "ben" finds people by username. An EXACT match is a clear card on top;
+// Message makes it a contact (no free slot used). Partial matches are suggestions below and keep the normal free-chat rule.
+// Server: GET /people (matchRank 0 = exact handle, the server ignores a leading @).
+function UsernameMatches({ query }) {
+  const api = useApi();
+  const nav = useNav();
+  const openDm = useOpenDm();
+  const term = query.trim().replace(/^@+/, '').trim().slice(0, 40);
+  const [found, setFound] = useState({ term: '', items: [] });
+  useEffect(() => {
+    if (!api.online || !term) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      api.request('GET', `/people?q=${encodeURIComponent(term)}`)
+        .then((r) => { if (live) setFound({ term, items: (r && r.items) || [] }); })
+        .catch(() => { if (live) setFound({ term, items: [] }); });
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [term, api]);
+  if (!api.online || !term) return null;
+  const items = found.term === term ? found.items : [];
+  const exact = items.filter((p) => p.matchRank === 0).slice(0, 1);
+  const partial = items.filter((p) => p.matchRank !== 0).slice(0, 8);
+  const ready = found.term === term;
+  return (
+    <View style={{ paddingHorizontal: 16 }}>
+      {exact.map((p) => (
+        <View key={p.id} style={styles.exactCard}>
+          <Pressable onPress={() => nav.push('UserProfile', { id: p.id, name: p.displayName })} style={styles.personTap} accessibilityLabel={`Open ${p.displayName}’s profile`}>
+            <SocialAvatar name={p.displayName} uri={p.avatarUrl} size={56} />
+            <View style={styles.rowMid}>
+              <Text style={styles.rowName} numberOfLines={1}>{p.displayName}{p.verified ? ' ✓' : ''}</Text>
+              <Text style={styles.rowLast} numberOfLines={1}>@{p.handle}</Text>
+              {p.church ? <Text style={styles.rowLast} numberOfLines={1}>{p.church}</Text> : null}
+            </View>
+          </Pressable>
+          <Button small label="Message" icon={<Icon name="chat" size={13} color="#FFFFFF" />} onPress={() => openDm(p)} />
+        </View>
+      ))}
+      {partial.length ? <Text style={styles.sectionLabel}>Suggestions</Text> : null}
+      {partial.map((p) => (
+        <View key={p.id} style={styles.row}>
+          <Pressable onPress={() => nav.push('UserProfile', { id: p.id, name: p.displayName })} style={styles.personTap} accessibilityLabel={`Open ${p.displayName}’s profile`}>
+            <SocialAvatar name={p.displayName} uri={p.avatarUrl} size={44} />
+            <View style={styles.rowMid}>
+              <Text style={styles.rowName} numberOfLines={1}>{p.displayName}</Text>
+              <Text style={styles.rowLast} numberOfLines={1}>{[p.handle ? `@${p.handle}` : null, p.church].filter(Boolean).join(' · ') || 'BibleNestra member'}</Text>
+            </View>
+          </Pressable>
+          <Button small label="Message" onPress={() => openDm(p)} />
+        </View>
+      ))}
+      {ready && !exact.length ? (
+        <Pressable onPress={() => nav.push('InviteFriends')} style={styles.inviteLink} accessibilityRole="button">
+          <Text style={styles.inviteLinkText}>Can’t find them? Invite friends</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -283,9 +346,10 @@ export function ChatsHomeScreen({ params = {} }) {
     <View>
       <View style={styles.searchDesign}>
         <Icon name="search" size={16} color={colors.faint} />
-        <TextInput value={query} onChangeText={setQuery} placeholder="Search Messages" placeholderTextColor={colors.faint} style={styles.searchInput} autoCorrect={false} accessibilityLabel="Search Messages" />
+        <TextInput value={query} onChangeText={setQuery} placeholder="Search people, @username or messages" placeholderTextColor={colors.faint} style={styles.searchInput} autoCorrect={false} accessibilityLabel="Search people or messages" />
         {query ? <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Clear search"><Icon name="x" size={14} color={colors.muted} /></Pressable> : null}
       </View>
+      {tab === 'Chats' && term ? <UsernameMatches query={query} /> : null}
       {/* Prayer circles: the real group chats as horizontal cards (design .message-circles) */}
       {!term && tab === 'Chats' && myGroups.length ? (
         <>
@@ -532,6 +596,9 @@ const styles = StyleSheet.create({
   newMessageText: { fontSize: 13, fontFamily: 'DMSans-Bold', color: '#FFFFFF' },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: 13, height: 72, paddingHorizontal: 16 },
   listName: { flexShrink: 1, fontSize: 15.5, fontWeight: '600', color: colors.fg },
+  exactCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10, marginBottom: 4, padding: 14, borderRadius: radius.lg, backgroundColor: colors.raised, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, ...shadow.sm },
+  inviteLink: { alignSelf: 'flex-start', marginTop: 14, paddingVertical: 8 },
+  inviteLinkText: { fontSize: 14, fontWeight: '700', color: colors.primary },
   searchMsgs: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 10, marginBottom: 6, paddingHorizontal: 14, height: 42, borderRadius: radius.pill, backgroundColor: colors.raised },
   headBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   fab: { position: 'absolute', right: 18, bottom: 22, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', ...shadow.lg },

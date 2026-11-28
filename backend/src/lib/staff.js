@@ -79,6 +79,7 @@ export const ROUTE_AREAS = [
   [/^\/admin\/api\/ads(\/|$)/, 'ads'],
   [/^\/admin\/api\/(companion|seed)(\/|$)/, 'settings'],
   [/^\/memberships\/manage(\/|$)/, 'memberships'],
+  [/^\/admin\/api\/creator-(plans|withdrawals)(\/|$)/, 'memberships'], // CREATOR PLANS: plans editor, creators, withdrawals queue
   [/^\/library\/(items|files)(\/|$)/, 'library'],
   [/^\/uploads(\/|$)/, 'uploads'], // image/video uploads used by several tabs: any 'manage' permission
 ];

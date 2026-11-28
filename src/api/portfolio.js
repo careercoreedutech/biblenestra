@@ -49,6 +49,10 @@ function useGet(path) {
 export const usePortfolioMe = () => useGet('/portfolio/me');
 export const usePortfolioDashboard = () => useGet('/portfolio/dashboard');
 export const usePartnerDashboard = () => useGet('/partner/dashboard');
+export const usePartnerTools = () => useGet('/partner/tools');
+export const usePartnerProfile = () => useGet('/partner/profile');
+export const usePartnerInvitations = () => useGet('/partner/invitations');
+export const usePartnerReport = () => useGet('/partner/report');
 
 async function write(api, method, path, body) {
   const r = await api.request(method, path, body);
@@ -64,6 +68,9 @@ export const requestPortfolioWithdrawal = (api, amountMinor) => write(api, 'POST
 export const getPortfolioStatement = (api, month) => api.request('GET', `/portfolio/statement${month ? `?month=${month}` : ''}`);
 export const getPortfolioCommissions = (api, before) => api.request('GET', `/portfolio/commissions${before ? `?before=${before}` : ''}`);
 export const portfolioError = (e, fallback) => errorMessage(e, fallback);
+export const savePartnerProfile = (api, body) => write(api, 'PUT', '/partner/profile', body);
+export const recordPartnerInvitation = (api, body) => write(api, 'POST', '/partner/invitations', body);
+export const getPartnerPerformance = (api, userId) => api.request('GET', `/portfolio/partners/${encodeURIComponent(String(userId))}`);
 
 /** Naira display of an amount in kobo (minor units). */
 export function naira(minor) {

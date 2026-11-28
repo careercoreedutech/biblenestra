@@ -24,6 +24,12 @@
 //   REFERRAL_CLAIM_DAYS               how long after sign-up a code can be entered  default 7 (0–365)
 //   CHAT_WEEK_PASS_COINS              price of one 7-day pass in coins               default 100 (1–100000)
 //   CHAT_WEEK_PASS_EXTRA_SLOTS        extra new chats per pass, or "unlimited"       default 10  (1–1000)
+//   CHAT_USERNAME_CONTACTS            master switch for username contacts (default on; "false" turns it off:
+//                                     no new contacts, existing ones stop exempting, the old 5-chat rule applies again)
+//   CHAT_USERNAME_CONTACTS_PER_DAY    new username contacts per user in a rolling 24 hours   default 20  (0–1000)
+// USERNAME CONTACTS: a user who finds someone by an EXACT @username match and taps Message gets a chat_contacts row
+// (POST /contacts/by-handle, routes/referrals.js). That pair is exempt from the free slots, like an invited contact.
+// Partial matches and Discover browsing never create one.
 import { ApiError } from './http.js';
 import { one, q } from './db.js';
 
@@ -36,6 +42,10 @@ export const repliesUseSlot = (env) => String((env && env.CHAT_REPLIES_USE_SLOT)
 export const paywallMaxPerDay = (env) => intVar(env && env.PAYWALL_MAX_IMPRESSIONS_PER_DAY, 0, 10, 2);
 export const referralClaimDays = (env) => intVar(env && env.REFERRAL_CLAIM_DAYS, 0, 365, 7);
 export const PASS_DAYS = 7;
+/** USERNAME CONTACTS master switch (default on). Only the strings "false", "0", "off" or "no" turn it off. */
+export const usernameContactsEnabled = (env) => !['false', '0', 'off', 'no'].includes(String((env && env.CHAT_USERNAME_CONTACTS) ?? 'true').trim().toLowerCase());
+/** New username contacts per user in a rolling 24 hours. */
+export const usernameContactsPerDay = (env) => intVar(env && env.CHAT_USERNAME_CONTACTS_PER_DAY, 0, 1000, 20);
 export const weekPassCoins = (env) => intVar(env && env.CHAT_WEEK_PASS_COINS, 1, 100000, 100);
 /** Extra new chats per pass; null = unlimited new chats while the pass is active (CHAT_WEEK_PASS_EXTRA_SLOTS=unlimited). */
 export const weekPassExtraSlots = (env) => (String((env && env.CHAT_WEEK_PASS_EXTRA_SLOTS) || '').trim().toLowerCase() === 'unlimited'
@@ -61,6 +71,14 @@ export const isUnlimited = (u) => !!u && (isAdmin(u) || isSubscriber(u));
 export async function isInvitedContact(env, aId, bId) {
   const row = await one(env, `SELECT 1 FROM users a JOIN users b ON b.id = $2
     WHERE a.id = $1 AND (a.referred_by = b.id OR b.referred_by = a.id)`, [aId, bId]);
+  return !!row;
+}
+
+/** USERNAME CONTACTS: a chat_contacts row in either direction (only while the switch is on). */
+export async function isUsernameContact(env, aId, bId) {
+  if (!usernameContactsEnabled(env)) return false;
+  const row = await one(env, `SELECT 1 FROM chat_contacts
+    WHERE (user_id = $1 AND contact_id = $2) OR (user_id = $2 AND contact_id = $1) LIMIT 1`, [aId, bId]);
   return !!row;
 }
 
@@ -136,11 +154,12 @@ async function limitErrorFor(env, user) {
 
 /**
  * Would a first message from `user` to `otherId` (in `convId`, may be null) need a slot?
- * → { needsSlot: boolean, reason } — reason: unlimited | invited | exempt | existing | reply | established | new
+ * → { needsSlot: boolean, reason } — reason: unlimited | invited | contact | exempt | existing | reply | established | new
  */
 export async function slotNeed(env, user, otherId, convId) {
   if (isUnlimited(user)) return { needsSlot: false, reason: 'unlimited' };
   if (await isInvitedContact(env, user.id, otherId)) return { needsSlot: false, reason: 'invited' };
+  if (await isUsernameContact(env, user.id, otherId)) return { needsSlot: false, reason: 'contact' };
   if (convId && await isExemptConversation(env, convId)) return { needsSlot: false, reason: 'exempt' };
   // a chat already started (with a free slot OR through a week pass, even an expired one) stays open
   if (await one(env, 'SELECT 1 FROM chat_slots WHERE user_id = $1 AND counterparty_id = $2', [user.id, otherId])) return { needsSlot: false, reason: 'existing' };

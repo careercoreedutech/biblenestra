@@ -44,12 +44,12 @@ async function videoCounts(env, postId) {
  */
 export async function recordVideoPlay(env, { postId, userId, watchedMs, ip }) {
   const cfg = await getConfig(env);
-  const post = await one(env, 'SELECT id, author_id, video_url, video_uid FROM posts WHERE id = $1 AND NOT removed', [postId]);
+  const post = await one(env, 'SELECT id, author_id, video_url, video_uid, embed FROM posts WHERE id = $1 AND NOT removed', [postId]);
   if (!post) throw notFound('Post not found');
   const now = await videoCounts(env, postId);
   const skip = (reason) => ({ counted: false, reason, plays: now.plays, viewers: now.viewers });
   if (!(Number(watchedMs) >= cfg.video_min_watch_ms)) return skip('too_short');
-  if (!post.video_uid && !post.video_url) return skip('not_video');
+  if (!post.video_uid && !post.video_url && !post.embed) return skip('not_video'); // POST FROM A LINK plays count too
   if (String(post.author_id) === String(userId)) return skip('own_video');
   if (!(await ipAllowed(env, ip, cfg))) return skip('rate_limited');
 

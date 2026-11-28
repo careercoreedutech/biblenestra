@@ -26,6 +26,7 @@ import {
   canPickFromDevice,
   pickDevicePhotos,
 } from './shared';
+import EmbedLinkPanel from './EmbedLinkPanel'; // POST FROM A LINK
 import { TextPostCard, DesignSwatch, DESIGNS, DESIGN_GROUPS, FONTS, CARD_MAX_CHARS, encodeDesign, designStateFrom } from './TextPostCard';
 
 const ONLINE = API_CONFIG.online;
@@ -117,6 +118,9 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
   const [videoUrl, setVideoUrl] = useState(ONLINE ? null : SAMPLE_VIDEOS[0].url);
   const [deviceVideo, setDeviceVideo] = useState(null); // { uri, duration, mimeType, name, file? }
   const [category, setCategory] = useState('Worship');
+  // POST FROM A LINK: a validated YouTube / Facebook link waiting to be shared (see EmbedLinkPanel)
+  const [linkDraft, setLinkDraft] = useState(null);
+  const [linkKey, setLinkKey] = useState(0);
 
   // Re-seed the form each time the sheet opens. A bounty's preset caption is dropped again when the
   // sheet is next opened for a normal post; ordinary drafts are kept between opens.
@@ -201,6 +205,8 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
   };
 
   const reset = () => {
+    setLinkDraft(null);
+    setLinkKey((k) => k + 1);
     setText('');
     setScripture('');
     setCaption('');
@@ -211,10 +217,16 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
 
   const textLen = text.trim().length;
   const cardFits = textLen <= CARD_MAX_CHARS;
-  const canSubmit = mode === 'text' ? !!text.trim() : mode === 'photo' ? photos.length > 0 : !!caption.trim() && !!videoUrl;
+  const canSubmit = linkDraft ? true : mode === 'text' ? !!text.trim() : mode === 'photo' ? photos.length > 0 : !!caption.trim() && !!videoUrl;
 
   const submit = () => {
     if (!canSubmit) return;
+    if (linkDraft) {
+      // POST FROM A LINK: posts at once; the server re-checks the link and reads the metadata
+      onPost && onPost({ kind: 'Video', text: linkDraft.caption, embed: { provider: linkDraft.provider, url: linkDraft.url, ...(linkDraft.title ? { title: linkDraft.title } : {}) } });
+      reset();
+      return;
+    }
     const passage = parseScriptureRef(scripture);
     if (mode === 'text') {
       const asCard = !!design && cardFits;
@@ -240,7 +252,7 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
   };
 
   const submitLabel =
-    mode === 'text' ? 'Share post' : mode === 'photo' ? (photos.length > 1 ? `Share ${photos.length} photos` : 'Share photo') : bounty ? `Submit for ${bounty.price}` : 'Publish video';
+    linkDraft ? 'Share post' : mode === 'text' ? 'Share post' : mode === 'photo' ? (photos.length > 1 ? `Share ${photos.length} photos` : 'Share photo') : bounty ? `Submit for ${bounty.price}` : 'Publish video';
 
   return (
     <AnimatedModal visible={visible} onRequestClose={onClose}>
@@ -287,6 +299,12 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
           </View>
 
           <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+            {/* POST FROM A LINK: directly under the Text / Photo / Video tabs */}
+            {!bounty ? (
+              <View style={{ marginTop: 14 }}>
+                <EmbedLinkPanel key={linkKey} online={ONLINE} onChange={setLinkDraft} />
+              </View>
+            ) : null}
             <FadeInUp key={mode} distance={10} duration={300}>
               {mode === 'text' ? (
                 <>
@@ -512,7 +530,7 @@ export default function CreatePostSheet({ visible, onClose, initialMode = 'text'
           {/* Pinned footer so the action is always reachable */}
           <View style={styles.footer}>
             <Text style={styles.footerHint} numberOfLines={1}>
-              {canSubmit
+              {linkDraft ? `Posting a ${linkDraft.card.label} video link` : canSubmit
                 ? `Posting as ${userName}`
                 : mode === 'text'
                 ? 'Write something to share'

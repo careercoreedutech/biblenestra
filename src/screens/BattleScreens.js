@@ -234,7 +234,7 @@ export function BattleScreen({ params = {} }) {
     body = (
       <View>
         <ScaleIn from={0.9}>
-          <Grad colors={[(isDarkScheme() ? '#5A4620' : '#E4D18E'), '#A66D22']} style={styles.final}>
+          <Grad colors={[(isDarkScheme() ? '#241f12' : '#E4D18E'), '#A66D22']} style={styles.final}>
             <Text style={styles.finalTitle}>{label}</Text>
             <Text style={styles.finalScore}>{b.myScore} – {b.opponentScore}</Text>
           </Grad>

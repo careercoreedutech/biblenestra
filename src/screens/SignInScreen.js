@@ -23,7 +23,7 @@ import { colors } from '../theme'; // APPEARANCE (item 14): palette tokens
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const SHOW_APPLE = Platform.OS === 'ios';
-const PLACEHOLDER = (isDarkScheme() ? '#8A7A6C' : '#A39A8F');
+const PLACEHOLDER = (isDarkScheme() ? '#737373' : '#A39A8F');
 
 function GoogleGlyph({ size = 18 }) {
   return (
@@ -577,7 +577,7 @@ const styles = StyleSheet.create({
 
   // Fields
   fieldWrap: { marginTop: 16 },
-  label: { color: (isDarkScheme() ? '#B8A797' : '#4C4953'), fontFamily: df.sansBold, fontSize: 12, marginBottom: 8 },
+  label: { color: (isDarkScheme() ? '#a3a3a3' : '#4C4953'), fontFamily: df.sansBold, fontSize: 12, marginBottom: 8 },
   field: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.ivory, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15 },
   fieldInput: { flex: 1, height: 50, fontFamily: df.sans, fontSize: 14, color: d.ink },
   optionsRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10, marginBottom: 18 },
@@ -599,7 +599,7 @@ const styles = StyleSheet.create({
   // Or divider + providers
   or: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 18 },
   orLine: { flex: 1, height: 1, backgroundColor: d.line },
-  orText: { color: (isDarkScheme() ? '#8A7A6C' : '#AAA7AE'), fontFamily: df.sans, fontSize: 11 },
+  orText: { color: (isDarkScheme() ? '#737373' : '#AAA7AE'), fontFamily: df.sans, fontSize: 11 },
   providers: { gap: 8 },
   provider: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 18, borderWidth: 1, borderColor: d.line, backgroundColor: colors.surfaceWhite },
   providerTile: { width: 39, height: 39, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
@@ -613,21 +613,21 @@ const styles = StyleSheet.create({
 
   // Sign-up
   progress: { height: 32, flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  stepDot: { width: 27, height: 27, borderRadius: 14, backgroundColor: (isDarkScheme() ? '#32271E' : '#E9DFD3'), alignItems: 'center', justifyContent: 'center' },
+  stepDot: { width: 27, height: 27, borderRadius: 14, backgroundColor: (isDarkScheme() ? '#1a1a1a' : '#e8e8e8'), alignItems: 'center', justifyContent: 'center' },
   stepDotOn: { backgroundColor: d.plum },
-  stepNum: { color: (isDarkScheme() ? '#B8A797' : '#9B8B7F'), fontFamily: df.sansBold, fontSize: 11 },
+  stepNum: { color: (isDarkScheme() ? '#a3a3a3' : '#9B8B7F'), fontFamily: df.sansBold, fontSize: 11 },
   stepNumOn: { color: '#FFFFFF' },
   stepLine: { width: 38, height: 1, backgroundColor: d.line, marginHorizontal: 6 },
   stepCount: { marginLeft: 'auto', color: d.muted, fontFamily: df.sansBold, fontSize: 10, letterSpacing: 1, textTransform: 'uppercase' },
   consent: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 18 },
-  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#CFC3B4'), backgroundColor: colors.surfaceWhite, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#333333' : '#CFC3B4'), backgroundColor: colors.surfaceWhite, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   checkboxOn: { backgroundColor: d.plum, borderColor: d.plum },
   consentText: { flex: 1, color: d.muted, fontFamily: df.sans, fontSize: 12, lineHeight: 18 },
 
   // Code + reset
   codeRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginVertical: 14, position: 'relative' },
   codeBox: { flex: 1, height: 56, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.ivory, alignItems: 'center', justifyContent: 'center' },
-  codeBoxFilled: { backgroundColor: colors.surfaceWhite, borderColor: (isDarkScheme() ? '#4D3D30' : '#CFC3B4') },
+  codeBoxFilled: { backgroundColor: colors.surfaceWhite, borderColor: (isDarkScheme() ? '#333333' : '#CFC3B4') },
   codeBoxActive: { borderColor: d.plum, borderWidth: 2, backgroundColor: colors.surfaceWhite },
   codeChar: { fontFamily: df.display, fontSize: 26, color: d.ink },
   codeHidden: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, opacity: 0.01, color: 'transparent', fontSize: 1 },

@@ -18,6 +18,7 @@ import { uploads, media, chatMedia } from './routes/media.js';
 import { rewards, ssv } from './routes/rewards.js';
 import { featureUnlocks } from './routes/featureUnlocks.js'; // FEATURE UNLOCKS (dev update v1, package C step 0)
 import { journey } from './routes/journey.js'; // MY SCRIPTURE JOURNEY: daily Scripture tracker
+import personalisation, { adminFeedRanking } from './routes/personalisation.js'; // PERSONALISATION: interests + For you ranking admin
 
 // Phase 2 routes
 import conversations from './routes/conversations.js';
@@ -67,6 +68,8 @@ import { runBlogCron } from './lib/blog.js'; // BLOG: cron publishes scheduled p
 import { legalPublic, accountDeletion, adminAccountDeletions } from './routes/legal.js'; // LEGAL: /terms, /privacy, /delete-account + account deletion
 import { membershipsApp, membershipChatGuard, membershipLazyExpiry } from './routes/memberships.js'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
 import { membershipAdGate } from './routes/membershipAdGate.js'; // MEMBERSHIP AD GATE: GET/PUT /memberships/:id/ad-gate, dev claim
+import { creatorPlans } from './routes/creatorPlans.js'; // CREATOR PLANS: /creator-plan, withdrawals, /memberships/:id/join-ad
+import { adminCreatorPlans } from './routes/creatorPlansAdmin.js'; // CREATOR PLANS: /admin/api/creator-plans, /admin/api/creator-withdrawals
 import { runMembershipCron } from './lib/memberships.js'; // MEMBERSHIPS: expiry sweep (lapsed members leave Channel + Community)
 import { walletApp, adminWallet } from './routes/wallet.js';
 import { paystackPublic, paystackApp, adminPaystack } from './routes/paystack.js'; // PAYSTACK FOR EVERY PURCHASE
@@ -170,6 +173,8 @@ export function createApp() {
   app.route('/', rewards);
   app.route('/', featureUnlocks); // FEATURE UNLOCKS: GET /unlocks, POST /unlocks/:feature (Kingdom Coins or rewarded ads)
   app.route('/', journey); // MY SCRIPTURE JOURNEY: /journey/* (goals, sync, stats, achievements, community goals)
+  app.route('/', personalisation); // PERSONALISATION: GET/PUT /me/interests
+  app.route('/', adminFeedRanking); // PERSONALISATION: GET /admin/api/feed-ranking (admin only)
 
   // Phase 2 routes
   // MEMBERSHIPS (brief 8.1 / 8.6): a membership's Channel + Community need an active subscription on EVERY chat request.
@@ -232,6 +237,8 @@ export function createApp() {
   app.route('/', adminAccountDeletions); // LEGAL: /admin/api/account-deletions (admin only)
   app.route('/', membershipsApp); // MEMBERSHIPS & PAID CHANNELS: /memberships/* (catalogue, product, checkout, library) + /memberships/manage/*
   app.route('/', membershipAdGate); // MEMBERSHIP AD GATE: /memberships/:id/ad-gate (GET, PUT owner/admin, dev claim)
+  app.route('/', creatorPlans); // CREATOR PLANS: /creator-plan (plans, change, withdrawals), /memberships/:id/join-ad
+  app.route('/', adminCreatorPlans); // CREATOR PLANS: /admin/api/creator-plans + /admin/api/creator-withdrawals
   app.route('/', walletApp); // WALLET CORE: /wallet, /wallet/:wallet/history, /wallet/products, /wallet/purchase, /wallet/subscriptions
   app.route('/', paystackApp); // PAYSTACK: /payments/paystack/:reference, /plus, /plus/checkout, /plus/cancel
   app.route('/', adminPaystack); // PAYSTACK: /admin/api/paystack/* (admin only)

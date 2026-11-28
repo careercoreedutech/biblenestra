@@ -117,7 +117,7 @@ export function CloudRecordingList({ cloud, seen }) {
       {cloud.uploads.map((u) => (
         <ScaleIn key={u.key} from={0.94} style={s.card}>
           <View style={s.head}>
-            <View style={[s.iconWrap, { backgroundColor: (isDarkScheme() ? '#1B2A36' : '#DDE6EE') }]}><Icon name={u.error ? 'x' : 'download'} size={17} color={u.error ? '#B33D3D' : '#4F7CA8'} /></View>
+            <View style={[s.iconWrap, { backgroundColor: (isDarkScheme() ? '#161c22' : '#DDE6EE') }]}><Icon name={u.error ? 'x' : 'download'} size={17} color={u.error ? '#B33D3D' : '#4F7CA8'} /></View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={s.title} numberOfLines={1}>{u.title}</Text>
               <Text style={[s.meta, u.error && { color: '#B33D3D' }]}>{u.error ? u.error : `Uploading · ${Math.round((u.progress || 0) * 100)}%`}</Text>
@@ -466,8 +466,8 @@ const s = StyleSheet.create({
   iconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   title: { fontFamily: df.displayBold, fontSize: 17, lineHeight: 22, color: d.ink, letterSpacing: -0.2 },
   meta: { fontFamily: df.sans, fontSize: 12, color: d.muted, marginTop: 4, lineHeight: 16 },
-  summary: { fontFamily: df.sans, fontSize: 13.5, color: (isDarkScheme() ? '#CDBBA6' : '#5A4636'), lineHeight: 20, marginTop: 10 },
-  body: { fontFamily: df.sans, fontSize: 14.5, color: (isDarkScheme() ? '#D8C7B6' : '#4A3A30'), lineHeight: 22, marginTop: 8 },
+  summary: { fontFamily: df.sans, fontSize: 13.5, color: (isDarkScheme() ? '#cccccc' : '#5A4636'), lineHeight: 20, marginTop: 10 },
+  body: { fontFamily: df.sans, fontSize: 14.5, color: (isDarkScheme() ? '#d4d4d4' : '#333333'), lineHeight: 22, marginTop: 8 },
   btnRow: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
   btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 36, paddingHorizontal: 14, borderRadius: 999 },
   btnPrimary: { backgroundColor: d.plum },
@@ -490,17 +490,17 @@ const s = StyleSheet.create({
   seekFill: { height: 4, backgroundColor: d.gold },
   seekKnob: { position: 'absolute', top: 7, width: 12, height: 12, borderRadius: 6, backgroundColor: colors.peachTint },
   time: { color: 'rgba(255,242,229,0.72)', fontSize: 11.5, fontFamily: df.sansBold, fontVariant: ['tabular-nums'] },
-  aiNote: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 14, backgroundColor: (isDarkScheme() ? '#3A2E14' : '#FBF0D2'), borderWidth: 1, borderColor: alpha(d.gold, 0.4) },
+  aiNote: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 14, backgroundColor: (isDarkScheme() ? '#241f12' : '#fbf3dc'), borderWidth: 1, borderColor: alpha(d.gold, 0.4) },
   aiNoteText: { flex: 1, fontFamily: df.sansSemi, fontSize: 12.5, color: d.goldDark },
   notesTitle: { fontFamily: df.displayBold, fontSize: 21, lineHeight: 27, color: d.ink, letterSpacing: -0.4 },
   pointRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: 12 },
   pointNum: { width: 22, height: 22, borderRadius: 11, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   pointNumText: { fontFamily: df.sansHeavy, fontSize: 11.5, color: d.plum },
   refWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  refChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, backgroundColor: (isDarkScheme() ? '#3A2E14' : '#FBF0D2'), borderWidth: 1, borderColor: alpha(d.gold, 0.4) },
+  refChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, backgroundColor: (isDarkScheme() ? '#241f12' : '#fbf3dc'), borderWidth: 1, borderColor: alpha(d.gold, 0.4) },
   refText: { fontFamily: df.displayBold, fontSize: 14, color: d.goldDark },
   quote: { borderLeftWidth: 3, borderLeftColor: d.plum, paddingLeft: 12, marginTop: 12 },
-  quoteText: { fontFamily: df.displayItalic, fontSize: 16.5, lineHeight: 24, color: (isDarkScheme() ? '#D8C7B6' : '#4A3A30') },
+  quoteText: { fontFamily: df.displayItalic, fontSize: 16.5, lineHeight: 24, color: (isDarkScheme() ? '#d4d4d4' : '#333333') },
   prayerCard: { borderRadius: 22, overflow: 'hidden', marginTop: 12 },
   prayerInner: { borderRadius: 22, padding: 18 },
   prayerText: { fontFamily: df.displayItalic, fontSize: 17, lineHeight: 26, color: '#FFF2E5', marginTop: 10 },
@@ -511,6 +511,6 @@ const s = StyleSheet.create({
   lineOn: { backgroundColor: d.lavender },
   stamp: { minWidth: 44, paddingVertical: 3, paddingHorizontal: 6, borderRadius: 6, backgroundColor: d.ivory, alignItems: 'center', marginTop: 1 },
   stampText: { fontSize: 10.5, fontFamily: df.sansBold, color: d.muted, fontVariant: ['tabular-nums'] },
-  lineText: { flex: 1, fontFamily: df.display, fontSize: 15.5, lineHeight: 23, color: (isDarkScheme() ? '#D8C7B6' : '#4A3A30') },
+  lineText: { flex: 1, fontFamily: df.display, fontSize: 15.5, lineHeight: 23, color: (isDarkScheme() ? '#d4d4d4' : '#333333') },
   mark: { backgroundColor: alpha(d.gold, 0.5), color: d.ink },
 });

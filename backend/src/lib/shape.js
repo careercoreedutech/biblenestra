@@ -46,6 +46,8 @@ export function postShape(row, me, env, origin) {
       codec: row.video_codec || null, faststart: row.video_faststart == null ? null : !!row.video_faststart,
       width: row.video_width || null, height: row.video_height || null,
     } : null,
+    // POST FROM A LINK: { provider, url, videoId, thumbnailUrl, title, authorName } for a YouTube / Facebook embed
+    embed: row.embed ? (typeof row.embed === 'string' ? JSON.parse(row.embed) : row.embed) : null,
     likes: row.likes_count, comments: row.comments_count, shares: row.shares_count, views: row.views_count,
     videoPlays: row.video_plays_count || 0, videoViewers: row.video_viewers_count || 0, // PACKAGE F: video plays + unique viewers
     myReaction: row.my_reaction || null,

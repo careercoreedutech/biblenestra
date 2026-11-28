@@ -15,7 +15,9 @@ import { useToast } from '../components/Toast';
 import { useApi } from '../api/auth';
 import { payWithPaystack, paystackMessage, paystackError } from '../billing/paystack';
 import { pickPhotos, uploadImage } from '../api/media';
-import { useMembershipCatalog, useMyMemberships, membershipsChanged, friendly, getCreationFee } from '../api/memberships';
+import { useMembershipCatalog, useMyMemberships, membershipsChanged, friendly } from '../api/memberships';
+import { useCreatorPlan, creatorPlanMessage } from '../api/creatorPlans'; // CREATOR PLANS: step 1 of Create, the plan banner
+import { PlanPicker, useChoosePlan } from './CreatorPlanScreens'; // CREATOR PLANS
 import { MembershipCard, SegmentToggle } from './MembershipScreens';
 
 const TABS = [
@@ -176,15 +178,13 @@ function CreateTab({ onPublished }) {
   const [draftId, setDraftId] = useState(null); // created but not yet published (re-publish doesn't duplicate it)
   const [feeDue, setFeeDue] = useState(null); // { amountMinor, currency, cycle }
   const [busy, setBusy] = useState(false);
-  // Creation fee shown at the top of the form, before anything is typed (GET /memberships/creation-fee).
-  const [feeQuote, setFeeQuote] = useState(null);
-  const feeCategory = category || categories[0] || 'Bible Study';
-  const feeType = free ? 'free' : 'paid';
-  useEffect(() => {
-    let alive = true;
-    getCreationFee(api, feeCategory, feeType).then((q) => { if (alive) setFeeQuote(q); }).catch(() => { if (alive) setFeeQuote(null); });
-    return () => { alive = false; };
-  }, [feeCategory, feeType]);
+  // CREATOR PLANS: step 1 is the plan. The form opens once the creator can create (Free, or a paid plan in date).
+  const plan = useCreatorPlan();
+  const choosing = useChoosePlan(plan.reload);
+  const [showPicker, setShowPicker] = useState(false);
+  const needsPlan = !!plan.data && !plan.data.current.canCreate;
+  const pickerOpen = needsPlan || showPicker;
+  const showForm = !needsPlan && (!!plan.data || !!plan.error);
 
   const pickCover = async () => {
     try {
@@ -236,7 +236,9 @@ function CreateTab({ onPublished }) {
       setDraftId(id);
       await publish(id);
     } catch (e) {
-      toast.show(friendly(e, 'Couldn’t publish yet'), { tone: 'error' });
+      const planErr = e.code === 'CREATOR_PLAN_REQUIRED' || e.code === 'CREATOR_PLAN_LAPSED'; // CREATOR PLANS
+      if (planErr) plan.reload();
+      toast.show(planErr ? creatorPlanMessage(e) : friendly(e, 'Couldn’t publish yet'), { tone: 'error' });
     }
     setBusy(false);
   };
@@ -255,20 +257,22 @@ function CreateTab({ onPublished }) {
     <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
       <Eyebrow>Create</Eyebrow>
       <Text style={s.h1}>Start a membership</Text>
-      <Text style={s.lead}>Members subscribe weekly. Publishing needs BibleNestra’s creation fee, paid through Paystack once or on the schedule BibleNestra sets.</Text>
+      <Text style={s.lead}>Members subscribe weekly. Choose your creator plan first: Free costs nothing to create, Standard and Premium lower your withdrawal fee.</Text>
 
-      {feeQuote ? (
-        <View style={s.feeTop} accessibilityRole="text">
-          {feeQuote.free || !feeQuote.amountMinor ? (
-            <Text style={s.feeTopText}>Free to create</Text>
-          ) : (
-            <Text style={s.feeTopText}>
-              {`Creation fee: ${moneyLabel(feeQuote.amountMinor, feeQuote.currency)} ${feeQuote.cycle === 'week' ? 'every week' : feeQuote.cycle === 'month' ? 'every month' : 'once'} — paid to BibleNestra`}
-            </Text>
-          )}
-        </View>
-      ) : null}
+      {/* CREATOR PLANS: step 1 (the plan) and the plan banner that replaced the creation fee banner */}
+      <View style={s.stepBox}>
+        <Text style={s.stepTitle}>{needsPlan ? 'Step 1 · Choose your creator plan' : 'Step 1 · Your creator plan'}</Text>
+        {!plan.data ? <Text style={s.lead}>{plan.error ? creatorPlanMessage(plan.error, 'Couldn’t load your plan') : 'Loading your plan…'}</Text> : null}
+        {plan.data && !pickerOpen ? (
+          <Tap onPress={() => setShowPicker(true)} accessibilityRole="button" style={s.planRow}>
+            <Text style={s.feeTopText}>{`${(plan.data.plans.find((p) => p.id === plan.data.current.activePlanId) || { name: 'Free' }).name} · ${(plan.data.plans.find((p) => p.id === plan.data.current.activePlanId) || { withdrawalPercent: 0.5 }).withdrawalPercent}% withdrawal fee · ${(plan.data.plans.find((p) => p.id === plan.data.current.activePlanId) || { joinAds: true }).joinAds ? 'ads when members join' : 'ad-free joining'}`}</Text>
+            <Text style={s.linkText}>Change plan</Text>
+          </Tap>
+        ) : null}
+        {plan.data && pickerOpen ? <PlanPicker plans={plan.data.plans} current={plan.data.current} busy={choosing.busy} onChoose={(id) => choosing.choose(id)} /> : null}
+      </View>
 
+      {showForm ? (<>
       <Field label="Name"><TextInput style={s.input} value={title} onChangeText={setTitle} placeholder="e.g. Night Watch Prayer" placeholderTextColor={d.muted} maxLength={120} /></Field>
       <Field label="Short line"><TextInput style={s.input} value={headline} onChangeText={setHeadline} placeholder="What members get, in one line" placeholderTextColor={d.muted} maxLength={200} /></Field>
       <Field label="Description"><TextInput style={[s.input, s.multi]} value={description} onChangeText={setDescription} multiline placeholder="Who it is for and what happens inside" placeholderTextColor={d.muted} maxLength={6000} /></Field>
@@ -315,6 +319,7 @@ function CreateTab({ onPublished }) {
           {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.primaryText}>Publish membership</Text>}
         </Tap>
       )}
+      </>) : null}
     </ScrollView>
   );
 }
@@ -323,6 +328,7 @@ function CreateTab({ onPublished }) {
 // Manage: creator dashboard for the memberships you own
 // ---------------------------------------------------------------------------------------------------------------
 function ManageTab() {
+  const nav = useNav(); // CREATOR PLANS: links to My creator plan and Withdraw earnings
   const api = useApi();
   const toast = useToast();
   const [items, setItems] = useState(null);
@@ -338,11 +344,16 @@ function ManageTab() {
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
       <Eyebrow>Manage</Eyebrow>
       <Text style={s.h1}>Your memberships</Text>
+      <View style={s.planLinks}>
+        <Tap onPress={() => nav.push('CreatorPlan')} accessibilityRole="button" style={s.planLink}><Text style={s.planLinkText}>My creator plan</Text></Tap>
+        <Tap onPress={() => nav.push('CreatorWithdraw')} accessibilityRole="button" style={s.planLink}><Text style={s.planLinkText}>Withdraw earnings</Text></Tap>
+      </View>
       {!mine.length ? <Notice text="You haven’t created a membership yet. Use Create to start one." /> : null}
       {mine.map((m) => {
         const open = openId === m.id;
         const fee = m.creationFee || {};
-        const feeLine = !fee.required ? 'No creation fee' : fee.paid ? `Creation fee paid (${fee.cycle === 'one_time' ? 'once' : fee.cycle})` : `Creation fee due: ${moneyLabel(fee.amountMinor, fee.currency)}`;
+        // CREATOR PLANS: the per-membership fee is dormant by default; show it only when an admin has turned it on
+        const feeLine = !fee.required ? null : fee.paid ? `Creation fee paid (${fee.cycle === 'one_time' ? 'once' : fee.cycle})` : `Creation fee due: ${moneyLabel(fee.amountMinor, fee.currency)}`;
         return (
           <View key={m.id} style={s.card2}>
             <View style={s.rowBetween}>
@@ -351,7 +362,7 @@ function ManageTab() {
                 <Text style={[s.pillText, { color: m.status === 'published' ? d.sageDark : d.plumDark }]}>{m.status}</Text>
               </View>
             </View>
-            <Text style={s.cardMeta}>{feeLine}{fee.lapsedAt ? ' · lapsed, pay again to publish' : ''}</Text>
+            {feeLine || fee.lapsedAt ? <Text style={s.cardMeta}>{feeLine}{fee.lapsedAt ? ' · lapsed, pay again to publish' : ''}</Text> : null}
             <Text style={s.cardMeta}>{m.subscribers ? `${m.subscribers.active} active · ${m.subscribers.total} total` : ''}</Text>
             <View style={s.rowWrap}>
               <Tap onPress={() => setOpenId(open ? null : m.id)} accessibilityRole="button" style={s.ghost}>
@@ -466,6 +477,13 @@ function Notice({ text, action, onAction }) {
 }
 
 const s = StyleSheet.create({
+  stepBox: { padding: 14, borderRadius: 16, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, marginBottom: 16, gap: 10 }, // CREATOR PLANS
+  stepTitle: { fontFamily: df.display, fontSize: 18, color: d.ink },
+  planRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  linkText: { fontFamily: df.sansSemi, color: d.plum, fontSize: 13 },
+  planLinks: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  planLink: { flex: 1, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, paddingVertical: 12, alignItems: 'center' },
+  planLinkText: { fontFamily: df.sansSemi, color: d.ink, fontSize: 13 },
   page: { flex: 1, backgroundColor: d.ivory },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, backgroundColor: d.ivory },
   back: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 92, minHeight: 40 },

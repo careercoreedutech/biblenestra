@@ -49,6 +49,9 @@ ADMIN_USERNAME = "benjamin"
 # CHAT WEEK PASS (coins → 7 days of extra new chats). Uncomment to change the defaults; see SETUP.md.
 # CHAT_WEEK_PASS_COINS = "100"
 # CHAT_WEEK_PASS_EXTRA_SLOTS = "10"   # or "unlimited"
+# USERNAME CONTACTS (exact @username match → chat without a free slot). Defaults shown; see lib/chatLimits.js.
+# CHAT_USERNAME_CONTACTS = "true"          # "false" switches it off
+# CHAT_USERNAME_CONTACTS_PER_DAY = "20"    # new username contacts per user per rolling 24 hours
 
 # Secrets (set with `npx wrangler secret put NAME`, never commit them):
 #   DATABASE_URL            Neon connection string (postgresql://…?sslmode=require)

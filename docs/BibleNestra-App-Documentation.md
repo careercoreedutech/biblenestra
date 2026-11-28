@@ -518,6 +518,23 @@ For now, staff send payouts by bank transfer and record the reference in the adm
 
 ---
 
+### 5.6 Creator plans and withdrawals
+
+Every membership creator is on one plan. Creating and publishing a membership needs a plan first (Free counts). Prices are in USD; Paystack settles in naira, so a paid plan is charged in NGN at the live USD rate, locked when the payment starts. (If Paystack is set up to accept USD, the plan is charged in USD.)
+
+| Plan | Price | Withdrawal fee (BibleNestra) | Members joining |
+|---|---|---|---|
+| Free | Free | 0.5% (admin setting) | One ad a day per account, across all Free-plan memberships |
+| Standard | $10.24 a month | 0.3% | Ad-free |
+| Premium | $43.78 a month | 0.131% | Ad-free |
+
+- **Paid plans** renew monthly by saved card. Bank and USSD payments get a reminder three days before the period ends and must be paid again in the app.
+- **Upgrades** are immediate and charged in full for one month (no proration).
+- **Downgrades** to Free take effect at once. A downgrade between paid plans starts at the end of the period.
+- **Lapsed or failed payments** (three declined renewals, or a paid period that ends unpaid) stop new memberships and new publishing until the creator renews or switches to Free. Existing memberships keep running.
+- **Withdrawals** need an approved identity check (KYC). The BibleNestra fee is calculated on the amount requested, using the plan that is active at that moment, and is shown apart from gateway and bank charges. An admin approves the request, pays it outside the app and records the reference and any bank charge.
+- **Admin settings** (Memberships tab → Creator plans): plan names, prices, withdrawal fees, ads on joining, whether each plan is offered, the minimum withdrawal, and the join ad switch. The old per-membership creation fee is switched off by default.
+
 ## 6. Safety, moderation and privacy
 
 - **Reports:** members can report posts, comments, users, prayers, jobs, groups, library items and dating profiles. Reports go to the admin **Reports** queue, where staff can remove the item, ban the member, or dismiss the report.

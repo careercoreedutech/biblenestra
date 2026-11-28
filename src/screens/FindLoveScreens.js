@@ -470,8 +470,8 @@ function LikesPane({ nav, home }) {
 
 function LockedTile({ k }) {
   const tints = isDarkScheme()
-    ? [['#5A2E18', '#ED5C12'], ['#3A2E14', '#A66D22'], ['#3C2518', '#2A1B14'], ['#3A221C', '#8A451F']]
-    : [['#F7B98A', '#ED5C12'], ['#F6E4D2', '#A66D22'], ['#FF8B3D', '#3C2518'], ['#F4D8CB', '#8A451F']];
+    ? [['#5A2E18', '#ED5C12'], ['#241F12', '#A66D22'], ['#1A1A1A', '#111111'], ['#24171A', '#8A451F']]
+    : [['#F7B98A', '#ED5C12'], ['#FBF3DC', '#A66D22'], ['#FF8B3D', '#3C2518'], ['#FBEDEA', '#8A451F']];
   return (
     <View style={s.lockTile} accessibilityLabel="Hidden like" accessible>
       <LinearGradient colors={tints[k % 4]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />

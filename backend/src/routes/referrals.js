@@ -17,7 +17,7 @@ import { notifyUser } from '../hub.js';
 import {
   chatAllowance, slotNeed, ensureInviteCode, normalizeCode, referralClaimDays,
   isSubscriber, isAdmin, paywallMaxPerDay, REQUESTED_PLACEMENTS,
-  buyWeekPass, weekPassOffer,
+  buyWeekPass, weekPassOffer, usernameContactsEnabled, usernameContactsPerDay,
 } from '../lib/chatLimits.js';
 import { requireAdmin, registerAdminScript } from './admin.js';
 import { attributePartner } from '../lib/portfolio.js'; // PORTFOLIO & PARTNER MANAGERS: partner attribution (first touch)
@@ -136,6 +136,40 @@ referrals.get('/chat/allowance', async (c) => {
     out.forUser = { userId: other, needsSlot: need.needsSlot, reason: need.reason, blocked: need.needsSlot && !out.unlimited && out.remaining <= 0 };
   }
   return c.json(out);
+});
+
+// USERNAME CONTACTS: POST /contacts/by-handle { handle, userId? } — the caller tapped Message on an EXACT @username match.
+// The server re-checks the match (case-insensitive; userId, when sent, must be that same account). Banned, blocked
+// (either direction) and unknown accounts all answer 404, like GET /people, which hides them. Inserts chat_contacts,
+// so the pair's chats skip the free slots (lib/chatLimits.js). The cap CHAT_USERNAME_CONTACTS_PER_DAY counts new
+// contacts in a rolling 24 hours; re-adding an existing contact is free. Switch CHAT_USERNAME_CONTACTS=false refuses.
+referrals.post('/contacts/by-handle', async (c) => {
+  const me = c.get('user');
+  if (!usernameContactsEnabled(c.env)) throw forbidden('Username contacts are switched off', 'USERNAME_CONTACTS_OFF');
+  const b = await body(c);
+  const handle = String(b.handle || '').trim().replace(/^@+/, '').trim().slice(0, 40);
+  if (!handle) throw bad('Enter a username', 'BAD_HANDLE');
+  const wantId = b.userId == null || b.userId === '' ? null : b.userId;
+  if (wantId !== null && !isUuid(wantId)) throw bad('Bad user id', 'BAD_USER');
+  const target = await one(c.env, `SELECT u.id FROM users u
+    WHERE lower(u.handle) = lower($1) AND NOT u.banned AND ($2::uuid IS NULL OR u.id = $2::uuid)
+    ORDER BY (u.handle = $1) DESC LIMIT 1`, [handle, wantId]);
+  if (!target) throw notFound('No member with that username');
+  if (target.id === me.id) throw bad('That is your own username', 'SELF');
+  const blocked = await one(c.env, `SELECT 1 FROM blocks
+    WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`, [me.id, target.id]);
+  if (blocked) throw notFound('No member with that username');
+  const exists = () => one(c.env, 'SELECT 1 FROM chat_contacts WHERE user_id = $1 AND contact_id = $2', [me.id, target.id]);
+  if (await exists()) return c.json({ ok: true, contactId: target.id, created: false });
+  // count and insert in one statement (the cap check cannot race); ON CONFLICT covers a double tap
+  const cap = usernameContactsPerDay(c.env);
+  const ins = await q(c.env, `INSERT INTO chat_contacts (user_id, contact_id, source)
+    SELECT $1, $2, 'username' WHERE (SELECT count(*) FROM chat_contacts
+      WHERE user_id = $1 AND source = 'username' AND created_at > now() - interval '24 hours') < $3
+    ON CONFLICT (user_id, contact_id) DO NOTHING RETURNING 1`, [me.id, target.id, cap]);
+  if (ins.length) return c.json({ ok: true, contactId: target.id, created: true }, 201);
+  if (await exists()) return c.json({ ok: true, contactId: target.id, created: false });
+  throw new ApiError(429, 'USERNAME_CONTACTS_DAILY_LIMIT', `You can add ${cap} new username contacts a day. Chats with people you already know still open as usual.`);
 });
 
 const placementOf = (v) => {

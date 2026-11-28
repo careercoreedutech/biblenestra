@@ -4,11 +4,36 @@ import { ApiError, bad, body, decodeCursor, encodeCursor, forbidden, int, isUuid
 import { POST_SELECT, postShape, userJson } from '../lib/shape.js';
 import { RULES } from '../lib/rules.js';
 import { designFromBody } from '../lib/postDesign.js';
+import { buildEmbed, previewEmbed } from '../lib/postEmbeds.js'; // POST FROM A LINK
 import { recordPostViews, clientIp } from '../lib/videoViews.js'; // PACKAGE F: deduped post views
+import { feedRankingConfig, scoredPool, arrangeFeed, decodeFeedCursor, encodeFeedCursor, resumeIndex, tagPost } from '../lib/feedRanking.js'; // PERSONALISATION
 
 const r = new Hono();
 const REACTIONS = ['like', 'amen', 'love', 'praise', 'care'];
 const origin = (c) => new URL(c.req.url).origin;
+
+// PERSONALISATION: the ranked "For you" page. Scores are computed as of a snapshot time carried in the cursor, and
+// the ordering is rebuilt from that snapshot on each page, so scrolling never repeats or reshuffles posts.
+// Also used for the Reels list (videosOnly): same signals, video posts only.
+async function forYouPage(c, limit, { videosOnly = false } = {}) {
+  const me = c.get('user');
+  const cfg = await feedRankingConfig(c.env);
+  const prof = await one(c.env, 'SELECT interests, country, city, church FROM users WHERE id = $1', [me.id]);
+  const cur = decodeFeedCursor(c.req.query('cursor'));
+  const snap = cur ? cur.s : new Date().toISOString();
+  const pool = await scoredPool(c.env, me.id, prof || {}, snap, cfg, { videosOnly });
+  const ids = arrangeFeed(pool, { window: cfg.window, perAuthorCap: cfg.per_author_cap, explorePct: cfg.exploration_pct }).map((x) => x.id);
+  const start = resumeIndex(ids, cur);
+  const pageIds = ids.slice(start, start + limit);
+  let items = [];
+  if (pageIds.length) {
+    const rows = await q(c.env, `${POST_SELECT} WHERE p.id = ANY($2::uuid[])`, [me.id, pageIds]);
+    const byId = new Map(rows.map((x) => [x.id, x]));
+    items = pageIds.map((id) => byId.get(id)).filter(Boolean).map((x) => postShape(x, me, c.env, origin(c)));
+  }
+  const more = start + limit < ids.length && pageIds.length > 0;
+  return { items, nextCursor: more ? encodeFeedCursor({ s: snap, k: pageIds[pageIds.length - 1], i: start + limit }) : null };
+}
 
 async function loadPost(c, id) {
   const me = c.get('user');
@@ -41,7 +66,8 @@ r.get('/feed', async (c) => {
     events: `p.kind IN (${RULES.eventKinds.map((k) => `'${k}'`).join(',')})`,
   }[filter];
   if (where === undefined) throw bad('Unknown filter');
-  const res = await page(c, where, [], limit);
+  // PERSONALISATION: For you is ranked per viewer (lib/feedRanking.js); Following, communities and events stay newest first
+  const res = filter === 'forYou' ? await forYouPage(c, limit) : await page(c, where, [], limit);
   // BROADCASTS: posts pinned by an admin (official account) sit on top of the first "For you" page
   if (filter === 'forYou' && !c.req.query('cursor')) {
     const me = c.get('user');
@@ -52,10 +78,15 @@ r.get('/feed', async (c) => {
   return c.json(res);
 });
 
+// PERSONALISATION: Reels are ranked for the viewer (same signals as For you). ?order=newest keeps the old newest-first list.
 r.get('/videos', async (c) => {
   const limit = Math.min(Number(c.req.query('limit')) || 10, 30);
-  return c.json(await page(c, '(p.video_uid IS NOT NULL OR p.video_url IS NOT NULL)', [], limit));
+  if (c.req.query('order') === 'newest') return c.json(await page(c, '(p.video_uid IS NOT NULL OR p.video_url IS NOT NULL OR p.embed IS NOT NULL)', [], limit));
+  return c.json(await forYouPage(c, limit, { videosOnly: true }));
 });
+
+// POST FROM A LINK: validated preview for the composer (GET /posts/embed-preview?url=…). Registered before /posts/:id.
+r.get('/posts/embed-preview', async (c) => c.json(await previewEmbed(c.env, c.req.query('url'))));
 
 r.get('/posts/:id', async (c) => c.json(postShape(await loadPost(c, uuidParam(c)), c.get('user'), c.env, origin(c))));
 
@@ -66,7 +97,10 @@ r.post('/posts', async (c) => {
   const text = str(b.text, { max: 5000, field: 'Text' });
   const images = Array.isArray(b.images) ? b.images.slice(0, 10) : [];
   const videoUid = b.videoUid ? str(b.videoUid, { max: 64, field: 'videoUid' }) : null;
-  if (!text && !images.length && !videoUid) throw bad('Write something, or add a photo or video', 'EMPTY_POST');
+  // POST FROM A LINK: a YouTube / Facebook embed (validated against the allow-list in lib/postEmbeds.js)
+  const embed = b.embed != null ? await buildEmbed(c.env, b.embed) : null;
+  if (embed && (images.length || videoUid)) throw bad('A video link cannot be combined with photos or an upload', 'BAD_EMBED');
+  if (!text && !images.length && !videoUid && !embed) throw bad('Write something, or add a photo or video', 'EMPTY_POST');
   for (const m of images) {
     if (!m || typeof m.key !== 'string' || !m.key.startsWith(`img/${me.id}/`)) throw bad('Upload images with POST /uploads/image first', 'BAD_IMAGE');
   }
@@ -83,21 +117,25 @@ r.post('/posts', async (c) => {
   const p = b.passage && typeof b.passage === 'object' ? b.passage : null;
   if (p && !/^[1-3A-Z]{3}$/.test(String(p.bookId || ''))) throw bad('passage.bookId must be a book id like JHN');
   // Image-style text card design (allow-listed); photo / video posts never carry one
-  const theme = images.length || videoUid ? null : designFromBody(b, text);
-  const row = await one(c.env, `INSERT INTO posts (author_id, kind, body, passage_book, passage_ch, passage_verse, theme, category, video_uid, video_status, video_duration, video_url, video_thumb, video_codec, video_faststart, video_width, video_height)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`, [
+  const theme = images.length || videoUid || embed ? null : designFromBody(b, text);
+  const row = await one(c.env, `INSERT INTO posts (author_id, kind, body, passage_book, passage_ch, passage_verse, theme, category, video_uid, video_status, video_duration, video_url, video_thumb, video_codec, video_faststart, video_width, video_height, embed)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb) RETURNING id`, [
     me.id, kind, text,
     p ? p.bookId : null, p ? int(p.chapter, { min: 1, max: 150, field: 'chapter' }) : null, p && p.verse ? int(p.verse, { min: 1, max: 176, field: 'verse' }) : null,
     theme, str(b.category, { max: 40, optional: true }),
     videoUid, video ? (video.status === 'ready' ? 'ready' : 'uploading') : null, video ? video.duration : null,
     video ? video.video_key : null, video ? video.thumb_key : null,
     video ? video.codec || null : null, video && video.faststart != null ? video.faststart : null, video ? video.width : null, video ? video.height : null,
+    embed ? JSON.stringify(embed) : null,
   ]);
   for (let i = 0; i < images.length; i++) {
     const m = images[i];
     await q(c.env, 'INSERT INTO post_media (post_id, position, r2_key, width, height) VALUES ($1,$2,$3,$4,$5)',
       [row.id, i, m.key, Number.isFinite(m.width) ? Math.round(m.width) : null, Number.isFinite(m.height) ? Math.round(m.height) : null]);
   }
+  // PERSONALISATION: topics for the For you ranking (cheap rules; see lib/feedRanking.js tagPost)
+  const topics = tagPost({ kind, body: text, category: b.category, passageBook: p ? p.bookId : null });
+  if (topics.length) await q(c.env, 'UPDATE posts SET topics = $2 WHERE id = $1', [row.id, topics]);
   return c.json(postShape(await loadPost(c, row.id), me, c.env, origin(c)), 201);
 });
 

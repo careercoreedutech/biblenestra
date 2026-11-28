@@ -7,6 +7,7 @@ import { createApp } from '../src/index.js';
 import { makeDb, makeBucket } from '../dev/local-env.mjs';
 import { makeFakePaystack } from '../dev/fake-paystack.mjs';
 import { q, one } from '../src/lib/db.js';
+import { setConfig } from '../src/lib/wallet.js';
 import { runPaystackRenewals } from '../src/lib/paystackCheckout.js';
 import { accessUntil, planShape, INTERVALS, runMembershipCron } from '../src/lib/memberships.js';
 import { feeFor, feeTypeOf, feePeriodEnd, checkCreationFee, lapseCreationFees } from '../src/lib/membershipFees.js';
@@ -14,6 +15,11 @@ import { summarizeCreatorStats } from '../src/lib/membershipCreator.js';
 
 const DAY = 86400e3;
 let env; let fake; const app = createApp();
+const chooseFree = async (u) => { // CREATOR PLANS: a creator picks a plan (Free here) before creating
+  const id = (await call(u, 'GET', '/me')).json.id;
+  await q(env, `INSERT INTO creator_plan_subscriptions (user_id, plan_id) VALUES ($1, 'free') ON CONFLICT (user_id) DO NOTHING`, [id]);
+};
+
 const SECRET = 'sk_test_fake_secret';
 before(async () => {
   const f = makeFakePaystack();
@@ -90,6 +96,8 @@ test('creator dashboard maths: totals, lists, weekly earnings, renewals', () => 
 
 // ---------- end to end ----------
 test('setup', async () => {
+  await chooseFree('owner'); // CREATOR PLANS: the owner picks Free first
+  await setConfig(env, 'membership_creation_fee_enabled', true); // CREATOR PLANS: this file tests the (now dormant) per-membership fee
   for (const u of ['boss', 'owner', 'fan']) ids[u] = (await call(u, 'GET', '/me')).json.id;
   await q(env, `UPDATE users SET role = 'admin' WHERE id = $1`, [ids.boss]);
 });

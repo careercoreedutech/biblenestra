@@ -27,8 +27,12 @@ import { Pulse, ScaleIn } from '../components/Motion';
 import { AD_UNITS } from './config';
 import { useStore } from '../store';
 import {
-  capReason, getRules, isAppActive, isTestUnit, logAdEvent, recordFullScreenImpression, setPremium, startAdsRemote,
+  capReason, getExtras, getRules, isAppActive, isTestUnit, logAdEvent, recordFullScreenImpression, setPremium, startAdsRemote,
 } from './remote';
+import { useToast } from '../components/Toast';
+import { showMaxInterstitial } from './max'; // AD NETWORKS: backup network (AppLovin MAX), interstitials only
+import { pickHouseAd, refreshHouseAds } from './house'; // AD NETWORKS: house ads (our own, last fill)
+import { HouseCreative } from './HouseAd';
 
 import GMA from './gma';
 
@@ -185,9 +189,17 @@ export function AdsProvider({ children }) {
   const [demo, setDemo] = useState(null); // { kind, total, meta, resolve }
   const [left, setLeft] = useState(0);
   const timer = useRef(null);
+  // AD NETWORKS: house ad on screen ({ ad, mode, resolve }) and its countdown
+  const [house, setHouse] = useState(null);
+  const [houseLeft, setHouseLeft] = useState(0);
+  const houseTimer = useRef(null);
+  const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
   useEffect(() => {
     startAdsRemote();
+    refreshHouseAds();
     if (GMA && GMA.default) {
       try { GMA.default().initialize(); } catch (e) { /* ignore */ }
     }
@@ -213,11 +225,48 @@ export function AdsProvider({ children }) {
     setDemo(null);
   };
 
-  const showRewarded = useCallback((opts) => (GMA
-    ? nativeRewarded(opts || {})
-    : runDemo('rewarded', 6, { surface: 'rewarded', placement: (opts && opts.purpose) || 'reward', format: 'rewarded', test: true })), []);
+  // House ad on screen. Interstitial: counts as a shown break. Rewarded: a countdown and "no reward" (house ads never grant).
+  const showHouse = useCallback((mode, placement) => new Promise((resolve) => {
+    // resolves at once with null when there is no house ad to show (the caller then reports no fill)
+    pickHouseAd({ preferImage: mode === 'interstitial' }).then((ad) => {
+      if (!ad) { resolve(null); return; }
+      const secs = mode === 'rewarded' ? 5 : Math.max(0, Number(getExtras().houseSkipAfterSec) || 0);
+      setHouseLeft(secs);
+      setHouse({ ad, mode, resolve });
+      clearInterval(houseTimer.current);
+      if (secs > 0) houseTimer.current = setInterval(() => setHouseLeft((s) => (s <= 1 ? (clearInterval(houseTimer.current), 0) : s - 1)), 1000);
+      if (mode !== 'rewarded') recordFullScreenImpression(); // a house interstitial counts toward the frequency caps
+      logAdEvent('impression', { surface: 'other', placement: `house_${placement || mode}`, format: mode === 'rewarded' ? 'rewarded' : 'interstitial', test: false });
+    });
+  }), []);
 
-  const showInterstitial = useCallback(async (opts = {}) => {
+  const closeHouse = () => {
+    clearInterval(houseTimer.current);
+    if (house) house.resolve(house.mode === 'rewarded' ? { rewarded: false, house: true, error: 'no_fill' } : { shown: true, house: true });
+    setHouse(null);
+  };
+
+  // One full-screen ad at a time: a call that arrives while another chain is running gets { busy: true } at once.
+  const exclusive = useRef(false);
+  const runExclusive = async (fn) => {
+    if (exclusive.current) return { busy: true, shown: false, rewarded: false, reason: 'busy', error: 'busy' };
+    exclusive.current = true;
+    try { return await fn(); } finally { exclusive.current = false; }
+  };
+
+  // Rewarded chain: AdMob → house ad (a countdown, never a reward). Rewards come only from AdMob's server verification.
+  const showRewarded = useCallback((opts) => runExclusive(async () => {
+    if (!GMA) return runDemo('rewarded', 6, { surface: 'rewarded', placement: (opts && opts.purpose) || 'reward', format: 'rewarded', test: true });
+    const r = await nativeRewarded(opts || {});
+    if (r.rewarded || (r.error !== 'load' && r.error !== 'timeout')) return r; // watched, or the user stopped: no fallback
+    const h = await showHouse('rewarded', (opts && opts.purpose) || 'reward');
+    if (h) return h;
+    if (toastRef.current) toastRef.current.show('No video available right now — try again later', { tone: 'error' });
+    return { rewarded: false, error: 'no_fill' };
+  }), [showHouse, runDemo]);
+
+  // Interstitial chain: AdMob → backup network → house ad. Each step runs only when the one before had no fill.
+  const showInterstitial = useCallback((opts = {}) => runExclusive(async () => {
     try {
       if (premiumRef.current) return { shown: false, premium: true };
       if (!getRules().enabled) return { shown: false, reason: 'off' };
@@ -225,16 +274,55 @@ export function AdsProvider({ children }) {
       if (!opts.ignoreCaps) { const why = capReason(); if (why) return { shown: false, reason: why }; }
       const meta = { surface: opts.surface || 'other', placement: opts.placement || 'break', format: 'interstitial', test: !GMA || isTestUnit(AD_UNITS.interstitial) };
       if (!GMA) return await runDemo('interstitial', opts.skipAfterSec != null ? opts.skipAfterSec : 4, meta);
-      return await nativeInterstitial(meta, opts.loadTimeoutMs || 20000);
+      const r = await nativeInterstitial(meta, opts.loadTimeoutMs || 20000);
+      if (r.shown || (r.reason && r.reason !== 'timeout')) return r; // shown, or background: no fallback
+      const m = await showMaxInterstitial(8000);
+      if (m.shown) return { shown: true, network: 'applovin' };
+      const h = await showHouse('interstitial', opts.placement);
+      return h || { shown: false, reason: 'no_fill' };
     } catch (e) {
       return { shown: false, error: 'internal' };
     }
-  }, []);
+  }), [showHouse, runDemo]);
 
   const total = demo ? demo.total : 1;
+  const houseTotal = house ? (house.mode === 'rewarded' ? 5 : Math.max(1, Number(getExtras().houseSkipAfterSec) || 1)) : 1;
   return (
     <Ctx.Provider value={{ showRewarded, showInterstitial, preloadRewarded: preloadRewardedAd, preloadInterstitial: preloadInterstitialAd, isDemo: !GMA }}>
       {children}
+      <Modal visible={!!house} animationType="fade" transparent={false} onRequestClose={() => houseLeft === 0 && closeHouse()} statusBarTranslucent>
+        <View style={styles.wrap}>
+          <NightGlow intensity={1.2} />
+          <View style={styles.top}>
+            <View style={styles.sponsored}><Text style={styles.sponsoredText}>Sponsored</Text></View>
+            {houseLeft > 0 ? (
+              <View style={styles.countdown}><Text style={styles.countdownText}>{house && house.mode === 'rewarded' ? `Closes in ${houseLeft}s` : `Skip in ${houseLeft}s`}</Text></View>
+            ) : (
+              <Pressable onPress={closeHouse} style={styles.closeBtn} accessibilityLabel="Close ad">
+                <Icon name="x" size={18} color={colors.nightFg} strokeWidth={2.4} />
+              </Pressable>
+            )}
+          </View>
+          <View style={styles.houseBody}>
+            {house && house.mode === 'rewarded' ? (
+              <Text style={styles.noFill}>No video available right now — try again later</Text>
+            ) : null}
+            <HouseCreative ad={house ? house.ad : null} large />
+            {house && house.mode === 'rewarded' ? (
+              <Text style={styles.noRewardNote}>This is a BibleNestra offer, so it does not earn a reward.</Text>
+            ) : null}
+          </View>
+          {houseLeft === 0 ? (
+            <ScaleIn style={{ paddingHorizontal: 24, paddingBottom: 40 }}>
+              <Pressable onPress={closeHouse} style={styles.cta}>
+                <Text style={styles.ctaText}>Continue</Text>
+              </Pressable>
+            </ScaleIn>
+          ) : (
+            <View style={styles.track}><View style={[styles.fill, { width: `${((houseTotal - houseLeft) / houseTotal) * 100}%` }]} /></View>
+          )}
+        </View>
+      </Modal>
       <Modal visible={!!demo} animationType="fade" transparent={false} onRequestClose={() => left === 0 && closeDemo(true)} statusBarTranslucent>
         <View style={styles.wrap}>
           <NightGlow intensity={1.2} />
@@ -294,4 +382,7 @@ const styles = StyleSheet.create({
   fill: { height: 4, backgroundColor: colors.goldLight },
   cta: { height: 54, borderRadius: 27, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
   ctaText: { color: colors.night, fontSize: 16, fontWeight: '800' },
+  houseBody: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
+  noFill: { fontFamily: fonts.serifBold, fontSize: 20, color: colors.nightFg, textAlign: 'center', marginBottom: 16 },
+  noRewardNote: { fontSize: 12, color: colors.nightMuted, textAlign: 'center', marginTop: 14 },
 });

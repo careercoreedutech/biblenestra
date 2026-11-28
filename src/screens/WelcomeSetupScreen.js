@@ -140,12 +140,12 @@ const styles = StyleSheet.create({
 
   title: { marginTop: 22, fontFamily: df.displayBold, fontSize: 30, lineHeight: 36, letterSpacing: -0.8, color: d.ink },
   sub: { marginTop: 6, fontFamily: df.sans, fontSize: 14, lineHeight: 21, color: d.muted },
-  label: { marginTop: 22, marginBottom: 8, fontSize: 12, fontFamily: df.sansBold, color: (isDarkScheme() ? '#F3E9DC' : '#4C3D32') },
+  label: { marginTop: 22, marginBottom: 8, fontSize: 12, fontFamily: df.sansBold, color: (isDarkScheme() ? '#ffffff' : '#333333') },
   field: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, paddingHorizontal: 14, justifyContent: 'center' },
   input: { height: 50, fontFamily: df.sans, fontSize: 14, color: d.ink },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { minHeight: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, alignItems: 'center', justifyContent: 'center' },
-  chipOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E5') },
+  chipOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#2a1a10' : '#ffede3') },
   chipText: { fontSize: 13, fontFamily: df.sansBold, color: d.muted },
   chipTextOn: { color: d.plum },
 
@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
   optionText: { flex: 1, minWidth: 0 },
   optionTitle: { fontSize: 13, fontFamily: df.sansBold, color: d.ink },
   optionBody: { fontSize: 11, fontFamily: df.sans, color: d.muted, marginTop: 2 },
-  toggle: { width: 44, height: 26, padding: 3, borderRadius: 13, backgroundColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), justifyContent: 'center' },
+  toggle: { width: 44, height: 26, padding: 3, borderRadius: 13, backgroundColor: (isDarkScheme() ? '#333333' : '#d6d6d6'), justifyContent: 'center' },
   toggleOn: { backgroundColor: d.plum },
   toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.surfaceWhite },
   toggleKnobOn: { transform: [{ translateX: 18 }] },

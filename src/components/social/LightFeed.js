@@ -17,6 +17,7 @@ import { ND, WHITE, countFormat } from './shared';
 import { compactCount } from '../../utils/compactCount'; // PACKAGE F: 1, 1.2K, 10K, 1.2M plays on every video tile
 import { useLiveCount, ViewCount } from './viewCounts'; // VIEW COUNTS: post views on cards, plays on video tiles
 import { TextPostCard } from './TextPostCard';
+import EmbedPlayer from './EmbedPlayer'; // POST FROM A LINK
 import { LinkText } from '../EmbedViewer'; // YOUTUBE LIVE: video links in posts open in-app
 
 // ─── Reactions (long-press Like) ─────────────────────────────────
@@ -433,6 +434,12 @@ function LightPostCardImpl({
       {processing ? (
         <View style={styles.mediaBleed}>
           <ProcessingVideo item={item} onRetry={onRetryUpload} onDiscard={onDiscardUpload} />
+        </View>
+      ) : null}
+      {/* POST FROM A LINK: the provider's own embed, with a "via" credit and "Open original" */}
+      {item.embed ? (
+        <View style={styles.mediaBleed}>
+          <EmbedPlayer postId={item.id} embed={item.embed} />
         </View>
       ) : null}
 

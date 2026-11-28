@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Icon } from '../components/Icons';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
-import { DARK_D, isDarkScheme } from './palette'; // APPEARANCE (item 14)
+import { LIGHT_D, DARK_D, isDarkScheme } from './palette'; // APPEARANCE (item 14)
 
 // :root tokens
 export const d = {
@@ -31,8 +31,10 @@ export const d = {
   navOnBg: '#FFF2E5',
   navOnText: '#472612',
 };
-// APPEARANCE: dark mode swaps the warm ivory tokens for the warm dark ones (before k/StyleSheet below is created)
-if (isDarkScheme()) Object.assign(d, DARK_D, { glass: 'rgba(30,24,19,0.78)' });
+// APPEARANCE: White swaps the ivory tokens for pure white; Black (dark mode) swaps them for true black
+// (before k/StyleSheet below is created)
+Object.assign(d, LIGHT_D);
+if (isDarkScheme()) Object.assign(d, DARK_D);
 
 export const df = {
   display: 'Playfair-SemiBold',

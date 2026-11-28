@@ -22,6 +22,9 @@ const GOOGLE_TEST_PUBLISHER = 'ca-app-pub-3940256099942544';
 
 let rules = mergeRules(DEFAULT_RULES);
 let breakRules = mergeBreakRules({}); // interstitial breaks (GET /ads/config → breaks)
+// AD NETWORKS: plans-at-launch + Beyond-the-66 rules (GET /ads/config → extras) and the backup network ids (→ networks)
+let extras = { plansPage: { enabled: true, frequency: 'launch' }, extraBooks: { enabled: true, minGapSeconds: 5, onOpen: true, onChapter: true }, houseSkipAfterSec: 5 };
+let networks = {};
 let rulesVersion = 0;
 let fetchedAt = 0;
 let fetching = null;
@@ -43,6 +46,12 @@ function applyRules(next, version) {
 
 export const getRules = () => rules;
 export const getBreakRules = () => breakRules;
+export const getExtras = () => extras;
+export const getNetworks = () => networks;
+function applyExtras(e, n) {
+  if (e && typeof e === 'object') extras = { ...extras, ...e, plansPage: { ...extras.plansPage, ...(e.plansPage || {}) }, extraBooks: { ...extras.extraBooks, ...(e.extraBooks || {}) } };
+  if (n && typeof n === 'object') networks = n;
+}
 export const getRulesVersion = () => rulesVersion;
 export const isPremium = () => premium;
 export function setPremium(p) { premium = !!p; }
@@ -68,12 +77,14 @@ export function refreshRules({ force = false } = {}) {
         if (data && data.config) {
           applyRules(data.config, data.version);
           if (data.breaks) breakRules = mergeBreakRules(data.breaks);
+          applyExtras(data.extras, data.networks);
           fetchedAt = Date.now();
-          safe(() => AsyncStorage.setItem(RULES_KEY, JSON.stringify({ version: data.version, config: data.config, breaks: data.breaks || null, at: fetchedAt })).catch(() => {}));
+          safe(() => AsyncStorage.setItem(RULES_KEY, JSON.stringify({ version: data.version, config: data.config, breaks: data.breaks || null, extras: data.extras || null, networks: data.networks || null, at: fetchedAt })).catch(() => {}));
         }
       }
     } catch (e) { /* offline: keep cached/default rules */ }
     fetching = null;
+    if (resolveConfigSettled) resolveConfigSettled();
     return rules;
   })();
   return fetching;
@@ -122,6 +133,10 @@ export function setAdsTransport(fn) {
 }
 
 // ---------- start-up ----------
+// The first config (cache or network) settles once; callers that must honour admin switches at launch await it.
+let resolveConfigSettled;
+const configSettled = new Promise((r) => { resolveConfigSettled = r; });
+export const waitAdsConfig = (maxMs = 1500) => Promise.race([configSettled, new Promise((r) => setTimeout(r, maxMs))]);
 let started = false;
 export function startAdsRemote() {
   if (started) return;
@@ -130,6 +145,8 @@ export function startAdsRemote() {
     const c = raw ? JSON.parse(raw) : null;
     if (c && c.config && !fetchedAt) applyRules(c.config, c.version);
     if (c && c.breaks && !fetchedAt) breakRules = mergeBreakRules(c.breaks);
+    if (c && (c.extras || c.networks) && !fetchedAt) applyExtras(c.extras, c.networks);
+    if (c && c.config && resolveConfigSettled) resolveConfigSettled();
   }).catch(() => {}));
   safe(() => AsyncStorage.getItem(CAPS_KEY).then((raw) => {
     const list = raw ? JSON.parse(raw) : [];

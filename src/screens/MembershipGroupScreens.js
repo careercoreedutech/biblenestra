@@ -664,7 +664,7 @@ const s = StyleSheet.create({
   mediaMeta: { fontFamily: df.sans, fontSize: 10, color: d.muted },
   inviteUrl: { marginTop: 10, fontFamily: df.sansBold, fontSize: 12, color: d.plumDark, backgroundColor: d.lavender, borderRadius: 13, padding: 10 },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
-  fieldLabel: { fontFamily: df.sansBold, fontSize: 11, color: (isDarkScheme() ? '#CDBBA6' : '#4C3D32'), marginTop: 14, marginBottom: 7 },
+  fieldLabel: { fontFamily: df.sansBold, fontSize: 11, color: (isDarkScheme() ? '#cccccc' : '#333333'), marginTop: 14, marginBottom: 7 },
   input: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontFamily: df.sans, fontSize: 13, color: d.ink },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   linkRowText: { flex: 1, fontFamily: df.sansBold, fontSize: 13, color: d.ink },

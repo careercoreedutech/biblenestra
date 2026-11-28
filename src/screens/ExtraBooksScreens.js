@@ -18,6 +18,8 @@ import { EXTRA_BOOKS, EXTRA_COLLECTIONS, extraBook } from '../data/extraBooks';
 import { useExtraBook, chapterLabel } from '../bible/extraLoader';
 import { d, df, gradients, Grad, Tap, Eyebrow, SectionTitle } from '../design/sanctuary';
 import { DScreen } from '../design/profile/parts';
+import { useAds } from '../ads/Ads'; // BEYOND THE 66 ADS: interstitial on open and on every chapter change
+import { showExtraBookAd } from '../ads/extraBooksAds';
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -137,6 +139,9 @@ export function ExtraBookScreen({ params = {} }) {
   const { state, dispatch } = useStore();
   const meta = extraBook(params.id);
   const { book, loading, error, retry } = useExtraBook(params.id);
+  const ads = useAds();
+  // BEYOND THE 66 ADS: one interstitial when the book opens (admin gap and switches; Plus members never see it)
+  useEffect(() => { if (meta) showExtraBookAd(ads.showInterstitial, 'open'); }, [meta && meta.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const savedReaderKey = state.readerTheme || 'paper'; // dark app → Night reader unless the user picked Sepia/Night
   const t = readerThemes[isDarkScheme() && savedReaderKey === 'paper' ? 'night' : savedReaderKey] || readerThemes.paper;
   const fs = Math.round((state.fontSize || 16) * 1.12);
@@ -165,6 +170,7 @@ export function ExtraBookScreen({ params = {} }) {
     setChN(chapters[i]);
     setSelected(null);
     setPicker(false);
+    showExtraBookAd(ads.showInterstitial, 'chapter'); // BEYOND THE 66 ADS: every next / previous chapter change
     requestAnimationFrame(() => { try { scroll.current && scroll.current.scrollTo({ y: 0, animated: false }); } catch (e) { /* ignore */ } });
   };
 

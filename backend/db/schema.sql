@@ -3405,3 +3405,183 @@ CREATE TABLE IF NOT EXISTS membership_ad_gate_passes (
   PRIMARY KEY (user_id, membership_id)
 );
 -- ===== END MEMBERSHIP AD GATE =====
+
+-- ===== PORTFOLIO MANAGER & PARTNER DASHBOARDS (round 3) =====
+-- Super Admin "deactivate" (a suspension that the Portfolio Manager cannot undo) is recorded with a timestamp.
+ALTER TABLE portfolio_members ADD COLUMN IF NOT EXISTS deactivated_at timestamptz;
+-- The ledger gains a 'membership' role: a commission on membership subscription revenue of memberships owned by referred
+-- creators (lib/portfolio.js). Re-running this block re-creates the same check, so it stays idempotent.
+ALTER TABLE portfolio_commissions DROP CONSTRAINT IF EXISTS portfolio_commissions_role_check;
+ALTER TABLE portfolio_commissions ADD CONSTRAINT portfolio_commissions_role_check CHECK (role IN ('partner','portfolio','membership'));
+-- A Partner Manager's personal landing page: optional photo, display name, intro, and the invite message they send.
+CREATE TABLE IF NOT EXISTS partner_landing_profiles (
+  user_id        uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  display_name   text CHECK (display_name IS NULL OR char_length(display_name) <= 60),
+  intro          text NOT NULL DEFAULT '' CHECK (char_length(intro) <= 400),
+  photo_url      text CHECK (photo_url IS NULL OR char_length(photo_url) <= 500),
+  invite_message text NOT NULL DEFAULT '' CHECK (char_length(invite_message) <= 600),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+-- One row per public view of a partner's landing page (conversion = registrations / views).
+CREATE TABLE IF NOT EXISTS partner_landing_views (
+  id          bigserial PRIMARY KEY,
+  partner_id  uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS partner_landing_views_partner ON partner_landing_views (partner_id, created_at);
+-- Invitations a Partner Manager or Portfolio Manager sends to a named person (email, WhatsApp, Telegram, ...). The
+-- invitation is "successful" when a user with the same billing email registers through the partner's code.
+CREATE TABLE IF NOT EXISTS partner_invitations (
+  id                 bigserial PRIMARY KEY,
+  inviter_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel            text NOT NULL CHECK (channel IN ('email','whatsapp','facebook','instagram','telegram','link','other')),
+  email              text CHECK (email IS NULL OR char_length(email) <= 200),
+  invitee_name       text CHECK (invitee_name IS NULL OR char_length(invitee_name) <= 120),
+  registered_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  registered_at      timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS partner_invitations_inviter ON partner_invitations (inviter_id, created_at);
+CREATE INDEX IF NOT EXISTS partner_invitations_email ON partner_invitations (lower(email)) WHERE email IS NOT NULL AND registered_user_id IS NULL;
+-- ===== END PORTFOLIO MANAGER & PARTNER DASHBOARDS =====
+-- ===== PERSONALISATION (FOR YOU RANKING) =====
+-- Interests picked at sign-up or in Profile (routes/personalisation.js); city and denomination for locality.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS interests text[] NOT NULL DEFAULT '{}';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS city text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS denomination text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS interests_set_at timestamptz;
+-- Topics per post, set when the post is published (lib/feedRanking.js tagPost). Older posts stay untagged until backfilled.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS topics text[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS posts_topics_gin ON posts USING GIN (topics);
+-- Candidate pool and affinity lookups
+CREATE INDEX IF NOT EXISTS posts_live_created ON posts (created_at DESC) WHERE NOT removed AND pinned_at IS NULL;
+CREATE INDEX IF NOT EXISTS posts_evergreen ON posts ((likes_count + comments_count) DESC) WHERE NOT removed;
+CREATE INDEX IF NOT EXISTS reactions_user_post ON reactions (user_id, post_id);
+CREATE INDEX IF NOT EXISTS comments_author_post ON comments (author_id, post_id);
+CREATE INDEX IF NOT EXISTS reports_target_post ON reports (target_type, target_id, reporter_id);
+-- ===== END PERSONALISATION =====
+-- ===== CREATOR PLANS (Free / Standard / Premium; round 3 client request) =====
+-- Creation fee per membership is dormant: registerConfig 'membership_creation_fee_enabled' (default off, lib/membershipFees.js).
+-- Creator plan payments are Paystack kind 'creator_plan' (settle → grant → applyCreatorPlanPayment).
+ALTER TABLE paystack_payments DROP CONSTRAINT IF EXISTS paystack_payments_kind_check;
+ALTER TABLE paystack_payments ADD CONSTRAINT paystack_payments_kind_check CHECK (kind IN ('wallet','membership','plus','membership_fee','creator_plan'));
+-- One row per creator. No row = Free (never chosen). plan_id 'free' has no period end.
+CREATE TABLE IF NOT EXISTS creator_plan_subscriptions (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            uuid NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  plan_id            text NOT NULL DEFAULT 'free' CHECK (plan_id IN ('free','standard','premium')),
+  status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active','past_due','expired')),
+  pending_plan_id    text CHECK (pending_plan_id IS NULL OR pending_plan_id IN ('free','standard','premium')),
+  current_period_end timestamptz,
+  auto_renew         boolean NOT NULL DEFAULT false,
+  paystack_auth_id   uuid REFERENCES paystack_authorizations(id) ON DELETE SET NULL,
+  amount_minor       bigint,
+  currency           text,
+  fx_rate            numeric,
+  last_payment_ref   text,
+  renewal_attempts   integer NOT NULL DEFAULT 0,
+  last_renewal_at    timestamptz,
+  reminded_for       timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS creator_plan_subscriptions_due ON creator_plan_subscriptions (status, current_period_end);
+-- Creator withdrawals. Fee = BibleNestra's withdrawal fee (active plan %). bank_charge_minor = gateway / bank charge,
+-- recorded by the admin when paid. Kept apart from the fee on purpose.
+CREATE TABLE IF NOT EXISTS creator_withdrawals (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  currency          text NOT NULL DEFAULT 'NGN',
+  gross_minor       bigint NOT NULL CHECK (gross_minor > 0),
+  fee_minor         bigint NOT NULL CHECK (fee_minor >= 0),
+  fee_percent       numeric NOT NULL,
+  plan_id           text NOT NULL CHECK (plan_id IN ('free','standard','premium')),
+  bank_charge_minor bigint CHECK (bank_charge_minor IS NULL OR bank_charge_minor >= 0),
+  net_minor         bigint CHECK (net_minor IS NULL OR net_minor >= 0),
+  status            text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested','approved','paid','rejected','cancelled')),
+  reference         text,
+  note              text,
+  reviewed_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at       timestamptz,
+  paid_at           timestamptz,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS creator_withdrawals_user ON creator_withdrawals (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS creator_withdrawals_status ON creator_withdrawals (status, created_at DESC);
+-- Per-user daily flags (join ad shown today, etc.). Keyed by the Africa/Lagos day ('YYYY-MM-DD'), so it holds across devices.
+CREATE TABLE IF NOT EXISTS user_daily_flags (
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  flag_key   text NOT NULL,
+  day_key    text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, flag_key, day_key)
+);
+-- ===== END CREATOR PLANS =====
+
+-- ===== AD NETWORKS & HOUSE ADS =====
+-- House ads: BibleNestra's own sponsored image/text ads (admin Ads tab). Shown only when AdMob and the backup network
+-- have no fill. They never grant rewards. impressions/clicks are plain counters on the row.
+CREATE TABLE IF NOT EXISTS house_ads (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind         text NOT NULL CHECK (kind IN ('image', 'text')),
+  title        text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 80),
+  body         text NOT NULL DEFAULT '',
+  cta          text NOT NULL DEFAULT 'Learn more',
+  image_url    text,
+  link_url     text NOT NULL,
+  active       boolean NOT NULL DEFAULT true,
+  sort         integer NOT NULL DEFAULT 0,
+  impressions  bigint NOT NULL DEFAULT 0,
+  clicks       bigint NOT NULL DEFAULT 0,
+  created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS house_ads_active_idx ON house_ads (active, sort);
+-- ===== END AD NETWORKS & HOUSE ADS ====="
+
+-- ===== USERNAME CONTACTS =====
+-- An exact @username match that the user messages (POST /contacts/by-handle, routes/referrals.js) becomes a contact:
+-- chats between the two never use a free chat slot (lib/chatLimits.js isUsernameContact, either direction).
+-- Daily cap per user: CHAT_USERNAME_CONTACTS_PER_DAY (rolling 24 hours). Master switch: CHAT_USERNAME_CONTACTS.
+CREATE TABLE IF NOT EXISTS chat_contacts (
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  contact_id  uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source      text NOT NULL DEFAULT 'username',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, contact_id),
+  CHECK (user_id <> contact_id)
+);
+CREATE INDEX IF NOT EXISTS chat_contacts_contact_idx ON chat_contacts (contact_id);
+CREATE INDEX IF NOT EXISTS chat_contacts_daily_idx ON chat_contacts (user_id, created_at) WHERE source = 'username';
+-- ===== END USERNAME CONTACTS =====
+
+-- ===== POST FROM A LINK (YouTube / Facebook embeds) =====
+-- A video post that plays the provider's own embed. Nothing is downloaded or re-hosted. The app validates the
+-- link (lib/postEmbeds.js); the column holds { provider, url, videoId, thumbnailUrl, title, authorName }.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS embed jsonb;
+CREATE INDEX IF NOT EXISTS posts_embed ON posts (created_at DESC) WHERE embed IS NOT NULL AND NOT removed;
+-- ===== END POST FROM A LINK =====
+-- ===== WATCH & EARN =====
+-- Rewarded ads (purpose 'earn') credit Kingdom Coins (users.coins + coin_ledger). lib/watchEarn.js.
+-- watch_earn_ads: one row per rewarded-ad transaction id (primary key = dedupe); day = Africa/Lagos calendar day (daily cap).
+CREATE TABLE IF NOT EXISTS watch_earn_ads (
+  transaction_id text PRIMARY KEY,
+  user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day            date NOT NULL,
+  verified       boolean NOT NULL DEFAULT false,
+  credited       boolean NOT NULL DEFAULT false,
+  coins          integer NOT NULL DEFAULT 0,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS watch_earn_ads_user_day ON watch_earn_ads (user_id, day);
+-- watch_earn_bonuses: the streak bonus, paid once per user and day.
+CREATE TABLE IF NOT EXISTS watch_earn_bonuses (
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day        date NOT NULL,
+  coins      integer NOT NULL CHECK (coins > 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, day)
+);
+-- ===== END WATCH & EARN =====

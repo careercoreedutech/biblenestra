@@ -32,6 +32,7 @@ import {
   writtenLabel, untilLabel, newKey, joinFreeGroup, askToJoin, markWelcomeSeen, MASTER, EXECUTIVE, creditAdGateAd,
 } from '../api/memberships';
 import { WelcomeModal } from './MembershipGroupScreens'; // MEMBERSHIP GROUPS: once-only welcome pop-up
+import { runJoinAd } from '../api/creatorPlans'; // CREATOR PLANS: once a day per user for Free-plan creators
 
 const SORTS = [
   { id: 'trending', label: 'Trending' },
@@ -349,6 +350,7 @@ export function ReviewRow({ r }) {
 }
 
 export function MembershipScreen({ params = {} }) {
+  const ads = useAds(); // CREATOR PLANS: the join ad before a free join
   const nav = useNav();
   const toast = useToast();
   const api = useApi();
@@ -383,6 +385,7 @@ export function MembershipScreen({ params = {} }) {
     if (pending) { toast.show('Your request is with the group admins. We’ll let you know.', { icon: 'clock' }); return; }
     if (needsApproval || m.free) {
       try {
+        if (m.free) await runJoinAd(api, m.id, ads.showInterstitial); // CREATOR PLANS: one ad a day per user for Free-plan creators
         const r = m.free ? await joinFreeGroup(api, m.id) : await askToJoin(api, m.id);
         membershipsChanged(); reload();
         if (r.status === 'member') { nav.push('MembershipHome', { id: m.id, title: m.title }); return; }
@@ -582,6 +585,7 @@ function CheckoutSheet({ visible, m, planId, onClose, onBack, onJoined }) {
   const [quote, setQuote] = useState(null);
   const [busy, setBusy] = useState(false);
   const key = useRef(newKey());
+  const ads = useAds(); // CREATOR PLANS: join ad
 
   useEffect(() => {
     if (!visible) return;
@@ -611,6 +615,8 @@ function CheckoutSheet({ visible, m, planId, onClose, onBack, onJoined }) {
     if (!agree) { toast.show('Please agree to the terms and conditions', { tone: 'error' }); return; }
     if (!chosen || !chosen.available) { toast.show((cfg && cfg.message) || 'Payments are coming soon — ask an admin for access.', { icon: 'clock' }); return; }
     if (chosen.provider === 'paystack' && !looksLikeEmail(email.trim())) { toast.show('Enter your email — Paystack sends the receipt there', { tone: 'error' }); return; }
+    // CREATOR PLANS: a Free-plan creator membership shows one ad a day per account when someone joins. It never blocks joining.
+    await runJoinAd(api, m.id, ads.showInterstitial);
     setBusy(true);
     try {
       const send = (mail) => submitCheckout(api, m.id, {
@@ -1178,7 +1184,7 @@ const styles = StyleSheet.create({
   topBtn: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: d.line, backgroundColor: d.glass, alignItems: 'center', justifyContent: 'center' },
   topTitle: { flex: 1, textAlign: 'center', fontFamily: df.displayBold, fontSize: 16, color: d.ink },
   heroCover: { marginHorizontal: 18, marginTop: 12, height: 230, borderRadius: 25 },
-  heroPlay: { position: 'absolute', left: 14, bottom: 14, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.94)' : 'rgba(255,250,242,0.94)'), borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  heroPlay: { position: 'absolute', left: 14, bottom: 14, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: (isDarkScheme() ? 'rgba(17,17,17,0.94)' : 'rgba(255,255,255,0.94)'), borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   heroPlayText: { color: d.ink, fontFamily: df.sansBold, fontSize: 12 },
   prodName: { fontFamily: df.displayBold, fontSize: 26, lineHeight: 31, color: d.ink, textAlign: 'center', marginTop: 20, letterSpacing: -0.4 },
   prodHeadline: { fontFamily: df.display, fontSize: 16, lineHeight: 22, color: d.plum, textAlign: 'center', marginTop: 8 },
@@ -1215,7 +1221,7 @@ const styles = StyleSheet.create({
   reviewName: { fontFamily: df.sansBold, fontSize: 13, color: d.ink, flexShrink: 1 },
   reviewDate: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
   reviewBody: { fontFamily: df.sans, fontSize: 13, color: d.ink, lineHeight: 20, marginTop: 10 },
-  sticky: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, backgroundColor: (isDarkScheme() ? 'rgba(20,16,13,0.96)' : 'rgba(248,241,231,0.96)'), borderTopWidth: 1, borderTopColor: d.line },
+  sticky: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, backgroundColor: (isDarkScheme() ? 'rgba(0,0,0,0.96)' : 'rgba(255,255,255,0.96)'), borderTopWidth: 1, borderTopColor: d.line },
   joinBtn: { height: 52, borderRadius: 14, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', shadowColor: d.plum, shadowOpacity: 0.25, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
   joinText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 14 },
 
@@ -1223,11 +1229,11 @@ const styles = StyleSheet.create({
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: d.line, marginBottom: 12 },
   sheetTitle: { fontFamily: df.displayBold, fontSize: 22, color: d.ink },
   plan: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: d.paper, borderRadius: 18, padding: 16, borderWidth: 1.5, borderColor: d.line },
-  planOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E6') },
+  planOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#2a1a10' : '#ffede3') },
   planName: { fontFamily: df.sansBold, fontSize: 12, color: d.muted },
   planPrice: { fontFamily: df.displayBold, fontSize: 22, color: d.ink, marginTop: 4 },
   planPer: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: (isDarkScheme() ? '#4D3D30' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center' },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: (isDarkScheme() ? '#333333' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center' },
   radioOn: { borderColor: d.plum },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: d.plum },
 
@@ -1242,7 +1248,7 @@ const styles = StyleSheet.create({
   coDiscount: { fontFamily: df.sansBold, fontSize: 11, color: d.positive, marginTop: 2 },
   coAccess: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 4, textAlign: 'center' },
   promoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, alignSelf: 'stretch' },
-  label: { fontFamily: df.sansBold, fontSize: 11, color: (isDarkScheme() ? '#CDBBA6' : '#4C3D32'), marginTop: 16, marginBottom: 7 },
+  label: { fontFamily: df.sansBold, fontSize: 11, color: (isDarkScheme() ? '#cccccc' : '#333333'), marginTop: 16, marginBottom: 7 },
   input: { height: 52, paddingHorizontal: 14, borderRadius: 14, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, fontFamily: df.sans, fontSize: 13, color: d.ink },
   inputLocked: { backgroundColor: d.raised, justifyContent: 'center' },
   inputLockedText: { fontFamily: df.sans, fontSize: 13, color: d.muted },
@@ -1254,7 +1260,7 @@ const styles = StyleSheet.create({
   methodLabel: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
   methodNote: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 1 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  checkBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
+  checkBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#333333' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
   checkBoxOn: { backgroundColor: d.plum, borderColor: d.plum },
   checkText: { fontFamily: df.sans, fontSize: 12, color: d.ink, flex: 1 },
   shopBtn: { height: 52, borderRadius: 14, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
@@ -1275,7 +1281,7 @@ const styles = StyleSheet.create({
   progressTitle: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
   lesson: { backgroundColor: d.paper, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: d.line },
   lessonHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  lessonNum: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center' },
+  lessonNum: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#333333' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center' },
   lessonNumText: { fontSize: 12, fontFamily: df.sansHeavy, color: d.muted },
   lessonTitle: { fontFamily: df.display, fontSize: 14, color: d.ink },
   lessonBody: { fontFamily: df.sans, fontSize: 13, color: d.ink, lineHeight: 21 },

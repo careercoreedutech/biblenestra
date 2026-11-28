@@ -2,6 +2,7 @@ import React from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../theme'; // APPEARANCE (item 14): the wrap uses the page token
+import { isDarkScheme } from '../design/palette';
 
 // Lucide icons used by the design: Home, BookOpen, Compass, UsersRound
 const svg = (c, paths) => <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">{paths}</Svg>;
@@ -16,7 +17,9 @@ export const TABS = ['Today', 'Bible', 'Discover', 'Socials'];
 
 // FIGMA DESIGN (.bottom-nav): a dark floating dock; the active tab opens into a light pill with its label,
 // and an orange + in the middle opens Create.
-const D = { dock: 'rgba(46,29,18,0.96)', off: '#BFAE9F', onBg: '#FFF2E5', onText: '#472612', plum: '#FF6B1A' };
+const D = isDarkScheme()
+  ? { dock: 'rgba(17,17,17,0.96)', off: '#8C8C8C', onBg: '#2A1A10', onText: '#FFD2B0', plum: '#FF6B1A' }
+  : { dock: 'rgba(17,17,17,0.96)', off: '#9E9E9E', onBg: '#FFEDE3', onText: '#472612', plum: '#FF6B1A' };
 
 function Tab({ name, isActive, onPress }) {
   const open = React.useRef(new Animated.Value(isActive ? 1 : 0)).current;

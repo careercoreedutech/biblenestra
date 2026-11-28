@@ -46,7 +46,8 @@ import { masterTitle, executiveTitle, groupSettingsOf, actorIn, welcomeText, pre
 import { assertMayJoin, joinRequestOf, freePlanOf } from '../lib/memberships.js';
 import { mountGroupRoutes } from './membershipGroups.js'; // MEMBERSHIP GROUPS: /memberships/:id/group/* + welcome + joining
 import { setConfig } from '../lib/wallet.js'; // MEMBERSHIP CREATION FEE (Development Update v1, item 4.2)
-import { getCreationFeeConfig, creationFeeStatus, assertCreationFeePaid, FEE_CYCLES, feeFor } from '../lib/membershipFees.js';
+import { getCreationFeeConfig, creationFeeStatus, assertCreationFeePaid, FEE_CYCLES, feeFor, creationFeeEnabled } from '../lib/membershipFees.js';
+import { assertCreatorCanCreate } from '../lib/creatorPlans.js'; // CREATOR PLANS: a creator must have a plan that lets them create (Free, or a paid plan in date)
 import { startCreationFeeCheckout } from '../lib/paystackCheckout.js';
 import { creatorStats } from '../lib/membershipCreator.js'; // CREATOR DASHBOARD (item 4.3)
 import { adGateFor, adGateError, settingsOfRow, getAdGateDefault, setAdGateRow } from '../lib/membershipAdGate.js'; // MEMBERSHIP AD GATE (client request 2026-11-27)
@@ -166,7 +167,8 @@ membershipsApp.get('/memberships/creation-fee', async (c) => {
   const type = c.req.query('type') === 'paid' ? 'paid' : 'free';
   // a dummy plan priced above 0 makes feeFor() treat the membership as paid (the real plans are not needed to quote the fee)
   const fee = feeFor(await getCreationFeeConfig(c.env), { category, plans: type === 'paid' ? [{ price_minor: 1, active: true }] : [] });
-  return c.json({ amountMinor: fee.amountMinor, currency: fee.currency, cycle: fee.cycle, type: fee.type, free: fee.amountMinor === 0 });
+  const on = await creationFeeEnabled(c.env); // CREATOR PLANS: the per-membership fee is dormant unless the admin turns it on
+  return c.json({ amountMinor: on ? fee.amountMinor : 0, currency: fee.currency, cycle: fee.cycle, type: fee.type, free: !on || fee.amountMinor === 0 });
 });
 
 membershipsApp.get('/memberships/manage/fee-settings', async (c) => {
@@ -403,6 +405,7 @@ membershipsApp.get('/memberships/manage', async (c) => {
 membershipsApp.post('/memberships/manage', async (c) => {
   const me = c.get('user');
   canCreate(c);
+  await assertCreatorCanCreate(c.env, { userId: me.id, exempt: isPlatformAdmin(me) }); // CREATOR PLANS: 403 until a plan is chosen, 402 when a paid plan lapsed
   const b = await body(c);
   const f = membershipFields(b);
   if (!f.title) throw bad('title is required');
@@ -468,6 +471,7 @@ membershipsApp.post('/memberships/manage/:id/:action{publish|archive|draft}', as
   if (action === 'publish') {
     const plans = await plansOf(c.env, [m.id]);
     if (!plans.length) throw bad('Add at least one active plan before publishing', 'NEEDS_PLAN');
+    await assertCreatorCanCreate(c.env, { userId: m.owner_id || me.id, exempt: isPlatformAdmin(me) }); // CREATOR PLANS: publishing needs the same plan gate as creating
     await assertCreationFeePaid(c.env, m, plans); // creation fee (Development Update v1, item 4.2): 402 until paid
     const fresh = await ensureConversations(c.env, m, me);
     await q(c.env, `UPDATE memberships SET status = 'published', published_at = COALESCE(published_at, now()), updated_at = now() WHERE id = $1`, [fresh.id]);

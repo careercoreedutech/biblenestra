@@ -385,7 +385,7 @@ test('dashboards and statements show the earnings, the partners and the monthly 
   const partner = await call('pat', 'GET', '/partner/dashboard');
   ok(partner, 'partner dashboard');
   assert.equal(partner.json.referredUsers, 1);
-  assert.match(partner.json.landingUrl, /\/p\//);
+  assert.match(partner.json.landingUrl, /\/partner\/pat_partner/); // the handle page (the /p/:code alias still works)
   assert.equal((await call('ann', 'GET', '/partner/dashboard')).status, 403);
   assert.equal((await call('pat', 'GET', '/portfolio/dashboard')).status, 403);
   const st = await call('pat', 'GET', '/portfolio/statement');

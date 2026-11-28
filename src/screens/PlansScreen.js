@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
   // Plan options
   plans: { flexDirection: 'row', gap: 9, marginTop: 18 },
   plan: { minHeight: 112, padding: 14, borderRadius: 18, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, justifyContent: 'flex-end' },
-  planOn: { borderWidth: 2, borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF0E5') },
+  planOn: { borderWidth: 2, borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#2a1a10' : '#ffede3') },
   badge: { position: 'absolute', top: 10, left: 10, backgroundColor: d.plum, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3 },
   badgeText: { color: '#FFFFFF', fontFamily: df.sansHeavy, fontSize: 9, letterSpacing: 0.6 },
   planLabel: { color: d.muted, fontFamily: df.sansBold, fontSize: 11, marginBottom: 2 },
@@ -275,7 +275,7 @@ const styles = StyleSheet.create({
   notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 14, padding: 12, borderRadius: 14, backgroundColor: d.lavender },
   noticeText: { flex: 1, color: d.roseDark, fontFamily: df.sans, fontSize: 13, lineHeight: 18 },
   emailWrap: { marginTop: 14 },
-  emailLabel: { color: (isDarkScheme() ? '#F3E9DC' : '#4C3D32'), fontFamily: df.sansBold, fontSize: 12, marginBottom: 8 },
+  emailLabel: { color: (isDarkScheme() ? '#ffffff' : '#333333'), fontFamily: df.sansBold, fontSize: 12, marginBottom: 8 },
   emailInput: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.ivory, paddingHorizontal: 15, fontFamily: df.sans, fontSize: 14, color: d.ink },
 
   // CTA + footer
@@ -288,9 +288,9 @@ const styles = StyleSheet.create({
   ctaText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 15 },
   fine: { marginTop: 14, color: d.muted, fontFamily: df.sans, fontSize: 11, lineHeight: 17, textAlign: 'center', paddingHorizontal: 10 },
   footRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 12, flexWrap: 'wrap' },
-  outlineBtn: { height: 42, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.78)' : 'rgba(255,255,255,0.78)'), alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, marginTop: 10, alignSelf: 'center' },
+  outlineBtn: { height: 42, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: (isDarkScheme() ? 'rgba(17,17,17,0.78)' : 'rgba(255,255,255,0.78)'), alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, marginTop: 10, alignSelf: 'center' },
   outlineText: { color: d.ink, fontFamily: df.sansBold, fontSize: 12 },
 
-  headerFree: { height: 36, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: d.line, backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.78)' : 'rgba(255,255,255,0.78)'), alignItems: 'center', justifyContent: 'center' },
+  headerFree: { height: 36, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: d.line, backgroundColor: (isDarkScheme() ? 'rgba(17,17,17,0.78)' : 'rgba(255,255,255,0.78)'), alignItems: 'center', justifyContent: 'center' },
   headerFreeText: { color: d.plum, fontFamily: df.sansBold, fontSize: 12 },
 });

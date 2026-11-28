@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
   btn: { minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: radius.pill, paddingHorizontal: 8, height: 38, backgroundColor: colors.primarySoft },
   prayOn: { backgroundColor: colors.primary },
   candleBtn: { backgroundColor: colors.cardGold },
-  candleOn: { backgroundColor: (isDarkScheme() ? '#3A2E14' : '#F3DFB2'), borderWidth: 1, borderColor: 'rgba(168,122,39,0.35)' },
+  candleOn: { backgroundColor: (isDarkScheme() ? '#241f12' : '#fbf3dc'), borderWidth: 1, borderColor: 'rgba(168,122,39,0.35)' },
   emoji: { fontSize: 14 },
   btnText: { fontSize: 13, fontWeight: '600', color: colors.primary, flexShrink: 1 },
   count: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 20 },

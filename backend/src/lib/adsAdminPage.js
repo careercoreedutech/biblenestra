@@ -47,7 +47,96 @@ window.registerAdminTab('Ads', function(box, ctx){
   var nav = h('div', { class: 'row', style: 'gap:6px;margin:10px 0 14px' });
   var body = h('div');
   box.appendChild(nav); box.appendChild(body);
-  function show(v){ nav.innerHTML = ''; ['Rules', 'Statistics'].forEach(function(x){ nav.appendChild(h('button', { class: 'btn small ' + (x === v ? '' : 'ghost'), text: x, onclick: function(){ show(x); } })); }); body.innerHTML = ''; (v === 'Rules' ? rulesView : statsView)(); }
+  function show(v){ nav.innerHTML = ''; ['Rules', 'Statistics', 'House ads'].forEach(function(x){ nav.appendChild(h('button', { class: 'btn small ' + (x === v ? '' : 'ghost'), text: x, onclick: function(){ show(x); } })); }); body.innerHTML = ''; (v === 'Rules' ? rulesView : v === 'House ads' ? houseView : statsView)(); }
+
+  // ---------------- house ads (our own sponsored ads: fill of last resort) ----------------
+  async function houseAuth(){
+    var hd = { 'Accept': 'application/json' };
+    var tk = localStorage.getItem('bnAdminToken');
+    if (tk) { hd['Authorization'] = 'Bearer ' + tk; return hd; }
+    var dev = localStorage.getItem('bnAdminDevUser');
+    if (dev && window.__ADMIN__ && window.__ADMIN__.devMode) { hd['X-Dev-User'] = dev; return hd; }
+    try { if (window.Clerk && window.Clerk.session) { var t = await window.Clerk.session.getToken(); if (t) hd['Authorization'] = 'Bearer ' + t; } } catch (e) {}
+    return hd;
+  }
+  async function houseUpload(file){
+    var hd = await houseAuth();
+    hd['Content-Type'] = file.type || 'image/jpeg';
+    var res = await fetch('/uploads/image', { method: 'POST', headers: hd, body: file });
+    var d = null; try { d = await res.json(); } catch (e) {}
+    if (!res.ok) throw new Error((d && (d.error || d.message)) || 'Image upload failed');
+    return d.url;
+  }
+  function houseView(){
+    var holder = h('div', { class: 'meta', text: 'Loading…' }); body.appendChild(holder);
+    body.appendChild(h('div', { class: 'meta', style: 'margin-bottom:8px', text: 'House ads show in the app only when AdMob and the backup network both have no ad to show. They are labelled “Sponsored”, count impressions and clicks, and never grant coins or rewards (a rewarded spot shows “No video available right now — try again later”).' }));
+    var list = h('div'); var formBox = h('div');
+    body.appendChild(formBox); body.appendChild(list);
+    function load(){
+      ctx.api('GET', '/admin/api/ads/house').then(function(d){ holder.remove(); drawList(d.ads || []); }).catch(function(e){ holder.textContent = e.message; });
+    }
+    function drawList(ads){
+      list.innerHTML = '';
+      var c = h('div', { class: 'card' }, [h('div', { class: 'ads-sec', text: 'House ads (' + ads.length + ')' })]);
+      if (!ads.length) c.appendChild(h('div', { class: 'meta', text: 'No house ads yet. Add one below.' }));
+      var t = h('table', { class: 'ads-tbl' });
+      if (ads.length) t.appendChild(h('tr', {}, ['Ad', 'Kind', 'Status', 'Impr.', 'Clicks', 'CTR', ''].map(function(x, i){ return h('th', { class: i >= 3 && i <= 5 ? 'r' : '', text: x }); })));
+      ads.forEach(function(a){
+        var toggle = h('button', { class: 'btn small ghost', text: a.active ? 'Pause' : 'Activate', onclick: function(){ ctx.api('PUT', '/admin/api/ads/house/' + a.id, { active: !a.active }).then(function(){ ctx.toast('Saved'); load(); }).catch(function(e){ ctx.toast(e.message, true); }); } });
+        var edit = h('button', { class: 'btn small ghost', text: 'Edit', onclick: function(){ drawForm(a); } });
+        var del = h('button', { class: 'btn small ghost', text: 'Delete', onclick: function(){ if (!confirm('Delete this house ad? Its counts are removed too.')) return; ctx.api('DELETE', '/admin/api/ads/house/' + a.id).then(function(){ ctx.toast('Deleted'); load(); }).catch(function(e){ ctx.toast(e.message, true); }); } });
+        t.appendChild(h('tr', {}, [
+          h('td', {}, [h('div', { text: a.title }), h('div', { class: 'meta', text: (a.body || '').slice(0, 90) })]),
+          h('td', { text: a.kind }), h('td', { text: a.active ? 'Active' : 'Paused' }),
+          h('td', { class: 'r', text: n(a.impressions) }), h('td', { class: 'r', text: n(a.clicks) }), h('td', { class: 'r', text: pct(a.ctr) }),
+          h('td', {}, [h('div', { class: 'row', style: 'gap:4px' }, [toggle, edit, del])]),
+        ]));
+      });
+      if (ads.length) c.appendChild(t);
+      list.appendChild(c);
+    }
+    function drawForm(ad){
+      formBox.innerHTML = '';
+      var cur = ad || { kind: 'text', title: '', body: '', cta: 'Learn more', linkUrl: '', imageUrl: null, active: true, sort: 0 };
+      var kind = h('select', {}, [h('option', { value: 'text', text: 'Text ad', selected: cur.kind === 'text' }), h('option', { value: 'image', text: 'Image ad', selected: cur.kind === 'image' })]);
+      var title = h('input', { value: cur.title || '', maxlength: 80, placeholder: 'Headline (up to 80 characters)', style: 'width:100%' });
+      var text = h('textarea', { rows: 3, maxlength: 240, placeholder: 'Short description (up to 240 characters)', style: 'width:100%' }, []);
+      text.value = cur.body || '';
+      var cta = h('input', { value: cur.cta || 'Learn more', maxlength: 24, placeholder: 'Button text', style: 'width:100%' });
+      var link = h('input', { value: cur.linkUrl || '', placeholder: 'https://…', style: 'width:100%' });
+      var sort = h('input', { type: 'number', min: 0, max: 999, value: cur.sort || 0, style: 'width:100%' });
+      var active = h('input', { type: 'checkbox', checked: !!cur.active });
+      var file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp' });
+      var preview = h('div', { class: 'meta', text: cur.imageUrl ? 'Current image: ' + cur.imageUrl : 'No image yet' });
+      var save = h('button', { class: 'btn', text: ad ? 'Save house ad' : 'Add house ad' });
+      save.addEventListener('click', async function(){
+        save.disabled = true;
+        try {
+          var imageUrl = cur.imageUrl || null;
+          if (file.files && file.files[0]) imageUrl = await houseUpload(file.files[0]);
+          var payload = { kind: kind.value, title: title.value, body: text.value, cta: cta.value, linkUrl: link.value, imageUrl: imageUrl, sort: Number(sort.value || 0), active: active.checked };
+          if (ad) await ctx.api('PUT', '/admin/api/ads/house/' + ad.id, payload); else await ctx.api('POST', '/admin/api/ads/house', payload);
+          ctx.toast('House ad saved');
+          show('House ads');
+        } catch (e) { ctx.toast(e.message, true); save.disabled = false; }
+      });
+      var cancel = h('button', { class: 'btn ghost', text: 'Cancel', onclick: function(){ formBox.innerHTML = ''; } });
+      formBox.appendChild(h('div', { class: 'card' }, [
+        h('div', { class: 'ads-sec', text: ad ? 'Edit house ad' : 'New house ad' }),
+        h('div', { class: 'ads-f' }, [h('label', {}, ['Kind', kind]), h('label', {}, ['Sort order (lower first)', sort]), h('label', { class: 'ck' }, [active, 'Active'])]),
+        h('label', { style: 'display:block;margin-top:8px' }, ['Headline', title]),
+        h('label', { style: 'display:block;margin-top:8px' }, ['Description', text]),
+        h('label', { style: 'display:block;margin-top:8px' }, ['Button text', cta]),
+        h('label', { style: 'display:block;margin-top:8px' }, ['Link (opens when tapped)', link]),
+        h('label', { style: 'display:block;margin-top:8px' }, ['Image (required for image ads)', file]),
+        preview,
+        h('div', { class: 'row', style: 'margin-top:10px;gap:8px' }, [cancel, save]),
+      ]));
+    }
+    holder.textContent = 'Loading…';
+    body.appendChild(h('div', { class: 'row', style: 'margin-bottom:10px' }, [h('button', { class: 'btn', text: 'New house ad', onclick: function(){ drawForm(null); } })]));
+    load();
+  }
 
   // ---------------- rules editor ----------------
   function rulesView(){

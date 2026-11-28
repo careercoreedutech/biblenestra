@@ -35,7 +35,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const STATUS_TINT = {
   draft: colors.muted, pending_review: colors.gold, live: colors.positive, paused: colors.slate, closed: colors.slate, rejected: colors.negative,
 };
-const HERO = [(isDarkScheme() ? '#4A3A1C' : '#F0D292'), (isDarkScheme() ? '#3A2E14' : '#F7E8C7')]; // the design's fund-hero gold
+const HERO = [(isDarkScheme() ? '#241f12' : '#F0D292'), (isDarkScheme() ? '#241f12' : '#fbf3dc')]; // the design's fund-hero gold
 const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '?';
 function timeAgo(iso) {
   if (!iso) return '';
@@ -641,7 +641,7 @@ export function FundraiserScreen({ params = {} }) {
 function Tool({ icon, label, onPress, danger }) {
   return (
     <Tap onPress={onPress} style={s.tool} accessibilityLabel={label}>
-      <View style={[s.toolIcon, danger && { backgroundColor: (isDarkScheme() ? '#3A221C' : '#F6E0DC') }]}>
+      <View style={[s.toolIcon, danger && { backgroundColor: (isDarkScheme() ? '#24171a' : '#fbedea') }]}>
         <Icon name={icon} size={17} color={danger ? (isDarkScheme() ? '#E8A09A' : '#8A2F2F') : d.plum} />
       </View>
       <Text style={[s.toolLabel, danger && { color: (isDarkScheme() ? '#E8A09A' : '#8A2F2F') }]}>{label}</Text>
@@ -1326,7 +1326,7 @@ const s = {
   saveText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 11.5 },
 
   // progress
-  bar: { height: 8, borderRadius: 99, backgroundColor: (isDarkScheme() ? '#3A2E24' : '#E9DFD3'), marginTop: 8, overflow: 'hidden' },
+  bar: { height: 8, borderRadius: 99, backgroundColor: (isDarkScheme() ? '#262626' : '#e8e8e8'), marginTop: 8, overflow: 'hidden' },
   barBig: { height: 10, marginTop: 14, marginBottom: 10 },
   barFill: { backgroundColor: d.plum, borderRadius: 99 },
   raisedBig: { fontFamily: df.displayBold, fontSize: 30, letterSpacing: -0.6, color: d.ink },
@@ -1374,7 +1374,7 @@ const s = {
   gridItem: { width: '31.6%', aspectRatio: 1, borderRadius: 14, overflow: 'hidden', backgroundColor: d.lavender },
   gridImg: { width: '100%', height: '100%' },
   gridRemove: { position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(40,26,17,0.6)', alignItems: 'center', justifyContent: 'center' },
-  gridAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: (isDarkScheme() ? '#4D3D30' : '#C8B5A4'), backgroundColor: d.paper, gap: 2 },
+  gridAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: (isDarkScheme() ? '#333333' : '#d6d6d6'), backgroundColor: d.paper, gap: 2 },
   gridAddText: { color: d.plum, fontFamily: df.sansBold, fontSize: 10.5 },
   docRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: d.paper, borderRadius: 16, borderWidth: 1, borderColor: d.line },
   docTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
@@ -1394,11 +1394,11 @@ const s = {
   lightboxImg: { width: '100%', height: '80%' },
   lightboxClose: { position: 'absolute', top: 50, right: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
 
-  donateBar: { position: 'absolute', left: 12, right: 12, bottom: 12, flexDirection: 'row', gap: 8, padding: 7, borderRadius: 18, backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.96)' : 'rgba(255,250,242,0.96)'), borderWidth: 1, borderColor: d.line },
+  donateBar: { position: 'absolute', left: 12, right: 12, bottom: 12, flexDirection: 'row', gap: 8, padding: 7, borderRadius: 18, backgroundColor: (isDarkScheme() ? 'rgba(17,17,17,0.96)' : 'rgba(255,255,255,0.96)'), borderWidth: 1, borderColor: d.line },
 
   // sheets
   sheet: { backgroundColor: d.ivory, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 28, maxHeight: '92%' },
-  grabber: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), marginBottom: 14 },
+  grabber: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: (isDarkScheme() ? '#333333' : '#d6d6d6'), marginBottom: 14 },
   sheetTitle: { fontFamily: df.displayBold, fontSize: 21, letterSpacing: -0.4, color: d.ink, marginTop: 4 },
   sheetNote: { color: d.muted, fontFamily: df.sans, fontSize: 10, textAlign: 'center', marginTop: 10, lineHeight: 16 },
   curBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
@@ -1430,7 +1430,7 @@ const s = {
   stepper: { flexDirection: 'row', paddingHorizontal: 18, paddingTop: 6, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: d.line },
   stepperRail: { position: 'absolute', left: '12.5%', right: '12.5%', top: 18, height: 1.5, backgroundColor: d.line },
   stepItem: { flex: 1, alignItems: 'center', gap: 6 },
-  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
+  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#333333' : '#d6d6d6'), alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
   stepDotOn: { backgroundColor: d.plum, borderColor: d.plum },
   stepNum: { fontFamily: df.sansHeavy, fontSize: 11, color: d.muted },
   stepLabel: { fontFamily: df.sansBold, fontSize: 9.5, color: d.muted },
@@ -1443,7 +1443,7 @@ const s = {
   cur: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
   curSym: { fontFamily: df.displayBold, fontSize: 18, color: d.ink },
   curCode: { fontFamily: df.sansBold, fontSize: 9.5, color: d.muted, marginTop: 1 },
-  mainPick: { height: 190, borderRadius: 20, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1.5, borderStyle: 'dashed', borderColor: (isDarkScheme() ? '#4D3D30' : '#C8B5A4'), alignItems: 'center', justifyContent: 'center' },
+  mainPick: { height: 190, borderRadius: 20, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1.5, borderStyle: 'dashed', borderColor: (isDarkScheme() ? '#333333' : '#d6d6d6'), alignItems: 'center', justifyContent: 'center' },
   mainImg: fillImage,
   mainChange: { flexDirection: 'row', alignItems: 'center', gap: 6, position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(40,26,17,0.6)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
   mainChangeText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 11 },
@@ -1462,7 +1462,7 @@ const s = {
   visText: { flex: 1, color: d.muted, fontFamily: df.sans, fontSize: 10.5 },
   checklist: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8, marginBottom: 16 },
   checkItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  checkDot: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), alignItems: 'center', justifyContent: 'center' },
+  checkDot: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#333333' : '#d6d6d6'), alignItems: 'center', justifyContent: 'center' },
   checkText: { fontFamily: df.sansBold, fontSize: 10.5, color: d.ink },
   previewFrame: { padding: 14, borderRadius: 24 },
   footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16, borderTopWidth: 1, borderTopColor: d.line, backgroundColor: d.ivory },

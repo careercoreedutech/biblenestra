@@ -41,6 +41,7 @@ export function mapFeedPost(p, prev) {
     createdAt: toMs(p.createdAt),
     passage: p.passage || undefined,
     bg: p.theme || undefined,
+    embed: p.embed || undefined, // POST FROM A LINK: { provider, url, videoId, thumbnailUrl, title, authorName }
     images,
     image: images[0],
     likes: p.likes || 0,
@@ -83,7 +84,8 @@ export function mapVideoPost(p, prev) {
     duration: fmtDuration(v.duration),
     sound: `Original Audio · ${a.displayName || 'Creator'}`,
     videoUrl: ready ? absoluteUrl(src) : null,
-    poster: v.thumbnail ? absoluteUrl(v.thumbnail) : null,
+    poster: p.embed && p.embed.thumbnailUrl ? p.embed.thumbnailUrl : v.thumbnail ? absoluteUrl(v.thumbnail) : null,
+    embed: p.embed || undefined, // POST FROM A LINK: plays the provider's embed instead of a file
     // FEED VIDEO: upload probe (null on older posts) — card aspect ratio + HEVC-on-Android warning
     codec: v.codec || null,
     faststart: v.faststart == null ? null : !!v.faststart,
@@ -91,7 +93,7 @@ export function mapVideoPost(p, prev) {
     videoHeight: v.height || null,
     videoUid: v.uid || null,
     videoStatus: v.status || 'processing',
-    processing: !ready && v.status !== 'error',
+    processing: !p.embed && !ready && v.status !== 'error', // an embed has nothing to process
     videoError: v.status === 'error',
     imageUrl: null,
     bg: colors.night,
@@ -112,13 +114,14 @@ export function mapVideoPost(p, prev) {
 }
 
 /** Split a page of posts into feed items and video items. */
-export function splitPosts(items, prevFeed = [], prevVideos = []) {
+// POST FROM A LINK: linked videos show in the feed as well as in Reels. `reels` (the /videos list) sends them to Reels.
+export function splitPosts(items, prevFeed = [], prevVideos = [], { reels = false } = {}) {
   const pf = new Map(prevFeed.map((x) => [x.id, x]));
   const pv = new Map(prevVideos.map((x) => [x.id, x]));
   const feed = [];
   const videos = [];
   (items || []).forEach((p) => {
-    if (p.video) videos.push(mapVideoPost(p, pv.get(p.id)));
+    if (p.video || (reels && p.embed)) videos.push(mapVideoPost(p, pv.get(p.id)));
     else feed.push(mapFeedPost(p, pf.get(p.id)));
   });
   return { feed, videos };

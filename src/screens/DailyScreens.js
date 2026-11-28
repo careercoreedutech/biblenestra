@@ -146,7 +146,7 @@ export function DailyVerseScreen() {
         <Tap onPress={() => setImageOpen(true)} style={styles.makeImage} accessibilityLabel="Make your own verse image">
           <View style={styles.makeIcon}><Icon name="image" size={17} color={d.plum} /></View>
           <Text style={styles.makeImageText}>Make your own verse image</Text>
-          <Icon name="chevron-right" size={15} color={isDarkScheme() ? '#8A7A6C' : '#AAA6AD'} />
+          <Icon name="chevron-right" size={15} color={isDarkScheme() ? '#737373' : '#AAA6AD'} />
         </Tap>
       </FadeInUp>
 

@@ -11,6 +11,7 @@ import { d, df } from '../design/sanctuary';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { Empty } from '../components/ui';
 import { useOpenProfile } from '../components/social/profileNav';
+import { linkByHandle } from '../api/contacts'; // USERNAME CONTACTS: an exact @username match skips the free chat slots
 
 const cleanTerm = (s) => String(s || '').trim().replace(/^@+/, '').trim();
 
@@ -49,6 +50,7 @@ export function UserSearchScreen() {
     if (!api.online) return;
     setBusy(true);
     try {
+      await linkByHandle(api, p); // USERNAME CONTACTS (exact matches only), same as the Chats search
       const r = await api.request('POST', '/conversations/dm', { userId: p.id });
       nav.push('Chat', { id: r.id, to: p.displayName, userId: p.id });
     } catch (e) {

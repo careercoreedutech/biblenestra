@@ -275,7 +275,7 @@ function OnlineSync({ api, children }) {
           const { feed, videos } = splitPosts(page.items, s.feed, s.videos);
           let allVideos = videos;
           if (videosR.status === 'fulfilled') {
-            const extra = splitPosts(videosR.value.items, s.feed, s.videos).videos;
+            const extra = splitPosts(videosR.value.items, s.feed, s.videos, { reels: true }).videos;
             const seen = new Set(allVideos.map((v) => v.id));
             allVideos = [...allVideos, ...extra.filter((v) => !seen.has(v.id))];
           }
@@ -685,6 +685,8 @@ function OnlineSync({ api, children }) {
             if (draft.passage) body.passage = draft.passage;
             if (draft.bg) body.theme = draft.bg;
             if (images.length) body.images = images;
+            // POST FROM A LINK: the server validates the link and fetches the metadata
+            if (draft.embed && draft.embed.url) body.embed = { provider: draft.embed.provider, url: draft.embed.url, ...(draft.embed.title ? { title: draft.embed.title } : {}) };
             const p = await request('POST', '/posts', body);
             local({ type: 'replaceItem', slice: 'feed', id: tempId, item: { ...mapFeedPost(p), localId: tempId } });
           } catch (e) {

@@ -57,8 +57,8 @@ r.get('/users/:id/posts', async (c) => {
   let w = `p.author_id = $2 AND NOT p.removed AND NOT u.banned
     AND NOT EXISTS (SELECT 1 FROM hidden_posts h WHERE h.post_id = p.id AND h.user_id = $1)
     AND (p.video_uid IS NULL OR p.video_status = 'ready' OR p.author_id = $1)`;
-  if (type === 'videos') w += ' AND (p.video_uid IS NOT NULL OR p.video_url IS NOT NULL)';
-  if (type === 'posts') w += ' AND p.video_uid IS NULL AND p.video_url IS NULL';
+  if (type === 'videos') w += ' AND (p.video_uid IS NOT NULL OR p.video_url IS NOT NULL OR p.embed IS NOT NULL)';
+  if (type === 'posts') w += ' AND p.video_uid IS NULL AND p.video_url IS NULL AND p.embed IS NULL';
   const cur = decodeCursor(c.req.query('cursor'));
   if (cur) { args.push(cur.ts, cur.id); w += ` AND (p.created_at, p.id) < ($${args.length - 1}::timestamptz, $${args.length}::uuid)`; }
   args.push(limit + 1);

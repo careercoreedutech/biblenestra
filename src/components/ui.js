@@ -309,7 +309,7 @@ export const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.78)' : 'rgba(255,255,255,0.78)'),
+    backgroundColor: (isDarkScheme() ? 'rgba(17,17,17,0.78)' : 'rgba(255,255,255,0.78)'),
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',

@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   saveText: { color: '#FFFFFF', fontSize: 12, fontFamily: DF.sansBold },
   hero: { backgroundColor: D.paper, borderRadius: 26, borderWidth: 1, borderColor: D.line, overflow: 'hidden', paddingBottom: 16 },
   banner: { height: 124, backgroundColor: '#3B2417', overflow: 'hidden' },
-  bannerChip: { position: 'absolute', right: 10, top: 10, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,250,242,0.94)', borderRadius: 999, paddingHorizontal: 11, height: 30 },
+  bannerChip: { position: 'absolute', right: 10, top: 10, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.94)', borderRadius: 999, paddingHorizontal: 11, height: 30 },
   bannerChipText: { fontSize: 11, fontFamily: DF.sansBold, color: D.ink },
   avatarWrap: { alignSelf: 'center', marginTop: -50 },
   avatarRing: { padding: 4, borderRadius: 54, backgroundColor: D.paper },

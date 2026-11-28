@@ -14,6 +14,10 @@ let env; const app = createApp();
 before(async () => {
   env = { __db: await makeDb(null), MEDIA: makeBucket(null), AUTH_DEV_MODE: 'true', MEMBERSHIP_TEST_CHECKOUT: 'true' };
 });
+const chooseFree = async (u) => { // CREATOR PLANS: a creator picks a plan (Free here) before creating
+  const id = (await call(u, 'GET', '/me')).json.id;
+  await q(env, `INSERT INTO creator_plan_subscriptions (user_id, plan_id) VALUES ($1, 'free') ON CONFLICT (user_id) DO NOTHING`, [id]);
+};
 async function call(user, method, path, body) {
   const h = {};
   if (user) h['X-Dev-User'] = user;
@@ -60,6 +64,7 @@ test('creation is admin-only; MEMBERSHIPS_PUBLIC_CREATION opens it to creators (
   assert.equal(r.status, 403); assert.equal(r.json.code, 'CREATION_DISABLED');
   assert.equal((await call('ann', 'GET', '/memberships/manage')).status, 403);
   env.MEMBERSHIPS_PUBLIC_CREATION = 'true';
+  await chooseFree('ann'); // CREATOR PLANS: Ann picks Free first
   const ok = await call('ann', 'POST', '/memberships/manage', { title: 'Ann’s Prayer School', headline: 'Pray daily' });
   assert.equal(ok.status, 201, JSON.stringify(ok.json));
   assert.equal(ok.json.status, 'draft');
