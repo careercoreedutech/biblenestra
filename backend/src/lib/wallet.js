@@ -161,7 +161,12 @@ export function registerConfig(key, dflt, check) {
 export async function getConfig(env) {
   const rows = await q(env, 'SELECT key, value FROM wallet_config');
   const out = { ...CONFIG_DEFAULTS };
-  for (const r of rows) if (r.key in CONFIG_DEFAULTS) out[r.key] = typeof r.value === 'string' ? JSON.parse(r.value) : r.value;
+  for (const r of rows) {
+    if (!(r.key in CONFIG_DEFAULTS)) continue;
+    // jsonb comes back parsed (a text setting such as 'verified' arrives as the plain string) or as JSON text
+    if (typeof r.value !== 'string') out[r.key] = r.value;
+    else { try { out[r.key] = JSON.parse(r.value); } catch (e) { out[r.key] = r.value; } }
+  }
   return out;
 }
 /** Admin: set one config key (validated). Later stages may register keys by adding to CONFIG_DEFAULTS/CONFIG_CHECK. */

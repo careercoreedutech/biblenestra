@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../palette';
 // Fund Me pieces in the Figma design's language, shared by FundMeScreens.js and FundMeMoneyScreens.js.
 // Built on the sanctuary tokens (src/design/sanctuary.js) and the profile parts (src/design/profile/parts.js).
 import React from 'react';
@@ -27,7 +28,7 @@ export function FBtn({ label, onPress, kind = 'primary', icon, disabled, small, 
 const TONES = {
   sage: { bg: d.sage, fg: d.sageDark },
   plum: { bg: d.lavender, fg: d.plumDark },
-  danger: { bg: '#F6E0DC', fg: '#8A2F2F' },
+  danger: { bg: (isDarkScheme() ? '#3A221C' : '#F6E0DC'), fg: d.roseDark },
 };
 
 /** Design note box (.review-note): sage by default, with a shield for trust messages. */
@@ -87,15 +88,15 @@ export const st = StyleSheet.create({
   primaryText: { color: '#FFFFFF', fontFamily: df.sansBold },
   ghost: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   ghostText: { color: d.ink, fontFamily: df.sansBold },
-  danger: { backgroundColor: '#F6E0DC', borderWidth: 1, borderColor: '#E9C2BA' },
-  dangerText: { color: '#8A2F2F', fontFamily: df.sansBold },
+  danger: { backgroundColor: (isDarkScheme() ? '#3A221C' : '#F6E0DC'), borderWidth: 1, borderColor: (isDarkScheme() ? '#4D3D30' : '#E9C2BA') },
+  dangerText: { color: d.roseDark, fontFamily: df.sansBold },
   btnText: { fontSize: 12, fontFamily: df.sansBold },
   btnTextSmall: { fontSize: 10.5 },
 
   notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: 14 },
   noticeText: { fontFamily: df.sans, fontSize: 11, lineHeight: 16 },
 
-  empty: { borderWidth: 1, borderStyle: 'dashed', borderColor: '#C8B5A4', borderRadius: 20, padding: 20, alignItems: 'center', backgroundColor: d.paper },
+  empty: { borderWidth: 1, borderStyle: 'dashed', borderColor: (isDarkScheme() ? '#4D3D30' : '#C8B5A4'), borderRadius: 20, padding: 20, alignItems: 'center', backgroundColor: d.paper },
   emptyTitle: { fontFamily: df.display, fontSize: 15, color: d.ink, textAlign: 'center' },
   emptyBody: { fontFamily: df.sans, fontSize: 11.5, lineHeight: 17, color: d.muted, textAlign: 'center', marginTop: 4 },
 
@@ -106,6 +107,6 @@ export const st = StyleSheet.create({
   kpiValue: { fontFamily: df.display, fontSize: 16, color: d.ink },
   kpiLabel: { fontFamily: df.sans, fontSize: 9.5, color: d.muted, marginTop: 3, textAlign: 'center' },
 
-  pdf: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#F6E0DC', alignItems: 'center', justifyContent: 'center' },
-  pdfText: { color: '#8A2F2F', fontFamily: df.sansHeavy, fontSize: 9.5 },
+  pdf: { width: 40, height: 40, borderRadius: 12, backgroundColor: (isDarkScheme() ? '#3A221C' : '#F6E0DC'), alignItems: 'center', justifyContent: 'center' },
+  pdfText: { color: d.roseDark, fontFamily: df.sansHeavy, fontSize: 9.5 },
 });

@@ -422,7 +422,7 @@ const s = StyleSheet.create({
   benefitBody: { fontSize: 12.5, color: colors.muted },
   plans: { marginTop: 6, gap: 8 },
   plan: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.border },
-  planOn: { borderColor: colors.primary, backgroundColor: '#FBFBFE' },
+  planOn: { borderColor: colors.primary, backgroundColor: colors.surface },
   radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   radioOn: { borderColor: colors.primary, backgroundColor: colors.primary },
   planTop: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },

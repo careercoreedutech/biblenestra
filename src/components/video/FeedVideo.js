@@ -15,6 +15,7 @@ import VideoPoster from './VideoPoster';
 import { SpeakerGlyph, FullscreenGlyph } from './VideoControls';
 import { rememberVideoPosition } from './VideoPager';
 import { VIDEO_FILL } from './videoUtils';
+import { useVideoPlayCount } from './useVideoPlayCount'; // PACKAGE F: a play counts after real watch time
 
 const ND = Platform.OS !== 'web';
 const WHITE = '#FFFFFF';
@@ -75,6 +76,7 @@ export default function FeedVideo({
   const tapTimer = useRef(null);
   const lastTap = useRef(0);
   const live = !!(active && player && item.videoUrl);
+  useVideoPlayCount(item.id, player, live);
   const h = feedVideoHeight(w, item);
   const poster = item.poster || (item.raw && item.raw.poster) || null;
   const hevc = item.codec === 'hevc' || (item.raw && item.raw.codec === 'hevc');

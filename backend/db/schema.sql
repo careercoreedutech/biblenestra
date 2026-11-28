@@ -2872,3 +2872,536 @@ UPDATE conversations c SET description = 'Ask questions, share ideas and discuss
 UPDATE messages msg SET body = left(msg.body, char_length(msg.body) - char_length(' joined the community')) || ' joined EXECUTIVE CLASS 👋'
   FROM memberships m
  WHERE msg.conversation_id = m.community_id AND msg.kind = 'system' AND right(msg.body, char_length(' joined the community')) = ' joined the community';
+-- MEMBERSHIP GROUPS: suspending a member = an indefinite mute (muted_until far in the future) plus this flag, so the app
+-- can say "Suspended" and only an admin can lift it (the members screen's Unsuspend / Unmute).
+ALTER TABLE membership_member_prefs ADD COLUMN IF NOT EXISTS suspended boolean NOT NULL DEFAULT false;
+
+-- ===== FIND LOVE HUB =====
+-- Profile interests (shared tags for discovery filters). Idempotent.
+ALTER TABLE dating_profiles ADD COLUMN IF NOT EXISTS interests jsonb NOT NULL DEFAULT '[]'::jsonb;
+-- ===== PORTFOLIO & PARTNER MANAGERS =====
+-- Roles on a user (one row per Portfolio Manager / Partner Manager). recruited_by, appointed_by_admin, invite_id and
+-- recruitment_source are written once when the person joins and never changed afterwards (the permanent record).
+CREATE TABLE IF NOT EXISTS portfolio_members (
+  user_id            uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  role               text NOT NULL CHECK (role IN ('portfolio_manager','partner_manager')),
+  status             text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','suspended')),
+  appointed_by_admin uuid REFERENCES users(id) ON DELETE SET NULL,   -- Super Admin who appointed a PM (manual or approval)
+  recruited_by       uuid REFERENCES users(id) ON DELETE SET NULL,   -- the PM who recruited a Partner Manager
+  recruitment_source text NOT NULL DEFAULT 'admin_manual',           -- admin_manual | invite:<channel>
+  invite_id          bigint,                                         -- portfolio_invites.id used to join
+  approved_by        uuid REFERENCES users(id) ON DELETE SET NULL,
+  approved_at        timestamptz,
+  suspended_at       timestamptz,
+  suspended_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  suspend_reason     text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS portfolio_members_recruiter ON portfolio_members (recruited_by, role);
+CREATE INDEX IF NOT EXISTS portfolio_members_role_status ON portfolio_members (role, status);
+
+-- Invitation codes (unique). PM invites are created by the Super Admin; Partner Manager invites by a PM.
+CREATE TABLE IF NOT EXISTS portfolio_invites (
+  id                   bigserial PRIMARY KEY,
+  code                 text NOT NULL UNIQUE,
+  kind                 text NOT NULL CHECK (kind IN ('portfolio_manager','partner_manager')),
+  portfolio_manager_id uuid REFERENCES users(id) ON DELETE SET NULL,  -- inviting PM (partner invites only)
+  created_by           uuid REFERENCES users(id) ON DELETE SET NULL,  -- creator (the PM, or the admin who created it)
+  created_by_admin     boolean NOT NULL DEFAULT false,
+  channel              text NOT NULL DEFAULT 'link' CHECK (channel IN ('link','email','whatsapp','social','manual')),
+  email                text,
+  label                text,
+  max_uses             integer,
+  uses                 integer NOT NULL DEFAULT 0,
+  expires_at           timestamptz,
+  revoked              boolean NOT NULL DEFAULT false,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS portfolio_invites_pm ON portfolio_invites (portfolio_manager_id, created_at DESC);
+
+-- Applications from an invite. PM applications are approved by the Super Admin; Partner applications by their PM
+-- (the Super Admin can always decide too, as oversight).
+CREATE TABLE IF NOT EXISTS portfolio_applications (
+  id               bigserial PRIMARY KEY,
+  invite_id        bigint REFERENCES portfolio_invites(id) ON DELETE SET NULL,
+  applicant_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind             text NOT NULL CHECK (kind IN ('portfolio_manager','partner_manager')),
+  approver_id      uuid REFERENCES users(id) ON DELETE SET NULL,      -- NULL = Super Admin queue
+  answers          jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status           text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  decided_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  decided_by_admin boolean NOT NULL DEFAULT false,
+  decided_at       timestamptz,
+  reason           text,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS portfolio_applications_one_pending ON portfolio_applications (applicant_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS portfolio_applications_queue ON portfolio_applications (status, approver_id, created_at);
+
+-- Append-only audit of every portfolio decision (who did what, when).
+CREATE TABLE IF NOT EXISTS portfolio_events (
+  id          bigserial PRIMARY KEY,
+  actor_id    uuid REFERENCES users(id) ON DELETE SET NULL,
+  actor_admin boolean NOT NULL DEFAULT false,
+  action      text NOT NULL,
+  target_id   uuid,
+  details     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS portfolio_events_target ON portfolio_events (target_id, created_at);
+
+-- Permanent attribution of a referred user to a Partner Manager (first touch wins: one row per user, never updated).
+-- portfolio_manager_id is the recruiting PM at the time of attribution (a snapshot, so later changes never move it).
+CREATE TABLE IF NOT EXISTS partner_attributions (
+  user_id              uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  partner_id           uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  portfolio_manager_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  code                 text,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS partner_attributions_partner ON partner_attributions (partner_id, created_at);
+
+-- Commission ledger. One row per (payment reference, role): idempotent per payment. role 'partner' = the Partner
+-- Manager's commission on the payment; role 'portfolio' = the Portfolio Manager's share of that partner commission.
+-- status: held (waiting for the hold period) -> available (withdrawable); reversed (refund / chargeback).
+CREATE TABLE IF NOT EXISTS portfolio_commissions (
+  id                bigserial PRIMARY KEY,
+  payment_reference text NOT NULL,
+  role              text NOT NULL CHECK (role IN ('partner','portfolio')),
+  recipient_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source_user_id    uuid REFERENCES users(id) ON DELETE SET NULL,  -- the referred user who paid
+  partner_id        uuid REFERENCES users(id) ON DELETE SET NULL,  -- the Partner Manager the commission comes from
+  payment_kind      text NOT NULL,
+  base_minor        bigint NOT NULL CHECK (base_minor >= 0),
+  rate_bps          integer NOT NULL CHECK (rate_bps >= 0 AND rate_bps <= 10000),
+  amount_minor      bigint NOT NULL CHECK (amount_minor >= 0),
+  currency          text NOT NULL,
+  status            text NOT NULL DEFAULT 'held' CHECK (status IN ('held','available','reversed')),
+  available_at      timestamptz NOT NULL,
+  reversed_reason   text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (payment_reference, role)
+);
+CREATE INDEX IF NOT EXISTS portfolio_commissions_recipient ON portfolio_commissions (recipient_id, status, created_at);
+CREATE INDEX IF NOT EXISTS portfolio_commissions_partner ON portfolio_commissions (partner_id, created_at);
+
+-- Withdrawal requests (manual payouts). The team pays by hand and records the reference when marked paid.
+CREATE TABLE IF NOT EXISTS portfolio_withdrawals (
+  id               bigserial PRIMARY KEY,
+  user_id          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount_minor     bigint NOT NULL CHECK (amount_minor > 0),
+  currency         text NOT NULL,
+  status           text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested','approved','paid','rejected')),
+  requested_at     timestamptz NOT NULL DEFAULT now(),
+  decided_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  decided_by_admin boolean NOT NULL DEFAULT false,
+  decided_at       timestamptz,
+  note             text,
+  reference        text,
+  paid_at          timestamptz
+);
+CREATE INDEX IF NOT EXISTS portfolio_withdrawals_user ON portfolio_withdrawals (user_id, status);
+CREATE INDEX IF NOT EXISTS portfolio_withdrawals_status ON portfolio_withdrawals (status, requested_at);
+
+-- Backfill: users already referred by a Partner Manager before this block get their permanent attribution.
+INSERT INTO partner_attributions (user_id, partner_id, portfolio_manager_id, code)
+  SELECT u.id, p.user_id, p.recruited_by, inv.invite_code
+    FROM users u
+    JOIN portfolio_members p ON p.user_id = u.referred_by AND p.role = 'partner_manager'
+    JOIN users inv ON inv.id = p.user_id
+   WHERE u.referred_by IS NOT NULL
+ON CONFLICT (user_id) DO NOTHING;
+
+-- ===== FEATURE UNLOCKS (dev update v1, package C step 0) =====
+-- Timed feature access bought with Kingdom Coins (users.coins) or earned by rewarded ads. lib/featureUnlocks.js.
+-- feature_unlocks: one row per user and feature; until = expiry (extended while active).
+CREATE TABLE IF NOT EXISTS feature_unlocks (
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  feature    text NOT NULL,
+  until      timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, feature)
+);
+-- feature_unlock_spends: idempotency claims for purchases (ref = userId:feature:key). Retries return the first result.
+CREATE TABLE IF NOT EXISTS feature_unlock_spends (
+  ref        text PRIMARY KEY,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  feature    text NOT NULL,
+  coins      integer NOT NULL CHECK (coins > 0),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- feature_unlock_progress: rewarded ads watched toward the next unlock of a feature (reset when the unlock is bought).
+CREATE TABLE IF NOT EXISTS feature_unlock_progress (
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  feature    text NOT NULL,
+  ads        integer NOT NULL DEFAULT 0 CHECK (ads >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, feature)
+);
+-- feature_unlock_ads: one row per rewarded-ad transaction (AdMob transaction id is unique, so a replayed SSV never credits twice).
+CREATE TABLE IF NOT EXISTS feature_unlock_ads (
+  transaction_id text PRIMARY KEY,
+  user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  feature        text NOT NULL,
+  verified       boolean NOT NULL DEFAULT false,
+  credited       boolean NOT NULL DEFAULT false,
+  amount         integer NOT NULL DEFAULT 0,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS feature_unlock_ads_user ON feature_unlock_ads (user_id, feature);
+CREATE INDEX IF NOT EXISTS feature_unlocks_until ON feature_unlocks (until);
+-- ===== PAYMENT VERIFICATION =====
+-- Report a payment (paid but not admitted), admin verification queue, single-use membership invitation links.
+-- Receipts are private R2 objects under rcpt/ (never served publicly). Paystack remains the only money source.
+CREATE TABLE IF NOT EXISTS payment_reports (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reference         text NOT NULL CHECK (reference ~ '^[A-Za-z0-9._=-]{6,100}$'),
+  reference_key     text NOT NULL,                         -- lower(reference): duplicate claims are matched on this
+  amount_minor      bigint NOT NULL CHECK (amount_minor > 0),
+  currency          text NOT NULL DEFAULT 'NGN' CHECK (currency ~ '^[A-Z]{3}$'),
+  method            text NOT NULL CHECK (method IN ('card','bank_transfer','ussd','other')),
+  kind              text NOT NULL CHECK (kind IN ('membership','plus','wallet')),
+  target_id         text NOT NULL,                         -- memberships.id / plus_plans.id / wallet_products.id
+  plan_id           text,                                  -- membership_plans.id (membership reports)
+  receipt_key       text NOT NULL,                         -- private R2 key rcpt/<user>/<file>
+  note              text,
+  status            text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  verification      jsonb NOT NULL DEFAULT '{}'::jsonb,    -- last Paystack check shown to the admin
+  verified_at       timestamptz,
+  decision_method   text CHECK (decision_method IN ('paystack','already_credited','manual')),
+  decision_reason   text,
+  reviewed_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_by_staff uuid REFERENCES staff_accounts(id) ON DELETE SET NULL,
+  reviewed_at       timestamptz,
+  access_expires_at timestamptz,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+-- A reference can be claimed by one open (pending or approved) report at a time. Rejected claims don't block.
+CREATE UNIQUE INDEX IF NOT EXISTS payment_reports_open_ref ON payment_reports (reference_key) WHERE status <> 'rejected';
+CREATE INDEX IF NOT EXISTS payment_reports_queue ON payment_reports (status, created_at);
+CREATE INDEX IF NOT EXISTS payment_reports_user ON payment_reports (user_id, created_at DESC);
+
+-- Single-use admission links for one membership. Only the SHA-256 of the token is stored.
+CREATE TABLE IF NOT EXISTS membership_invite_links (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_hash        text NOT NULL UNIQUE,
+  membership_id     uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  plan_id           uuid NOT NULL REFERENCES membership_plans(id) ON DELETE CASCADE,
+  user_id           uuid REFERENCES users(id) ON DELETE CASCADE,   -- optional: only this person can use it
+  access_until     timestamptz,                                   -- NULL = the plan length from the day it is used
+  created_by        uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_by_staff  uuid REFERENCES staff_accounts(id) ON DELETE SET NULL,
+  expires_at        timestamptz NOT NULL,
+  used_at           timestamptz,
+  used_by           uuid REFERENCES users(id) ON DELETE SET NULL,
+  revoked_at        timestamptz,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS membership_invite_links_membership ON membership_invite_links (membership_id, created_at DESC);
+
+-- ===== PACKAGE E: FUND ME GIFTS + OPPORTUNITIES FULL DETAIL (2026-11-27) =====
+-- Gifts on a Fund Me request: context 'fundme' (recipient = the request's creator, normal 20% commission and earnings hold).
+-- The catalogue and gift_sends checks accept it. Existing gifts are allowed on Fund Me too (admins can switch it off per gift).
+ALTER TABLE gift_catalogue DROP CONSTRAINT IF EXISTS gift_catalogue_contexts_check;
+UPDATE gift_catalogue SET contexts = array_append(contexts, 'fundme') WHERE NOT ('fundme' = ANY(contexts));
+ALTER TABLE gift_catalogue ADD CONSTRAINT gift_catalogue_contexts_check CHECK (contexts <@ ARRAY['chat','profile','live','post','fundme']::text[]);
+ALTER TABLE gift_catalogue ALTER COLUMN contexts SET DEFAULT ARRAY['chat','profile','live','post','fundme']::text[];
+ALTER TABLE gift_sends DROP CONSTRAINT IF EXISTS gift_sends_context_type_check;
+ALTER TABLE gift_sends ADD CONSTRAINT gift_sends_context_type_check CHECK (context_type IN ('chat','profile','live','post','support','fundme'));
+CREATE INDEX IF NOT EXISTS gift_sends_fundme ON gift_sends (context_id, created_at DESC) WHERE context_type = 'fundme';
+
+-- Opportunities: full detail from the sources (full description as text, employment type, company logo, apply link).
+-- Missing for a source → NULL, and the app hides that row.
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS employment_type text;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS logo_url text;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS apply_url text;
+-- ===== END PACKAGE E =====
+-- ===== MEMBERSHIP PLATFORM (Development Update v1: items 4, 4.1, 4.2, 4.3) =====
+-- Weekly plans: 7 days of access, renewed like the monthly ones.
+ALTER TABLE membership_plans DROP CONSTRAINT IF EXISTS membership_plans_interval_check;
+ALTER TABLE membership_plans ADD CONSTRAINT membership_plans_interval_check CHECK (interval IN ('one_time','week','month','year','days'));
+-- Creation fee payments go through Paystack with kind 'membership_fee'.
+ALTER TABLE paystack_payments DROP CONSTRAINT IF EXISTS paystack_payments_kind_check;
+ALTER TABLE paystack_payments ADD CONSTRAINT paystack_payments_kind_check CHECK (kind IN ('wallet','membership','plus','membership_fee'));
+-- Membership rules; creation_fee_required = the creator (not a platform admin) must pay the fee before publishing.
+-- Existing memberships keep the default false (exempt).
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS rules text CHECK (rules IS NULL OR char_length(rules) <= 4000);
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS creation_fee_required boolean NOT NULL DEFAULT false;
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS fee_lapsed_at timestamptz;
+-- One creation fee per membership. one_time: paid_until NULL (never ends). week / month: renews by card when possible.
+CREATE TABLE IF NOT EXISTS membership_creation_fees (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  membership_id     uuid NOT NULL UNIQUE REFERENCES memberships(id) ON DELETE CASCADE,
+  user_id           uuid REFERENCES users(id) ON DELETE SET NULL,
+  cycle             text NOT NULL CHECK (cycle IN ('one_time','week','month')),
+  amount_minor      bigint NOT NULL CHECK (amount_minor >= 0),
+  currency          text NOT NULL DEFAULT 'NGN',
+  paid_until        timestamptz,
+  status            text NOT NULL DEFAULT 'active' CHECK (status IN ('active','lapsed')),
+  paystack_auth_id  uuid REFERENCES paystack_authorizations(id) ON DELETE SET NULL,
+  auto_renew        boolean NOT NULL DEFAULT false,
+  renewal_attempts  integer NOT NULL DEFAULT 0,
+  last_renewal_at   timestamptz,
+  reminded_for      timestamptz,
+  paid_reference    text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS membership_creation_fees_due ON membership_creation_fees (status, paid_until);
+-- ===== END MEMBERSHIP PLATFORM =====
+-- ===== PACKAGE F: VIDEO VIEWS, USER SEARCH, SEARCH GROUPS, CHAT LIST ACTIONS =====
+-- Video views (lib/videoViews.js): posts.views_count = post views (impressions); video plays and unique viewers are
+-- separate. video_views: one row per viewer per video (plays grows on each counted play, the row is the unique viewer).
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS video_plays_count   integer NOT NULL DEFAULT 0;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS video_viewers_count integer NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS video_views (
+  post_id          uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  viewer_key       text NOT NULL,                 -- 'u:<user id>' (guests: 'd:<device id>' once the app sends one)
+  plays            integer NOT NULL DEFAULT 1,
+  last_counted_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (post_id, viewer_key)
+);
+-- Post views (impressions) deduped per viewer per post with a cooldown.
+CREATE TABLE IF NOT EXISTS post_view_log (
+  post_id          uuid NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  viewer_key       text NOT NULL,
+  hits             integer NOT NULL DEFAULT 1,
+  last_counted_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (post_id, viewer_key)
+);
+-- Search groups (routes/groupDiscovery.js): listed = shown in Search groups; visibility lives in conversations.settings.
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS listed      boolean NOT NULL DEFAULT false;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS category    text;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS country     text;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS city        text;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS church_name text;
+CREATE INDEX IF NOT EXISTS conversations_listed ON conversations (kind) WHERE listed;
+-- Chat list actions for my own list: pinned to the top, and removed from my list until a new message arrives.
+ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS pinned_at timestamptz;
+ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS hidden_at timestamptz;
+-- ===== END PACKAGE F =====
+
+-- ===== PACKAGE G: RECORDINGS, BOOKS, AUDIO BOOKS, WEBSITE INTEGRATION =====
+-- Idempotent. Website integration (brief 19 / 19.1 / 20): connections to member websites and their articles.
+CREATE TABLE IF NOT EXISTS website_connections (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id                 uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  site_url                 text NOT NULL,
+  host                     text NOT NULL,
+  kind                     text NOT NULL CHECK (kind IN ('rss','wordpress')),
+  feed_url                 text,
+  wp_username              text,
+  wp_password_enc          text,                       -- v1:iv:ct (AES-GCM, fundmeMoney.encryptField)
+  auto_import              boolean NOT NULL DEFAULT true,
+  auto_publish             boolean NOT NULL DEFAULT false,
+  import_requires_approval boolean NOT NULL DEFAULT true,
+  status                   text NOT NULL DEFAULT 'connected' CHECK (status IN ('connected','error','paused')),
+  last_error               text,
+  last_synced_at           timestamptz,
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  updated_at               timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (owner_id, host)
+);
+
+CREATE TABLE IF NOT EXISTS website_articles (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  connection_id uuid NOT NULL REFERENCES website_connections(id) ON DELETE CASCADE,
+  owner_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  direction     text NOT NULL CHECK (direction IN ('import','publish')),
+  status        text NOT NULL CHECK (status IN ('draft','pending','approved','publishing','published','failed','hidden')),
+  title         text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 200),
+  excerpt       text,
+  body          text NOT NULL DEFAULT '',
+  source_key    text,                                -- import dedupe key (GUID or link)
+  source_url    text,
+  external_id   text,
+  external_url  text,
+  image_url     text,
+  error         text,
+  attempts      integer NOT NULL DEFAULT 0,
+  published_at  timestamptz,
+  approved_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  approved_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS website_articles_source ON website_articles (connection_id, source_key) WHERE source_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS website_articles_feed ON website_articles (created_at DESC, id DESC) WHERE status IN ('approved','published');
+CREATE INDEX IF NOT EXISTS website_articles_conn ON website_articles (connection_id, created_at DESC);
+
+-- Books (brief 18): reading place and bookmarks per user. Texts are cached in R2, not in the database.
+CREATE TABLE IF NOT EXISTS book_progress (
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book_id    text NOT NULL,
+  chapter    integer NOT NULL DEFAULT 0 CHECK (chapter >= 0),
+  paragraph  integer NOT NULL DEFAULT 0 CHECK (paragraph >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, book_id)
+);
+CREATE TABLE IF NOT EXISTS book_bookmarks (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book_id    text NOT NULL,
+  chapter    integer NOT NULL CHECK (chapter >= 0),
+  paragraph  integer NOT NULL DEFAULT 0 CHECK (paragraph >= 0),
+  label      text CHECK (label IS NULL OR char_length(label) <= 120),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS book_bookmarks_user ON book_bookmarks (user_id, book_id, chapter, paragraph);
+
+-- Audio books (brief 18.1): an audio library item can hold several chapters, each a file in the library.
+ALTER TABLE media_items ADD COLUMN IF NOT EXISTS chapters jsonb NOT NULL DEFAULT '[]'::jsonb;
+INSERT INTO media_categories (kind, name, slug, icon, sort_order) VALUES
+  ('audio', 'Audio Books', 'audiobooks', 'headphones', 7)
+ON CONFLICT (kind, slug) DO NOTHING;
+
+-- ===== GROUP SEARCH: PUBLIC GROUPS LISTED =====
+-- Search groups: a public group is listed by default (listing follows visibility; admins can still unlist). Membership
+-- sections (MASTER CLASS / EXECUTIVE CLASS, membership_id set) are never listed. The backfill runs once, recorded in
+-- schema_backfills, so re-applying this file never relists a group an admin unlisted afterwards.
+CREATE TABLE IF NOT EXISTS schema_backfills (
+  name       text PRIMARY KEY,
+  applied_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM schema_backfills WHERE name = 'public_groups_listed_v1') THEN
+    UPDATE conversations SET listed = true
+      WHERE kind = 'group' AND membership_id IS NULL AND settings->>'visibility' = 'public' AND NOT listed;
+    INSERT INTO schema_backfills (name) VALUES ('public_groups_listed_v1');
+  END IF;
+END $$;
+-- ===== END GROUP SEARCH: PUBLIC GROUPS LISTED =====
+
+-- ===== MY SCRIPTURE JOURNEY: DAILY SCRIPTURE TRACKER =====
+-- Goals, reading events (idempotent by client_id), the unique-verse ledger, achievements (awarded once) and
+-- community goals. Days are local days in the user's zone, fixed when the event is stored.
+CREATE TABLE IF NOT EXISTS journey_goals (
+  user_id         uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  daily_target    integer NOT NULL DEFAULT 0 CHECK (daily_target BETWEEN 0 AND 100000),
+  weekly_target   integer NOT NULL DEFAULT 0 CHECK (weekly_target BETWEEN 0 AND 700000),
+  monthly_target  integer NOT NULL DEFAULT 0 CHECK (monthly_target BETWEEN 0 AND 3000000),
+  books           text[]  NOT NULL DEFAULT '{}',                 -- USFM ids; empty = the whole Bible
+  translation     text    NOT NULL DEFAULT 'KJV',
+  timezone        text    NOT NULL DEFAULT 'UTC',                -- IANA zone
+  delivery        text    NOT NULL DEFAULT 'both' CHECK (delivery IN ('reading','notifications','both')),
+  notify_times    text[]  NOT NULL DEFAULT '{}',                 -- local HH:MM, up to 6
+  notify_per_day  integer NOT NULL DEFAULT 3 CHECK (notify_per_day BETWEEN 0 AND 6),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS journey_events (
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_id    text NOT NULL CHECK (char_length(client_id) BETWEEN 4 AND 80),
+  source       text NOT NULL CHECK (source IN ('reader','narration','manual')),
+  translation  text NOT NULL DEFAULT 'KJV',
+  book         text NOT NULL,
+  chapter      integer NOT NULL CHECK (chapter >= 1),
+  verse_start  integer NOT NULL CHECK (verse_start >= 1),
+  verse_end    integer NOT NULL CHECK (verse_end >= verse_start),
+  verse_count  integer NOT NULL CHECK (verse_count >= 1),
+  read_at      timestamptz NOT NULL,
+  local_day    date NOT NULL,
+  tz           text NOT NULL DEFAULT 'UTC',
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, client_id)
+);
+CREATE INDEX IF NOT EXISTS journey_events_day_idx ON journey_events (user_id, local_day);
+CREATE INDEX IF NOT EXISTS journey_events_read_idx ON journey_events (user_id, read_at DESC);
+
+CREATE TABLE IF NOT EXISTS journey_verses (
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  book       text NOT NULL,
+  chapter    integer NOT NULL,
+  verse      integer NOT NULL,
+  first_day  date NOT NULL,                  -- local day of the EARLIEST read of this verse
+  first_at   timestamptz NOT NULL,
+  PRIMARY KEY (user_id, book, chapter, verse)
+);
+CREATE INDEX IF NOT EXISTS journey_verses_day_idx ON journey_verses (user_id, first_day);
+
+CREATE TABLE IF NOT EXISTS journey_achievements (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind        text NOT NULL CHECK (kind IN ('daily_goal','weekly_goal','monthly_goal','streak','verses','community_goal')),
+  ref         text NOT NULL,                 -- day, week start, month, streak length, milestone, or group id
+  awarded_at  timestamptz NOT NULL DEFAULT now(),
+  seen_at     timestamptz,
+  UNIQUE (user_id, kind, ref)
+);
+
+CREATE TABLE IF NOT EXISTS journey_groups (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name          text NOT NULL CHECK (char_length(name) BETWEEN 2 AND 60),
+  description   text NOT NULL DEFAULT '',
+  kind          text NOT NULL DEFAULT 'other' CHECK (kind IN ('family','friends','study','church','other')),
+  target        integer NOT NULL CHECK (target BETWEEN 1 AND 10000000),
+  starts_on     date NOT NULL,
+  ends_on       date NOT NULL CHECK (ends_on >= starts_on),
+  invite_code   text NOT NULL UNIQUE,
+  completed_at  timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS journey_group_members (
+  group_id     uuid NOT NULL REFERENCES journey_groups(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role         text NOT NULL DEFAULT 'member' CHECK (role IN ('owner','member')),
+  hide_numbers boolean NOT NULL DEFAULT false,
+  joined_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (group_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS journey_group_members_user_idx ON journey_group_members (user_id);
+-- ===== END MY SCRIPTURE JOURNEY: DAILY SCRIPTURE TRACKER =====
+
+-- ===== MEMBERSHIP AD GATE =====
+-- Rewarded ads unlock a membership's MASTER CLASS and EXECUTIVE CLASS (client request 2026-11-27). Settings are per
+-- membership; the default for new memberships is registerConfig 'membership_ad_gate_default' (lib/membershipAdGate.js).
+-- ad_gate_frequency: daily (pass to the end of the day, Africa/Lagos) | weekly (to Monday 00:00 Africa/Lagos) | every_entry (15 min).
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS ad_gate_enabled   boolean NOT NULL DEFAULT false;
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS ad_gate_ads       integer NOT NULL DEFAULT 1;
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS ad_gate_frequency text    NOT NULL DEFAULT 'daily';
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memberships_ad_gate_ads_range') THEN
+    ALTER TABLE memberships ADD CONSTRAINT memberships_ad_gate_ads_range CHECK (ad_gate_ads BETWEEN 1 AND 10);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memberships_ad_gate_frequency_check') THEN
+    ALTER TABLE memberships ADD CONSTRAINT memberships_ad_gate_frequency_check CHECK (ad_gate_frequency IN ('daily','weekly','every_entry'));
+  END IF;
+END $$;
+-- One row per verified ad. The transaction id is the key, so an ad counts once.
+CREATE TABLE IF NOT EXISTS membership_ad_gate_ads (
+  transaction_id text PRIMARY KEY,
+  user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  membership_id  uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  period_key     text NOT NULL,
+  verified       boolean NOT NULL DEFAULT false,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS membership_ad_gate_ads_member ON membership_ad_gate_ads (user_id, membership_id, period_key);
+-- The ads watched in the current period (one row per user, membership and period).
+CREATE TABLE IF NOT EXISTS membership_ad_gate_progress (
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  membership_id uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  period_key    text NOT NULL,
+  ads           integer NOT NULL DEFAULT 0 CHECK (ads >= 0),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, membership_id, period_key)
+);
+-- The current pass per member and membership.
+CREATE TABLE IF NOT EXISTS membership_ad_gate_passes (
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  membership_id uuid NOT NULL REFERENCES memberships(id) ON DELETE CASCADE,
+  frequency     text NOT NULL,
+  valid_until   timestamptz NOT NULL,
+  issued_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, membership_id)
+);
+-- ===== END MEMBERSHIP AD GATE =====

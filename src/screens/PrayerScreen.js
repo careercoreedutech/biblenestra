@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -1210,7 +1211,7 @@ const ps = StyleSheet.create({
   moon: { position: 'absolute', right: 20, bottom: 18 },
   heroTitle: { fontFamily: df.display, fontSize: 28, lineHeight: 31, color: '#FFFFFF', marginTop: 11 },
   heroQuote: { fontFamily: df.sans, fontSize: 12, lineHeight: 18, color: '#E7C9B3', marginTop: 8, paddingRight: 40 },
-  heroBtn: { marginTop: 22, alignSelf: 'flex-start', height: 40, paddingHorizontal: 14, borderRadius: 12, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  heroBtn: { marginTop: 22, alignSelf: 'flex-start', height: 40, paddingHorizontal: 14, borderRadius: 12, backgroundColor: colors.surfaceWhite, flexDirection: 'row', alignItems: 'center', gap: 8 },
   heroBtnText: { fontFamily: df.sansHeavy, fontSize: 12, color: d.plumDark },
 
   stats: { flexDirection: 'row', marginHorizontal: 12, marginTop: -14, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 17, shadowColor: '#1F1C2D', shadowOpacity: 0.07, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
@@ -1261,7 +1262,7 @@ const ps = StyleSheet.create({
   introIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: 'rgba(244,216,140,0.16)', alignItems: 'center', justifyContent: 'center' },
   introTitle: { fontFamily: df.displayBold, fontSize: 17, color: '#FFFAF2' },
   introSub: { fontFamily: df.displayItalic, fontSize: 12, lineHeight: 17, color: '#E8D2C0', marginTop: 3 },
-  label: { fontFamily: df.sansBold, fontSize: 11, color: '#4C3D32', marginTop: 20, marginBottom: 8 },
+  label: { fontFamily: df.sansBold, fontSize: 11, color: (isDarkScheme() ? '#F3E9DC' : '#4C3D32'), marginTop: 20, marginBottom: 8 },
   input: { height: 52, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, fontFamily: df.sans, fontSize: 14, color: d.ink, marginTop: 0 },
   textarea: { height: 120, paddingTop: 13, marginTop: 10, textAlignVertical: 'top' },
   fieldError: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7, marginLeft: 4 },
@@ -1273,9 +1274,9 @@ const ps = StyleSheet.create({
   linkVerseText: { fontFamily: df.sansBold, fontSize: 12, color: d.plumDark },
   audGrid: { flexDirection: 'row', gap: 6 },
   aud: { flex: 1, height: 66, borderRadius: 13, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, alignItems: 'center', justifyContent: 'center', gap: 5 },
-  audOn: { borderColor: d.plum, backgroundColor: '#FFF0E5' },
+  audOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF0E5') },
   audText: { fontFamily: df.sansBold, fontSize: 10, color: d.muted },
-  audHint: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: '#FFF0E5' },
+  audHint: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF0E5') },
   audHintText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: d.plumDark },
   option: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, padding: 13, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, borderRadius: 15 },
   optionIcon: { width: 35, height: 35, borderRadius: 11, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },

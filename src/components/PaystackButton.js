@@ -8,10 +8,12 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-nati
 import { PressScale } from './Motion';
 import { colors } from '../theme';
 import { useApi } from '../api/auth';
+import { useNav } from '../navigation';
 import { payWithPaystack, checkPayment, paystackMessage, paystackError } from '../billing/paystack';
 
 export function PaystackButton({ method, label = 'Pay with Paystack', start, onSuccess, style, textStyle, ghost = false, disabled = false }) {
   const api = useApi();
+  const nav = useNav();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [needEmail, setNeedEmail] = useState(false);
@@ -62,6 +64,11 @@ export function PaystackButton({ method, label = 'Pay with Paystack', start, onS
       </PressScale>
       {available ? <Text style={s.secure}>{`🔒 Secured by Paystack · Card, bank transfer or USSD${method.test ? ' · TEST MODE' : ''}`}</Text> : null}
       {msg ? <Text style={s.msg}>{msg}</Text> : null}
+      {available ? (
+        <PressScale onPress={() => nav.push('PaymentReport', { reference: pendingRef || undefined })} scaleTo={0.98} style={s.reportLink} accessibilityRole="link" accessibilityLabel="Paid but not admitted? Report a payment">
+          <Text style={s.reportLinkText}>Paid but not admitted? Report a payment</Text>
+        </PressScale>
+      ) : null}
       {pendingRef ? (
         <PressScale onPress={recheck} scaleTo={0.98} style={s.ghost} accessibilityRole="button" accessibilityLabel="I've paid, check again">
           <Text style={s.ghostText}>I’ve paid, check again</Text>
@@ -76,6 +83,8 @@ const s = StyleSheet.create({
   primaryText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
   ghost: { marginTop: 8, borderRadius: 14, paddingVertical: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   ghostText: { color: colors.fg, fontWeight: '600', fontSize: 14 },
+  reportLink: { marginTop: 10, alignItems: 'center' },
+  reportLinkText: { color: colors.primary, fontWeight: '600', fontSize: 13, textDecorationLine: 'underline' },
   disabled: { opacity: 0.5 },
   secure: { fontSize: 11.5, color: colors.muted, marginTop: 8, textAlign: 'center' },
   msg: { fontSize: 12.5, lineHeight: 18, color: colors.fg, marginTop: 8, textAlign: 'center' },

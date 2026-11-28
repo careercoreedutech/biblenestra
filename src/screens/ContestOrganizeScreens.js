@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // CONTEST CENTRE for organizers and judges: my contests, create a contest (with AI question drafts to review),
 // manage (participants, entries, judges, sponsors, reports, publish), and the judging screen.
 // Organizer contests wait for admin approval; admins publish directly. Payments are not enabled.
@@ -399,11 +400,11 @@ const styles = StyleSheet.create({
   label: { fontFamily: df.sansBold, fontSize: 12.5, color: tok.muted, marginBottom: 4 },
   fine: { marginTop: 6, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: tok.muted },
   muted: { marginTop: 8, fontFamily: df.sans, fontSize: 13, lineHeight: 18, color: tok.muted },
-  body: { marginTop: 4, fontFamily: df.sans, fontSize: 14, lineHeight: 20, color: '#4A3A30' },
+  body: { marginTop: 4, fontFamily: df.sans, fontSize: 14, lineHeight: 20, color: (isDarkScheme() ? '#D8C7B6' : '#4A3A30') },
   ok: { marginTop: 6, fontFamily: df.sansBold, fontSize: 13, color: tok.sageDark },
   two: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 12 },
-  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: '#D9C7B0', alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, borderColor: (isDarkScheme() ? '#4D3D30' : '#D9C7B0'), alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   boxOn: { backgroundColor: tok.plum, borderColor: tok.plum },
   checkText: { flex: 1, fontFamily: df.sans, fontSize: 14, lineHeight: 20, color: tok.ink },
   aiBox: { marginTop: 14, padding: 16, borderRadius: 22, backgroundColor: tok.lavender },

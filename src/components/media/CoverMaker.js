@@ -70,7 +70,7 @@ export const COVER_TEMPLATES = [
           {photo ? <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : <Text style={{ color: rgba('#ffffff', 0.25), fontSize: 90 * k, textAlign: 'center', marginTop: 90 * k }}>✦</Text>}
         </View>
         <View style={{ flex: 1, backgroundColor: color, padding: 16 * k, justifyContent: 'flex-end' }}>
-          <View style={{ width: 26 * k, height: 4 * k, backgroundColor: '#fff', marginBottom: 12 * k }} />
+          <View style={{ width: 26 * k, height: 4 * k, backgroundColor: colors.surfaceWhite, marginBottom: 12 * k }} />
           <Text style={{ color: '#fff', fontFamily: fonts.serifBold, fontSize: 22 * k, lineHeight: 26 * k }} numberOfLines={5}>{title}</Text>
           {subtitle ? <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11.5 * k, marginTop: 8 * k, fontWeight: '600' }} numberOfLines={2}>{subtitle}</Text> : null}
         </View>
@@ -83,7 +83,7 @@ export const COVER_TEMPLATES = [
       <>
         <LinearGradient colors={[shade(color, 0.15), shade(color, -0.4)]} style={StyleSheet.absoluteFill} />
         <View style={{ alignItems: 'center', paddingTop: 30 * k, paddingHorizontal: 18 * k }}>
-          <View style={{ width: 130 * k, height: 130 * k, borderRadius: 65 * k, borderWidth: 4 * k, borderColor: '#fff', overflow: 'hidden', backgroundColor: shade(color, 0.35), alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: 130 * k, height: 130 * k, borderRadius: 65 * k, borderWidth: 4 * k, borderColor: colors.surfaceWhite, overflow: 'hidden', backgroundColor: shade(color, 0.35), alignItems: 'center', justifyContent: 'center' }}>
             {photo ? <Image source={{ uri: photo }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Text style={{ color: '#fff', fontSize: 48 * k }}>✝</Text>}
           </View>
           <Text style={{ color: '#fff', fontFamily: fonts.serifBold, fontSize: 24 * k, lineHeight: 28 * k, textAlign: 'center', marginTop: 16 * k }} numberOfLines={2}>{title}</Text>
@@ -123,7 +123,7 @@ export const COVER_TEMPLATES = [
     id: 'minimal', name: 'Minimal',
     render: ({ S, color, title, subtitle }) => { const k = S / 300; return (
       <>
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.surfaceWhite }]} />
         <View style={{ position: 'absolute', left: 28 * k, right: 28 * k, top: 0, bottom: 0, justifyContent: 'center' }}>
           <Text style={{ color, fontSize: 20 * k }}>✦</Text>
           <Text style={{ color: '#1C1915', fontFamily: fonts.serif, fontSize: 30 * k, lineHeight: 36 * k, marginTop: 10 * k }} numberOfLines={4}>{title}</Text>
@@ -140,7 +140,7 @@ export const COVER_TEMPLATES = [
         <View style={[StyleSheet.absoluteFill, { backgroundColor: shade(color, -0.3) }]} />
         {photo ? <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
         <View style={[StyleSheet.absoluteFill, { backgroundColor: rgba(color, photo ? 0.62 : 0.9) }]} />
-        <View style={{ position: 'absolute', left: 20 * k, top: 20 * k, backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 10 * k, paddingVertical: 4 * k }}>
+        <View style={{ position: 'absolute', left: 20 * k, top: 20 * k, backgroundColor: colors.surfaceWhite, borderRadius: 999, paddingHorizontal: 10 * k, paddingVertical: 4 * k }}>
           <Text style={{ color, fontSize: 10 * k, fontWeight: '900', letterSpacing: 1.6 * k }}>{(subtitle || 'PODCAST').toUpperCase().slice(0, 28)}</Text>
         </View>
         <View style={{ position: 'absolute', left: 20 * k, right: 20 * k, bottom: 20 * k }}>

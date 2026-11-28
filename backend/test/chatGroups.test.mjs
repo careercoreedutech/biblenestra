@@ -290,7 +290,7 @@ test('signed links: members get a 2-hour link (+ pdf viewer); tampered or foreig
   assert.deepEqual([...new Uint8Array(await ok.arrayBuffer())], [37, 80, 68, 70]);
   const dl = await app.fetch(new Request(`http://api.test${path}&download=1&name=${encodeURIComponent('Song sheet.pdf')}`), env);
   assert.match(dl.headers.get('Content-Disposition'), /attachment; filename="Song sheet.pdf"/);
-  const bad = await app.fetch(new Request(`http://api.test${path.replace(/sig=./, 'sig=0')}`), env);
+  const bad = await app.fetch(new Request(`http://api.test${path.replace(/sig=(.)/, (m, c) => 'sig=' + (c === '0' ? '1' : '0'))}`), env);
   assert.equal(bad.status, 403);
   assert.equal((await call('eve', 'GET', `/chat/media-link?key=${encodeURIComponent(doc.mediaKey)}`)).status, 403);
   const viewer = await app.fetch(new Request(`http://api.test/chat/viewer?file=x`), env);

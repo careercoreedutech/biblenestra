@@ -25,7 +25,7 @@ const MAX_CARD_W = 560; // cards never grow past this (desktop feed is full widt
 export const DESIGNS = [
   // Solid colours
   { key: 'midnight', label: 'Midnight', group: 'Colours', color: '#2A1B12', fg: '#F4EFE6', accent: '#D4A852' },
-  { key: 'royal', label: 'Royal', group: 'Colours', color: '#C24E0E', fg: '#FFFFFF', accent: '#E9D9A6' },
+  { key: 'royal', label: 'Royal', group: 'Colours', color: colors.primaryInk, fg: '#FFFFFF', accent: '#E9D9A6' },
   { key: 'teal', label: 'Teal', group: 'Colours', color: '#2C7672', fg: '#FFFFFF', accent: '#F3DFA2' },
   { key: 'lavender', label: 'Lavender', group: 'Colours', color: '#6B52A3', fg: '#FFFFFF', accent: '#F1E3B8' },
   { key: 'charcoal', label: 'Charcoal', group: 'Colours', color: '#2B2B2E', fg: '#F5F2EC', accent: '#D4A852' },

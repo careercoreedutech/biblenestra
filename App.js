@@ -12,12 +12,14 @@ import MiniPlayer from './src/components/MiniPlayer';
 import NowPlayingSheet from './src/components/NowPlayingSheet';
 import { ToastProvider } from './src/components/Toast';
 import { NarrationProvider } from './src/audio/Narration';
-import { AdsProvider } from './src/ads/Ads';
+import { AdsProvider, useAds } from './src/ads/Ads';
+import { useAdBreaks } from './src/ads/breaks'; // INTERSTITIAL BREAKS (dev update v1, item 4)
 import { AdsBridge } from './src/ads/AdsBridge'; // ADS: authenticated transport for ad event logging
 import { AuthGate } from './src/api/auth';
 import { IntroGate } from './src/screens/IntroScreens';
 import { ExtraBooksScreen, ExtraBookScreen } from './src/screens/ExtraBooksScreens'; // BEYOND THE 66
 import { WebsitesScreen, AddWebsiteScreen, WebsiteViewerScreen } from './src/screens/WebsitesScreens'; // MEMBER WEBSITES
+import { WebsiteFeedScreen, WebsiteArticleScreen, WebsiteIntegrationScreen, WebsiteComposerScreen } from './src/screens/WebsiteIntegrationScreens'; // WEBSITE INTEGRATION
 import EngagementPopup from './src/components/EngagementPopup';
 import { ChatLimitHost, useInviteLinks } from './src/components/ChatLimit'; // CHAT LIMITS: upgrade/invite prompt on CHAT_LIMIT_REACHED + invite deep links
 import InviteFriendsScreen from './src/screens/InviteFriendsScreen'; // CHAT LIMITS: Invite friends (invited friends are unlimited)
@@ -26,10 +28,12 @@ import { ContestsScreen, ContestScreen, ContestEntryScreen, ContestSubmitScreen,
 import { ContestOrganizeScreen, ContestEditorScreen, ContestManageScreen, ContestJudgeScreen } from './src/screens/ContestOrganizeScreens';
 import { BattleScreen } from './src/screens/BattleScreens';
 import { ChatsHomeScreen, NewGroupScreen } from './src/screens/ChatsHome';
-import { ChatInfoScreen, JoinGroupScreen } from './src/screens/ChatInfoScreen'; // CHAT 7.4: Group Info / contact info, join by invite link
+import { ChatInfoScreen, JoinGroupScreen } from './src/screens/ChatInfoScreen';
+import { SearchGroupsScreen } from './src/screens/SearchGroupsScreen'; // PACKAGE F: Search groups (Chats) // CHAT 7.4: Group Info / contact info, join by invite link
 import { SyncProvider } from './src/api/sync';
 import { SignInPreviewScreen } from './src/screens/SignInScreen';
 import { colors, fonts, FONT_ASSETS, readerThemes } from './src/theme';
+import { isDarkScheme } from './src/design/palette'; // APPEARANCE (item 14): status bar follows the chosen theme
 
 import HomeScreen from './src/screens/HomeScreen';
 import TodayScreen from './src/screens/TodayScreen';
@@ -43,6 +47,9 @@ import SocialsScreen from './src/screens/SocialsScreen';
 import ConcordanceScreen from './src/screens/ConcordanceScreen';
 import ScripturePopScreen from './src/screens/ScripturePopScreen';
 import { useScripturePop } from './src/notifications/scripturePop';
+import JourneyRoot from './src/journey/JourneyRoot'; // MY SCRIPTURE JOURNEY: reminders plan, queue flush, celebrations (mounted once below)
+import JourneyHomeScreen, { JourneySetupScreen } from './src/screens/JourneyScreens'; // MY SCRIPTURE JOURNEY
+import { JourneyGroupsScreen, JourneyGroupScreen } from './src/screens/JourneyGroupScreens'; // MY SCRIPTURE JOURNEY: community goals
 import { useSocialsDark, useSocialsImmersive } from './src/ui/chrome';
 import { useBibleImmersive } from './src/ui/chrome'; // BIBLE FULL SCREEN: reader hides the tab bar
 import ExegesisScreen from './src/screens/ExegesisScreen'; // EXEGESIS: one-tap structured exegesis
@@ -64,19 +71,24 @@ import { useBroadcastPushOpen } from './src/notifications/broadcastPush'; // BRO
 import { useReminders } from './src/notifications/reminders'; // DISCOVER TOOLS (round 3)
 import { FundMeHomeScreen, FundraiserScreen, FundraiserEditScreen, FundraiserDonationsScreen } from './src/screens/FundMeScreens'; // FUND ME (round 3)
 import { FundMeCreditsScreen, FundMeGiftCreditsScreen, FundMeMoneyScreen, FundMePayoutAccountScreen, FundMeMyDonationsScreen, FundMeReceiptScreen, PayoutKycScreen } from './src/screens/FundMeMoneyScreens'; // FUND ME MONEY: credits, gifting credits, payouts, receipts
-import { OpportunitiesScreen } from './src/screens/OpportunitiesScreen'; // OPPORTUNITIES
+import { OpportunitiesScreen, OpportunityDetailScreen } from './src/screens/OpportunitiesScreen'; // OPPORTUNITIES (+ PACKAGE E full-screen job detail)
 import { MediaLibraryScreen, MediaListScreen, MediaUploadScreen, BookReaderScreen } from './src/screens/MediaLibraryScreens'; // MEDIA LIBRARY: audio + Christian books
+import { BooksScreen, BookDetailScreen, BookReadScreen, AudioBookScreen } from './src/screens/BooksScreens'; // PACKAGE G: Books library + audio books
 import { AudioPlayerProvider } from './src/audio/Player'; // MEDIA LIBRARY: global audio player (continuous playback)
 import { LibraryMiniBar } from './src/components/MiniPlayer'; // MEDIA LIBRARY
 import NotificationSettingsScreen from './src/screens/NotificationSettingsScreen'; // NOTIFICATIONS: Settings › Notifications › Daily moments
 import { MembershipsScreen, MembershipScreen, MembershipReviewsScreen, MembershipHomeScreen, MyChannelsScreen, MembershipLibraryScreen } from './src/screens/MembershipScreens'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
+import { MembershipHubScreen } from './src/screens/MembershipHubScreens'; // MEMBERSHIP HUB (Development Update v1, item 4): full-screen Memberships
 import { MembershipMediaScreen, MembershipMembersScreen, MembershipAdminsScreen, MembershipSettingsScreen, MembershipWelcomeGate } from './src/screens/MembershipGroupScreens'; // MEMBERSHIP GROUPS: MASTER CLASS + EXECUTIVE CLASS
 import { WalletScreen } from './src/screens/WalletScreen'; // WALLET CORE: separate wallets, Buy sheets, history, Dating Plus / VIP
-import { DatingProfileEditScreen, DatingProfileViewScreen, DatingChatScreen, DatingPlansScreen, DatingBoostScreen, DatingSettingsScreen, DatingVerifyScreen } from './src/screens/FindLoveScreens'; // FIND LOVE: profile, chat, plans, boost, safety, verification
+import { DatingProfileEditScreen, DatingProfileViewScreen, DatingChatScreen, DatingPlansScreen, DatingBoostScreen, DatingSettingsScreen, DatingVerifyScreen, FindLoveHubScreen } from './src/screens/FindLoveScreens'; // FIND LOVE: profile, chat, plans, boost, safety, verification
 import { GiftStoreScreen, GiftHistoryScreen, GiftEarningsScreen } from './src/screens/GiftScreens'; // VIRTUAL GIFTS & STARS: store, history, earnings
+import { PortfolioHomeScreen, PortfolioApplyScreen } from './src/screens/PortfolioScreens'; // PORTFOLIO & PARTNER MANAGERS: dashboards, Apply
+import { UserSearchScreen } from './src/screens/UserSearchScreen'; // USER SEARCH: find members by username
 import { useDailyMoments } from './src/notifications/daily'; // NOTIFICATIONS: daily moments (local, user's time zone)
 import { useDeepLinks } from './src/notifications/deepLinks'; // NOTIFICATIONS + WIDGETS: biblenestra:// deep links
 import { useGroupInviteLinks } from './src/notifications/deepLinks'; // CHAT GAPS: biblenestra://join/<code> → Join with a link
+import { PaymentReportScreen, MembershipInviteScreen, useMembershipInviteLinks } from './src/screens/PaymentReportScreens'; // PAYMENT VERIFICATION: Report a payment, membership invitation links
 import { useChatPush } from './src/notifications/push'; // CHAT PUSH: tap opens the chat, Reply / Mark as read actions, per-chat tray tidy
 import { useApi } from './src/api/auth'; // CHAT PUSH: authed request for notification actions
 import { useHomeWidgets } from './src/widgets'; // WIDGETS: Android home-screen widgets (registers the widget task on import; no-op on web/iOS)
@@ -114,12 +126,13 @@ class ErrorBoundary extends Component {
 const ROUTES = {
   ExtraBooks: ExtraBooksScreen, ExtraBook: ExtraBookScreen, // BEYOND THE 66: deuterocanonical & extra-biblical books
   Websites: WebsitesScreen, AddWebsite: AddWebsiteScreen, WebsiteViewer: WebsiteViewerScreen, // MEMBER WEBSITES (open inside the app)
+  WebsiteFeed: WebsiteFeedScreen, WebsiteArticle: WebsiteArticleScreen, WebsiteIntegration: WebsiteIntegrationScreen, WebsiteComposer: WebsiteComposerScreen, // WEBSITE INTEGRATION
   Bible: BibleScreen, Study: StudyScreen, Factbook: FactbookScreen, Search: SearchScreen, Library: LibraryScreen,
   Reading: ReadingScreen, BibleChat: BibleChatScreen, Companion: CompanionScreen,
   Exegesis: ExegesisScreen, // EXEGESIS
   Prayer: PrayerDetailScreen, NewPrayer: NewPrayerScreen, PrayerTab: PrayerScreen, PrayerWall: PrayerScreen,
   Communities: CommunitiesScreen, Group: GroupScreen, ChatList: ChatsHomeScreen, NewGroup: NewGroupScreen, Chat: ChatScreen, Calendar: CalendarScreen,
-  ChatInfo: ChatInfoScreen, JoinGroup: JoinGroupScreen, // CHAT 7.4
+  ChatInfo: ChatInfoScreen, JoinGroup: JoinGroupScreen, SearchGroups: SearchGroupsScreen, // CHAT 7.4 · PACKAGE F
   Priests: PriestsScreen, PriestProfile: PriestProfileScreen, PriestApply: PriestApplyScreen, CareInbox: CareInboxScreen, // CARE NETWORK
   People: PeopleScreen, Person: PersonScreen, Care: CareScreen, Wishes: WishesScreen, Live: LiveScreen, Feed: SocialsScreen, // Feed is merged into Socials
   Learn: LearnScreen, Plan: PlanScreen, Lesson: LessonScreen, SermonStudio: SermonStudioScreen, Transcript: TranscriptScreen,
@@ -130,7 +143,9 @@ const ROUTES = {
   RecordingDetail: RecordingDetailScreen, Reminders: RemindersScreen, Watch: WatchScreen, YouTubeChannel: YouTubeChannelScreen, // DISCOVER TOOLS (round 3)
   FundMe: FundMeHomeScreen, Fundraiser: FundraiserScreen, FundraiserEdit: FundraiserEditScreen, FundraiserDonations: FundraiserDonationsScreen, // FUND ME (round 3)
   Opportunities: OpportunitiesScreen, // OPPORTUNITIES (external listings)
+  OpportunityDetail: OpportunityDetailScreen, // PACKAGE E: full-screen job detail (opened from the list after an ad)
   MediaLibrary: MediaLibraryScreen, MediaList: MediaListScreen, MediaUpload: MediaUploadScreen, BookReader: BookReaderScreen, // MEDIA LIBRARY
+  Books: BooksScreen, BookDetail: BookDetailScreen, BookRead: BookReadScreen, AudioBook: AudioBookScreen, // PACKAGE G: Books
   YouTubeWatch: YouTubeWatchScreen, EmbedViewer: EmbedViewerScreen, // YOUTUBE LIVE
   DailyVerse: DailyVerseScreen, BlessingVideos: BlessingVideosScreen, ChannelVideos: ChannelVideosScreen, // TODAY'S JOURNEY
   NotificationSettings: NotificationSettingsScreen, // NOTIFICATIONS
@@ -144,7 +159,13 @@ Object.assign(ROUTES, { MembershipLibrary: MembershipLibraryScreen, MembershipMe
 ROUTES.Wallet = WalletScreen; // WALLET CORE
 Object.assign(ROUTES, { FundMeCredits: FundMeCreditsScreen, FundMeGiftCredits: FundMeGiftCreditsScreen, FundMeMoney: FundMeMoneyScreen, FundMePayoutAccount: FundMePayoutAccountScreen, FundMeMyDonations: FundMeMyDonationsScreen, FundMeReceipt: FundMeReceiptScreen, PayoutKyc: PayoutKycScreen }); // FUND ME MONEY (+ payout KYC)
 Object.assign(ROUTES, { GiftStore: GiftStoreScreen, GiftHistory: GiftHistoryScreen, GiftEarnings: GiftEarningsScreen }); // VIRTUAL GIFTS & STARS
+Object.assign(ROUTES, { PortfolioHome: PortfolioHomeScreen, PortfolioApply: PortfolioApplyScreen }); // PORTFOLIO & PARTNER MANAGERS
+Object.assign(ROUTES, { UserSearch: UserSearchScreen }); // USER SEARCH: Socials header search icon → username search
 Object.assign(ROUTES, { DatingProfileEdit: DatingProfileEditScreen, DatingProfileView: DatingProfileViewScreen, DatingChat: DatingChatScreen, DatingPlans: DatingPlansScreen, DatingBoost: DatingBoostScreen, DatingSettings: DatingSettingsScreen, DatingVerify: DatingVerifyScreen }); // FIND LOVE
+Object.assign(ROUTES, { PaymentReport: PaymentReportScreen, MembershipInvite: MembershipInviteScreen }); // PAYMENT VERIFICATION
+ROUTES.FindLoveHub = FindLoveHubScreen; // FIND LOVE HUB: full-screen Find Love (Discover / Likes / Matches / Profile); pushed, so the tab bar is hidden
+ROUTES.MembershipHub = MembershipHubScreen; // MEMBERSHIP HUB: pushed full-screen (Explore / My Memberships / Create / Manage); the tab bar is hidden while it is open
+Object.assign(ROUTES, { Journey: JourneyHomeScreen, JourneySetup: JourneySetupScreen, JourneyGroups: JourneyGroupsScreen, JourneyGroup: JourneyGroupScreen }); // MY SCRIPTURE JOURNEY
 
 // Gentle enter animation: pushed screens slide in from the right, tab switches cross-fade up.
 function Transition({ kind, children, skip }) {
@@ -221,11 +242,15 @@ function Root() {
   const [tab, setTab] = useState('Today');
   // Scripture pop-ups: keep the next couple of days scheduled; open the verse when one is tapped
   useScripturePop(ready ? state.scripturePop : null, nav);
+  // INTERSTITIAL BREAKS (dev update v1, item 4): foreground-time break after the admin interval; held back on reading/recording/prayer/checkout screens
+  const adTop = nav.stack[nav.stack.length - 1];
+  useAdBreaks(adTop ? adTop.name : `tab:${tab}`, useAds().showInterstitial);
   useReminders(nav); // DISCOVER TOOLS (round 3): reminders + daily verse (local notifications)
   useLivePushOpen(nav); // YOUTUBE LIVE: tapping a LIVE NOW push opens the Watch screen
   useBroadcastPushOpen(nav); // BROADCASTS: tapping an official-message push opens it in Activity
   useDailyMoments(nav); // NOTIFICATIONS: schedule the chosen daily moments + open their screen when tapped
   useDeepLinks(nav); // NOTIFICATIONS + WIDGETS: biblenestra://daily, //prayer, //bible … open their screens
+  useMembershipInviteLinks(nav); // PAYMENT VERIFICATION: biblenestra://membership-invite?token=… opens the invitation screen
   useGroupInviteLinks(nav); // CHAT GAPS: group invite links (/g/<code> landing page → app) open the join screen prefilled
   useHomeWidgets(state, ready); // WIDGETS: redraw Android widgets when reading progress / the day changes
   useInviteLinks(); // CHAT LIMITS: biblenestra://invite/<code> → POST /me/referral once signed in
@@ -286,7 +311,7 @@ function Root() {
   const reader = null; // FIGMA DESIGN: the Bible tab is now the ivory Bible home; reader themes apply inside the pushed reader
   const pageBg = isSocials ? '#000000' : reader ? reader.bg : colors.screen;
   const variant = isSocials ? 'dark' : reader && reader.key !== 'paper' ? reader.key : 'light';
-  const lightStatus = isSocials || (reader && reader.dark);
+  const lightStatus = isSocials || (reader && reader.dark) || isDarkScheme();
   const immersive = socialsImmersive && tab === 'Socials' && !top;
   // (a pushed Socials/Feed route keeps the dark chrome; the tab bar is hidden under pushed routes anyway)
   return (
@@ -296,9 +321,10 @@ function Root() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           {layers}
         </KeyboardAvoidingView>
+        <JourneyRoot />{/* MY SCRIPTURE JOURNEY: reminders plan, queue flush, achievement celebrations (renders nothing until one is due) */}
         {!immersive && !(top && top.name === 'Bible') ? <MiniPlayer bg={top ? colors.screen : pageBg} /> : null}
         {(tab === 'Bible' && !top) || (top && top.name === 'Bible') ? <LibraryMiniBar bg={pageBg} /> : null}{/* MEDIA LIBRARY: library audio keeps its bar in the Bible reader */}
-        {!top && !immersive ? <TabBar active={tab} variant={variant} hidden={tab === 'Bible' && bibleImmersive} onCreate={() => nav.push('Create')} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
+        {!top && !immersive ? <TabBar active={tab} variant={variant} hidden={tab === 'Bible' && bibleImmersive} onCreate={() => nav.push('FindLoveHub')} onChange={(t) => { nav.reset(); setTab(t); }} /> : null}
         <NowPlayingSheet />
         {onboardedAtLaunch.current ? <EngagementPopup /> : null}{/* not on the very first launch: new users reach Today in few taps */}
         <ChatLimitHost />{/* CHAT LIMITS: subscription prompt when a free user hits the 5-chat limit */}

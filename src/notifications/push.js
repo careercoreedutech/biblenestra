@@ -163,7 +163,12 @@ export async function collapseChatNotifications() {
 /** Open the chat a notification belongs to. */
 export function openChatFromData(nav, d) {
   if (!nav || !d || !d.conversationId) return;
-  nav.push('Chat', { id: d.conversationId, to: d.chatTitle || undefined, ...(d.kind === 'group' ? { kind: 'group' } : {}) });
+  // MEMBERSHIP GROUPS: a MASTER CLASS / EXECUTIVE CLASS push opens the group home on that section
+  if (d.membershipId && (d.section === 'master' || d.section === 'executive')) {
+    nav.push('MembershipHome', { id: d.membershipId, tab: d.section });
+    return;
+  }
+  nav.push('Chat',{ id: d.conversationId, to: d.chatTitle || undefined, ...(d.kind === 'group' ? { kind: 'group' } : {}) });
 }
 
 /**

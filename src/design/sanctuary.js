@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Icon } from '../components/Icons';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
+import { DARK_D, isDarkScheme } from './palette'; // APPEARANCE (item 14)
 
 // :root tokens
 export const d = {
@@ -15,6 +16,7 @@ export const d = {
   ink: '#281A11',
   muted: '#7C6C60',
   line: '#EADFCE',
+  glass: 'rgba(255,255,255,0.78)', // translucent icon chips over the page (dark: warm glass)
   plum: '#FF6B1A', // the orange accent (named "plum" in the design)
   plumDark: '#5A2E18',
   lavender: '#F6E4D2',
@@ -29,6 +31,8 @@ export const d = {
   navOnBg: '#FFF2E5',
   navOnText: '#472612',
 };
+// APPEARANCE: dark mode swaps the warm ivory tokens for the warm dark ones (before k/StyleSheet below is created)
+if (isDarkScheme()) Object.assign(d, DARK_D, { glass: 'rgba(30,24,19,0.78)' });
 
 export const df = {
   display: 'Playfair-SemiBold',
@@ -149,7 +153,7 @@ export const k = StyleSheet.create({
   profile: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   profileText: { color: '#fff', fontSize: 9, fontFamily: df.sansHeavy },
   profileDot: { position: 'absolute', width: 11, height: 11, right: -2, top: -2, backgroundColor: d.plum, borderWidth: 2, borderColor: d.ivory, borderRadius: 6 },
-  iconButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: d.line, backgroundColor: 'rgba(255,255,255,0.78)', borderRadius: 21 },
+  iconButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: d.line, backgroundColor: d.glass, borderRadius: 21 },
   iconDot: { position: 'absolute', width: 9, height: 9, right: 7, top: 7, borderRadius: 5, borderWidth: 2, borderColor: d.ivory, backgroundColor: '#D3566F' },
   section: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 28, marginBottom: 13, marginHorizontal: 1 },
   sectionEyebrow: { color: d.plum, fontSize: 9, fontFamily: df.sansHeavy, letterSpacing: 1.3, textTransform: 'uppercase', marginBottom: 4 },

@@ -2,29 +2,32 @@
 // Sits on top of the Sanctuary Paper tokens (src/theme.js); every Find Love component reads from here.
 import { Platform } from 'react-native';
 import { colors, fonts } from '../../theme';
+import { isDarkScheme } from '../../design/palette';
 
 let Haptics = null;
 try { Haptics = require('expo-haptics'); } catch (e) { Haptics = null; }
 
 export const ND = Platform.OS !== 'web'; // native driver where supported
 
+const DARK = isDarkScheme();
+// Dark variant: warm espresso and cocoa heroes, lifted just enough off the dark screen to read as surfaces.
 export const love = {
   // hero surfaces
-  plum: '#2D1B10',
-  plumRaised: '#3C2518',
-  wine: '#8A451F',
-  wineDeep: '#3C2518',
+  plum: DARK ? '#2A1B14' : '#2D1B10',
+  plumRaised: DARK ? '#3A2619' : '#3C2518',
+  wine: DARK ? '#7A3D1C' : '#8A451F',
+  wineDeep: DARK ? '#2A1B14' : '#3C2518',
   // accents
   rose: '#ED5C12', // orange accent (kit: d.plum)
   roseBright: '#FF9A53',
-  roseSoft: '#F7B98A',
-  blush: '#F6E4D2',
-  blushDeep: '#F4D8CB',
-  blushLine: '#EADFCE',
-  gold: '#A66D22',
-  goldBright: '#F4D88C',
-  goldPale: '#F6E4D2',
-  goldInk: '#6F4A12',
+  roseSoft: DARK ? '#C9885A' : '#F7B98A',
+  blush: DARK ? '#3A2219' : '#F6E4D2',
+  blushDeep: DARK ? '#4A2C20' : '#F4D8CB',
+  blushLine: DARK ? '#4D3D30' : '#EADFCE',
+  gold: DARK ? '#D4A852' : '#A66D22',
+  goldBright: DARK ? '#E8C27A' : '#F4D88C',
+  goldPale: DARK ? '#3A2E14' : '#F6E4D2',
+  goldInk: DARK ? '#F0CF8A' : '#6F4A12',
   // ink on dark
   onDark: '#FBF3EC',
   onDarkMuted: 'rgba(251,243,236,0.72)',
@@ -37,6 +40,7 @@ export const love = {
   faint: colors.faint,
   line: colors.border,
   pass: '#8A8178',
+  dangerSoft: DARK ? '#3A221C' : '#F8E1DF',
   danger: colors.negative,
   positive: colors.positive,
 };
@@ -47,10 +51,10 @@ export const grad = {
   wine: ['#8A451F', '#2D1B10'],
   plum: ['#3C2518', '#2D1B10'],
   gold: ['#E4D18E', '#A66D22'],
-  goldSoft: ['#F6E4D2', '#F4D88C'],
+  goldSoft: DARK ? ['#3A2A1A', '#4A3416'] : ['#F6E4D2', '#F4D88C'],
   vip: ['#2B211A', '#0F0B09'],
   rose: ['#FF9A53', '#C4501A'],
-  blush: ['#FFFAF2', '#F4D8CB'],
+  blush: DARK ? ['#2A1E17', '#3A2219'] : ['#FFFAF2', '#F4D8CB'],
   ring: ['#E4D18E', '#FF9A53', '#8A451F'],
   scrim: ['rgba(40,26,17,0)', 'rgba(40,26,17,0.35)', 'rgba(40,26,17,0.9)'],
   scrimTop: ['rgba(40,26,17,0.45)', 'rgba(40,26,17,0)'],
@@ -60,7 +64,7 @@ export const type = {
   display: { fontFamily: fonts.serifBold, color: love.ink, letterSpacing: -0.3 },
   italic: { fontFamily: fonts.serifItalic },
   boldItalic: { fontFamily: fonts.serifBoldItalic },
-  eyebrow: { fontFamily: 'DMSans-Bold', fontSize: 10, lineHeight: 12, letterSpacing: 1.7, textTransform: 'uppercase', color: '#FF6B1A' },
+  eyebrow: { fontFamily: 'DMSans-Bold', fontSize: 10, lineHeight: 12, letterSpacing: 1.7, textTransform: 'uppercase', color: DARK ? '#FF9A53' : '#FF6B1A' },
 };
 
 export const lshadow = Platform.select({

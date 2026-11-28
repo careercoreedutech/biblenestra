@@ -7,6 +7,7 @@
 //   (and says so). The search runs in slices so typing stays smooth on a phone.
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
+import { colors } from '../theme';
 import { FadeInUp, ScaleIn } from '../components/Motion';
 import { Icon } from '../components/Icons';
 import { Empty } from '../components/ui';
@@ -97,7 +98,7 @@ export default function BibleSearchScreen({ params = {} }) {
         <TextInput
           style={s.searchInput}
           placeholder="Search words, verses, or references (e.g. John 3:16)..."
-          placeholderTextColor="#AA9A8C"
+          placeholderTextColor={colors.faint}
           value={q}
           onChangeText={(v) => { setQ(v); setBookId(null); }}
           autoFocus

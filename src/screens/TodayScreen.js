@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // Today — rebuilt in the Figma "Project Document Analysis" design (src/design/sanctuary.js), on real data:
 // greeting, verse of the day (Daily Bread), the streak, the four-step daily rhythm, shortcuts, the daily
 // sanctuary grid, Be still (blessing videos), the community card, then the existing live sections.
@@ -12,6 +13,8 @@ import CareInvite from '../components/CareInvite';
 import SupportAdsCard from '../components/SupportAdsCard';
 import ChannelVideosRow from '../components/ChannelVideosRow';
 import AnnouncementCards from '../components/AnnouncementCards';
+import TodaysJourney from '../components/TodaysJourney'; // Your Time With God: floating cards (Daily Bread, Blessing, Prayer)
+import TodayJourneyCard from '../components/journey/TodayJourneyCard'; // MY SCRIPTURE JOURNEY: compact card after the rhythm and shortcuts
 import { useNarration } from '../audio/Narration';
 import { useChapter } from '../bible/loader';
 import { useStore } from '../store';
@@ -88,7 +91,24 @@ export default function TodayScreen() {
   return (
     <View style={k.screen}>
       <ScrollView contentContainerStyle={[k.scroll, { paddingBottom: 24 }]} showsVerticalScrollIndicator={false}>
-        <PageHeader title={`${greeting}, ${name}`} subtitle={today.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })} />
+        <PageHeader title={<>{greeting}, <Text style={{ color: d.plum }}>{name}</Text></>} subtitle={today.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })} />
+
+        {/* EXPLORE NESTRA: quick doors to Membership, Fund me, Jobs and Websites (client's home mock-up) */}
+        <Eyebrow style={s.exploreKicker}>Explore Nestra</Eyebrow>
+        <Text style={s.exploreTitle}>More ways to flourish</Text>
+        <View style={s.exploreRow}>
+          {[
+            { label: 'Membership', icon: 'shield', g: ['#5B3924', '#291B12'], to: 'MembershipHub' },
+            { label: 'Fund me', icon: 'heart', g: gradients.orange, to: 'FundMe' },
+            { label: 'Jobs', icon: 'search', g: gradients.gold, to: 'Jobs' },
+            { label: 'Websites', icon: 'globe', g: ['#7C9A6B', '#3F5B33'], to: 'Websites' },
+          ].map((x) => (
+            <Tap key={x.label} style={s.exploreTile} onPress={() => nav.push(x.to)} accessibilityLabel={x.label}>
+              <Grad colors={x.g} style={s.exploreIcon}><Icon name={x.icon} size={22} color="#fff" fill={x.icon === 'heart' ? 'solid' : undefined} /></Grad>
+              <Text style={s.exploreLabel} numberOfLines={1}>{x.label}</Text>
+            </Tap>
+          ))}
+        </View>
 
         <AnnouncementCards style={{ marginBottom: 12 }} />
 
@@ -125,6 +145,19 @@ export default function TodayScreen() {
           </Tap>
         ) : null}
 
+        {/* Your Time With God: floating, auto-sliding cards (Daily Bread, Blessing for the Day, Prayer for the Day) */}
+        <SectionTitle eyebrow="Today" title="Your Time With God" />
+        <View style={{ marginHorizontal: -18 }}>
+          <TodaysJourney
+            verse={v}
+            done={{ bread: isDone('verse'), prayer: isDone('prayer') }}
+            prayersCount={activePrayers.length}
+            onBread={() => openStep('verse')}
+            onVideos={() => nav.push('BlessingVideos')}
+            onPrayer={() => openStep('prayer')}
+          />
+        </View>
+
         {/* .daily-steps */}
         <View style={s.steps}>
           <View style={s.stepsLine} />
@@ -135,7 +168,7 @@ export default function TodayScreen() {
                 {done ? (
                   <Grad colors={gradients.step} style={s.stepBadge}><Icon name="check" size={13} color="#fff" strokeWidth={3} /></Grad>
                 ) : (
-                  <View style={[s.stepBadge, { backgroundColor: '#EEE5DB' }]}><Text style={s.stepNum}>{i + 1}</Text></View>
+                  <View style={[s.stepBadge, { backgroundColor: (isDarkScheme() ? '#32271E' : '#EEE5DB') }]}><Text style={s.stepNum}>{i + 1}</Text></View>
                 )}
                 <Text style={[s.stepLabel, done && { color: d.plum }]}>{STEP_LABEL[st]}</Text>
               </Tap>
@@ -164,6 +197,9 @@ export default function TodayScreen() {
           ))}
         </View>
 
+        {/* MY SCRIPTURE JOURNEY: compact card after the rhythm and shortcuts (the layout above is unchanged) */}
+        <TodayJourneyCard />
+
         {/* .quick-grid */}
         <SectionTitle eyebrow="For this moment" title="Your daily sanctuary" />
         <View style={s.grid}>
@@ -176,7 +212,7 @@ export default function TodayScreen() {
         {/* .still-card */}
         <SectionTitle eyebrow="One quiet minute" title="Be still" link="Begin" onLink={() => nav.push('BlessingVideos')} />
         <Tap style={s.still} onPress={() => nav.push('BlessingVideos')}>
-          <Grad colors={['#F2D2B5', '#F5E8D5']} style={s.stillArt}>
+          <Grad colors={isDarkScheme() ? ['#3A2A1E', '#2A211A'] : ['#F2D2B5', '#F5E8D5']} style={s.stillArt}>
             <View style={s.stillRing3} /><View style={s.stillRing2} /><View style={s.stillRing1} />
             <Icon name="volume" size={30} color={d.plum} />
           </Grad>
@@ -270,10 +306,10 @@ export default function TodayScreen() {
 }
 
 function QuickCard({ bg, ink, icon, small, title, sub, onPress }) {
-  const fg = ink ? '#fff' : d.ink;
+  const fg = ink ? (isDarkScheme() ? d.ivory : '#fff') : d.ink;
   return (
     <Tap style={[s.quick, { backgroundColor: ink ? d.ink : bg }]} onPress={onPress}>
-      <View style={[s.quickIcon, ink && { backgroundColor: 'rgba(255,255,255,0.12)' }]}><Icon name={icon} size={19} color={fg} /></View>
+      <View style={[s.quickIcon, ink && { backgroundColor: isDarkScheme() ? 'rgba(20,16,13,0.14)' : 'rgba(255,255,255,0.12)' }]}><Icon name={icon} size={19} color={fg} /></View>
       <Text style={[s.quickSmall, { color: fg }]} numberOfLines={1}>{small}</Text>
       <Text style={[s.quickTitle, { color: fg }]} numberOfLines={1}>{title}</Text>
       <Text style={[s.quickSub, { color: fg }]} numberOfLines={1}>{sub}</Text>
@@ -282,6 +318,12 @@ function QuickCard({ bg, ink, icon, small, title, sub, onPress }) {
 }
 
 const s = StyleSheet.create({
+  exploreKicker: { color: d.ink, marginTop: 4 },
+  exploreTitle: { fontFamily: df.displayBold, fontSize: 20, lineHeight: 25, color: d.ink, marginTop: 5, marginBottom: 12 },
+  exploreRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  exploreTile: { flex: 1, minHeight: 84, borderRadius: 17, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 10 },
+  exploreIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  exploreLabel: { fontFamily: df.sansBold, fontSize: 10, color: d.ink },
   hero: { borderRadius: 28, padding: 20, overflow: 'hidden', shadowColor: '#372B7D', shadowOpacity: 0.25, shadowRadius: 22, shadowOffset: { width: 0, height: 22 }, elevation: 8 },
   heroRing: { position: 'absolute', width: 190, height: 190, borderRadius: 95, borderWidth: 30, borderColor: 'rgba(255,255,255,0.06)', right: -70, top: -75 },
   heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -296,26 +338,26 @@ const s = StyleSheet.create({
   heroBtnText: { color: '#fff', fontSize: 11, fontFamily: df.sansBold },
   heroShare: { marginLeft: 'auto', paddingHorizontal: 0, width: 38, justifyContent: 'center' },
   rhythm: { marginTop: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 20 },
-  ring: { width: 58, height: 58, borderRadius: 29, borderWidth: 5, borderColor: '#F3D8C0', borderTopColor: d.plum, alignItems: 'center', justifyContent: 'center' },
+  ring: { width: 58, height: 58, borderRadius: 29, borderWidth: 5, borderColor: (isDarkScheme() ? '#3A2E24' : '#F3D8C0'), borderTopColor: d.plum, alignItems: 'center', justifyContent: 'center' },
   ringNum: { fontFamily: df.sansHeavy, fontSize: 18, lineHeight: 20, color: d.ink },
   ringSmall: { fontSize: 8, color: d.muted, textTransform: 'uppercase', fontFamily: df.sans },
   rhythmTitle: { fontSize: 13, marginTop: 4, marginBottom: 2, color: d.ink, fontFamily: df.sansMedium },
   rhythmSub: { color: d.muted, fontSize: 10, fontFamily: df.sans },
   flame: { position: 'absolute', right: 15 },
   steps: { flexDirection: 'row', gap: 6, marginTop: 11 },
-  stepsLine: { position: 'absolute', height: 2, left: '12%', right: '12%', top: 22, backgroundColor: '#E3D7CA' },
-  step: { flex: 1, height: 73, borderRadius: 17, backgroundColor: 'rgba(255,250,242,0.94)', borderWidth: 1, borderColor: d.line, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  stepsLine: { position: 'absolute', height: 2, left: '12%', right: '12%', top: 22, backgroundColor: (isDarkScheme() ? '#32271E' : '#E3D7CA') },
+  step: { flex: 1, height: 73, borderRadius: 17, backgroundColor: isDarkScheme() ? 'rgba(30,24,19,0.94)' : 'rgba(255,250,242,0.94)', borderWidth: 1, borderColor: d.line, alignItems: 'center', justifyContent: 'center', gap: 6 },
   stepBadge: { width: 30, height: 30, borderRadius: 11, alignItems: 'center', justifyContent: 'center', borderWidth: 4, borderColor: d.ivory },
   stepNum: { fontSize: 9, fontFamily: df.sansHeavy, color: d.muted },
   stepLabel: { fontSize: 8, fontFamily: df.sansHeavy, color: d.muted },
   shortcut: { minHeight: 62, paddingVertical: 9, paddingHorizontal: 11, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   shortcutIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  shortcutDot: { position: 'absolute', width: 11, height: 11, borderRadius: 6, right: -2, top: -2, backgroundColor: '#FFF2E7', borderWidth: 2, borderColor: d.paper },
+  shortcutDot: { position: 'absolute', width: 11, height: 11, borderRadius: 6, right: -2, top: -2, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF2E7'), borderWidth: 2, borderColor: d.paper },
   shortcutTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
   shortcutSub: { fontSize: 9, color: d.muted, marginTop: 2, fontFamily: df.sans },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   quick: { width: '48.4%', flexGrow: 1, flexBasis: '45%', minHeight: 154, padding: 15, borderRadius: 20 },
-  quickIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.55)', borderRadius: 12, marginBottom: 'auto' },
+  quickIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: isDarkScheme() ? 'rgba(243,233,220,0.10)' : 'rgba(255,255,255,0.55)', borderRadius: 12, marginBottom: 'auto' },
   quickSmall: { fontSize: 8, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.65, fontFamily: df.sansBold, marginTop: 30 },
   quickTitle: { marginTop: 4, fontFamily: df.displayBold, fontSize: 16 },
   quickSub: { fontSize: 10, opacity: 0.65, marginTop: 3, fontFamily: df.sans },

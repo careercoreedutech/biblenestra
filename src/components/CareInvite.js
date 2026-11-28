@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // Today → "You are not alone": a warm invitation into the Christian Care Network.
 // Each need is a one-tap shortcut straight to people who can help with it.
 import React from 'react';
@@ -35,7 +36,7 @@ export default function CareInvite({ style }) {
       <View style={styles.needs}>
         {NEEDS.map((n) => (
           <PressScale key={n.label} onPress={() => nav.push('Care', { preselect: n.choice })} scaleTo={0.96} style={styles.need} accessibilityRole="button" accessibilityLabel={`Care: ${n.label}`}>
-            <Icon name={n.icon} size={15} color={'#4B5B35'} />
+            <Icon name={n.icon} size={15} color={isDarkScheme() ? '#B5CB9D' : '#4B5B35'} />
             <Text style={styles.needText} numberOfLines={1}>{n.label}</Text>
           </PressScale>
         ))}
@@ -49,11 +50,11 @@ export default function CareInvite({ style }) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 22, padding: 18, overflow: 'hidden', backgroundColor: '#E7EAD7', borderWidth: 1, borderColor: 'rgba(75,91,53,0.16)', ...shadow.sm },
+  card: { borderRadius: 22, padding: 18, overflow: 'hidden', backgroundColor: colors.cardSage, borderWidth: 1, borderColor: 'rgba(75,91,53,0.16)', ...shadow.sm },
   glow: { position: 'absolute', right: -60, top: -60, width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(255,255,255,0.35)' },
   top: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   heart: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#4B5B35', alignItems: 'center', justifyContent: 'center' },
-  eyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.3, textTransform: 'uppercase', color: '#4B5B35' },
+  eyebrow: { fontSize: 9, fontWeight: '800', letterSpacing: 1.3, textTransform: 'uppercase', color: isDarkScheme() ? '#B5CB9D' : '#4B5B35' },
   title: { marginTop: 2, fontFamily: fonts.serifBold, fontSize: 21, lineHeight: 26, color: colors.fg, letterSpacing: -0.3 },
   body: { marginTop: 10, fontSize: 13, lineHeight: 20, color: colors.muted },
   ask: { marginTop: 14, marginBottom: 8, fontSize: 12.5, fontWeight: '700', color: colors.muted },

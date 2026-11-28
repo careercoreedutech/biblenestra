@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // ---------- Scripture Companion (client #6, brief 6.5) ----------
 // The user describes their situation; the reply always has ≥7 relevant scriptures (exact text from the app's Bible
 // data in the reader's translation), how each one speaks to the situation, words of encouragement and a personalised
@@ -213,7 +214,7 @@ export function CompanionScreen() {
 
             {/* .crisis-note */}
             <View style={styles.crisisNote}>
-              <Icon name="heart" size={18} color="#745D45" />
+              <Icon name="heart" size={18} color={isDarkScheme() ? '#B8A797' : '#745D45'} />
               <Text style={styles.crisisNoteText}>If you may be in immediate danger, BibleNestra will show local crisis support before anything else.</Text>
             </View>
 
@@ -261,7 +262,7 @@ export function CompanionScreen() {
 
             {c.medicalNote ? (
               <View style={styles.crisisNote}>
-                <Icon name="shield" size={16} color="#745D45" />
+                <Icon name="shield" size={16} color={isDarkScheme() ? '#B8A797' : '#745D45'} />
                 <Text style={styles.crisisNoteText}>{c.medicalNote}</Text>
               </View>
             ) : null}
@@ -441,8 +442,8 @@ const styles = StyleSheet.create({
   privacyText: { fontFamily: df.sans, fontSize: 11, color: d.muted, textAlign: 'center', marginTop: 12 },
 
   // crisis note (.crisis-note)
-  crisisNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, padding: 12, marginTop: 10, borderRadius: 14, backgroundColor: '#F2E8D5' },
-  crisisNoteText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: '#745D45' },
+  crisisNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, padding: 12, marginTop: 10, borderRadius: 14, backgroundColor: (isDarkScheme() ? '#32271E' : '#F2E8D5') },
+  crisisNoteText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: (isDarkScheme() ? '#B8A797' : '#745D45') },
   crisis: { backgroundColor: d.rose, borderWidth: 1, borderColor: d.roseDark, borderRadius: 20, padding: 16 },
   crisisTitle: { color: d.roseDark, fontFamily: df.sansBold, fontSize: 14.5, flexShrink: 1 },
   crisisText: { color: d.ink, fontFamily: df.sans, fontSize: 13, lineHeight: 19, marginTop: 6 },

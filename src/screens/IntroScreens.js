@@ -15,6 +15,8 @@ import { Icon } from '../components/Icons';
 import { PressScale } from '../components/Motion';
 import { SplashView } from '../components/BrandLogo';
 import { d, df, images, fillImage, Eyebrow } from '../design/sanctuary';
+import { colors } from '../theme'; // APPEARANCE (item 14): palette tokens
+import { isDarkScheme } from '../design/palette'; // APPEARANCE (item 14)
 
 export const INTRO_KEY = 'biblenestra:introSeen:v1';
 
@@ -193,7 +195,7 @@ export function IntroView({ onDone }) {
 
   return (
     <View style={styles.root}>
-      <StatusBar style="dark" />
+      <StatusBar style={isDarkScheme() ? "light" : "dark"} />
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -262,7 +264,7 @@ const styles = StyleSheet.create({
   splashCopy: { position: 'absolute', left: 24, right: 24, bottom: 42 },
   splashTitle: { color: '#FFFFFF', fontFamily: df.display, fontSize: 52, lineHeight: 58, letterSpacing: -1.6, marginTop: 16, marginBottom: 16 },
   splashBody: { color: 'rgba(255,255,255,0.76)', fontFamily: df.sans, fontSize: 16, lineHeight: 22, marginBottom: 28 },
-  lightButton: { height: 56, borderRadius: 18, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  lightButton: { height: 56, borderRadius: 18, backgroundColor: colors.surfaceWhite, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
   lightButtonText: { color: d.ink, fontFamily: df.sansBold, fontSize: 15 },
 
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
@@ -276,7 +278,7 @@ const styles = StyleSheet.create({
   visual: { position: 'relative', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   photoWrap: {
     overflow: 'hidden', borderTopLeftRadius: 38, borderTopRightRadius: 38, borderBottomRightRadius: 38, borderBottomLeftRadius: 12,
-    borderWidth: 7, borderColor: 'rgba(255,255,255,0.72)', backgroundColor: '#E8DCCB', transform: [{ rotate: '-2deg' }],
+    borderWidth: 7, borderColor: 'rgba(255,255,255,0.72)', backgroundColor: (isDarkScheme() ? '#32271E' : '#E8DCCB'), transform: [{ rotate: '-2deg' }],
     ...Platform.select({
       web: { boxShadow: '0 28px 60px rgba(57,32,18,0.22)' },
       default: { shadowColor: '#392012', shadowOffset: { width: 0, height: 28 }, shadowOpacity: 0.22, shadowRadius: 30, elevation: 12 },
@@ -288,7 +290,7 @@ const styles = StyleSheet.create({
   photoNote: { color: '#EAD9CC', fontFamily: df.sansBold, fontSize: 10, letterSpacing: 1.1, textTransform: 'uppercase', marginTop: 5 },
   verseChip: {
     position: 'absolute', zIndex: 3, left: 0, bottom: '3%', width: 165, padding: 13, borderRadius: 16,
-    backgroundColor: 'rgba(255,250,242,0.92)', borderWidth: 1, borderColor: '#FFFFFF', transform: [{ rotate: '3deg' }],
+    backgroundColor: 'rgba(255,250,242,0.92)', borderWidth: 1, borderColor: colors.surfaceWhite, transform: [{ rotate: '3deg' }],
     ...Platform.select({
       web: { boxShadow: '0 13px 28px rgba(55,31,17,0.15)' },
       default: { shadowColor: '#371F11', shadowOffset: { width: 0, height: 13 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 6 },
@@ -307,7 +309,7 @@ const styles = StyleSheet.create({
   body: { color: d.muted, fontFamily: df.sans, fontSize: 14, lineHeight: 22 },
   stepRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 28 },
   dots: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#D6D1C7' },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: (isDarkScheme() ? '#4D3D30' : '#D6D1C7') },
   dotOn: { width: 30, backgroundColor: d.plum },
   circleButton: {
     width: 58, height: 58, borderRadius: 29, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center',

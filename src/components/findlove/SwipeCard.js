@@ -8,6 +8,7 @@ import { fonts } from '../../theme';
 import { love, grad } from './theme';
 import { VerifiedSeal, Crown, HeartShape } from './illustrations';
 import { LoveChip } from './parts';
+import { colors } from '../../theme'; // APPEARANCE (item 14): palette tokens
 
 export const CardFace = memo(function CardFace({ card, onOpen, interactive = true }) {
   const [i, setI] = useState(0);
@@ -67,6 +68,7 @@ export const CardFace = memo(function CardFace({ card, onOpen, interactive = tru
           {card.denomination ? <LoveChip icon="cross" label={card.denomination} tone="glass" /> : null}
           {card.churchInvolvement ? <LoveChip icon="church" label={card.churchInvolvement} tone="glass" /> : null}
           {card.intentionLabel ? <LoveChip icon="heart" label={card.intentionLabel} tone="glass" /> : null}
+          {(card.interests || []).slice(0, 2).map((t) => <LoveChip key={t} label={t} tone="glass" />)}
         </View>
         {card.bio ? <Text style={s.bio} numberOfLines={2}>{card.bio}</Text> : null}
       </Pressable>
@@ -91,7 +93,7 @@ const s = StyleSheet.create({
   zones: { position: 'absolute', left: 0, right: 0, top: 0, bottom: '42%', flexDirection: 'row' },
   bars: { position: 'absolute', top: 12, left: 14, right: 14, flexDirection: 'row', gap: 5 },
   bar: { flex: 1, height: 3.5, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.35)' },
-  barOn: { backgroundColor: '#FFFFFF' },
+  barOn: { backgroundColor: colors.surfaceWhite },
   barSeen: { backgroundColor: 'rgba(255,255,255,0.7)' },
   topRow: { position: 'absolute', top: 26, left: 14, right: 14, flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   likesYou: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: love.goldBright },
@@ -109,6 +111,6 @@ const s = StyleSheet.create({
   bio: { fontFamily: fonts.serifItalic, fontSize: 15.5, lineHeight: 21, color: 'rgba(255,255,255,0.95)', marginTop: 10 },
   stamp: { position: 'absolute', top: 92, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 14, borderWidth: 3 },
   stampLike: { left: 22, borderColor: love.goldBright, backgroundColor: 'rgba(60,37,24,0.55)' },
-  stampPass: { right: 22, borderColor: '#FFFFFF', backgroundColor: 'rgba(40,36,33,0.5)' },
+  stampPass: { right: 22, borderColor: colors.surfaceWhite, backgroundColor: 'rgba(40,36,33,0.5)' },
   stampText: { fontSize: 28, fontWeight: '900', letterSpacing: 3 },
 });

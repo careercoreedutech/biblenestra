@@ -4,6 +4,7 @@ import { ApiError, bad, body, decodeCursor, encodeCursor, forbidden, int, isUuid
 import { POST_SELECT, postShape, userJson } from '../lib/shape.js';
 import { RULES } from '../lib/rules.js';
 import { designFromBody } from '../lib/postDesign.js';
+import { recordPostViews, clientIp } from '../lib/videoViews.js'; // PACKAGE F: deduped post views
 
 const r = new Hono();
 const REACTIONS = ['like', 'amen', 'love', 'praise', 'care'];
@@ -153,8 +154,12 @@ r.post('/posts/:id/share', async (c) => {
   return c.json({ shares: row.shares_count });
 });
 
+// PACKAGE F: post views are deduped per viewer (lib/videoViews.js); this route used to add 1 on every call
 r.post('/posts/:id/view', async (c) => {
-  const row = await one(c.env, 'UPDATE posts SET views_count = views_count + 1 WHERE id = $1 AND NOT removed RETURNING views_count', [uuidParam(c)]);
+  const me = c.get('user');
+  const r2 = await recordPostViews(c.env, { ids: [uuidParam(c)], userId: me.id, ip: clientIp(c) });
+  const id = uuidParam(c);
+  const row = r2.views[id] != null ? { views_count: r2.views[id] } : await one(c.env, 'SELECT views_count FROM posts WHERE id = $1 AND NOT removed', [id]);
   if (!row) throw notFound('Post not found');
   return c.json({ views: row.views_count });
 });

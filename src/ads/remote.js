@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG } from '../api/config';
 import { AD_RULES } from './config';
 import { DEFAULT_RULES, capBlock, mergeRules } from './rules';
+import { mergeBreakRules } from './breaksPolicy';
 
 const RULES_KEY = 'bn.ads.rules.v1';
 const CAPS_KEY = 'bn.ads.caps.v1';
@@ -20,6 +21,7 @@ const MAX_QUEUE = 200;
 const GOOGLE_TEST_PUBLISHER = 'ca-app-pub-3940256099942544';
 
 let rules = mergeRules(DEFAULT_RULES);
+let breakRules = mergeBreakRules({}); // interstitial breaks (GET /ads/config → breaks)
 let rulesVersion = 0;
 let fetchedAt = 0;
 let fetching = null;
@@ -40,6 +42,7 @@ function applyRules(next, version) {
 }
 
 export const getRules = () => rules;
+export const getBreakRules = () => breakRules;
 export const getRulesVersion = () => rulesVersion;
 export const isPremium = () => premium;
 export function setPremium(p) { premium = !!p; }
@@ -64,8 +67,9 @@ export function refreshRules({ force = false } = {}) {
         const data = await res.json();
         if (data && data.config) {
           applyRules(data.config, data.version);
+          if (data.breaks) breakRules = mergeBreakRules(data.breaks);
           fetchedAt = Date.now();
-          safe(() => AsyncStorage.setItem(RULES_KEY, JSON.stringify({ version: data.version, config: data.config, at: fetchedAt })).catch(() => {}));
+          safe(() => AsyncStorage.setItem(RULES_KEY, JSON.stringify({ version: data.version, config: data.config, breaks: data.breaks || null, at: fetchedAt })).catch(() => {}));
         }
       }
     } catch (e) { /* offline: keep cached/default rules */ }
@@ -125,6 +129,7 @@ export function startAdsRemote() {
   safe(() => AsyncStorage.getItem(RULES_KEY).then((raw) => {
     const c = raw ? JSON.parse(raw) : null;
     if (c && c.config && !fetchedAt) applyRules(c.config, c.version);
+    if (c && c.breaks && !fetchedAt) breakRules = mergeBreakRules(c.breaks);
   }).catch(() => {}));
   safe(() => AsyncStorage.getItem(CAPS_KEY).then((raw) => {
     const list = raw ? JSON.parse(raw) : [];

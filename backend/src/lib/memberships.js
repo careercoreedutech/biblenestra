@@ -18,6 +18,7 @@ import { ApiError, bad, forbidden } from './http.js';
 import { sendNotification } from './push.js';
 import { formatMoney, CURRENCY_SYMBOL } from './money.js';
 import { mediaUrl } from './shape.js';
+import { lapseCreationFees } from './membershipFees.js';
 import { notifyUser } from '../hub.js';
 import { systemMessage } from './chatGroups.js';
 import {
@@ -31,7 +32,7 @@ export const CATEGORIES = [
   'Bible Study', 'Prayer', 'Worship & Music', 'Ministry & Leadership', 'Discipleship', 'Marriage & Family',
   'Youth', 'Theology', 'Faith & Business',
 ];
-export const INTERVALS = ['one_time', 'month', 'year', 'days'];
+export const INTERVALS = ['one_time', 'week', 'month', 'year', 'days']; // week = 7 days of access (Development Update v1, item 4.3)
 export const SUB_STATUSES = ['active', 'trialing', 'expired', 'cancelled', 'refunded'];
 const ACCESS_STATUSES = ['active', 'trialing', 'cancelled']; // cancelled = renewal off, access until expires_at
 
@@ -57,6 +58,7 @@ export function formatPrice(minor, currency = 'NGN') {
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 /** "/ month", "/ year", "/ 7 days", "" for one-time. */
 export function periodLabel(plan) {
+  if (plan.interval === 'week') return '/ week';
   if (plan.interval === 'month') return '/ month';
   if (plan.interval === 'year') return '/ year';
   if (plan.interval === 'days') return `/ ${plural(plan.interval_days || 30, 'day')}`;
@@ -65,6 +67,7 @@ export function periodLabel(plan) {
 /** Sentence under the big checkout price. */
 export function accessText(plan) {
   if (plan.interval === 'one_time') return plan.interval_days ? `One-time payment for ${plural(plan.interval_days, 'day')} of access` : 'One-time payment for lifetime access';
+  if (plan.interval === 'week') return 'Renews every week · 7 days of access · cancel anytime';
   if (plan.interval === 'month') return 'Renews every month · cancel anytime';
   if (plan.interval === 'year') return 'Renews every year · cancel anytime';
   return `Renews every ${plural(plan.interval_days || 30, 'day')} · cancel anytime`;
@@ -94,6 +97,7 @@ export function planShape(p) {
 /** When access ends for a new purchase of `plan` starting at `from` (Date). null = never. */
 export function accessUntil(plan, from = new Date()) {
   const d = new Date(from.getTime());
+  if (plan.interval === 'week') return new Date(d.getTime() + 7 * 86400e3);
   if (plan.interval === 'month') { d.setUTCMonth(d.getUTCMonth() + 1); return d; }
   if (plan.interval === 'year') { d.setUTCFullYear(d.getUTCFullYear() + 1); return d; }
   if (plan.interval === 'days') return new Date(d.getTime() + (plan.interval_days || 30) * 86400e3);
@@ -358,6 +362,7 @@ export async function expireDue(env, { userId = null, membershipId = null } = {}
 }
 
 export async function runMembershipCron(env) {
+  await lapseCreationFees(env); // creation fee periods that ended unpaid → membership back to draft (Development Update v1)
   return expireDue(env);
 }
 

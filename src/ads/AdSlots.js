@@ -69,9 +69,15 @@ export function BannerSlot({ style }) {
   );
 }
 
-export function FeedNativeAd({ style }) {
+// `surface` picks the admin switch and the reporting surface ('feed' between posts, 'reader' inside website articles).
+// `variant="article"` gives the card the reader look (ivory paper, serif headline) and collapses to nothing when no
+// native ad can load, so an article never shows a placeholder.
+export function FeedNativeAd({ style, surface = 'feed', variant }) {
   const premium = usePremium();
-  const on = useSurfaceOn('feed');
+  const on = useSurfaceOn(surface);
+  const meta = surface === 'feed' ? NATIVE_META : { ...NATIVE_META, surface };
+  const article = variant === 'article';
+  const cardStyle = article ? styles.articleCard : styles.feedCard;
   const [ad, setAd] = useState(null);
   const [failed, setFailed] = useState(false);
   const native = !!(GMA && GMA.NativeAd && GMA.NativeAdView);
@@ -81,29 +87,32 @@ export function FeedNativeAd({ style }) {
     let alive = true;
     let loaded = null;
     const subs = [];
-    logAdEvent('requested', NATIVE_META);
+    logAdEvent('requested', meta);
     GMA.NativeAd.createForAdRequest(AD_UNITS.native, { requestNonPersonalizedAdsOnly: true })
       .then((a) => {
         loaded = a;
         if (!alive) { a.destroy(); return; }
         try {
           if (GMA.NativeAdEventType) {
-            subs.push(a.addAdEventListener(GMA.NativeAdEventType.IMPRESSION, () => logAdEvent('impression', NATIVE_META)));
-            subs.push(a.addAdEventListener(GMA.NativeAdEventType.CLICKED, () => logAdEvent('clicked', NATIVE_META)));
+            subs.push(a.addAdEventListener(GMA.NativeAdEventType.IMPRESSION, () => logAdEvent('impression', meta)));
+            subs.push(a.addAdEventListener(GMA.NativeAdEventType.CLICKED, () => logAdEvent('clicked', meta)));
           }
         } catch (e) { /* older SDK: no events */ }
         setAd(a);
       })
-      .catch(() => { logAdEvent('failed', NATIVE_META); if (alive) setFailed(true); });
+      .catch(() => { logAdEvent('failed', meta); if (alive) setFailed(true); });
     return () => { alive = false; subs.forEach((u) => { try { if (u && u.remove) u.remove(); else if (typeof u === 'function') u(); } catch (e) { /* ignore */ } }); if (loaded) loaded.destroy(); };
   }, [premium, native, on]);
 
   if (premium || failed || !on) return null;
-  if (!native) return <DemoBox label="A native ad card appears here between posts" height={120} style={[styles.feedCard, style]} meta={{ ...NATIVE_META, test: true }} />;
+  if (!native) {
+    if (article) return null; // no ad can load in this build: the article shows nothing in the slot
+    return <DemoBox label="A native ad card appears here between posts" height={120} style={[styles.feedCard, style]} meta={{ ...NATIVE_META, test: true }} />;
+  }
   if (!ad) return null;
   const { NativeAdView, NativeAsset, NativeAssetType, NativeMediaView } = GMA;
   return (
-    <NativeAdView nativeAd={ad} style={[styles.feedCard, style]}>
+    <NativeAdView nativeAd={ad} style={[cardStyle, style]}>
       <View style={styles.nativeHead}>
         {ad.icon ? (
           <NativeAsset assetType={NativeAssetType.ICON}>
@@ -112,7 +121,7 @@ export function FeedNativeAd({ style }) {
         ) : null}
         <View style={{ flex: 1 }}>
           <NativeAsset assetType={NativeAssetType.HEADLINE}>
-            <Text style={styles.nativeHeadline} numberOfLines={1}>{ad.headline}</Text>
+            <Text style={article ? styles.articleHeadline : styles.nativeHeadline} numberOfLines={article ? 2 : 1}>{ad.headline}</Text>
           </NativeAsset>
           <Text style={styles.smallTagInline}>Sponsored{ad.advertiser ? ` · ${ad.advertiser}` : ''}</Text>
         </View>
@@ -125,7 +134,7 @@ export function FeedNativeAd({ style }) {
       <NativeMediaView style={styles.nativeMedia} resizeMode="cover" />
       {ad.callToAction ? (
         <NativeAsset assetType={NativeAssetType.CALL_TO_ACTION}>
-          <Text style={styles.nativeCta}>{ad.callToAction}</Text>
+          <Text style={article ? styles.articleCta : styles.nativeCta}>{ad.callToAction}</Text>
         </NativeAsset>
       ) : null}
     </NativeAdView>
@@ -140,6 +149,10 @@ const styles = StyleSheet.create({
   smallTag: { fontSize: 10, fontWeight: '700', color: colors.faint, marginBottom: 4, letterSpacing: 0.6 },
   smallTagInline: { fontSize: 11, color: colors.faint, marginTop: 2 },
   feedCard: { backgroundColor: colors.surface, marginVertical: 6, padding: 12, borderRadius: 0 },
+  // reader look (website articles): ivory paper card with a gold rule, Playfair headline, DM Sans text
+  articleCard: { backgroundColor: colors.surface, marginVertical: 18, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: colors.border, borderTopWidth: 3, borderTopColor: '#F4D88C' },
+  articleHeadline: { fontFamily: 'Playfair-SemiBold', fontSize: 17, color: colors.fg },
+  articleCta: { marginTop: 12, alignSelf: 'flex-start', overflow: 'hidden', backgroundColor: '#FF6B1A', color: '#FFFFFF', fontFamily: 'DMSans-Bold', paddingHorizontal: 16, paddingVertical: 9, borderRadius: 999 },
   nativeHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   nativeIcon: { width: 36, height: 36, borderRadius: 8 },
   nativeHeadline: { fontSize: 15, fontWeight: '700', color: colors.fg },

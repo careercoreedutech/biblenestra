@@ -169,6 +169,9 @@ export function WalletScreen({ params = {} }) {
 
   return (
     <DScreen title="Kingdom wallet" subtitle="Give, gift & grow" back onBack={() => nav.pop()} action={null}>
+      <Tap onPress={() => nav.push('PaymentReport', {})} style={{ alignSelf: 'center', marginTop: 4 }}>
+        <Text style={{ fontFamily: DF.sansSemi, fontSize: 13, color: D.plum, textDecorationLine: 'underline' }}>Paid but not credited? Report a payment</Text>
+      </Tap>
       {/* .wallet-card: the Gifting Coins balance, with Add / Send / Gift */}
       <Grad colors={['#2D1B10', '#B95019']} style={wd.card}>
         <Text style={wd.eyebrow}>AVAILABLE BALANCE</Text>

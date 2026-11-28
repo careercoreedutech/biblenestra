@@ -9,13 +9,14 @@ import { fonts } from '../../theme';
 import { love, grad, type, lshadow, ND } from './theme';
 import { Crown, Glow, LoveArt, Filigree } from './illustrations';
 import { PageHeader, k as kit, d as dk } from '../../design/sanctuary';
+import { colors } from '../../theme'; // APPEARANCE (item 14): palette tokens
 
 const GRADS = { primary: grad.heart, gold: grad.gold, dark: grad.vip, wine: grad.wine, rose: grad.rose };
 
 /** Primary call to action. kind: primary (heart gradient) | gold | dark | wine | ghost | soft | danger */
 export function LoveButton({ label, onPress, kind = 'primary', icon, small, disabled, style, accessibilityLabel, right }) {
   const g = GRADS[kind];
-  const fg = kind === 'glass' ? love.onDark : kind === 'white' ? love.wine : kind === 'ghost' ? love.wine : kind === 'soft' ? love.wine : kind === 'gold' ? '#6F4A12' : kind === 'dark' ? love.goldBright : '#FFFFFF';
+  const fg = kind === 'glass' ? love.onDark : kind === 'white' ? love.wine : kind === 'ghost' ? love.wine : kind === 'soft' ? love.wine : kind === 'gold' ? love.goldInk : kind === 'dark' ? love.goldBright : '#FFFFFF';
   const h = small ? 40 : 52;
   const inner = (
     <View style={[st.btnInner, { minHeight: h, paddingHorizontal: small ? 14 : 18 }]}>
@@ -184,7 +185,7 @@ export function SectionCard({ eyebrow, title, hint, right, children, style, tone
 
 /** Notice strip for profile states (hidden / in review / photo needed). */
 export function LoveBanner({ icon = 'shield', text, tone = 'gold', onPress }) {
-  const t = tone === 'danger' ? ['#F8E1DF', love.danger, love.danger] : tone === 'rose' ? [love.blush, love.rose, love.wine] : [love.goldPale, love.gold, love.goldInk];
+  const t = tone === 'danger' ? [love.dangerSoft, love.danger, love.danger] : tone === 'rose' ? [love.blush, love.rose, love.wine] : [love.goldPale, love.gold, love.goldInk];
   const body = (
     <View style={[st.banner, { backgroundColor: t[0] }]}>
       <View style={[st.bannerIcon, { borderColor: t[1] }]}><Icon name={icon} size={13} color={t[1]} /></View>
@@ -268,7 +269,7 @@ export const st = StyleSheet.create({
   btnText: { fontSize: 15.5, fontWeight: '800', letterSpacing: 0.2, textAlign: 'center', flexShrink: 1 },
   btnGhost: { borderWidth: 1.5, borderColor: 'rgba(138,69,31,0.28)', backgroundColor: 'rgba(255,255,255,0.7)' },
   btnSoft: { backgroundColor: love.blush },
-  btnWhite: { backgroundColor: '#FFFFFF' },
+  btnWhite: { backgroundColor: colors.surfaceWhite },
   btnGlass: { borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.32)', backgroundColor: 'rgba(255,255,255,0.07)' },
   cost: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 3, paddingRight: 7, height: 20, borderRadius: 10, backgroundColor: love.goldPale, borderWidth: 1, borderColor: 'rgba(166,109,34,0.45)' },
   costDark: { backgroundColor: 'rgba(40,26,17,0.85)', borderColor: 'rgba(244,216,140,0.6)' },

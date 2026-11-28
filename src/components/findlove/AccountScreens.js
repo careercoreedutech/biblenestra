@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Input } from '../ui';
 import { Icon } from '../Icons';
 import { PressScale, FadeInUp, Pulse } from '../Motion';
-import { fonts } from '../../theme';
+import { fonts, colors } from '../../theme';
 import { useNav } from '../../navigation';
 import { useToast } from '../Toast';
 import { useApi } from '../../api/auth';
@@ -209,7 +209,7 @@ export function DatingBoostScreen() {
         const spotlight = o.kind === 'spotlight_24h';
         return (
           <FadeInUp key={o.kind} index={i} distance={8}>
-            <PressScale onPress={() => start(o)} style={[s.boostOpt, spotlight && { borderColor: 'rgba(166,109,34,0.45)', backgroundColor: '#FFFBF1' }]} scaleTo={0.98} accessibilityRole="button"
+            <PressScale onPress={() => start(o)} style={[s.boostOpt, spotlight && { borderColor: 'rgba(166,109,34,0.45)', backgroundColor: colors.surface }]} scaleTo={0.98} accessibilityRole="button"
               accessibilityLabel={`${o.label}. ${o.note}. ${o.kind === 'boost_30m' && freeBoosts > 0 ? 'Free' : `${d.prices[o.kind]} coins`}`}>
               <View style={s.boostIcon}>
                 <LinearGradient colors={spotlight ? grad.gold : grad.heart} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />
@@ -244,7 +244,7 @@ const SAFETY_TIPS = [
 function SettingRow({ icon, title, sub, onPress, right, disabled, danger, last }) {
   const body = (
     <View style={[s.setRow, last && { borderBottomWidth: 0 }]}>
-      <View style={[s.setIcon, danger && { backgroundColor: '#F8E1DF' }]}><Icon name={icon} size={16} color={danger ? love.danger : love.rose} /></View>
+      <View style={[s.setIcon, danger && { backgroundColor: love.dangerSoft }]}><Icon name={icon} size={16} color={danger ? love.danger : love.rose} /></View>
       <View style={{ flex: 1 }}>
         <Text style={[s.setTitle, danger && { color: love.danger }]}>{title}</Text>
         {sub ? <Text style={pst.hint}>{sub}</Text> : null}
@@ -511,7 +511,7 @@ const s = StyleSheet.create({
   capRow: { flexDirection: 'row', gap: 12, alignItems: 'center', marginTop: 12 },
   thumb: { width: 84, height: 104, borderRadius: 14, backgroundColor: love.blush },
   thumbDone: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(62,123,87,0.35)' },
-  fastCheck: { marginTop: 16, padding: 14, borderRadius: 18, backgroundColor: '#FFFBF1', borderWidth: 1, borderColor: 'rgba(166,109,34,0.3)' },
+  fastCheck: { marginTop: 16, padding: 14, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: 'rgba(166,109,34,0.3)' },
   fastTitle: { fontSize: 14, fontWeight: '800', color: love.goldInk },
   soon: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: '#fff', backgroundColor: love.gold, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, overflow: 'hidden', marginLeft: 'auto' },
 });

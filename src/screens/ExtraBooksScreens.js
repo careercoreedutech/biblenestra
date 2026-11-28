@@ -11,6 +11,7 @@ import { Icon } from '../components/Icons';
 import { FadeInUp } from '../components/Motion';
 import { useToast } from '../components/Toast';
 import { colors, fonts, radius, readerThemes, lineSpacings, readerFontFamily } from '../theme';
+import { isDarkScheme } from '../design/palette';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { EXTRA_BOOKS, EXTRA_COLLECTIONS, extraBook } from '../data/extraBooks';
@@ -136,7 +137,8 @@ export function ExtraBookScreen({ params = {} }) {
   const { state, dispatch } = useStore();
   const meta = extraBook(params.id);
   const { book, loading, error, retry } = useExtraBook(params.id);
-  const t = readerThemes[state.readerTheme] || readerThemes.paper;
+  const savedReaderKey = state.readerTheme || 'paper'; // dark app → Night reader unless the user picked Sepia/Night
+  const t = readerThemes[isDarkScheme() && savedReaderKey === 'paper' ? 'night' : savedReaderKey] || readerThemes.paper;
   const fs = Math.round((state.fontSize || 16) * 1.12);
   const spacing = lineSpacings[state.lineSpacing] || lineSpacings.Comfortable;
   const fontFamily = readerFontFamily(state.readerFont || 'Newsreader');

@@ -39,6 +39,7 @@ const GLYPHS = {
     <Path key="b" d="M10 9.2v5.6l4.8-2.8L10 9.2z" fill={c} stroke={c} strokeWidth={1.2} strokeLinejoin="round" />,
   ],
   play: (c, sw, f) => [<Path key="a" d="M7.5 5.2v13.6c0 .8.9 1.3 1.5.8l10-6.8c.6-.4.6-1.2 0-1.6L9 4.4c-.6-.5-1.5 0-1.5.8z" stroke={c} strokeWidth={sw} strokeLinejoin="round" fill={f ? c : 'none'} />],
+  eye: (c, sw) => [<Path key="a" d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z" stroke={c} strokeWidth={sw} strokeLinejoin="round" />, <Path key="b" d="M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 1 0 0-5z" stroke={c} strokeWidth={sw} />],
   pause: (c, sw) => [
     <Rect key="a" x={6.5} y={5} width={3.5} height={14} rx={1.2} fill={c} />,
     <Rect key="b" x={14} y={5} width={3.5} height={14} rx={1.2} fill={c} />,

@@ -1,9 +1,11 @@
+import { isDarkScheme } from '../palette';
 // Shared pieces for the Profile, Create, Learn, Wallet and settings screens, in the Figma design's language
 // (src/design/sanctuary.js tokens). DScreen is the design page shell (ivory page, PageHeader, scroll).
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Icon } from '../../components/Icons';
 import { d, df, k, Tap, PageHeader } from '../sanctuary';
+import { colors } from '../../theme'; // APPEARANCE (item 14): palette tokens
 
 /** Design page: ivory background, .page-header, scrolling content. */
 export function DScreen({ title, subtitle, back, onBack, action, children, style }) {
@@ -92,7 +94,7 @@ export function DRow({ icon, title, subtitle, right, onPress, danger, style, acc
         {subtitle ? <Text style={st.rowSub} numberOfLines={2}>{subtitle}</Text> : null}
       </View>
       {right != null ? right : null}
-      {onPress && right == null ? <Icon name="chevron-right" size={15} color="#AAA6AD" /> : null}
+      {onPress && right == null ? <Icon name="chevron-right" size={15} color={isDarkScheme() ? '#8A7A6C' : '#AAA6AD'} /> : null}
     </>
   );
   if (!onPress) return <View style={[st.row, style]}>{body}</View>;
@@ -122,14 +124,14 @@ export const st = StyleSheet.create({
   tabText: { color: d.muted, fontSize: 11, fontFamily: df.sansBold },
   tabTextOn: { color: d.plum },
 
-  toggle: { width: 42, height: 24, borderRadius: 12, padding: 3, backgroundColor: '#D8CFC5', justifyContent: 'center', alignItems: 'flex-start' },
+  toggle: { width: 42, height: 24, borderRadius: 12, padding: 3, backgroundColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), justifyContent: 'center', alignItems: 'flex-start' },
   toggleOn: { backgroundColor: d.plum, alignItems: 'flex-end' },
-  knob: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#FFFFFF' },
+  knob: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.surfaceWhite },
   knobOn: {},
 
   input: { height: 52, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, color: d.ink, fontSize: 12, fontFamily: df.sans },
   inputMulti: { height: undefined, minHeight: 120, paddingTop: 13, paddingBottom: 13 },
-  label: { marginTop: 18, marginBottom: 8, color: '#4C3D32', fontSize: 10, fontFamily: df.sansBold },
+  label: { marginTop: 18, marginBottom: 8, color: (isDarkScheme() ? '#F3E9DC' : '#4C3D32'), fontSize: 10, fontFamily: df.sansBold },
 
   card: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 20, padding: 16 },
 

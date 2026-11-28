@@ -19,12 +19,13 @@ import { createStaffToken } from './ticket.js';
 export const AREAS = [
   { key: 'overview', label: 'Overview', hint: 'Dashboard stats' },
   { key: 'users', label: 'Users', hint: 'Member accounts, bans, verification, account deletions' },
-  { key: 'moderation', label: 'Moderation', hint: 'Reports queue, posts and comments, communities and events, member websites, priests and apostle' },
+  { key: 'moderation', label: 'Moderation', hint: 'Reports queue, posts and comments, communities and events, member websites and website integrations, priests and apostle' },
   { key: 'dating', label: 'Find Love', hint: 'Dating profiles, photos, reports, boosts and settings' },
   { key: 'fundme', label: 'Fund Me', hint: 'Fundraiser approvals, donations, payouts, bank accounts' },
   { key: 'wallets', label: 'Wallets & payments', hint: 'Wallets, ledger, purchases and refunds, Paystack, chat passes, member coins and premium' },
   { key: 'gifts', label: 'Virtual gifts', hint: 'Gift catalogue, sends, earnings, withdrawals' },
-  { key: 'memberships', label: 'Memberships', hint: 'Paid channels, plans, promos, lessons, subscribers' },
+  { key: 'memberships', label: 'Memberships', hint: 'Membership groups (MASTER CLASS & EXECUTIVE CLASS), plans, promos, subscribers' },
+  { key: 'portfolio', label: 'Portfolio & Partners', hint: 'Portfolio Managers, Partner Managers, invitations, applications, commissions, withdrawals' },
   { key: 'blog', label: 'Blog', hint: 'Posts, AI generation, schedules' },
   { key: 'library', label: 'Library', hint: 'Audio and books, categories, library reports' },
   { key: 'learn', label: 'Learn', hint: 'Courses, lessons, devotionals' },
@@ -59,12 +60,14 @@ export const ROUTE_AREAS = [
   [/^\/admin\/api\/users\/[^/]+\/role$/, 'staff'], // "Make admin" = full dashboard access
   [/^\/admin\/api\/users\/[^/]+\/(coins|premium)$/, 'wallets'],
   [/^\/admin\/api\/(users|account-deletions)(\/|$)/, 'users'],
+  [/^\/admin\/api\/portfolio(\/|$)/, 'portfolio'], // PORTFOLIO & PARTNERS
   [/^\/admin\/api\/stats$/, 'overview'],
   [/^\/admin\/api\/actions$/, 'audit'],
-  [/^\/admin\/api\/(reports|content|communities|events|websites|care)(\/|$)/, 'moderation'],
+  [/^\/admin\/api\/(reports|content|communities|events|websites|website-integrations|website-articles|care)(\/|$)/, 'moderation'],
   [/^\/admin\/api\/(broadcasts|announcements)(\/|$)/, 'broadcasts'],
   [/^\/admin\/api\/fundme(\/|$)/, 'fundme'],
   [/^\/admin\/api\/(wallet|paystack|chat-passes)(\/|$)/, 'wallets'],
+  [/^\/admin\/api\/(payment-reports|membership-grants|membership-invites)(\/|$)/, 'wallets'], // PAYMENT VERIFICATION: finance
   [/^\/admin\/api\/gifts(\/|$)/, 'gifts'],
   [/^\/admin\/api\/dating(\/|$)/, 'dating'],
   [/^\/admin\/api\/blog(\/|$)/, 'blog'],

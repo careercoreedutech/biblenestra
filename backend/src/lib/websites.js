@@ -169,6 +169,113 @@ window.registerAdminTab('Member websites', function(box, ctx){
     });
   }
   load();
+
+  // ---- Website integration (brief 19.1 / 20): settings, alerts, connections, import and publish queues ----
+  box.appendChild(h('h2', { class: 'serif', style: 'margin-top:28px', text: 'Website integration' }));
+  box.appendChild(h('p', { class: 'sub', text: 'Member sites connected by RSS or WordPress. Imported and written articles wait in these queues until an administrator approves them.' }));
+  var integ = h('div');
+  box.appendChild(integ);
+  var INT_STATUS = { connected: ['Connected', ''], error: ['Sync failed', 'neg'], paused: ['Paused', ''] };
+  function intWhen(s){ return s ? when(s) : 'never'; }
+  function intSettings(s){
+    var access = h('select', {}, [['admins', 'Administrators only'], ['verified', 'Verified members'], ['members', 'All members']].map(function(o){ return h('option', { value: o[0], text: o[1] }); }));
+    access.value = s.integrationAccess;
+    var approval = h('input', { type: 'checkbox' }); approval.checked = !!s.publishRequiresApproval;
+    var ownerOk = h('input', { type: 'checkbox' }); ownerOk.checked = !!s.ownerCanApprove;
+    var mins = h('input', { type: 'number', min: '5', max: '1440', style: 'width:110px' }); mins.value = String(s.syncMinutes);
+    var save = h('button', { class: 'btn small', text: 'Save settings', onclick: async function(){
+      try {
+        await api('PUT', '/admin/api/website-integrations/settings', { integrationAccess: access.value, publishRequiresApproval: approval.checked, ownerCanApprove: ownerOk.checked, syncMinutes: Number(mins.value) });
+        toast('Saved'); integrationLoad();
+      } catch (e) { toast(e.message, true); }
+    } });
+    return h('div', { class: 'card' }, [
+      h('b', { text: 'Who may connect websites' }),
+      h('div', { class: 'meta', style: 'margin-top:4px', text: 'Administrators only, verified members (accounts marked verified) or all members. Changes apply straight away.' }),
+      h('div', { class: 'row', style: 'margin-top:8px;flex-wrap:wrap;gap:12px;align-items:center' }, [
+        h('label', {}, ['Who may connect: ', access]),
+        h('label', {}, [approval, ' Publishing needs approval']),
+        h('label', {}, [ownerOk, ' Owners can approve their own articles']),
+        h('label', {}, ['Sync every ', mins, ' minutes']),
+        save,
+      ]),
+    ]);
+  }
+  function intQueue(title, direction, statuses, hint){
+    var list = h('div');
+    var card = h('div', { class: 'card', style: 'margin-top:14px' }, [h('b', { text: title }), h('div', { class: 'meta', style: 'margin:4px 0 8px', text: hint }), list]);
+    async function reload(){
+      list.innerHTML = '';
+      var r;
+      try { r = await api('GET', '/admin/api/website-articles?direction=' + direction + '&status=' + statuses); }
+      catch (e) { list.appendChild(h('div', { class: 'meta', text: e.message })); return; }
+      if (!r.items.length) { list.appendChild(h('div', { class: 'meta', text: 'Nothing waiting.' })); return; }
+      r.items.forEach(function(a){
+        var btns = [];
+        function act(label, cls, action){
+          var x = h('button', { class: 'btn small ' + cls, text: label });
+          x.onclick = async function(){
+            x.disabled = true;
+            try {
+              var out = await api('POST', '/admin/api/website-articles/' + a.id + '/' + action);
+              if (out && out.status === 'failed') toast('Publishing failed: ' + (out.error || 'try again'), true); else toast('Done');
+            } catch (e) { toast(e.message, true); }
+            reload();
+          };
+          btns.push(x);
+        }
+        if (a.status === 'pending') act('Approve', '', 'approve');
+        if (direction === 'publish' && (a.status === 'approved' || a.status === 'failed')) act(a.status === 'failed' ? 'Retry' : 'Publish', '', 'publish');
+        if (a.status !== 'publishing' && a.status !== 'hidden') act('Hide', 'danger', 'hide');
+        list.appendChild(h('div', { class: 'row', style: 'margin-top:8px;padding-top:8px;border-top:1px solid #EADFCE;flex-wrap:wrap;gap:8px;align-items:flex-start' }, [
+          h('div', { class: 'grow' }, [
+            h('b', { text: a.title }),
+            h('div', { class: 'meta', text: a.host + ' · by ' + (a.owner || 'member') + ' · ' + a.statusLabel + (a.attempts ? ' · attempts ' + a.attempts : '') + ' · ' + when(a.createdAt) }),
+            a.error ? h('div', { class: 'meta neg', text: 'Reason: ' + a.error }) : null,
+            a.sourceUrl ? h('a', { href: a.sourceUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Original article' }) : null,
+          ]),
+          h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, btns),
+        ]));
+      });
+    }
+    reload();
+    return card;
+  }
+  async function integrationLoad(){
+    integ.innerHTML = '';
+    var d;
+    try { d = await api('GET', '/admin/api/website-integrations'); }
+    catch (e) { integ.appendChild(h('div', { class: 'card empty', text: e.message })); return; }
+    integ.appendChild(intSettings(d.settings));
+    if (d.alerts.length) {
+      integ.appendChild(h('div', { class: 'card', style: 'margin-top:14px' }, [h('b', { text: 'Failed-sync alerts (' + d.alerts.length + ')' })].concat(d.alerts.map(function(x){
+        return h('div', { class: 'meta neg', style: 'margin-top:6px', text: x.host + ' (' + (x.owner || 'member') + '): ' + x.message + ' · last attempt ' + intWhen(x.at) });
+      }))));
+    }
+    var conns = h('div', { class: 'card', style: 'margin-top:14px' }, [h('b', { text: 'Connections (' + d.items.length + ')' })]);
+    if (!d.items.length) conns.appendChild(h('div', { class: 'meta', style: 'margin-top:6px', text: 'No websites are connected yet.' }));
+    d.items.forEach(function(c){
+      var st = INT_STATUS[c.status] || [c.status, ''];
+      var sync = h('button', { class: 'btn small ghost', text: 'Sync now', onclick: async function(){
+        try { var r = await api('POST', '/admin/api/website-integrations/' + c.id + '/sync'); toast('Synced: ' + r.added + ' new'); }
+        catch (e) { toast(e.message, true); }
+        integrationLoad();
+      } });
+      conns.appendChild(h('div', { class: 'row', style: 'margin-top:8px;padding-top:8px;border-top:1px solid #EADFCE;flex-wrap:wrap;gap:8px;align-items:center' }, [
+        h('div', { class: 'grow' }, [
+          h('b', { text: c.host }),
+          h('div', { class: 'meta', text: (c.kind === 'wordpress' ? 'WordPress' : 'RSS / Atom') + ' · ' + (c.owner ? c.owner.displayName : 'member') + ' · last sync ' + intWhen(c.lastSyncedAt) + (c.autoImport ? ' · auto-import' : '') + (c.autoPost ? ' · auto-post' : '') + ' · ' + c.pendingImports + ' import(s) waiting, ' + c.openPublishes + ' open publication(s)' }),
+          c.lastError ? h('div', { class: 'meta neg', text: 'Last error: ' + c.lastError }) : null,
+        ]),
+        h('span', { class: 'chip ' + st[1], text: st[0] }),
+        sync,
+      ]));
+    });
+    integ.appendChild(conns);
+    integ.appendChild(intQueue('Import approval queue', 'import', 'pending', 'Articles imported from member sites. Approve to show them in the Website feed, or hide them.'));
+    integ.appendChild(intQueue('Publish queue', 'publish', 'pending,approved,publishing,failed', 'Articles written in the app for a WordPress site. Approve, publish, or retry. A failed publication shows its reason.'));
+  }
+  integrationLoad();
 });
 })();
 `;

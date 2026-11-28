@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // MEDIA LIBRARY screens — Audio Library + Christian Books (PDF), personal and group uploads.
 //   MediaLibrary   hub: Audio | Books, search, continue, featured, categories (Play All), my uploads, my groups
 //   MediaList      one list: a category, search results, my uploads, a user's uploads or a group's library
@@ -21,6 +22,7 @@ import { CoverField } from '../components/media/CoverMaker';
 import PdfReader from '../components/media/PdfReader';
 import { d, df, Grad, Tap, gradients } from '../design/sanctuary';
 import { DScreen, DInput, DTabs } from '../design/profile/parts';
+import { colors } from '../theme'; // APPEARANCE (item 14): palette tokens
 
 let AV = null;
 try { AV = require('expo-av'); } catch (e) { AV = null; } // eslint-disable-line global-require
@@ -76,6 +78,8 @@ function useOpenItem() {
   const player = useAudioPlayer();
   return useCallback((item, list, { category } = {}) => {
     if (item.kind === 'pdf') { nav.push('BookReader', { item }); return; }
+    // ITEM 7 (dev update v1): a multi-chapter audio book opens in the chapter-capable audio book player.
+    if (Array.isArray(item.chapters) && item.chapters.length > 1) { nav.push('AudioBook', { id: item.id }); return; }
     const audio = (list || [item]).filter((x) => x.kind === 'audio');
     const i = Math.max(0, audio.findIndex((x) => x.id === item.id));
     player.playQueue(audio.map(toTrack), i, { category: category || (item.category && item.category.slug) });
@@ -190,7 +194,7 @@ export function MediaLibraryScreen({ params = {} }) {
   const feature = home && home.featured && home.featured[0];
   return (
     <Page title="Audio & Books" subtitle="Listen. Read. Remember." right={uploadBtn}>
-      <DTabs items={['Audio Library', 'Christian Books']} value={kind === 'pdf' ? 'Christian Books' : 'Audio Library'} onChange={(v) => setKind(v === 'Christian Books' ? 'pdf' : 'audio')} />
+      <DTabs items={['Audio Library', 'Christian Books', 'Books']} value={kind === 'pdf' ? 'Christian Books' : 'Audio Library'} onChange={(v) => { if (v === 'Books') nav.push('Books'); else setKind(v === 'Christian Books' ? 'pdf' : 'audio'); }} />
       <View style={{ height: 12 }} />
       <SearchBox value={q} onChange={setQ} placeholder={kind === 'pdf' ? 'Search books, authors…' : 'Search sermons, worship, speakers…'} />
       {err ? <Notice text={err} tint={RED} /> : null}
@@ -303,7 +307,7 @@ function Tile({ item, list, category }) {
       <View>
         <Cover uri={item.coverUrl} kind={item.kind} size={w} style={s.coverShadow} />
         {item.kind === 'audio' ? (
-          <View style={[s.tilePlay, on && player.playing && { backgroundColor: d.gold }]}><Icon name={on && player.playing ? 'pause' : 'play'} size={13} color="#fff" /></View>
+          <View style={[s.tilePlay, on && player.playing && { backgroundColor: d.gold }]}><Icon name={on && player.playing ? 'pause' : 'play'} size={13} color="#FFFAF2" /></View>
         ) : null}
       </View>
       <Text style={s.tileTitle} numberOfLines={2}>{item.title}</Text>
@@ -582,7 +586,7 @@ export function BookReaderScreen({ params = {} }) {
 }
 
 const s = StyleSheet.create({
-  headBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: d.line, backgroundColor: 'rgba(255,255,255,0.78)' },
+  headBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: d.line, backgroundColor: d.glass },
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 999, paddingHorizontal: 14, height: 46 },
   searchInput: { flex: 1, fontFamily: df.sans, fontSize: 15, color: d.ink, height: 44, outlineStyle: 'none' },
   feature: { marginTop: 16, borderRadius: 22, padding: 20 },
@@ -599,36 +603,36 @@ const s = StyleSheet.create({
   playAllText: { color: '#fff', fontFamily: df.sansHeavy, fontSize: 12 },
   emptyLine: { color: d.muted, fontFamily: df.sans, fontSize: 13 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, marginBottom: 8 },
-  rowOn: { borderColor: d.gold, backgroundColor: '#FBF0D2' },
+  rowOn: { borderColor: d.gold, backgroundColor: (isDarkScheme() ? '#3A2E14' : '#FBF0D2') },
   rowTitle: { fontFamily: df.sansBold, fontSize: 14.5, color: d.ink },
   rowSub: { fontFamily: df.sans, fontSize: 12.5, color: d.muted, marginTop: 2 },
-  chip: { fontFamily: df.sansBold, fontSize: 11, color: d.goldDark, backgroundColor: '#FBF0D2', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' },
+  chip: { fontFamily: df.sansBold, fontSize: 11, color: d.goldDark, backgroundColor: (isDarkScheme() ? '#3A2E14' : '#FBF0D2'), paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' },
   chipMuted: { fontFamily: df.sansBold, fontSize: 11, color: d.muted, backgroundColor: d.lavender, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' },
   playDot: { width: 34, height: 34, borderRadius: 17, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
-  coverShadow: { shadowColor: '#281A11', shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
-  tilePlay: { position: 'absolute', right: 8, bottom: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' },
+  coverShadow: { shadowColor: colors.fg, shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  tilePlay: { position: 'absolute', right: 8, bottom: 8, width: 30, height: 30, borderRadius: 15, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surfaceWhite },
   tileTitle: { fontFamily: df.sansBold, fontSize: 13.5, color: d.ink, marginTop: 8 },
   tileSub: { fontFamily: df.sans, fontSize: 12, color: d.muted, marginTop: 1 },
   entry: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 18, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, marginBottom: 8 },
   entryIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
-  sheet: { backgroundColor: d.paper, borderRadius: 22, padding: 20, margin: 16, shadowColor: '#281A11', shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
+  sheet: { backgroundColor: d.paper, borderRadius: 22, padding: 20, margin: 16, shadowColor: colors.fg, shadowOpacity: 0.2, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 8 },
   sheetTitle: { fontFamily: df.displayBold, fontSize: 19, color: d.ink },
   sheetBody: { fontFamily: df.sans, color: d.muted, fontSize: 13.5, lineHeight: 19, marginTop: 8 },
   label: { fontFamily: df.sansBold, fontSize: 10.5, color: d.plum, letterSpacing: 1.2, textTransform: 'uppercase', marginTop: 18, marginBottom: 8 },
-  filePick: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 20, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#D9C7B0', backgroundColor: d.paper },
+  filePick: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 20, borderWidth: 1.5, borderStyle: 'dashed', borderColor: (isDarkScheme() ? '#4D3D30' : '#D9C7B0'), backgroundColor: d.paper },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   catChip: { paddingHorizontal: 14, height: 34, borderRadius: 999, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, justifyContent: 'center' },
   catChipOn: { backgroundColor: d.plum, borderColor: d.plum },
   catChipText: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
   check: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: 16 },
-  rightsBox: { padding: 14, borderRadius: 18, backgroundColor: '#FBF0D2' },
-  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: '#D9C7B0', alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper, marginTop: 1 },
+  rightsBox: { padding: 14, borderRadius: 18, backgroundColor: (isDarkScheme() ? '#3A2E14' : '#FBF0D2') },
+  box: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#D9C7B0'), alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper, marginTop: 1 },
   boxOn: { backgroundColor: d.plum, borderColor: d.plum },
   checkText: { flex: 1, fontFamily: df.sans, fontSize: 13, color: d.ink, lineHeight: 18 },
   note: { fontFamily: df.sans, fontSize: 12.5, color: d.muted, marginTop: 14, lineHeight: 17 },
   btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, paddingHorizontal: 18, borderRadius: 999 },
   btnPrimary: { backgroundColor: d.plum },
-  btnGhost: { backgroundColor: 'rgba(255,255,255,0.78)', borderWidth: 1, borderColor: d.line },
+  btnGhost: { backgroundColor: d.glass, borderWidth: 1, borderColor: d.line },
   btnDanger: { backgroundColor: RED },
   btnText: { fontFamily: df.sansBold, fontSize: 13, color: '#FFFFFF' },
   readerBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: d.plumDark },

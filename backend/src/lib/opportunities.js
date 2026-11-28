@@ -52,6 +52,68 @@ export function plain(html, max = 600) {
   return s;
 }
 const clean = (s, max = 300) => plain(s, max) || null;
+/** Full description (Opportunity detail): HTML → readable plain text that keeps paragraphs ("\n\n") and list items ("• ").
+ *  Long text is cut at a paragraph boundary near `max` characters. */
+export function richText(html, max = 30000) {
+  let s = String(html || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
+  if (/&lt;\/?[a-z]/i.test(s)) s = decodeEntities(s); // entity-encoded markup (&lt;p&gt;) is markup too
+  s = s
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<li\b[^>]*>/gi, '\n• ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h\d|ul|ol|li|blockquote|tr)\s*>/gi, '\n\n')
+    .replace(/<\/?[a-z!][^>]*>/gi, ' ')
+    .replace(/<\/?[a-z][^>]*$/i, ' ');
+  s = decodeEntities(s).replace(/ /g, ' ');
+  const lines = s.split('\n').map((l) => l.replace(/\s+/g, ' ').trim());
+  let out = lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n• \n/g, '\n').trim();
+  // bullets: one space after the dot, no blank lines between items (a paragraph before a list keeps its gap)
+  out = out.replace(/(^|\n)•\s*/g, '$1• ').replace(/(• [^\n]*)\n\n(?=• )/g, '$1\n');
+  if (out.length > max) {
+    const cut = out.slice(0, max);
+    const at = cut.lastIndexOf('\n\n');
+    out = `${(at > max * 0.5 ? cut.slice(0, at) : cut.replace(/\s+\S*$/, '')).trim()}…`;
+  }
+  return out || null;
+}
+/** Only http(s) links are shown in the app (logos, apply buttons). */
+export const httpUrl = (u) => (/^https?:\/\/[^\s]+$/i.test(String(u || '')) ? String(u).slice(0, 2000) : null);
+const SECTION_HEAD = /^(key )?(responsibilities|duties|what you(’|')ll do|what you will do|your role|role responsibilities|qualifications|requirements|what we(’|')re looking for|who you are|skills|how to apply|application instructions|instructions|to apply)\b.*$/i;
+/** Pulls the usual headed sections out of a plain description: responsibilities, qualifications, instructions. */
+export function sectionsFrom(text) {
+  const out = { responsibilities: null, qualifications: null, instructions: null };
+  if (!text) return out;
+  const map = (h) => (/responsib|duties|do$|your role|role responsib/i.test(h) ? 'responsibilities'
+    : /qualif|requirement|looking for|who you are/i.test(h) ? 'qualifications'
+      : /apply|instruction/i.test(h) ? 'instructions' : null);
+  let cur = null;
+  const buf = { responsibilities: [], qualifications: [], instructions: [] };
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const head = line.replace(/:$/, '');
+    if (SECTION_HEAD.test(head) && head.length <= 80) { cur = map(head); continue; }
+    if (cur) buf[cur].push(line);
+  }
+  for (const k of Object.keys(out)) out[k] = buf[k].length ? buf[k].join('\n').slice(0, 8000) : null;
+  return out;
+}
+/** Full-detail fields for one listing row (GET /opportunities/:id). Missing values are null, and the app hides those rows.
+ *  The sources give no separate skills list, so `skills` is null for now (and always hidden). */
+export function detailFields(o) {
+  const pick = (v) => (v === null || v === undefined || v === '' ? null : v);
+  const sec = sectionsFrom(o.description);
+  return {
+    description: pick(o.description) || pick(o.excerpt),
+    responsibilities: sec.responsibilities,
+    qualifications: sec.qualifications,
+    instructions: sec.instructions,
+    skills: null,
+    employmentType: pick(o.employment_type),
+    logoUrl: httpUrl(o.logo_url),
+    applyUrl: httpUrl(o.apply_url) || httpUrl(o.url),
+  };
+}
 const toIso = (v) => {
   if (v == null || v === '') return null;
   const d = typeof v === 'number' ? new Date(v < 1e12 ? v * 1000 : v) : new Date(v);
@@ -105,6 +167,9 @@ function remotive(data) {
       remote: true,
       url: j.url,
       excerpt: plain(j.description),
+      description: richText(j.description),
+      employment_type: clean(j.job_type, 60),
+      logo_url: httpUrl(j.company_logo),
       tags: [j.category, ...(j.tags || [])].filter(Boolean).slice(0, 8).map(String),
       deadline: null,
       posted_at: toIso(j.publication_date),
@@ -126,6 +191,8 @@ function remoteok(data) {
       remote: true,
       url: j.url || `https://remoteok.com/remote-jobs/${j.slug}`, // their ToS: link back to the Remote OK page
       excerpt: plain(j.description),
+      description: richText(j.description),
+      logo_url: httpUrl(j.company_logo || j.logo),
       tags: (j.tags || []).slice(0, 8).map(String),
       deadline: null,
       posted_at: toIso(j.date || j.epoch),
@@ -147,6 +214,9 @@ function jobicy(data) {
       remote: true,
       url: j.url,
       excerpt: plain(j.jobExcerpt || j.jobDescription),
+      description: richText(j.jobDescription || j.jobExcerpt),
+      employment_type: Array.isArray(j.jobType) ? clean(j.jobType.join(', '), 60) : null,
+      logo_url: httpUrl(j.companyLogo),
       tags: [...(j.jobIndustry || []), ...(j.jobType || []), j.jobLevel].filter(Boolean).slice(0, 8).map((t) => decodeEntities(String(t))),
       deadline: null,
       posted_at: toIso(j.pubDate),
@@ -168,6 +238,8 @@ function arbeitnow(data) {
       remote: !!j.remote,
       url: j.url,
       excerpt: plain(j.description),
+      description: richText(j.description),
+      employment_type: clean((j.job_types || []).join(', '), 60),
       tags: [...(j.tags || []), ...(j.job_types || [])].slice(0, 8).map(String),
       deadline: null,
       posted_at: toIso(j.created_at),
@@ -279,6 +351,7 @@ export function parseRss(xml, { org, fallbackKind = 'other' } = {}) {
       remote,
       url: link,
       excerpt,
+      description: richText(descHtml),
       tags: cats.filter((c) => c.length <= 40).slice(0, 8),
       deadline: findDeadline(tagValue(it, 'description')),
       posted_at: toIso(tagValue(it, 'pubDate')),
@@ -332,6 +405,7 @@ function himalayas(data) {
       remote: true,
       url: j.applicationLink || j.guid, // Himalayas' terms: the apply button must use applicationLink
       excerpt: plain(j.excerpt || j.description),
+      description: richText(j.description || j.excerpt),
       tags: [...(j.parentCategories || []), ...(j.seniority || []), j.employmentType].filter(Boolean).slice(0, 8).map((t) => String(t).replace(/-/g, ' ')),
       deadline: toIso(j.expiryDate),
       posted_at: toIso(j.pubDate),
@@ -352,6 +426,7 @@ function workingnomads(data) {
     remote: true,
     url: j.url,
     excerpt: plain(j.description),
+    description: richText(j.description),
     tags: [j.category_name, ...String(j.tags || '').split(',')].map((t) => String(t || '').trim()).filter(Boolean).slice(0, 8),
     deadline: null,
     posted_at: toIso(j.pub_date),
@@ -376,6 +451,7 @@ function weworkremotely(xml) {
       remote: true,
       url: link,
       excerpt: plain(tagValue(it, 'description')),
+      description: richText(tagValue(it, 'description')),
       tags: [txt(it, 'category'), txt(it, 'type')].filter(Boolean),
       deadline: toIso(tagValue(it, 'expires_at')),
       posted_at: toIso(tagValue(it, 'pubDate')),
@@ -400,6 +476,7 @@ function myjobmag(xml) {
       remote: /remote/i.test(`${title} ${location}`),
       url: link,
       excerpt: plain(tagValue(it, 'description')),
+      description: richText(tagValue(it, 'description')),
       tags: [txt(it, 'industry')].filter(Boolean),
       deadline: toIso(tagValue(it, 'expiryDate')),
       posted_at: toIso(tagValue(it, 'pubDate')),
@@ -426,6 +503,7 @@ function hotnigerianjobs(xml) {
       remote: /remote/i.test(title),
       url: link,
       excerpt: plain(desc, 600),
+      description: richText(desc),
       tags: [],
       deadline: null,
       posted_at: toIso(tagValue(it, 'pubDate')),
@@ -451,6 +529,7 @@ function jobzilla(xml) {
       remote: /remote/i.test(title),
       url: link,
       excerpt: plain(tagValue(it, 'description')),
+      description: richText(tagValue(it, 'description')),
       tags: [],
       deadline: null,
       posted_at: lagosTime(tagValue(it, 'pubDate')),
@@ -474,6 +553,7 @@ function greenhouse(data, { org } = {}) {
       remote,
       url: j.absolute_url,
       excerpt: plain(j.content),
+      description: richText(j.content),
       tags: (j.departments || []).map((d) => d && d.name).filter(Boolean).slice(0, 4),
       deadline: toIso(j.application_deadline),
       posted_at: toIso(j.first_published || j.updated_at),
@@ -497,6 +577,9 @@ function ashby(data, { org, remoteOnly = false } = {}) {
       remote: !!j.isRemote,
       url: j.jobUrl,
       excerpt: plain(j.descriptionPlain || j.descriptionHtml),
+      description: richText(j.descriptionHtml || j.descriptionPlain),
+      employment_type: clean(j.employmentType, 60),
+      apply_url: httpUrl(j.applyUrl),
       tags: [j.department, j.team, j.employmentType].filter(Boolean).slice(0, 4),
       deadline: null,
       posted_at: toIso(j.publishedAt),
@@ -521,6 +604,8 @@ function lever(data, { org } = {}) {
       remote,
       url: j.hostedUrl,
       excerpt: plain(j.descriptionPlain || j.description),
+      description: richText(j.description || j.descriptionPlain),
+      apply_url: httpUrl(j.applyUrl),
       tags: [cat.team, cat.commitment].filter(Boolean),
       deadline: null,
       posted_at: toIso(j.createdAt),
@@ -804,14 +889,18 @@ export async function saveItems(env, source, items) {
   if (!items.length) return 0;
   const rows = items.map((x) => ({ ...x, source, tags: (x.tags || []).map((t) => String(t).slice(0, 40)), open_to: OPEN_TO.includes(x.open_to) ? x.open_to : null }));
   const r = await q(env, `
-    INSERT INTO opportunities (source, source_id, kind, title, org, location, remote, url, excerpt, tags, deadline, posted_at, salary, open_to)
-    SELECT x.source, x.source_id, x.kind, x.title, x.org, x.location, COALESCE(x.remote, false), x.url, x.excerpt, COALESCE(x.tags, '{}'), x.deadline, x.posted_at, x.salary, x.open_to
+    INSERT INTO opportunities (source, source_id, kind, title, org, location, remote, url, excerpt, tags, deadline, posted_at, salary, open_to,
+      description, employment_type, logo_url, apply_url)
+    SELECT x.source, x.source_id, x.kind, x.title, x.org, x.location, COALESCE(x.remote, false), x.url, x.excerpt, COALESCE(x.tags, '{}'), x.deadline, x.posted_at, x.salary, x.open_to,
+      x.description, x.employment_type, x.logo_url, x.apply_url
     FROM json_to_recordset($1::json) AS x(source text, source_id text, kind text, title text, org text, location text, remote boolean,
-      url text, excerpt text, tags text[], deadline timestamptz, posted_at timestamptz, salary text, open_to text)
+      url text, excerpt text, tags text[], deadline timestamptz, posted_at timestamptz, salary text, open_to text,
+      description text, employment_type text, logo_url text, apply_url text)
     ON CONFLICT (source, source_id) DO UPDATE SET
       kind = EXCLUDED.kind, title = EXCLUDED.title, org = EXCLUDED.org, location = EXCLUDED.location, remote = EXCLUDED.remote,
       url = EXCLUDED.url, excerpt = EXCLUDED.excerpt, tags = EXCLUDED.tags, deadline = EXCLUDED.deadline,
-      posted_at = COALESCE(EXCLUDED.posted_at, opportunities.posted_at), salary = EXCLUDED.salary, open_to = EXCLUDED.open_to, updated_at = now()
+      posted_at = COALESCE(EXCLUDED.posted_at, opportunities.posted_at), salary = EXCLUDED.salary, open_to = EXCLUDED.open_to,
+      description = EXCLUDED.description, employment_type = EXCLUDED.employment_type, logo_url = EXCLUDED.logo_url, apply_url = EXCLUDED.apply_url, updated_at = now()
     RETURNING id`, [JSON.stringify(rows)]);
   return r.length;
 }

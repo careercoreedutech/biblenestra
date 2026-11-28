@@ -128,7 +128,7 @@ export function AudioBubble({ voice, request, mine }) {
           <Waveform levels={wave} progress={pct} height={24} color={mine ? 'rgba(255,255,255,0.42)' : alpha(colors.primary, 0.28)} playedColor={mine ? '#FFFFFF' : colors.primary} onSeek={seek} />
         ) : (
           <View style={[styles.track, mine && { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
-            <View style={[styles.trackFill, { width: `${pct * 100}%` }, mine && { backgroundColor: '#FFFFFF' }]} />
+            <View style={[styles.trackFill, { width: `${pct * 100}%` }, mine && { backgroundColor: colors.surfaceWhite }]} />
           </View>
         )}
         <Text style={[styles.audioTime, { color: sub }]}>{st.error || (st.playing || st.pos ? `${fmtDur(st.pos)} / ${fmtDur(st.dur)}` : st.dur ? fmtDur(st.dur) : 'Tap to play')}</Text>
@@ -433,7 +433,7 @@ const styles = StyleSheet.create({
   giftNote: { fontSize: 12.5, color: colors.muted, marginTop: 2 },
 
   meetBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 8, paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.primary },
-  meetBtnMine: { backgroundColor: '#FFFFFF' },
+  meetBtnMine: { backgroundColor: colors.surfaceWhite },
   meetBtnText: { fontSize: 13, fontFamily: 'DMSans-Bold', color: '#FFFFFF' },
 
   overlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
@@ -508,7 +508,7 @@ export function UploadBubble({ upload, mine }) {
     <View style={xs.up}>
       <Text style={[xs.fileName, mine && { color: '#FFFFFF' }]} numberOfLines={1}>{upload.label || 'Uploading…'}</Text>
       <View style={[styles.track, mine && { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
-        <View style={[styles.trackFill, { width: `${Math.max(4, pct)}%` }, mine && { backgroundColor: '#FFFFFF' }]} />
+        <View style={[styles.trackFill, { width: `${Math.max(4, pct)}%` }, mine && { backgroundColor: colors.surfaceWhite }]} />
       </View>
       <Text style={[xs.fileMeta, mine && { color: 'rgba(255,255,255,0.7)' }]}>{upload.failed ? 'Upload failed' : `${pct}%`}</Text>
     </View>
@@ -608,7 +608,7 @@ export function ForwardSheet({ message, chats, request, onClose, onDone }) {
               return (
                 <Pressable key={c.id} onPress={() => toggle(c.id)} style={xs.fwdRow} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={c.with}>
                   <Text style={xs.fwdName} numberOfLines={1}>{c.with}</Text>
-                  <Text style={xs.fwdKind}>{c.kind === 'group' ? 'Group' : c.kind === 'channel' ? 'Channel' : ''}</Text>
+                  <Text style={xs.fwdKind}>{c.membershipSection === 'master' ? 'MASTER CLASS' : c.membershipSection === 'executive' ? 'EXECUTIVE CLASS' : c.kind === 'group' ? 'Group' : c.kind === 'channel' ? 'Channel' : ''}</Text>
                   <View style={[xs.check, on && xs.checkOn]}>{on ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} /> : null}</View>
                 </Pressable>
               );

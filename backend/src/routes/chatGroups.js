@@ -18,8 +18,9 @@ import { MUTE_DURATIONS, mutedSql, muteShape } from '../lib/chatMute.js'; // CHA
 import { previewsFor, firstLinkUrl } from '../lib/linkPreviews.js'; // CHAT GAPS: link cards in the Links tab
 import { groupInviteUrl } from './chatGaps.js'; // CHAT GAPS: /g/<code> landing page that opens the app
 import { historyHiddenSql } from '../lib/messages.js'; // MEMBERSHIP GROUPS: "history from join time" for new members
-import { membershipSendGuard, shareToExecutive } from '../lib/membershipGroups.js'; // MEMBERSHIP GROUPS: forwards into MASTER CLASS follow the publish rule
+import { membershipSendGuard, pushPlan, shareToExecutive } from '../lib/membershipGroups.js'; // MEMBERSHIP GROUPS: forwards into MASTER CLASS follow the publish rule
 import { membershipInvitePreview, membershipInviteJoin } from '../lib/memberships.js'; // MEMBERSHIP GROUPS: invite links grant access the membership way
+import { listingShape } from '../lib/groupListing.js'; // PACKAGE F: group search listing (category, place, church, public/private)
 
 const chatGroups = new Hono();
 const parse = (v) => (v == null ? null : typeof v === 'string' ? JSON.parse(v) : v);
@@ -59,9 +60,13 @@ async function infoShape(c, ctx, meId) {
     createdAt: new Date(conv.created_at).toISOString(),
     createdBy: conv.created_by || null,
     membersCount: counts ? counts.n : 0,
+    // MEMBERSHIP GROUPS: the section of a membership group (MASTER CLASS / EXECUTIVE CLASS), null for other chats
+    membershipId: conv.membership_id || null,
+    membershipSection: conv.membership_id ? (conv.kind === 'channel' ? 'master' : 'executive') : null,
     myRole: ctx.role,
     ...muteShape(conv.my_muted, conv.my_muted_until), // CHAT GAPS: { muted, mutedUntil } (null = always)
     bannedCount: bans ? bans.n : 0, // CHAT GAPS: admins see "Banned (n)"
+    listing: conv.kind === 'group' && !conv.membership_id ? listingShape(conv) : null, // PACKAGE F: Search groups fields
     settings: ctx.settings,
     permissions: perms,
     admins: admins.map((a) => ({ ...parse(a.u), role: a.role })),
@@ -409,12 +414,15 @@ chatGroups.get('/conversations/:id/media', async (c) => {
   else if (type === 'links') where = `m.kind IN ('text','image','video') AND m.body ~* 'https?://'`;
   else where = `m.kind = 'file'`;
   if (before && !Number.isNaN(Date.parse(before))) { vals.push(new Date(before).toISOString()); where += ` AND m.created_at < $${vals.length}`; }
+  // paging: ?limit= (default 100, max 200); when a full page came back, nextBefore is the cursor for the next one
+  const limit = Math.min(200, Math.max(1, parseInt(c.req.query('limit') || '100', 10) || 100));
   const rows = await q(c.env, `SELECT m.id, m.kind, m.body, m.media_key, m.meta, m.created_at, m.sender_id, u.display_name AS sender_name
       FROM messages m JOIN users u ON u.id = m.sender_id
       WHERE m.conversation_id = $1 AND NOT m.deleted AND ${where}
         AND NOT EXISTS (SELECT 1 FROM message_hides h WHERE h.message_id = m.id AND h.user_id = $2)
         AND NOT ${historyHiddenSql('m', '$2')}
-      ORDER BY m.created_at DESC LIMIT 200`, vals);
+      ORDER BY m.created_at DESC LIMIT ${limit}`, vals);
+  const nextBefore = rows.length === limit ? new Date(rows[rows.length - 1].created_at).toISOString() : null;
   let items = rows.map((r) => {
     const meta = parse(r.meta) || {};
     return {
@@ -433,8 +441,8 @@ chatGroups.get('/conversations/:id/media', async (c) => {
     const cards = await previewsFor(c.env, items.map((x) => firstLinkUrl(x.url)));
     items = items.map((x) => ({ ...x, preview: cards.get(firstLinkUrl(x.url)) || null }));
   }
-  const last = rows[rows.length - 1];
-  return c.json({ type, items: items.slice(0, 100), before: rows.length === 200 && last ? new Date(last.created_at).toISOString() : null });
+  // `before` (and its alias nextBefore) is the cursor for "Load more" — send it back as ?before=
+  return c.json({ type, items, before: nextBefore, nextBefore });
 });
 
 // GET /conversations/:id/media/counts — how many of each (tab badges)
@@ -510,6 +518,7 @@ chatGroups.post('/messages/:id/forward', async (c) => {
     const ctx = await groupContext(c.env, convId, me.id).catch(() => null);
     // MEMBERSHIP GROUPS: same rules as sending (MASTER CLASS publishers only, EXECUTIVE CLASS settings / mute)
     const mg = ctx ? await membershipSendGuard(c.env, convId, me, { kind: src.kind }).catch(() => false) : null;
+    // (mg: false = the guard refused; null = not a membership section; otherwise the group context)
     if (!ctx || mg === false || (!mg && !permissionsFor(ctx).canSend)) { out.push({ conversationId: convId, ok: false, code: 'NOT_ALLOWED' }); continue; }
     if (ctx.conv.kind === 'dm') {
       const blocked = await one(c.env, `SELECT 1 FROM conversation_members m JOIN blocks b ON (b.blocker_id = m.user_id AND b.blocked_id = $2) OR (b.blocker_id = $2 AND b.blocked_id = m.user_id)
@@ -536,8 +545,17 @@ chatGroups.post('/messages/:id/forward', async (c) => {
     const msg = await loadMessage(c.env, row.id, me.id);
     if (mg && mg.section === 'master') await shareToExecutive(c.env, mg.m, { id: row.id, sender_id: me.id, kind: src.kind }); // MEMBERSHIP GROUPS
     const others = await q(c.env, `SELECT user_id, ${mutedSql('m')} AS muted FROM conversation_members m WHERE conversation_id = $1 AND user_id <> $2`, [convId, me.id]); // CHAT GAPS: timed mute
+    // MEMBERSHIP GROUPS: the same push plan as a new message (MASTER CLASS / EXECUTIVE CLASS title, each member's choice)
+    const mgPush = mg ? await pushPlan(c.env, mg, others.map((o) => o.user_id)) : null;
     for (const o of others) {
       await notifyUser(c.env, o.user_id, { type: 'message.new', conversationId: convId, message: { ...msg, isMe: false } }).catch(() => {});
+      if (mgPush) {
+        const choice = mgPush.plan.get(o.user_id) || 'all';
+        if (choice === 'all' && !o.muted) {
+          await sendNotification(c, { userId: o.user_id, kind: 'group', title: mgPush.title, body: mg.section === 'master' ? `📣 New post: ${(src.body || 'Attachment').slice(0, 90)}` : `↪ Forwarded: ${(src.body || 'Attachment').slice(0, 90)}`, data: { conversationId: convId, messageId: row.id, threadId: `chat:${convId}`, membershipId: mg.m.id, section: mg.section } });
+        }
+        continue;
+      }
       if (!o.muted) await sendNotification(c, { userId: o.user_id, kind: ctx.conv.kind === 'group' ? 'group' : 'message', title: ctx.conv.kind === 'dm' ? me.display_name : (ctx.conv.title || 'Group'), body: `↪ Forwarded: ${(src.body || 'Attachment').slice(0, 90)}`, data: { conversationId: convId, messageId: row.id, threadId: `chat:${convId}` } });
     }
     out.push({ conversationId: convId, ok: true, message: msg });
@@ -595,23 +613,30 @@ async function searchMessages(c, convId) {
   const like = '%' + term.replace(/[\\%_]/g, (ch) => '\\' + ch) + '%';
   const vals = [me.id, like];
   if (convId) vals.push(convId);
+  // MEMBERSHIP GROUPS: a MASTER CLASS post shared into EXECUTIVE CLASS is only a reference (empty body), so the search
+  // also matches the original's text / file name (s = the original; the reference is what the chat shows)
   const rows = await q(c.env, `SELECT m.id, m.conversation_id, m.kind, m.body, m.meta, m.created_at, m.sender_id, u.display_name AS sender_name,
         cv.kind AS conv_kind, cv.title,
+        s.body AS orig_body, s.kind AS orig_kind, s.meta AS orig_meta,
         (SELECT ou.display_name FROM conversation_members om JOIN users ou ON ou.id = om.user_id
           WHERE cv.kind = 'dm' AND om.conversation_id = cv.id AND om.user_id <> $1 LIMIT 1) AS other_name
       FROM messages m
       JOIN conversation_members me_m ON me_m.conversation_id = m.conversation_id AND me_m.user_id = $1
       JOIN conversations cv ON cv.id = m.conversation_id
       JOIN users u ON u.id = m.sender_id
+      LEFT JOIN messages s ON s.id = m.shared_from AND NOT s.deleted
       WHERE NOT m.deleted AND m.kind <> 'system'
-        AND (m.body ILIKE $2 OR (m.kind = 'file' AND m.meta->>'name' ILIKE $2))
+        AND (m.body ILIKE $2 OR (m.kind = 'file' AND m.meta->>'name' ILIKE $2)
+          OR (s.id IS NOT NULL AND (s.body ILIKE $2 OR (s.kind = 'file' AND s.meta->>'name' ILIKE $2))))
         ${convId ? 'AND m.conversation_id = $3' : ''}
         AND NOT EXISTS (SELECT 1 FROM message_hides h WHERE h.message_id = m.id AND h.user_id = $1)
         AND NOT ${historyHiddenSql('m', '$1')}
       ORDER BY m.created_at DESC LIMIT 60`, vals);
   return c.json({
     items: rows.map((r) => ({
-      id: r.id, conversationId: r.conversation_id, kind: r.kind, text: r.body || (parse(r.meta) || {}).name || '',
+      // a shared reference shows (and is searched as) its original's text
+      id: r.id, conversationId: r.conversation_id, kind: r.kind === 'shared_post' && r.orig_kind ? r.orig_kind : r.kind,
+      text: r.body || r.orig_body || (parse(r.meta) || {}).name || (parse(r.orig_meta) || {}).name || '',
       senderId: r.sender_id, senderName: r.sender_name, isMe: r.sender_id === me.id,
       chatTitle: r.conv_kind === 'dm' ? (r.other_name || 'Direct message') : (r.title || 'Group'), chatKind: r.conv_kind,
       createdAt: new Date(r.created_at).toISOString(),

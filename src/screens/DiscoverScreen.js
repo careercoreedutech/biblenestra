@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, Image, TextInput, ImageBackground, Share, Platform } from 'react-native';
 import { PressScale, FadeInUp, ScaleIn, Pop, Burst, Pulse, LiveRing, AnimatedNumber, AnimatedBar, AnimatedModal } from '../components/Motion';
@@ -53,11 +54,11 @@ const DISCOVER_TILES = [
 
 // Design .hub-list tints (gold, plum, blue, rose, sage, ink), plus the spaces the old quick grid offered.
 const HUB_TONES = {
-  gold: { bg: '#F4D88C', fg: '#6F4A12' },
-  plum: { bg: '#F6E4D2', fg: '#FF6B1A' },
-  blue: { bg: '#DCE9F5', fg: '#365D82' },
-  rose: { bg: '#F4D8CB', fg: '#8A4027' },
-  sage: { bg: '#E7EAD7', fg: '#4B5B35' },
+  gold: { bg: d.gold, fg: d.goldDark },
+  plum: { bg: d.lavender, fg: '#FF6B1A' },
+  blue: { bg: (isDarkScheme() ? '#1B2A36' : '#DCE9F5'), fg: (isDarkScheme() ? '#7FB2DB' : '#365D82') },
+  rose: { bg: d.rose, fg: d.roseDark },
+  sage: { bg: d.sage, fg: d.sageDark },
   ink: { bg: '#281A11', fg: '#FFFFFF' },
 };
 const DISCOVER_HUBS = [
@@ -100,7 +101,9 @@ export default function DiscoverScreen() {
   const liveCount = (LIVE || []).filter((l) => l.status === 'live').length;
   // MEMBERSHIPS (brief 8.5): the top of Discover is a Memberships | Find Love toggle (search moved to an icon)
   const [discoverTab, setDiscoverTab] = useState('memberships');
-  const swipe = useSwipeTabs(useCallback(() => setDiscoverTab('love'), []), useCallback(() => setDiscoverTab('memberships'), []));
+  // MEMBERSHIP HUB / FIND LOVE HUB (Development Update v1, items 4 and 13): each side is its own full-screen page now.
+  // Swiping left opens Find Love the same way a tap does; the toggle itself stays on Memberships.
+  const swipe = useSwipeTabs(useCallback(() => nav.push('FindLoveHub'), [nav]), useCallback(() => setDiscoverTab('memberships'), []));
 
   // Interactive Games State — a fresh, date-seeded set every day (see data/games.js)
   const ads = useAds();
@@ -389,7 +392,7 @@ export default function DiscoverScreen() {
         {/* MEMBERSHIPS (brief 8.5): segmented toggle instead of the search bar; tap or swipe sideways to switch */}
         <SegmentToggle
           value={discoverTab}
-          onChange={setDiscoverTab}
+          onChange={(id) => nav.push(id === 'love' ? 'FindLoveHub' : 'MembershipHub')} // MEMBERSHIP HUB / FIND LOVE HUB: pushed full-screen pages
           options={[{ id: 'memberships', label: 'Memberships', icon: 'star' }, { id: 'love', label: 'Find Love', icon: 'heart' }]}
         />
       </View>
@@ -442,7 +445,7 @@ export default function DiscoverScreen() {
                 <Text style={styles.hubTitle}>{h.label}</Text>
                 <Text style={styles.hubDesc}>{h.desc}</Text>
               </View>
-              <Icon name="chevron-right" size={16} color="#AAA6AD" />
+              <Icon name="chevron-right" size={16} color={isDarkScheme() ? '#8A7A6C' : '#AAA6AD'} />
             </PressScale>
           ))}
         </View>
@@ -712,7 +715,7 @@ export default function DiscoverScreen() {
         <OpportunitiesEntryCard onPress={() => nav.push('Opportunities')} style={{ marginTop: 12 }} />
 
         {/* 6. MEMBERSHIPS (brief 8.2): "Paid Channels" replaces the Fellowships section */}
-        <SectionHead eyebrow="Paid channels" title="Grow with a mentor" sub="Bible courses, prayer schools & ministry training" action="See all" onAction={() => nav.push('Memberships')} />
+        <SectionHead eyebrow="Membership groups" title="Grow with a mentor" sub="Bible courses, prayer schools & ministry training" action="See all" onAction={() => nav.push('Memberships')} />
         <PaidChannelsRail nav={nav} />
 
         {/* Churches, wishes, believers and Live Fellowship are separate tools (not paid channels) — kept, under a plain heading */}
@@ -2563,15 +2566,15 @@ const styles = StyleSheet.create({
   exploreTitle: { fontFamily: 'Playfair-SemiBold', fontSize: 27, lineHeight: 30, color: '#FFFFFF', marginTop: 7 },
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 14 },
   quickTileWrap: { width: '31.5%', marginBottom: 7 },
-  quickTile: { height: 96, borderRadius: 18, padding: 10, justifyContent: 'space-between', backgroundColor: '#FFFAF2', borderWidth: 1, borderColor: '#EADFCE', overflow: 'hidden' },
+  quickTile: { height: 96, borderRadius: 18, padding: 10, justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   quickTileIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 7, shadowOffset: { width: 0, height: 4 } },
-  quickTileTitle: { fontFamily: 'Playfair-SemiBold', fontSize: 11, color: '#281A11' },
-  quickTileSub: { fontSize: 9, color: '#7C6C60', marginTop: 1 },
+  quickTileTitle: { fontFamily: 'Playfair-SemiBold', fontSize: 11, color: colors.fg },
+  quickTileSub: { fontSize: 9, color: colors.muted, marginTop: 1 },
   hubList: { marginTop: 4 },
-  hubRow: { height: 74, borderBottomWidth: 1, borderBottomColor: '#EADFCE', flexDirection: 'row', alignItems: 'center', gap: 12 },
+  hubRow: { height: 74, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 },
   hubIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  hubTitle: { fontFamily: 'Playfair-SemiBold', fontSize: 14, color: '#281A11' },
-  hubDesc: { fontSize: 11, color: '#7C6C60', marginTop: 2 },
+  hubTitle: { fontFamily: 'Playfair-SemiBold', fontSize: 14, color: colors.fg },
+  hubDesc: { fontSize: 11, color: colors.muted, marginTop: 2 },
   quickItem: { width: 68, alignItems: 'center' },
   quickIcon: { width: 56, height: 56, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(59,47,30,0.06)' },
   quickLabel: { fontSize: 11.5, fontWeight: '600', color: colors.fg, marginTop: 7 },
@@ -2660,7 +2663,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surfaceWhite,
     paddingLeft: 14,
     paddingRight: 10,
     height: 36,

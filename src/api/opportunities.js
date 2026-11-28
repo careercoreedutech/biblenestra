@@ -2,6 +2,7 @@
 // outside sources. Read-only; online mode only. Every listing links back to its original site.
 //   GET /opportunities?kind=&q=&remote=1&cursor=&limit=20 → { items, cursor, hasMore }
 //   GET /opportunities/summary                           → { kinds, sources, updatedAt }
+//   GET /opportunities/:id                               → the full listing (description, responsibilities, … — see normalizeDetail)
 import { useMemo } from 'react';
 import { useApi } from './auth';
 
@@ -52,6 +53,25 @@ function normalizeItem(it) {
   };
 }
 
+/** Full detail (PACKAGE E): the description is readable text (paragraphs, "• " bullets) from the server. Empty fields are null
+ *  and the screen hides those rows. */
+const textOrNull = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+function normalizeDetail(it) {
+  const base = normalizeItem(it);
+  if (!base) return null;
+  return {
+    ...base,
+    description: textOrNull(it.description),
+    responsibilities: textOrNull(it.responsibilities),
+    qualifications: textOrNull(it.qualifications),
+    instructions: textOrNull(it.instructions),
+    skills: Array.isArray(it.skills) && it.skills.length ? it.skills.filter((x) => typeof x === 'string' && x.trim()).slice(0, 30) : null,
+    employmentType: textOrNull(it.employmentType) ? cleanText(it.employmentType) : null,
+    logoUrl: isWebUrl(it.logoUrl) ? it.logoUrl.trim() : null,
+    applyUrl: isWebUrl(it.applyUrl) ? it.applyUrl.trim() : null,
+  };
+}
+
 export function useOpportunitiesApi() {
   const api = useApi();
   return useMemo(() => ({
@@ -79,6 +99,11 @@ export function useOpportunitiesApi() {
         openToAfrica: Number(res.openToAfrica) || 0,
         updatedAt: res.updatedAt || null,
       };
+    },
+    /** The full listing for the full-screen detail (PACKAGE E). Throws on a missing or hidden listing. */
+    async detail(id) {
+      const res = await api.request('GET', `/opportunities/${encodeURIComponent(String(id))}`);
+      return normalizeDetail(res);
     },
     // JOBS FEEDS: the Job & Academic Directory (63 platforms in 8 categories)
     async directory() {

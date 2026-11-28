@@ -2,7 +2,7 @@
 // Anyone can message anyone (no request to accept). Groups: everyone talks. Channels: only admins post,
 // anyone can follow. Server: backend/src/routes/conversations.js.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen, Button, Empty, Notice, Pills, Badge } from '../components/ui';
 import { Icon } from '../components/Icons';
 import { PressScale, FadeInUp, Pulse } from '../components/Motion';
@@ -17,6 +17,9 @@ import { useSync } from '../api/sync';
 import { errorMessage } from '../api/client';
 import { PEOPLE } from '../data/seed';
 import { ChatListRow, CHAT_ROW_HEIGHT } from '../components/chat/ChatListRow'; // CHAT 7.3
+import { ChatActionsSheet } from '../components/chat/ChatActionsSheet'; // PACKAGE F: long-press menu
+import { deleteConfirmText } from '../chat/chatActions'; // PACKAGE F
+import { pinChat, hideChat, deleteGroup } from '../api/groupDiscovery'; // PACKAGE F
 import { relTime } from '../chat/messages';
 import { ChatSlotsCounter, ChatPassBadge } from '../components/ChatLimit'; // CHAT LIMITS: "3 of 5 free chats used" (prompt itself is global, App.js)
 
@@ -135,6 +138,7 @@ function FindBelievers() {
               <View style={styles.rowMid}>
                 <Text style={styles.rowName} numberOfLines={1}>{p.displayName}{p.verified ? ' ✓' : ''}</Text>
                 <Text style={styles.rowLast} numberOfLines={1}>{[p.handle ? `@${p.handle}` : null, p.church].filter(Boolean).join(' · ') || 'BibleNestra member'}</Text>
+                {p.bio ? <Text style={styles.rowLast} numberOfLines={1}>{p.bio}</Text> : null}{/* PACKAGE F: bio line in the preview */}
               </View>
             </Pressable>
             <Button small label="Message" icon={<Icon name="chat" size={13} color="#FFFFFF" />} onPress={() => openDm(p)} />
@@ -191,6 +195,7 @@ export function ChatsHomeScreen({ params = {} }) {
   const { state } = useStore();
   const api = useApi();
   const sync = useSync();
+  const toast = useToast();
   const [tab, setTab] = useState(TABS.includes(params.tab) ? params.tab : 'Chats');
   const [pulling, setPulling] = useState(false);
   const [dirKey, setDirKey] = useState(0);
@@ -243,6 +248,37 @@ export function ChatsHomeScreen({ params = {} }) {
   };
   useEffect(() => { rowPress.current.clear(); }, [state.chats]);
 
+  // PACKAGE F: long-press a chat → menu. Stable handler per chat, like pressFor.
+  const [actionsFor, setActionsFor] = useState(null);
+  const longPressMap = useRef(new Map());
+  const longPressFor = (c) => {
+    let fn = longPressMap.current.get(c.id);
+    if (!fn) { fn = () => setActionsFor(c); longPressMap.current.set(c.id, fn); }
+    return fn;
+  };
+  const runChatAction = async (key, c) => {
+    if (!c) return;
+    if (key === 'manage') { nav.push('ChatInfo', { id: c.id }); return; }
+    if (key === 'delete') {
+      const t = deleteConfirmText(c);
+      Alert.alert(t.title, t.body, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete for everyone', style: 'destructive', onPress: async () => {
+          try { await deleteGroup(api, c.id); toast.show('Group deleted'); sync.refresh(); } catch (e) { toast.show(errorMessage(e, 'Couldn’t delete the group'), { tone: 'error' }); }
+        } },
+      ]);
+      return;
+    }
+    try {
+      if (key === 'pin') await pinChat(api, c.id, !c.pinned);
+      else if (key === 'unmute') await api.request('PUT', `/conversations/${c.id}/mute`, { muted: false });
+      else if (key.startsWith('mute_')) await api.request('PUT', `/conversations/${c.id}/mute`, { muted: true, duration: key.slice('mute_'.length) }); // 8h | 1w | always
+      else if (key === 'hide') await hideChat(api, c.id);
+      else if (key === 'leave') await api.request('POST', `/conversations/${c.id}/leave`, {});
+      sync.refresh();
+    } catch (e) { toast.show(errorMessage(e, 'Something went wrong'), { tone: 'error' }); }
+  };
+
   const listHeader = (
     <View>
       <View style={styles.searchDesign}>
@@ -288,6 +324,7 @@ export function ChatsHomeScreen({ params = {} }) {
       ) : null}
       {!term && tab === 'Groups' ? (
         <View style={{ paddingHorizontal: 16 }}>
+          <CreateRow icon="search" title="Search groups" sub="Church groups, Bible study, prayer and fellowship by place or church" onPress={() => nav.push('SearchGroups')} />
           <CreateRow icon="users" title="New group" sub="Chat together with friends, church or a study group" onPress={() => nav.push('NewGroup', { kind: 'group' })} />
           {api.online ? <CreateRow icon="link" title="Join with a link" sub="Paste an invite link someone shared" onPress={() => nav.push('JoinGroup')} /> : null}
         </View>
@@ -323,12 +360,13 @@ export function ChatsHomeScreen({ params = {} }) {
         {listTab ? <ChatPassBadge /> : null}{/* CHAT WEEK PASS: "Extra chats until Tue 26 Nov" (only while a pass is active) */}
       </View>
 
+      <ChatActionsSheet chat={actionsFor} onClose={() => setActionsFor(null)} onPick={(key, c) => runChatAction(key, c)} />
       {listTab ? (
         <FlatList
           style={styles.list}
           data={shown}
           keyExtractor={(c) => c.id}
-          renderItem={({ item }) => <ChatListRow c={item} myId={myId} onPress={pressFor(item)} />}
+          renderItem={({ item }) => <ChatListRow c={item} myId={myId} onPress={pressFor(item)} onLongPress={longPressFor(item)} />}
           getItemLayout={(_, index) => ({ length: CHAT_ROW_HEIGHT, offset: CHAT_ROW_HEIGHT * index, index })}
           ListHeaderComponent={listHeader}
           ListFooterComponent={listFooter}

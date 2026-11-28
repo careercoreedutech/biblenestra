@@ -3,6 +3,7 @@
 import React from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, fonts, radius, shadow } from '../theme';
+import { isDarkScheme } from '../design/palette';
 import { Icon } from './Icons';
 import { FadeInUp, PressScale } from './Motion';
 import { alpha } from './ui';
@@ -76,7 +77,7 @@ export default function AnnouncementCards({ style }) {
 
 const styles = StyleSheet.create({
   card: { backgroundColor: colors.cardGold, borderRadius: radius.lg, borderWidth: 1, borderColor: alpha(colors.gold, 0.28), padding: 16, ...shadow.sm },
-  cardUrgent: { backgroundColor: '#FBF1F0', borderColor: alpha(colors.negative, 0.3) },
+  cardUrgent: { backgroundColor: isDarkScheme() ? '#3A221C' : '#FBF1F0', borderColor: alpha(colors.negative, 0.3) },
   head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   icon: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   eyebrow: { fontSize: 10.5, fontWeight: '700', letterSpacing: 1.3, textTransform: 'uppercase' },

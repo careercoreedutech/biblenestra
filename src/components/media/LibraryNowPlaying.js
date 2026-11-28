@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
   track: { height: 26, justifyContent: 'center', marginTop: 20 },
   trackBg: { position: 'absolute', left: 0, right: 0, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.14)' },
   trackFill: { position: 'absolute', left: 0, height: 4, borderRadius: 2, backgroundColor: colors.goldLight },
-  knob: { position: 'absolute', width: 14, height: 14, borderRadius: 7, marginLeft: -7, backgroundColor: '#FFFFFF' },
+  knob: { position: 'absolute', width: 14, height: 14, borderRadius: 7, marginLeft: -7, backgroundColor: colors.surfaceWhite },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between' },
   time: { fontSize: 11.5, color: colors.nightMuted, fontWeight: '600', fontVariant: ['tabular-nums'] },
   transport: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },

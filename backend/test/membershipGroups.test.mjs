@@ -179,9 +179,9 @@ test('admin permissions are enforced per admin and apply to both sections', asyn
   assert.equal(add.status, 201, JSON.stringify(add.json));
   const roles = await q(env, 'SELECT conversation_id, role FROM conversation_members WHERE user_id = $1 AND conversation_id = ANY($2::uuid[])', [ids.ed, [master, exec]]);
   assert.equal(roles.length, 2); assert.ok(roles.every((r) => r.role === 'admin'), 'reuses the chat admin role in both sections');
-  // members can't add admins; admins can't either (owner only)
-  assert.equal((await call('dan', 'POST', `/memberships/${mem.id}/group/admins`, { userId: ids.ben })).json.code, 'OWNER_ONLY');
-  assert.equal((await call('ed', 'POST', `/memberships/${mem.id}/group/admins`, { userId: ids.ben })).json.code, 'OWNER_ONLY');
+  // members can't add admins; an admin with "manage members" can, but only with permissions they hold themselves
+  assert.equal((await call('dan', 'POST', `/memberships/${mem.id}/group/admins`, { userId: ids.ben })).json.code, 'PERMISSION_REQUIRED');
+  assert.equal((await call('ed', 'POST', `/memberships/${mem.id}/group/admins`, { userId: ids.ben, permissions: { publish: true } })).json.code, 'PERMISSION_NOT_HELD');
   // no publish permission
   assert.equal((await call('ed', 'POST', `/conversations/${master}/messages`, { text: 'Admin post' })).json.code, 'MASTER_CLASS_PUBLISHERS_ONLY');
   // no delete permission (someone else's message)

@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // MEMBER WEBSITES
 //   WebsitesScreen       — the directory of published websites (+ "My websites" for admins / when member submission is on)
 //   AddWebsiteScreen     — admins publish a website straight away; members only while website_feed.public_submission is on (then reviewed)
@@ -126,6 +127,11 @@ export function WebsitesScreen() {
           })}
         </View>
       ) : null}
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
+        <Tap onPress={() => nav.push('WebsiteFeed')} style={styles.heroBtn} accessibilityRole="button" accessibilityLabel="Website feed"><Icon name="globe" size={14} color="#FFC29A" /><Text style={styles.heroBtnText}>Website feed</Text></Tap>
+        {canSubmit ? <Tap onPress={() => nav.push('WebsiteIntegration')} style={styles.heroBtn} accessibilityRole="button" accessibilityLabel="Connect and publish"><Icon name="link" size={14} color="#FFC29A" /><Text style={styles.heroBtnText}>Connect &amp; publish</Text></Tap> : null}
+      </View>
 
       <Text style={styles.section}>Explore</Text>
       <View style={styles.chips}>
@@ -339,7 +345,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 11, fontFamily: df.sansBold, color: d.muted },
   chipTextOn: { color: '#FFFFFF' },
   footer: { fontSize: 10, fontFamily: df.sans, color: d.muted, lineHeight: 15, marginTop: 22 },
-  label: { marginTop: 18, marginBottom: 8, fontSize: 10, fontFamily: df.sansBold, color: '#4C3D32' },
+  label: { marginTop: 18, marginBottom: 8, fontSize: 10, fontFamily: df.sansBold, color: (isDarkScheme() ? '#CDBBA6' : '#4C3D32') },
   input: { height: 52, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, borderRadius: 14, paddingHorizontal: 14, fontSize: 12, fontFamily: df.sans, color: d.ink },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 18 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.borderStrong || colors.border, alignItems: 'center', justifyContent: 'center' },

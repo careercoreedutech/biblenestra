@@ -9,6 +9,7 @@
 // daily counter (ad_user_daily) that enforces abuse limits.
 import { q, one } from './db.js';
 import { bad } from './http.js';
+import { getConfig, registerConfig } from './wallet.js';
 
 export const SURFACES = ['video', 'audio', 'pdf', 'feed', 'reader'];
 // Event surfaces also include ads outside the configurable surfaces (games, rewarded "support" ads)
@@ -324,4 +325,45 @@ export async function adStats(env, { days = 30, includeTest = false } = {}) {
     bySurface: Object.values(surfaces).map((s) => ({ ...withRates(s), revenue: fmtRev(revBySurface[s.surface]) }))
       .sort((a, b) => b.impressions - a.impressions),
   };
+}
+
+// ---------- interstitial breaks (the app: src/ads/breaks.js) ----------
+// Admin-editable through registerConfig 'ad_breaks' (Admin › Wallets & payments › Settings, JSON) and returned as
+// `breaks` by the public GET /ads/config. A break is an interstitial shown after `activeMinutes` of foreground use,
+// never closer together than `minGapMinutes`, and at most `maxPerHour` / `maxPerDay`. The 66 Books list gets one
+// interstitial the first time it is opened (bookListFirstOpen); later opens follow the same caps.
+export const DEFAULT_BREAK_RULES = Object.freeze({
+  enabled: true,
+  activeMinutes: 5,
+  minGapMinutes: 15,
+  maxPerHour: 2,
+  maxPerDay: 6,
+  bookListFirstOpen: true,
+});
+const whole = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
+export function checkBreakRules(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  return (v.enabled === undefined || typeof v.enabled === 'boolean')
+    && (v.bookListFirstOpen === undefined || typeof v.bookListFirstOpen === 'boolean')
+    && (v.activeMinutes === undefined || whole(v.activeMinutes, 1, 120))
+    && (v.minGapMinutes === undefined || whole(v.minGapMinutes, 0, 1440))
+    && (v.maxPerHour === undefined || whole(v.maxPerHour, 0, 20))
+    && (v.maxPerDay === undefined || whole(v.maxPerDay, 0, 100));
+}
+registerConfig('ad_breaks', DEFAULT_BREAK_RULES, checkBreakRules);
+/** Fills anything missing from the defaults; an invalid stored value falls back to the defaults entirely. */
+export function normalizeBreakRules(v) {
+  const d = DEFAULT_BREAK_RULES;
+  const o = checkBreakRules(v) ? v : {};
+  return {
+    enabled: o.enabled ?? d.enabled,
+    activeMinutes: o.activeMinutes ?? d.activeMinutes,
+    minGapMinutes: o.minGapMinutes ?? d.minGapMinutes,
+    maxPerHour: o.maxPerHour ?? d.maxPerHour,
+    maxPerDay: o.maxPerDay ?? d.maxPerDay,
+    bookListFirstOpen: o.bookListFirstOpen ?? d.bookListFirstOpen,
+  };
+}
+export async function getBreakRules(env) {
+  return normalizeBreakRules((await getConfig(env)).ad_breaks);
 }

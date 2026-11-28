@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { bad, body } from '../lib/http.js';
 import { audit, requireAdmin, registerAdminScript } from './admin.js';
 import {
-  DEFAULT_AD_CONFIG, EVENT_LIMITS, getAdConfig, saveAdConfig, adConfigHistory, recordAdEvents, adStats,
+  DEFAULT_AD_CONFIG, EVENT_LIMITS, getAdConfig, saveAdConfig, adConfigHistory, recordAdEvents, adStats, getBreakRules,
 } from '../lib/ads.js';
 import { ADS_ADMIN_SCRIPT } from '../lib/adsAdminPage.js';
 
@@ -17,10 +17,11 @@ registerAdminScript(ADS_ADMIN_SCRIPT);
 
 // ---------- public ----------
 export const adsPublic = new Hono();
+// `breaks` = the interstitial rules (registerConfig 'ad_breaks': after how many active minutes, gaps and caps)
 adsPublic.get('/ads/config', async (c) => {
   const cfg = await getAdConfig(c.env);
   c.header('Cache-Control', 'public, max-age=60');
-  return c.json(cfg);
+  return c.json({ ...cfg, breaks: await getBreakRules(c.env) });
 });
 
 // ---------- signed in ----------

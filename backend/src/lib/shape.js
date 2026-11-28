@@ -47,6 +47,7 @@ export function postShape(row, me, env, origin) {
       width: row.video_width || null, height: row.video_height || null,
     } : null,
     likes: row.likes_count, comments: row.comments_count, shares: row.shares_count, views: row.views_count,
+    videoPlays: row.video_plays_count || 0, videoViewers: row.video_viewers_count || 0, // PACKAGE F: video plays + unique viewers
     myReaction: row.my_reaction || null,
     saved: !!row.saved,
     mine: row.author_id === me.id,

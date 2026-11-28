@@ -13,6 +13,8 @@ import { useToast } from '../components/Toast';
 import { ensurePermission, supported as popsSupported } from '../notifications/scripturePop';
 import { TRANSLATIONS } from '../bible/catalog';
 import { d, df, Grad } from '../design/sanctuary';
+import { colors } from '../theme'; // APPEARANCE (item 14): palette tokens
+import { isDarkScheme } from '../design/palette'; // APPEARANCE (item 14)
 
 // A short list: the main English versions + the first Bible in the core African languages
 const LANGS = ['Yorùbá', 'Igbo', 'Hausa', 'Kiswahili', 'Twi', 'Français'];
@@ -64,7 +66,7 @@ export function WelcomeSetupView({ initialName = '', onDone, saveName }) {
   const initials = (name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('')) || 'BN';
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <StatusBar style="dark" />
+      <StatusBar style={isDarkScheme() ? "light" : "dark"} />
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.topRow}>
           <Text style={styles.kicker}>Welcome setup</Text>
@@ -138,12 +140,12 @@ const styles = StyleSheet.create({
 
   title: { marginTop: 22, fontFamily: df.displayBold, fontSize: 30, lineHeight: 36, letterSpacing: -0.8, color: d.ink },
   sub: { marginTop: 6, fontFamily: df.sans, fontSize: 14, lineHeight: 21, color: d.muted },
-  label: { marginTop: 22, marginBottom: 8, fontSize: 12, fontFamily: df.sansBold, color: '#4C3D32' },
+  label: { marginTop: 22, marginBottom: 8, fontSize: 12, fontFamily: df.sansBold, color: (isDarkScheme() ? '#F3E9DC' : '#4C3D32') },
   field: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, paddingHorizontal: 14, justifyContent: 'center' },
   input: { height: 50, fontFamily: df.sans, fontSize: 14, color: d.ink },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { minHeight: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, alignItems: 'center', justifyContent: 'center' },
-  chipOn: { borderColor: d.plum, backgroundColor: '#FFF1E5' },
+  chipOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E5') },
   chipText: { fontSize: 13, fontFamily: df.sansBold, color: d.muted },
   chipTextOn: { color: d.plum },
 
@@ -152,9 +154,9 @@ const styles = StyleSheet.create({
   optionText: { flex: 1, minWidth: 0 },
   optionTitle: { fontSize: 13, fontFamily: df.sansBold, color: d.ink },
   optionBody: { fontSize: 11, fontFamily: df.sans, color: d.muted, marginTop: 2 },
-  toggle: { width: 44, height: 26, padding: 3, borderRadius: 13, backgroundColor: '#D8CFC5', justifyContent: 'center' },
+  toggle: { width: 44, height: 26, padding: 3, borderRadius: 13, backgroundColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), justifyContent: 'center' },
   toggleOn: { backgroundColor: d.plum },
-  toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF' },
+  toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.surfaceWhite },
   toggleKnobOn: { transform: [{ translateX: 18 }] },
 
   cta: { height: 56, borderRadius: 18, backgroundColor: d.plum, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 24,

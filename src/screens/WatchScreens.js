@@ -1,3 +1,4 @@
+import { colors } from '../theme';
 // Watch — YouTube channels curated by the BibleNestra team (added in the admin dashboard at /admin).
 // Videos come from each channel's public feed; they play inside the app (WebView / iframe embed).
 // Look: the design's LiveStudy page (dark live stage, paper cards, plum accents) on the design kit.
@@ -235,7 +236,7 @@ export function YouTubeChannelScreen({ params = {} }) {
 
 const styles = StyleSheet.create({
   sub: { fontFamily: df.sans, fontSize: 13, lineHeight: 18, color: d.muted, marginTop: -6 },
-  card: { width: 236, backgroundColor: d.paper, borderRadius: 18, borderWidth: 1, borderColor: d.line, overflow: 'hidden', shadowColor: '#281A11', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  card: { width: 236, backgroundColor: d.paper, borderRadius: 18, borderWidth: 1, borderColor: d.line, overflow: 'hidden', shadowColor: colors.fg, shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
   thumbWrap: { width: '100%', aspectRatio: 16 / 9, backgroundColor: d.plumDark },
   thumb: { width: '100%', height: '100%' },
   playBadge: { position: 'absolute', right: 10, bottom: 10, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(40,26,17,0.6)', alignItems: 'center', justifyContent: 'center', paddingLeft: 2 },
@@ -253,7 +254,7 @@ const styles = StyleSheet.create({
   rowItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   sep: { borderTopWidth: 1, borderTopColor: d.line },
   rowTitle: { fontFamily: df.sansBold, fontSize: 15, color: d.ink },
-  playerCard: { borderRadius: 22, overflow: 'hidden', marginTop: 4, shadowColor: '#281A11', shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
+  playerCard: { borderRadius: 22, overflow: 'hidden', marginTop: 4, shadowColor: colors.fg, shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
   stage: { borderRadius: 22 },
   poster: { width: '100%', aspectRatio: 16 / 9, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: d.plumDark },
   posterImg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' },

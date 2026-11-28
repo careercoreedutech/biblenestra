@@ -1476,7 +1476,7 @@ const styles = StyleSheet.create({
   bountyClaimBtn: {
     flexDirection: 'row',
     gap: 6,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surfaceWhite,
     height: 34,
     borderRadius: radius.pill,
     alignItems: 'center',

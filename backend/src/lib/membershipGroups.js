@@ -165,7 +165,13 @@ export async function membershipSendGuard(env, convId, user, { kind = 'text', re
     if (['image', 'voice', 'video', 'file'].includes(kind) && settings.mediaUploads === 'admins') {
       throw forbidden(`Only admins can share photos, videos, voice notes and files in ${EXECUTIVE}`, 'MEDIA_ADMINS_ONLY');
     }
-    const until = mutedUntilOf(await prefsOf(env, g.m.id, user.id));
+    const prefs = await prefsOf(env, g.m.id, user.id);
+    const until = mutedUntilOf(prefs);
+    if (until && prefs.suspended) {
+      const e = new ApiError(403, 'SUSPENDED', `You’ve been suspended from ${EXECUTIVE}. You can still read it; an admin can lift the suspension.`);
+      e.details = { suspended: true, mutedUntil: until };
+      throw e;
+    }
     if (until) {
       const e = new ApiError(403, 'MUTED', `An admin muted you in ${EXECUTIVE} until ${new Date(until).toUTCString().replace(/:\d\d GMT$/, ' GMT')}`);
       e.details = { mutedUntil: until };
@@ -238,10 +244,11 @@ export async function threadPermissions(env, convId, user) {
   const settings = groupSettingsOf(g.m);
   const prefs = await prefsOf(env, g.m.id, user.id);
   const mutedUntil = g.section === 'executive' && !actor.staff ? mutedUntilOf(prefs) : null;
+  const suspended = !!(mutedUntil && prefs && prefs.suspended);
   const master = g.section === 'master';
   const canSend = master ? can(actor, 'publish', settings) : (actor.staff || (settings.memberMessaging === 'all' && !mutedUntil));
   return {
-    group: { membershipId: g.m.id, section: g.section, title: g.m.title, sectionTitle: master ? MASTER : EXECUTIVE, role: actor.role, mutedUntil },
+    group: { membershipId: g.m.id, section: g.section, title: g.m.title, sectionTitle: master ? MASTER : EXECUTIVE, role: actor.role, mutedUntil, suspended },
     permissions: {
       canSend,
       canSendMedia: canSend && (master || actor.staff || settings.mediaUploads === 'all'),
@@ -257,7 +264,7 @@ export async function threadPermissions(env, convId, user) {
       canChangeSettings: can(actor, 'manageSettings', settings),
       canApproveJoins: can(actor, 'manageMembers', settings),
       canRemoveMembers: can(actor, 'manageMembers', settings),
-      canPromote: actor.role === 'owner' || !!actor.platformAdmin,
+      canPromote: can(actor, 'manageMembers', settings), // admins with manage-members may promote, within the permissions they hold
     },
   };
 }

@@ -24,13 +24,18 @@ import { useSlotForFirstMessage } from './chatLimits.js';
 import { hasAccess, subscriptionOf } from './memberships.js';
 import { OFFICIAL_CLERK_ID, ensureOfficialAccount } from './broadcasts.js';
 import { requireApprovedKyc } from './kyc.js'; // PAYOUT KYC guard for withdrawals
+import { membershipSendGuard } from './membershipGroups.js'; // MEMBERSHIP GROUPS: gifts follow the same send rules as messages
 
 // ─── admin-editable settings (Admin › Wallets & payments › Settings; commission % is the core gift_commission_bps) ──
 registerConfig('gifts_enabled', true, (v) => typeof v === 'boolean');                                  // kill switch
 registerConfig('gift_daily_coin_limit', 1000000, (v) => Number.isInteger(v) && v >= 0 && v <= 1e9);  // per sender per 24 h (0 = no limit)
 registerConfig('gift_admins_can_receive', true, (v) => typeof v === 'boolean');                       // admin + official accounts can receive gifts (client answer Q20)
 
-export const CONTEXTS = ['chat', 'profile', 'live', 'post'];          // where catalogue items can be allowed (gift_catalogue.contexts)
+export const CONTEXTS = ['chat', 'profile', 'live', 'post', 'fundme'];   // where catalogue items can be allowed (gift_catalogue.contexts)
+// FUND ME GIFTS: a gift on a fundraiser request goes to the request's creator (context { type: 'fundme', id: fundraiserId }).
+export const FUNDME_CONTEXT = 'fundme';
+// public = the same rule as the public Fund Me page (routes/fundme.js PUBLIC_COND): live, or approved and not paused by an admin
+const FUNDME_PUBLIC = `(f.status = 'live' OR (f.status IN ('paused','closed') AND f.approved_at IS NOT NULL AND COALESCE(f.paused_by, 'owner') <> 'admin'))`;
 // SUPPORT BIBLENESTRA: a gift to the official BibleNestra account (users.clerk_id = OFFICIAL_CLERK_ID, the "BibleNestra"
 // verified account that posts Socials broadcasts). It is platform revenue: 100% goes to commission_gift_coins and the
 // official account earns nothing. Ledger ref 'support:<sendId>' (not 'gift:'), kinds support_sent / support_received.
@@ -136,6 +141,13 @@ export async function resolveContext(env, me, context, recipientIn) {
     if (rid && rid !== off.id) throw bad('A Support BibleNestra gift goes to BibleNestra', 'BAD_RECIPIENT');
     return { recipientId: off.id, contextType: type, contextId: off.id };
   }
+  if (type === FUNDME_CONTEXT) {
+    if (!isUuid(id)) throw bad('context.id is required', 'BAD_CONTEXT');
+    const f = await one(env, `SELECT f.id, f.owner_id FROM fundraisers f WHERE f.id = $1 AND ${FUNDME_PUBLIC}`, [id]);
+    if (!f) throw notFound('That fundraiser is no longer available');
+    if (rid && rid !== f.owner_id) throw bad('A fundraiser gift goes to the person who created the request', 'BAD_RECIPIENT');
+    return { recipientId: f.owner_id, contextType: type, contextId: id };
+  }
   if (type === 'profile') {
     const pid = id || rid;
     if (!isUuid(pid) || (rid && rid !== pid)) throw bad('A profile gift goes to that profile’s owner', 'BAD_CONTEXT');
@@ -161,6 +173,8 @@ export async function resolveContext(env, me, context, recipientIn) {
   const conv = gctx.conv;
   if (conv.kind === 'channel') throw bad('Gifts can be sent in private chats and groups, not channels', 'GIFT_NOT_ALLOWED_HERE');
   if (!permissionsFor(gctx).canSend) throw forbidden('Only admins can send messages in this group', 'ADMINS_ONLY_SEND');
+  // MEMBERSHIP GROUPS: the same send guard as chat messages (muted / suspended members, who-can-send rules)
+  await membershipSendGuard(env, id, me, { kind: 'gift' });
   if (conv.membership_id && gctx.role === 'member' && me.role !== 'admin') {
     const sub = await subscriptionOf(env, conv.membership_id, me.id);
     if (!hasAccess(sub)) throw forbidden('Your membership has ended', 'MEMBERSHIP_REQUIRED');
@@ -305,7 +319,7 @@ export async function sendGift(c, me, b) {
     });
     return { ok: true, duplicate: false, send, split: { ...split, bps }, balance: senderLeg ? senderLeg.balanceAfter : null, message };
   }
-  const where = { chat: 'in your chat', profile: 'on your profile', live: 'during your live session', post: 'on your post' }[target.contextType];
+  const where = { chat: 'in your chat', profile: 'on your profile', live: 'during your live session', post: 'on your post', fundme: 'on your Fund Me request' }[target.contextType];
   await walletNotify(c, {
     userId: to, kind: 'gift', title: `🎁 You received ${gift.name}`,
     body: `${me.display_name || 'Someone'} sent you ${gift.name} ${where}. +${split.earnings.toLocaleString('en-US')} coins gift earnings (${100 - bps / 100}% of the gift), available after ${cfg.earnings_hold_days} days.`,
@@ -515,3 +529,33 @@ export const liveShape = (r) => ({
   startedAt: new Date(r.started_at).toISOString(), endedAt: r.ended_at ? new Date(r.ended_at).toISOString() : null,
 });
 export const LIVE_SELECT = `SELECT l.*, ${userJson('u')} AS host FROM live_sessions l JOIN users u ON u.id = l.host_id`;
+
+/**
+ * Fund Me: the gifts received on one fundraiser request, for the page (public and owner views).
+ * → { total, topGifts: [{ id, name, art, imageUrl, count }] (most sent first, max 5), recentGivers: [{ displayName, avatarUrl, gift, createdAt }] (max 10) }
+ * Givers are shown by name and picture only (never ids). Gifts are never anonymous.
+ */
+export async function fundraiserGiftSummary(c, fundraiserId) {
+  const cfg = await getConfig(c.env);
+  const [total, top, recent] = await Promise.all([
+    one(c.env, `SELECT COUNT(*)::int AS n FROM gift_sends WHERE context_type = 'fundme' AND context_id = $1`, [fundraiserId]),
+    q(c.env, `SELECT s.gift_id, MAX(s.gift_name) AS name, COUNT(*)::int AS n, COALESCE(SUM(s.coins), 0)::bigint AS coins,
+        g.art, g.image_key, g.animation_key
+      FROM gift_sends s LEFT JOIN gift_catalogue g ON g.id = s.gift_id
+      WHERE s.context_type = 'fundme' AND s.context_id = $1
+      GROUP BY s.gift_id, g.art, g.image_key, g.animation_key ORDER BY COUNT(*) DESC, COALESCE(SUM(s.coins), 0) DESC, s.gift_id LIMIT 5`, [fundraiserId]),
+    q(c.env, `${SEND_SELECT} WHERE s.context_type = 'fundme' AND s.context_id = $1 ORDER BY s.created_at DESC, s.id DESC LIMIT 10`, [fundraiserId]),
+  ]);
+  return {
+    total: total ? total.n : 0,
+    topGifts: top.map((r) => ({
+      id: r.gift_id, name: r.name, art: r.art || 'star', count: r.n,
+      imageUrl: r.image_key ? mediaUrl(c.env, origin(c), r.image_key) : null,
+    })),
+    recentGivers: recent.map((r) => sendShape(c, r, cfg.gift_coin_rate)).filter((s) => s.sender).map((s) => ({
+      displayName: s.sender.displayName || 'A friend', avatarUrl: s.sender.avatarUrl || null,
+      gift: { id: s.gift.id, name: s.gift.name, art: s.gift.art || 'star', imageUrl: s.gift.imageUrl || null },
+      createdAt: s.createdAt,
+    })),
+  };
+}

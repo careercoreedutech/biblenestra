@@ -276,7 +276,7 @@ export function PinnedBar({ pins, onOpen, style }) {
 // ---------- hook: everything one thread needs ----------
 // opts: { scope, canPin, canModerate, isGroup, onSend(text, reply) }
 // CHAT 7.3: scrollToId(id) → boolean lets a virtualised list jump to a message; onForward(m) adds "Forward"
-export function useMessageActions({ scope, canPin = true, canModerate = false, isGroup = false, onSend, scrollToId, onForward, canReplyTo, extraActions }) {
+export function useMessageActions({ scope, canPin = true, canModerate = false, canEditAnyTime = false, isGroup = false, onSend, scrollToId, onForward, canReplyTo, extraActions }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
   const [sheetFor, setSheetFor] = useState(null);
@@ -334,7 +334,7 @@ export function useMessageActions({ scope, canPin = true, canModerate = false, i
     <MessageActionsSheet
       visible={!!current}
       message={current}
-      canEdit={canEditMessage(current)}
+      canEdit={canEditMessage(current, { publisher: canEditAnyTime })}
       canPin={canPin}
       pinHint={pins.length >= 3 ? 'Up to 3 pins — the oldest pin will be replaced.' : null}
       canDeleteForEveryone={canDeleteForEveryone(current)}
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
   deletedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   deletedText: { fontSize: 13.5, fontStyle: 'italic', color: colors.muted },
   quote: { borderLeftWidth: 3, borderLeftColor: colors.gold, backgroundColor: colors.raised, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 9, marginBottom: 6 },
-  quoteMine: { backgroundColor: 'rgba(255,255,255,0.16)', borderLeftColor: '#FFFFFF' },
+  quoteMine: { backgroundColor: 'rgba(255,255,255,0.16)', borderLeftColor: colors.surfaceWhite },
   quoteFrom: { fontSize: 11.5, fontFamily: df.sansBold, color: colors.primaryInk },
   quoteText: { fontSize: 12.5, lineHeight: 17, color: colors.muted, marginTop: 1 },
   reactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: -6, marginHorizontal: 8 },

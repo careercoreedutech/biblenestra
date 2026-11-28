@@ -1,12 +1,15 @@
+import { isDarkScheme } from '../design/palette';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Audio } from 'expo-av';
 import { Screen, Section, Row, Pills, Button, Input, Tag, Badge, Notice, Empty, Eyebrow, alpha, NightGlow } from '../components/ui';
 import { DScreen, DTabs, DToggle as Toggle, DInput, DLabel, DRow, DList, DCard, DButton } from '../design/profile/parts';
+import { PortfolioProfileRows } from './PortfolioScreens'; // PORTFOLIO & PARTNER MANAGERS: Profile entry (managers' dashboard, or Become a partner)
 import { Grad, Tap, gradients, d as D, df as DF, IconButton, SectionTitle as DSection } from '../design/sanctuary';
 import Svg, { Path } from 'react-native-svg';
 import { Icon } from '../components/Icons';
 import { colors, fonts, radius, shadow } from '../theme';
+import { readAppearancePref, setAppearance } from '../design/appearance'; // APPEARANCE (item 14)
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { useToast } from '../components/Toast';
@@ -23,7 +26,11 @@ import { useSync } from '../api/sync';
 import { MODE_LABEL } from '../api/config';
 import { relTime } from '../components/social/shared';
 import { BannerImage, AvatarImage, EditProfileButton, AvatarEditBadge, FollowSummary } from '../components/social/ProfileMedia'; // SOCIAL (round 3)
-import { useCloudRecordings, uploadRecording, SERMON_RECORDING, MAX_MINUTES } from '../api/recordings'; // DISCOVER TOOLS (round 3)
+import { useCloudRecordings, flushPendingUploads } from '../api/recordings'; // DISCOVER TOOLS (round 3)
+import { useRecorder, startRecording, pauseRecording, resumeRecording, stopRecording, setRecorderMeta, requestMicPermission } from '../recording/recorderStore'; // RECORDER (Sermon Studio)
+import { listPending, forgetPending, deleteTakeFile } from '../recording/pending';
+import UnlockGate from '../components/UnlockGate'; // PACKAGE G 15.1: recording costs 5 coins per hour
+import { useUnlocks } from '../api/unlocks';
 import { CloudRecordingList } from './RecordScreens'; // DISCOVER TOOLS (round 3)
 import { LearnCourses, LearnDevotionals } from './LearnContentScreens'; // LEARN CMS: courses + devotionals from the admin (online mode)
 import { useApi } from '../api/auth'; // LEARN CMS
@@ -1197,7 +1204,7 @@ const ld = StyleSheet.create({
   battleRing: { position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 25, borderColor: 'rgba(255,255,255,0.05)', right: -80, top: -80 },
   battleKicker: { fontFamily: DF.sansBold, fontSize: 9, letterSpacing: 1.3, color: '#FFC49B' },
   battleTitle: { fontFamily: DF.display, fontSize: 25, lineHeight: 29, color: '#FFFFFF', textAlign: 'center', marginTop: 12, marginBottom: 20 },
-  battleBtn: { height: 40, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  battleBtn: { height: 40, paddingHorizontal: 16, borderRadius: 12, backgroundColor: colors.surfaceWhite, flexDirection: 'row', alignItems: 'center', gap: 8 },
   battleBtnText: { fontFamily: DF.sansBold, fontSize: 11, color: D.plumDark },
   stats: { flexDirection: 'row', gap: 7, marginTop: 10 },
   stat: { flex: 1, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 6, alignItems: 'center' },
@@ -1213,7 +1220,7 @@ const ld = StyleSheet.create({
   contest: { borderRadius: 21, padding: 19, backgroundColor: D.paper, borderWidth: 1, borderColor: D.line, gap: 6 },
   contestTitle: { fontFamily: DF.display, fontSize: 18, lineHeight: 23, color: D.ink, marginTop: 8 },
   contestSub: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: D.muted },
-  contestBtn: { marginTop: 10, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF1E5', paddingHorizontal: 14, height: 38, borderRadius: 12 },
+  contestBtn: { marginTop: 10, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E5'), paddingHorizontal: 14, height: 38, borderRadius: 12 },
 });
 
 const PLAN_REMINDERS = ['Off', '06:30', '12:00', '20:00'];
@@ -1485,26 +1492,73 @@ export function SermonStudioScreen() {
   const online = cloud.online;
   const cloudSeen = useRef(null);
   if (cloudSeen.current == null && cloud.items) cloudSeen.current = new Set(cloud.items.map((x) => x.id));
-  const [rec, setRec] = useState('idle'); // idle | starting | recording | paused | saving
-  const [ms, setMs] = useState(0);
-  const [levels, setLevels] = useState(() => Array(WAVE_BARS).fill(0));
+  // Recorder state lives in src/recording/recorderStore.js (module level): a take keeps recording and is saved even
+  // when this screen is closed. The screen shows that state and sends the actions.
+  const recState = useRecorder();
+  // 15.1: a recording needs an active 'recording' unlock (one hour, 5 coins or 3 rewarded ads).
+  const unlocks = useUnlocks();
+  const recGrant = ((unlocks.data && unlocks.data.active) || []).find((a) => a.feature === 'recording' && a.remainingSec > 0) || null;
+  const rec = recState.status; // idle | starting | recording | paused | saving
+  const ms = recState.ms;
+  const levels = recState.levels;
+  const micError = recState.error; // 'denied' | 'unavailable' | null
   const [title, setTitle] = useState('');
   const [passage, setPassage] = useState('');
   const [privacy, setPrivacy] = useState('Private');
-  const [micError, setMicError] = useState(null);
   const [player, setPlayer] = useState(null); // { id, playing, pos, dur }
   const [renaming, setRenaming] = useState(null); // { id, value }
   const [confirmDel, setConfirmDel] = useState(null);
-  const recRef = useRef(null);
   const soundRef = useRef(null);
   const timers = useRef([]);
-  const live = useRef({});
-  live.current = { title, passage, privacy, ms, user: state.user.displayName, online, request: cloud.request };
   const consent = !!prefs.micConsent;
   const recordings = state.recordings || [];
   // Recordings present when the screen opened fade in; ones saved during this visit spring in.
   const seenIds = useRef(null);
   if (seenIds.current == null) seenIds.current = new Set(recordings.map((r) => r.id));
+
+  const localRecord = (p) => ({
+    title: (p.title || '').trim() || 'Untitled recording',
+    speaker: p.speaker,
+    passage: (p.passage || '').trim() || '—',
+    duration: fmtMs(p.durationMs),
+    durationMs: p.durationMs,
+    privacy: p.privacy || 'Private',
+    uri: p.uri,
+  });
+  // Device takes (saved while offline or in the background) move into the app's recording list.
+  const drainLocal = async () => {
+    const local = (await listPending()).filter((p) => p.kind === 'local');
+    for (const p of local) {
+      dispatch({ type: 'recording', r: localRecord(p) });
+      await forgetPending(p.uri);
+    }
+  };
+
+  // The recorder's details follow the form, so a take saved in the background is labelled correctly.
+  useEffect(() => {
+    setRecorderMeta({ title, passage: passage.trim(), speaker: state.user.displayName, privacy, online, request: cloud.request });
+  }, [title, passage, privacy, online, state.user.displayName, cloud.request]);
+
+  // Takes saved earlier (offline, or the app was closed mid-upload): upload the cloud ones, list the device ones.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (online) {
+        const done = await flushPendingUploads(cloud.request).catch(() => []);
+        if (alive && done.length) cloud.refresh();
+      }
+      if (alive) await drainLocal();
+    })();
+    return () => { alive = false; };
+  }, [online]);
+
+  // Tell the user when a take was saved automatically (one-hour limit, app minimised) and when time is nearly up.
+  useEffect(() => {
+    if (recState.notice) { toast.show(recState.notice, { icon: 'check', haptic: 'success' }); drainLocal(); }
+  }, [recState.notice]);
+  useEffect(() => {
+    if (recState.warning) toast.show(recState.warning, { icon: 'mic' });
+  }, [recState.warning]);
 
   const unloadSound = async () => {
     const s = soundRef.current;
@@ -1513,135 +1567,52 @@ export function SermonStudioScreen() {
     if (s) { try { await s.unloadAsync(); } catch (e) { /* already unloaded */ } }
   };
 
-  // Clean up the recorder and player when leaving the screen; an in-progress take is saved as a draft.
+  // Leaving the screen stops playback only; an in-progress take keeps recording in the store.
   useEffect(() => () => {
     timers.current.forEach(clearTimeout);
     if (soundRef.current) soundRef.current.unloadAsync().catch(() => {});
-    const r = recRef.current;
-    recRef.current = null;
-    if (r) {
-      r.stopAndUnloadAsync().then(() => {
-        const uri = r.getURI();
-        const L = live.current;
-        if (uri && L.ms > 0 && L.online) {
-          // Online: a take left running uploads in the background (it is never lost)
-          uploadRecording(L.request, { uri, durationMs: L.ms, title: L.title, passage: L.passage.trim(), speaker: L.user }).catch(() => {});
-        } else if (uri && L.ms > 0) {
-          dispatch({ type: 'recording', r: { title: L.title.trim() || 'Untitled recording', speaker: L.user, passage: L.passage.trim() || '—', duration: fmtMs(L.ms), durationMs: L.ms, privacy: L.privacy, uri } });
-        }
-      }).catch(() => {});
-      Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
-    }
   }, []);
-
-  const onRecStatus = (st) => {
-    if (!st) return;
-    if (st.durationMillis != null) setMs(st.durationMillis);
-    if (st.isRecording) {
-      // Live input level when the platform reports metering; otherwise a gentle activity pulse.
-      const lvl = typeof st.metering === 'number'
-        ? Math.max(0, Math.min(1, (st.metering + 60) / 60))
-        : 0.25 + 0.2 * Math.abs(Math.sin((st.durationMillis || 0) / 260));
-      setLevels((prev) => [...prev.slice(1), lvl]);
-    }
-  };
-
-  const askPermission = async () => {
-    try {
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm || !perm.granted) {
-        setMicError('denied');
-        toast.show('Microphone access was denied', { tone: 'error', icon: 'mic' });
-        return false;
-      }
-      setMicError(null);
-      return true;
-    } catch (e) {
-      setMicError('unavailable');
-      toast.show('No microphone available on this device', { tone: 'error', icon: 'mic' });
-      return false;
-    }
-  };
 
   const allow = async () => {
     setPref('micConsent', true);
-    const ok = await askPermission();
-    if (ok) toast.show('Microphone ready', { icon: 'mic', haptic: 'success' });
+    const res = await requestMicPermission();
+    if (res.ok) toast.show('Microphone ready', { icon: 'mic', haptic: 'success' });
+    else toast.show(res.errorMessage || 'Microphone access is off', { tone: 'error', icon: 'mic' });
   };
 
   const start = async () => {
     if (rec !== 'idle') return;
-    setRec('starting');
+    if (!recGrant) { toast.show('Unlock recording first', { tone: 'error', icon: 'mic' }); return; }
     await unloadSound();
-    const ok = await askPermission();
-    if (!ok) { setRec('idle'); return; }
-    try {
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(online ? SERMON_RECORDING : Audio.RecordingOptionsPresets.HIGH_QUALITY, onRecStatus, 200);
-      recRef.current = recording;
-      setMs(0); setLevels(Array(WAVE_BARS).fill(0));
-      setRec('recording');
-      toast.show('Recording started', { icon: 'mic', haptic: 'medium' });
-    } catch (e) {
-      recRef.current = null;
-      setRec('idle');
-      setMicError('unavailable');
-      toast.show('Couldn’t start the microphone', { tone: 'error', icon: 'mic' });
-    }
+    const res = await startRecording({ online, limitMs: recGrant.remainingSec * 1000 });
+    if (res.ok) toast.show('Recording started', { icon: 'mic', haptic: 'medium' });
+    else toast.show(res.errorMessage || 'Couldn’t start the microphone', { tone: 'error', icon: 'mic' });
   };
-
-  // Online uploads are capped at 60 minutes: stop and save automatically when the limit is reached.
-  useEffect(() => {
-    if (online && rec === 'recording' && ms >= MAX_MINUTES * 60 * 1000) {
-      toast.show('60-minute limit reached · saving', { icon: 'mic' });
-      finish(true);
-    }
-  }, [ms >= MAX_MINUTES * 60 * 1000]);
 
   const pause = async () => {
-    try { await recRef.current.pauseAsync(); setRec('paused'); toast.show('Recording paused', { icon: 'pause' }); }
-    catch (e) { toast.show('Couldn’t pause this recording', { tone: 'error' }); }
+    const res = await pauseRecording();
+    if (res.ok) toast.show('Recording paused', { icon: 'pause' });
+    else toast.show(res.errorMessage || 'Couldn’t pause this recording', { tone: 'error' });
   };
   const resume = async () => {
-    try { await recRef.current.startAsync(); setRec('recording'); toast.show('Recording resumed', { icon: 'mic' }); }
-    catch (e) { toast.show('Couldn’t resume this recording', { tone: 'error' }); }
+    const res = await resumeRecording();
+    if (res.ok) toast.show('Recording resumed', { icon: 'mic' });
+    else toast.show(res.errorMessage || 'Couldn’t resume this recording', { tone: 'error' });
   };
 
+  // Stop: the take is saved to the device first, then uploaded (online) or listed (offline). Discard deletes it.
   const finish = async (keep) => {
-    const r = recRef.current;
-    if (!r) return;
-    setRec('saving');
-    let uri = null;
-    let dur = ms;
-    try {
-      const st = await r.getStatusAsync().catch(() => null);
-      if (st && st.durationMillis) dur = st.durationMillis;
-      await r.stopAndUnloadAsync();
-      uri = r.getURI();
-    } catch (e) {
-      uri = null;
-    }
-    recRef.current = null;
-    Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(() => {});
-    if (keep) {
-      if (uri && online) {
-        // Upload privately → the server transcribes it and writes sermon notes in the background
-        cloud.upload({ uri, durationMs: dur, title, passage: passage.trim(), speaker: state.user.displayName })
-          .then(() => toast.show('Uploaded · transcribing now', { icon: 'check', haptic: 'success' }))
-          .catch((e) => toast.show(e && e.message ? e.message : 'Upload failed — your take is kept, try again', { tone: 'error', icon: 'mic' }));
-        toast.show('Saved · uploading privately', { icon: 'check', haptic: 'success' });
-        setTitle(''); setPassage('');
-      } else if (uri) {
-        dispatch({ type: 'recording', r: { title: title.trim() || 'Untitled recording', speaker: state.user.displayName, passage: passage.trim() || '—', duration: fmtMs(dur), durationMs: dur, privacy, uri } });
-        toast.show('Saved as a private draft', { icon: 'check', haptic: 'success' });
-        setTitle(''); setPassage('');
-      } else {
-        toast.show('The recording couldn’t be saved', { tone: 'error', icon: 'mic' });
-      }
+    const take = await stopRecording({ keep });
+    if (!keep) { toast.show('Recording discarded', { icon: 'trash' }); return; }
+    if (!take) { toast.show('The recording couldn’t be saved. Start a new take.', { tone: 'error', icon: 'mic' }); return; }
+    setTitle(''); setPassage('');
+    if (take.online) {
+      toast.show('Saved · uploading privately', { icon: 'check', haptic: 'success' });
+      [1500, 6000].forEach((t) => timers.current.push(setTimeout(() => cloud.refresh(), t)));
     } else {
-      toast.show('Recording discarded', { icon: 'trash' });
+      await drainLocal();
+      toast.show('Saved as a private draft', { icon: 'check', haptic: 'success' });
     }
-    setRec('idle'); setMs(0); setLevels(Array(WAVE_BARS).fill(0));
   };
 
   const togglePlay = async (r) => {
@@ -1705,6 +1676,9 @@ export function SermonStudioScreen() {
         </FadeInUp>
       ) : (
         <View>
+          {rec === 'idle' && !recGrant ? (
+            <UnlockGate feature="recording" title="Unlock Recording" body="One hour of recording requires 5 coins. Watch 3 advertisements to earn the required coins." onUnlocked={() => unlocks.reload()} style={{ marginBottom: 12 }} />
+          ) : null}
           <FadeInUp style={sd.recorder}>
             <View style={[sd.orb, rec === 'recording' && sd.orbRec]}>
               <Icon name={rec === 'recording' ? 'pause' : 'mic'} size={34} color={rec === 'recording' ? '#C9435A' : colors.primary} />
@@ -1715,7 +1689,7 @@ export function SermonStudioScreen() {
             <SRecordButton
               label={rec === 'recording' ? 'Pause recording' : rec === 'paused' ? 'Resume recording' : 'Start recording'}
               active={rec === 'recording'}
-              disabled={busy}
+              disabled={busy || (rec === 'idle' && !recGrant)}
               onPress={rec === 'recording' ? pause : rec === 'paused' ? resume : start}
             >
               <Icon name={rec === 'recording' ? 'pause' : rec === 'paused' ? 'play' : 'mic'} size={26} color="#FFFFFF" />
@@ -1733,7 +1707,7 @@ export function SermonStudioScreen() {
             <FadeInUp distance={8} style={[sd.confirmBox, { marginTop: 12 }]}>
               <Text style={[sd.itemTitle, { color: colors.negative }]}>{micError === 'denied' ? 'Microphone access is off' : 'No microphone found'}</Text>
               <Text style={[sd.cardMeta, { marginTop: 4 }]}>{micError === 'denied' ? 'Allow microphone access for BibleNestra in your device settings, then try again.' : 'This device or browser didn’t provide a microphone. Try again on your phone.'}</Text>
-              <SButton small kind="ghost" label="Try again" style={{ alignSelf: 'flex-start', marginTop: 10 }} onPress={start} />
+              <SButton small kind="ghost" label="Try again" style={{ alignSelf: 'flex-start', marginTop: 10 }} onPress={start} /> {micError === 'denied' && Platform.OS !== 'web' ? <SButton small kind="ghost" label="Open Settings" style={{ alignSelf: 'flex-start', marginTop: 10, marginLeft: 8 }} onPress={() => Linking.openSettings()} /> : null}
             </FadeInUp>
           ) : null}
           <FadeInUp index={1} style={sd.card}>
@@ -1792,7 +1766,7 @@ export function SermonStudioScreen() {
                   body="The audio and its details will be removed from this device. This can't be undone."
                   confirmLabel="Delete"
                   onCancel={() => setConfirmDel(null)}
-                  onConfirm={async () => { if (mine) await unloadSound(); dispatch({ type: 'deleteRecording', id: r.id }); setConfirmDel(null); toast.show('Recording deleted', { icon: 'trash' }); }}
+                  onConfirm={async () => { if (mine) await unloadSound(); dispatch({ type: 'deleteRecording', id: r.id }); deleteTakeFile(r.uri); setConfirmDel(null); toast.show('Recording deleted', { icon: 'trash' }); }}
                 />
               ) : (
                 <View style={sd.btnRow}>
@@ -2025,7 +1999,7 @@ export function CreateScreen({ params = {} }) {
                 <Text style={ed.createDesc} numberOfLines={2}>{CREATE_DESC[kn]}</Text>
               </View>
               <Text style={ed.createNum}>{'0' + (idx + 1)}</Text>
-              <Icon name={on ? 'check-circle' : 'chevron-right'} size={15} color={on ? D.plum : '#AAA6AD'} />
+              <Icon name={on ? 'check-circle' : 'chevron-right'} size={15} color={on ? D.plum : (isDarkScheme() ? '#8A7A6C' : '#AAA6AD')} />
             </Tap>
           );
         })}
@@ -2161,6 +2135,49 @@ const SCREEN_TIME = ['Off', '30 min', '1 hour', '2 hours'];
 const LANG_DEPTH = ['Basic', 'Intermediate', 'Advanced'];
 const COMMENTARY = ['All', 'Protestant', 'Catholic', 'Orthodox', 'Off'];
 const READ_SPEEDS = [0.75, 1, 1.25, 1.5];
+
+// APPEARANCE (dev update v1, item 14): Profile › Account › Appearance. Light, Dark or System default (follows the phone).
+// The choice is saved, then the app reloads so every screen picks up the palette (a production native build asks for a restart).
+const APPEARANCE_CHOICES = [
+  { key: 'light', title: 'Light', subtitle: 'Warm ivory pages', icon: 'sun' },
+  { key: 'dark', title: 'Dark', subtitle: 'Warm dark pages, easier on the eyes at night', icon: 'moon' },
+  { key: 'system', title: 'System default', subtitle: 'Follows your phone’s light or dark setting', icon: 'settings' },
+];
+function AppearanceSettings() {
+  const toast = useToast();
+  const [pref, setPref] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    readAppearancePref().then((p) => { if (alive) setPref(p); });
+    return () => { alive = false; };
+  }, []);
+  const choose = async (key) => {
+    if (key === pref) return;
+    setPref(key);
+    try {
+      const how = await setAppearance(key);
+      if (how === 'restart') toast.show('Restart the app to apply', { icon: 'check' });
+    } catch (e) {
+      toast.show('Could not save the appearance. Try again.', { icon: 'x' });
+    }
+  };
+  return (
+    <DCard style={{ marginBottom: 14 }}>
+      <DLabel>Appearance</DLabel>
+      {APPEARANCE_CHOICES.map((c) => (
+        <DRow
+          key={c.key}
+          icon={c.icon}
+          title={c.title}
+          subtitle={c.subtitle}
+          accessibilityLabel={`Appearance: ${c.title}`}
+          onPress={() => choose(c.key)}
+          right={pref === c.key ? <Icon name="check" size={18} color={D.plum} /> : null}
+        />
+      ))}
+    </DCard>
+  );
+}
 
 // Profile → Settings: which mode the app runs in, who's signed in, last sync, "Sync now" and "Sign out".
 function AccountSync() {
@@ -2464,6 +2481,8 @@ export function ProfileScreen({ params = {} }) {
             <DRow icon="user" title="Family & child profiles" subtitle="Guardian controls and child activities" onPress={() => setTab('Family')} />
             <DRow icon="sparkles" title="Scripture pop-ups" subtitle={popSub} onPress={() => nav.push('ScripturePop')} />
             <DRow icon="clock" title="Reminders" subtitle="Personal reminders to read, pray or call" onPress={() => nav.push('Reminders')} />
+            <DRow icon="book" title="My Scripture Journey" subtitle="Everything in one place: goals, reading, streaks" onPress={() => nav.push('Journey')} /> {/* MY SCRIPTURE JOURNEY */}
+            <PortfolioProfileRows />
           </DList>
 
           <View style={styles.statRow}>
@@ -2838,11 +2857,13 @@ export function ProfileScreen({ params = {} }) {
       {tab === 'Account' ? (
         <View style={{ marginTop: 18 }}>
           {/* Sync status and sign out live here; delete account is in the section below */}
+          <AppearanceSettings />{/* APPEARANCE (item 14) */}
           <Section title="Account & sync">
             <AccountSync />
           </Section>
           <Group>
             <Item icon="check" tint={sync.status === 'failed' ? colors.negative : colors.teal} title="Sync status" subtitle={sync.at ? 'Last saved ' + sync.at.toLocaleTimeString() : 'Saved locally on this device'} right={sync.status === 'failed' && sync.retry ? <Button small kind="ghost" label="Retry" onPress={sync.retry} /> : <Badge label={sync.status} tint={sync.status === 'failed' ? colors.negative : colors.teal} />} />
+            <Item icon="check" tint={colors.primary} title="Paid but not admitted?" subtitle="Report a Paystack payment for a check" onPress={() => nav.push('PaymentReport', {})} />
             <Item icon="share" tint={colors.primary} title="Back up my data" subtitle="Export a JSON copy you can keep" onPress={() => exportData(state, toast)} />
           </Group>
           <Group style={{ marginTop: 14 }}>
@@ -3133,10 +3154,10 @@ const ed = StyleSheet.create({
   hlValue: { fontFamily: DF.displayBold, fontSize: 19, marginTop: 2 },
   hlSub: { fontFamily: DF.sans, fontSize: 9, opacity: 0.85, marginTop: 2 },
   week: { flexDirection: 'row', justifyContent: 'space-between' },
-  day: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EFEDE8' },
+  day: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: (isDarkScheme() ? '#32271E' : '#EFEDE8') },
   dayDone: { backgroundColor: D.plum },
-  dayToday: { borderWidth: 2, borderColor: D.plum, backgroundColor: '#FFFFFF' },
-  dayText: { fontFamily: DF.sansHeavy, fontSize: 10, color: '#9B979F' },
+  dayToday: { borderWidth: 2, borderColor: D.plum, backgroundColor: colors.surfaceWhite },
+  dayText: { fontFamily: DF.sansHeavy, fontSize: 10, color: (isDarkScheme() ? '#B8A797' : '#9B979F') },
   weekCount: { fontFamily: DF.sansBold, fontSize: 9, color: D.plum },
   weekLine: { fontFamily: DF.display, fontSize: 15, color: D.ink, marginTop: 2 },
   weekNote: { fontFamily: DF.sans, fontSize: 9, color: D.muted, marginTop: 3 },
@@ -3144,11 +3165,11 @@ const ed = StyleSheet.create({
   introTitle: { fontFamily: DF.display, fontSize: 27, lineHeight: 30, color: D.goldDark, marginTop: 20, marginBottom: 6 },
   introBody: { fontFamily: DF.sans, fontSize: 11, lineHeight: 16, color: D.goldDark },
   createRow: { minHeight: 80, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: D.line },
-  createRowOn: { backgroundColor: '#FFF1E5', borderRadius: 16, borderBottomColor: 'transparent' },
+  createRowOn: { backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E5'), borderRadius: 16, borderBottomColor: 'transparent' },
   createTile: { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   createTitle: { fontFamily: DF.display, fontSize: 13, color: D.ink },
   createDesc: { fontFamily: DF.sans, fontSize: 10, lineHeight: 14, color: D.muted, marginTop: 2 },
-  createNum: { fontFamily: DF.displayBold, fontSize: 9, color: '#C4B3A5' },
+  createNum: { fontFamily: DF.displayBold, fontSize: 9, color: (isDarkScheme() ? '#8A7A6C' : '#C4B3A5') },
 });
 
 const CREATE_GRADS = [['#FF9952', '#E85C12'], ['#E4C77D', '#9D681F'], ['#A8BB83', '#5D713F'], ['#6C4931', '#281A11']];

@@ -10,11 +10,13 @@
 //   biblenestra://reading                     → reading plans
 //   biblenestra://notifications               → Settings › Notifications › Daily moments
 //   biblenestra://chat/<conversationId>[?title=…] → that chat (CHAT PUSH)
+//   biblenestra://portfolio/invite/<code> · biblenestra://partner/invite/<code> → Portfolio & Partners Apply screen
 // The "biblenestra" scheme is registered by app.json ("scheme"), so Android routes these to the app.
 import { useEffect } from 'react';
 import { Linking, Platform } from 'react-native';
 import { openTarget } from './daily';
 import { openChatFromData } from './push'; // CHAT PUSH
+import { parsePortfolioInviteLink, rememberPartnerInvite } from '../portfolio/inviteMemory'; // PORTFOLIO invite links
 
 const KNOWN = ['daily', 'devotional', 'prayer', 'companion', 'community', 'inbox', 'bible', 'listen', 'reading', 'notifications', 'today'];
 KNOWN.push('chat'); // CHAT PUSH: biblenestra://chat/<conversationId>
@@ -49,6 +51,8 @@ export function useDeepLinks(nav) {
   useEffect(() => {
     if (Platform.OS === 'web' || !nav) return undefined;
     const go = (url) => {
+      const portfolioCode = parsePortfolioInviteLink(url);
+      if (portfolioCode) { rememberPartnerInvite(portfolioCode); nav.push('PortfolioApply', { code: portfolioCode }); return; }
       const link = parseDeepLink(url);
       if (link && link.target === 'chat') { if (link.params.id) openChatFromData(nav, { conversationId: link.params.id, chatTitle: link.params.title }); return; } // CHAT PUSH
       if (link) openTarget(nav, link.target, link.params);

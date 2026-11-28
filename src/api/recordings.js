@@ -6,9 +6,33 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { useApi } from './auth';
 import { ApiError, errorMessage } from './client';
+import { listPending, removePending } from '../recording/pending';
 
 const IS_WEB = Platform.OS === 'web';
 export const MAX_MINUTES = 60;
+const inflight = new Set(); // take URIs uploading right now (so a flush and a manual upload never send the same take twice)
+
+/**
+ * Upload every cloud take that is still pending (saved while offline, or the app was closed mid-upload).
+ * Takes stay pending on failure and are retried the next time Sermon Studio opens. → uploaded recordings
+ */
+export async function flushPendingUploads(request) {
+  const list = (await listPending()).filter((p) => p.kind === 'cloud' && p.uri && !inflight.has(p.uri));
+  const done = [];
+  for (const p of list) {
+    inflight.add(p.uri);
+    try {
+      const rec = await uploadRecording(request, p);
+      await removePending(p.uri);
+      done.push(rec);
+    } catch (e) {
+      // Still pending: retried later.
+    } finally {
+      inflight.delete(p.uri);
+    }
+  }
+  return done;
+}
 
 // Small files so an hour fits comfortably (≈ 15 MB at 32 kbps mono): Whisper resamples to 16 kHz anyway.
 // Android writes ADTS AAC (.aac), which the server can split into pieces for long sermons.
@@ -157,14 +181,18 @@ export function useCloudRecordings() {
   const upload = useCallback(async (take) => {
     const key = `up${Date.now()}`;
     setUploads((u) => [{ key, title: take.title || 'Untitled recording', progress: 0 }, ...u]);
+    inflight.add(take.uri);
     try {
       const rec = await uploadRecording(api.request, take, (p) => alive.current && setUploads((u) => u.map((x) => (x.key === key ? { ...x, progress: p } : x))));
+      await removePending(take.uri); // the server has the audio now: the local copy can go
+      inflight.delete(take.uri);
       if (alive.current) {
         setUploads((u) => u.filter((x) => x.key !== key));
         setItems((list) => [rec, ...(list || []).filter((x) => x.id !== rec.id)]);
       }
       return rec;
     } catch (e) {
+      inflight.delete(take.uri);
       if (alive.current) setUploads((u) => u.map((x) => (x.key === key ? { ...x, error: errorMessage(e, 'Upload failed'), take } : x)));
       throw e;
     }

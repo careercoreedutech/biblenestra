@@ -95,7 +95,9 @@ export function mapVideoPost(p, prev) {
     videoError: v.status === 'error',
     imageUrl: null,
     bg: colors.night,
-    views: p.views || 0,
+    views: p.views || 0, // post views (impressions)
+    plays: p.videoPlays || 0, // PACKAGE F: video plays (the number on the video)
+    viewers: p.videoViewers || 0, // PACKAGE F: unique viewers
     likes: p.likes || 0,
     ...reactionFields(p),
     shares: p.shares || 0,
@@ -251,14 +253,21 @@ export function mapMeToUser(me, prevUser = {}) {
 
 // ---------- Phase 2 mappers ----------
 
+// MEMBERSHIP GROUPS: the two sections of a membership group are named MASTER CLASS and EXECUTIVE CLASS everywhere
+export const SECTION_LABEL = { master: 'MASTER CLASS', executive: 'EXECUTIVE CLASS' };
+
 export function mapConversation(c, prev) {
+  const section = c.membershipSection || null;
+  const groupName = section ? String(c.title || '').replace(/ · (MASTER CLASS|EXECUTIVE CLASS)$/, '') : '';
   return {
     id: c.id,
     kind: c.kind,
     title: c.title,
+    membershipId: c.membershipId || null,
+    membershipSection: section,
     // the chat screens show `with` / `type` (local shape) — SOCIAL r3: DMs opened from a profile
-    with: (prev && prev.with) || c.title || (c.otherUser && c.otherUser.displayName) || 'Chat',
-    type: (prev && prev.type) || (c.kind === 'dm' ? 'Direct message' : c.kind === 'channel' ? 'Channel' : 'Group chat'),
+    with: section ? `${groupName} · ${SECTION_LABEL[section]}` : (prev && prev.with) || c.title || (c.otherUser && c.otherUser.displayName) || 'Chat',
+    type: section ? SECTION_LABEL[section] : (prev && prev.type) || (c.kind === 'dm' ? 'Direct message' : c.kind === 'channel' ? 'Channel' : 'Group chat'),
     description: c.description || '',
     membersCount: c.membersCount || 0,
     communityName: c.communityName || null,
@@ -269,6 +278,7 @@ export function mapConversation(c, prev) {
     role: c.role || 'member',
     muted: !!c.muted,
     mutedUntil: c.mutedUntil || null, // CHAT GAPS: timed mute (null = always)
+    pinned: !!c.pinned, // PACKAGE F: pinned to the top of my list
     unreadCount: c.unreadCount || 0,
     isRequest: !!c.isRequest,
     otherFollowsMe: c.otherFollowsMe !== undefined ? !!c.otherFollowsMe : (prev?.otherFollowsMe ?? false),

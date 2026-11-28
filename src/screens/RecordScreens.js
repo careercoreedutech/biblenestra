@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // Record (Sermon Studio) — online mode UI: the server-backed recordings list (used inside SermonStudioScreen)
 // and the recording detail screen (audio player · searchable transcript · AI sermon notes).
 // Look: the design's Sermon Studio / Recorder language (paper cards, plum accents, dark hero player) on the design kit.
@@ -15,6 +16,7 @@ import { parseRef } from '../data/bible';
 import { audioSource, fmtClock, notesAsText, STATUS_LABEL, isStaleUpload } from '../api/recordings';
 import { d, df, Grad, Tap, Eyebrow, SectionTitle, gradients } from '../design/sanctuary';
 import { DScreen, DInput, DTabs } from '../design/profile/parts';
+import { colors } from '../theme'; // APPEARANCE (item 14): palette tokens
 
 const STATUS_TINT = { uploading: '#4F7CA8', transcribing: d.roseDark, summarising: d.roseDark, ready: d.sageDark, error: '#B33D3D' };
 const WORKING_TINT = '#B0701C';
@@ -115,7 +117,7 @@ export function CloudRecordingList({ cloud, seen }) {
       {cloud.uploads.map((u) => (
         <ScaleIn key={u.key} from={0.94} style={s.card}>
           <View style={s.head}>
-            <View style={[s.iconWrap, { backgroundColor: '#DDE6EE' }]}><Icon name={u.error ? 'x' : 'download'} size={17} color={u.error ? '#B33D3D' : '#4F7CA8'} /></View>
+            <View style={[s.iconWrap, { backgroundColor: (isDarkScheme() ? '#1B2A36' : '#DDE6EE') }]}><Icon name={u.error ? 'x' : 'download'} size={17} color={u.error ? '#B33D3D' : '#4F7CA8'} /></View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={s.title} numberOfLines={1}>{u.title}</Text>
               <Text style={[s.meta, u.error && { color: '#B33D3D' }]}>{u.error ? u.error : `Uploading · ${Math.round((u.progress || 0) * 100)}%`}</Text>
@@ -443,7 +445,7 @@ export function RecordingDetailScreen({ params = {} }) {
                   const on = i === activeIdx;
                   return (
                     <Pressable key={i} onPress={() => player.seek(seg.start * 1000, true)} style={({ pressed }) => [s.line, i > 0 && s.lineSep, on && s.lineOn, pressed && { backgroundColor: d.lavender }]} accessibilityRole="button" accessibilityLabel={`Play from ${fmtClock(seg.start)}`}>
-                      <View style={[s.stamp, on && { backgroundColor: d.plum }]}><Text style={[s.stampText, on && { color: '#FFFFFF' }]}>{fmtClock(seg.start)}</Text></View>
+                      <View style={[s.stamp, on && { backgroundColor: d.plum }]}><Text style={[s.stampText, on && { color: '#FFFAF2' }]}>{fmtClock(seg.start)}</Text></View>
                       <Text style={[s.lineText, on && { color: d.ink }]}>{highlight(seg.text, query.trim())}</Text>
                     </Pressable>
                   );
@@ -458,18 +460,18 @@ export function RecordingDetailScreen({ params = {} }) {
 }
 
 const s = StyleSheet.create({
-  card: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 18, padding: 16, marginTop: 12, shadowColor: '#281A11', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  card: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 18, padding: 16, marginTop: 12, shadowColor: colors.fg, shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
   emptyCard: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 18 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   title: { fontFamily: df.displayBold, fontSize: 17, lineHeight: 22, color: d.ink, letterSpacing: -0.2 },
   meta: { fontFamily: df.sans, fontSize: 12, color: d.muted, marginTop: 4, lineHeight: 16 },
-  summary: { fontFamily: df.sans, fontSize: 13.5, color: '#5A4636', lineHeight: 20, marginTop: 10 },
-  body: { fontFamily: df.sans, fontSize: 14.5, color: '#4A3A30', lineHeight: 22, marginTop: 8 },
+  summary: { fontFamily: df.sans, fontSize: 13.5, color: (isDarkScheme() ? '#CDBBA6' : '#5A4636'), lineHeight: 20, marginTop: 10 },
+  body: { fontFamily: df.sans, fontSize: 14.5, color: (isDarkScheme() ? '#D8C7B6' : '#4A3A30'), lineHeight: 22, marginTop: 8 },
   btnRow: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
   btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 36, paddingHorizontal: 14, borderRadius: 999 },
   btnPrimary: { backgroundColor: d.plum },
-  btnGhost: { backgroundColor: 'rgba(255,255,255,0.78)', borderWidth: 1, borderColor: d.line },
+  btnGhost: { backgroundColor: d.glass, borderWidth: 1, borderColor: d.line },
   btnDanger: { backgroundColor: '#B33D3D' },
   btnText: { fontFamily: df.sansBold, fontSize: 12 },
   tag: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
@@ -477,7 +479,7 @@ const s = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4 },
   track: { height: 4, borderRadius: 2, backgroundColor: d.lavender, marginTop: 10, overflow: 'hidden' },
   confirm: { marginTop: 12, padding: 14, borderRadius: 18, borderWidth: 1, borderColor: alpha('#B33D3D', 0.3), backgroundColor: alpha('#B33D3D', 0.06) },
-  playerWrap: { borderRadius: 22, overflow: 'hidden', marginTop: 12, shadowColor: '#281A11', shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
+  playerWrap: { borderRadius: 22, overflow: 'hidden', marginTop: 12, shadowColor: colors.fg, shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
   player: { borderRadius: 22, padding: 18 },
   playBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: d.gold, alignItems: 'center', justifyContent: 'center' },
   playerTitle: { fontFamily: df.displayBold, fontSize: 18, color: '#FFF2E5', marginTop: 2, letterSpacing: -0.2 },
@@ -486,19 +488,19 @@ const s = StyleSheet.create({
   seekHit: { height: 26, justifyContent: 'center', marginTop: 12 },
   seekTrack: { height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)', overflow: 'hidden' },
   seekFill: { height: 4, backgroundColor: d.gold },
-  seekKnob: { position: 'absolute', top: 7, width: 12, height: 12, borderRadius: 6, backgroundColor: '#FFF2E5' },
+  seekKnob: { position: 'absolute', top: 7, width: 12, height: 12, borderRadius: 6, backgroundColor: colors.peachTint },
   time: { color: 'rgba(255,242,229,0.72)', fontSize: 11.5, fontFamily: df.sansBold, fontVariant: ['tabular-nums'] },
-  aiNote: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 14, backgroundColor: '#FBF0D2', borderWidth: 1, borderColor: alpha(d.gold, 0.4) },
+  aiNote: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 14, backgroundColor: (isDarkScheme() ? '#3A2E14' : '#FBF0D2'), borderWidth: 1, borderColor: alpha(d.gold, 0.4) },
   aiNoteText: { flex: 1, fontFamily: df.sansSemi, fontSize: 12.5, color: d.goldDark },
   notesTitle: { fontFamily: df.displayBold, fontSize: 21, lineHeight: 27, color: d.ink, letterSpacing: -0.4 },
   pointRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: 12 },
   pointNum: { width: 22, height: 22, borderRadius: 11, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   pointNumText: { fontFamily: df.sansHeavy, fontSize: 11.5, color: d.plum },
   refWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  refChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, backgroundColor: '#FBF0D2', borderWidth: 1, borderColor: alpha(d.gold, 0.4) },
+  refChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, backgroundColor: (isDarkScheme() ? '#3A2E14' : '#FBF0D2'), borderWidth: 1, borderColor: alpha(d.gold, 0.4) },
   refText: { fontFamily: df.displayBold, fontSize: 14, color: d.goldDark },
   quote: { borderLeftWidth: 3, borderLeftColor: d.plum, paddingLeft: 12, marginTop: 12 },
-  quoteText: { fontFamily: df.displayItalic, fontSize: 16.5, lineHeight: 24, color: '#4A3A30' },
+  quoteText: { fontFamily: df.displayItalic, fontSize: 16.5, lineHeight: 24, color: (isDarkScheme() ? '#D8C7B6' : '#4A3A30') },
   prayerCard: { borderRadius: 22, overflow: 'hidden', marginTop: 12 },
   prayerInner: { borderRadius: 22, padding: 18 },
   prayerText: { fontFamily: df.displayItalic, fontSize: 17, lineHeight: 26, color: '#FFF2E5', marginTop: 10 },
@@ -509,6 +511,6 @@ const s = StyleSheet.create({
   lineOn: { backgroundColor: d.lavender },
   stamp: { minWidth: 44, paddingVertical: 3, paddingHorizontal: 6, borderRadius: 6, backgroundColor: d.ivory, alignItems: 'center', marginTop: 1 },
   stampText: { fontSize: 10.5, fontFamily: df.sansBold, color: d.muted, fontVariant: ['tabular-nums'] },
-  lineText: { flex: 1, fontFamily: df.display, fontSize: 15.5, lineHeight: 23, color: '#4A3A30' },
+  lineText: { flex: 1, fontFamily: df.display, fontSize: 15.5, lineHeight: 23, color: (isDarkScheme() ? '#D8C7B6' : '#4A3A30') },
   mark: { backgroundColor: alpha(d.gold, 0.5), color: d.ink },
 });

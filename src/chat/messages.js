@@ -201,8 +201,11 @@ export function upsertMessage(list, msg, localId) {
   return next.filter((m, j) => j === i || m.id !== msg.id);
 }
 
-export function canEditMessage(m) {
+// MEMBERSHIP GROUPS: a publisher's MASTER CLASS post (text, or a media caption) can be edited any time, as the server allows.
+// Everyone else: their own text messages within the 15-minute window.
+export function canEditMessage(m, { publisher = false } = {}) {
   if (!m || !m.mine || m.deleted) return false;
+  if (publisher) return !m.system && ['text', 'image', 'video', 'file', 'voice'].includes(m.kind || 'text');
   if (m.audio || m.gift || m.image || m.voice || m.file || m.video || m.system || m.forwarded || (m.kind && !['text', 'verse', 'prayer'].includes(m.kind))) return false;
   if (!m.text) return false;
   return !m.createdAt || Date.now() - m.createdAt < EDIT_WINDOW_MS;

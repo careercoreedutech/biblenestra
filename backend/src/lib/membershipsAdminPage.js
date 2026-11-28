@@ -75,10 +75,58 @@ function lines(t){ return t.split('\\n').map(function(l){ return l.trim(); }).fi
 window.registerAdminTab('Memberships', function(box, ctx){
   var h = ctx.h, api = ctx.api, toast = ctx.toast;
   var meta = { categories: [], flags: {} };
-  box.appendChild(h('h2', { class: 'serif', text: 'Memberships & Paid Channels' }));
-  box.appendChild(h('p', { class: 'sub', text: 'One membership group shows in Discover \\u203A Memberships, in Paid Channels and (for members) in My Channels. The first time you publish it, it gets two sections: MASTER CLASS (lessons, videos and files: only the owner and admins allowed to publish post there) and EXECUTIVE CLASS (members discuss; every MASTER CLASS post appears there automatically for comments). Access is checked by the server on every MASTER CLASS, EXECUTIVE CLASS and library request; when a membership lapses the person is removed within 15 minutes and renewing brings them back. Owners manage admins, permissions, members and group settings from the group in the app.' }));
+  box.appendChild(h('h2', { class: 'serif', text: 'Membership groups (MASTER CLASS & EXECUTIVE CLASS)' }));
+  box.appendChild(h('p', { class: 'sub', text: 'One membership group shows in Discover \\u203A Memberships, in the Membership groups list and (for members) in My membership groups. The first time you publish it, it gets two sections: MASTER CLASS (lessons, videos and files: only the owner and admins allowed to publish post there) and EXECUTIVE CLASS (members discuss; every MASTER CLASS post appears there automatically for comments). Access is checked by the server on every MASTER CLASS, EXECUTIVE CLASS and library request; when a membership lapses the person is removed within 15 minutes and renewing brings them back. Owners manage admins, permissions, members and group settings from the group in the app.' }));
   var flagsLine = h('div', { class: 'card', style: 'background:var(--raised)' });
   box.appendChild(flagsLine);
+
+  // ================= creation fee (Development Update v1, item 4.2) =================
+  var feeBox = h('div', { class: 'card' });
+  box.appendChild(feeBox);
+  var feeIn = {};
+  var CYCLE_LABEL = { one_time: 'One time', week: 'Weekly', month: 'Monthly' };
+  function feeCard(d){
+    var f = d.fee || {};
+    feeBox.innerHTML = '';
+    feeIn.cycle = h('select');
+    (d.cycles || []).forEach(function(cy){ feeIn.cycle.appendChild(h('option', { value: cy, text: CYCLE_LABEL[cy] || cy })); });
+    feeIn.cycle.value = f.cycle || 'one_time';
+    feeIn.currency = inp(h, 'NGN', 3); feeIn.currency.value = f.currency || 'NGN';
+    feeIn.free = inp(h, '0', 12, 'number'); feeIn.free.value = String((f.free || 0) / 100);
+    feeIn.paid = inp(h, '0', 12, 'number'); feeIn.paid.value = String((f.paid || 0) / 100);
+    feeIn.cats = ta(h, 3, 'One per line, e.g.  Prayer :: 2000  (overrides the free / paid amount for that category)', 2000);
+    feeIn.cats.value = Object.keys(f.categories || {}).map(function(k){ return k + ' :: ' + (f.categories[k] / 100); }).join('\\n');
+    var save = h('button', { class: 'btn', text: 'Save creation fee', onclick: async function(){
+      var cats = {};
+      feeIn.cats.value.split('\\n').forEach(function(line){
+        var parts = line.split('::'); var k = (parts[0] || '').trim();
+        if (k && parts.length > 1) cats[k] = Math.round(Number(parts[1].trim() || 0) * 100);
+      });
+      try {
+        var saved = await api('PUT', '/memberships/manage/fee-settings', {
+          cycle: feeIn.cycle.value, currency: feeIn.currency.value.trim().toUpperCase(),
+          free: Math.round(Number(feeIn.free.value || 0) * 100), paid: Math.round(Number(feeIn.paid.value || 0) * 100), categories: cats,
+        });
+        toast('Creation fee saved');
+        feeCard(saved);
+      } catch (e) { toast(e.message, true); }
+    } });
+    feeBox.appendChild(h('h3', { class: 'serif', text: 'Creation fee (paid to BibleNestra through Paystack)' }));
+    feeBox.appendChild(h('div', { class: 'meta', text: 'Creators pay this before a membership they made can be published. Weekly and monthly fees renew by card; if a period ends unpaid the membership goes back to draft until the fee is paid again. Amounts are in whole units of the currency. 0 means no fee.' }));
+    feeBox.appendChild(field(h, 'Cycle', feeIn.cycle));
+    feeBox.appendChild(field(h, 'Currency', feeIn.currency));
+    feeBox.appendChild(field(h, 'Free memberships', feeIn.free, 'Charged when no plan costs money'));
+    feeBox.appendChild(field(h, 'Paid memberships', feeIn.paid, 'Charged when a plan is priced above 0'));
+    feeBox.appendChild(field(h, 'Per category (optional)', feeIn.cats));
+    feeBox.appendChild(h('div', { class: 'row', style: 'gap:6px;margin-top:10px' }, [save]));
+  }
+  function feeLabel(m){
+    var f = m.creationFee;
+    if (!f || !f.required) return 'No creation fee';
+    if (f.paid) return 'Fee paid (' + f.cycle.replace('_', ' ') + ')';
+    if (f.lapsedAt || f.status === 'lapsed') return 'Fee lapsed';
+    return 'Fee due ' + f.currency + ' ' + (f.amountMinor / 100);
+  }
 
   // ================= create / edit =================
   var editing = null;
@@ -96,6 +144,12 @@ window.registerAdminTab('Memberships', function(box, ctx){
   var fCBio = ta(h, 3, 'optional — defaults to the owner profile bio', 1000);
   var fOwner = inp(h, '@handle of the owner (optional — defaults to you)', 60);
   var fSort = inp(h, '0', 4, 'number'); fSort.style.width = '90px';
+  // MEMBERSHIP AD GATE: rewarded ads before MASTER CLASS and EXECUTIVE CLASS open (saved with PUT /memberships/:id/ad-gate)
+  var fAdOn = h('input', { type: 'checkbox' });
+  var fAdAds = h('input', { type: 'number', min: '1', max: '10', step: '1', value: '1', style: 'width:90px' });
+  var fAdFreq = sel(h, [['daily', 'Daily: unlocks until midnight (Lagos time)'], ['weekly', 'Weekly: unlocks until Monday (Lagos time)'], ['every_entry', 'Every time a user comes in: 15 minutes']]);
+  var fAdWrap = h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;align-items:center' }, [fAdOn, h('span', { class: 'meta', text: 'On' }), fAdAds, h('span', { class: 'meta', text: 'ads' }), fAdFreq]);
+  function adGateSet(s){ s = s || {}; fAdOn.checked = !!s.enabled; fAdAds.value = String(s.ads || 1); fAdFreq.value = s.frequency || 'daily'; }
   var fSave = h('button', { class: 'btn', text: 'Create membership' });
   var fCancel = h('button', { class: 'btn ghost', text: 'New membership', style: 'display:none' });
   var fHeadLine = h('div', { class: 'meta', text: 'New membership (saved as a draft)' });
@@ -115,18 +169,21 @@ window.registerAdminTab('Memberships', function(box, ctx){
     field(h, 'Creator bio', fCBio),
     field(h, 'Owner', fOwner),
     field(h, 'Featured boost', fSort, 'Higher numbers rank higher in Trending (-100 … 100)'),
+    field(h, 'Ad gate', fAdWrap, 'Members watch these rewarded ads before MASTER CLASS and EXECUTIVE CLASS open. Owner, admins and Plus subscribers are exempt'),
     h('div', { class: 'row', style: 'margin-top:14px' }, [fSave, fCancel]),
   ]));
   function reset(){
     editing = null; fHeadLine.textContent = 'New membership (saved as a draft)'; fSave.textContent = 'Create membership'; fCancel.style.display = 'none';
     [fTitle, fSlug, fVideo, fHead, fDesc, fBen, fFaq, fQs, fCName, fCBio, fOwner].forEach(function(x){ x.value = ''; });
     fCover.set(null); fSort.value = '0'; if (meta.categories.length) fCat.value = meta.categories[0];
+    adGateSet(meta.adGateDefault); // new memberships start from the configured default
   }
   function edit(m){
     editing = m; fHeadLine.textContent = 'Editing \\u201C' + m.title + '\\u201D'; fSave.textContent = 'Save membership'; fCancel.style.display = '';
     fTitle.value = m.title; fSlug.value = m.slug; fCat.value = m.category; fCover.set(m.coverUrl); fVideo.value = m.introVideoUrl || '';
     fHead.value = m.headline || ''; fDesc.value = m.description || ''; fBen.value = (m.benefits || []).join('\\n'); fFaq.value = faqText(m.faqs); fQs.value = qText(m.questions);
     fCName.value = m.creatorName || ''; fCBio.value = m.creatorBio || ''; fOwner.value = m.owner && m.owner.handle ? '@' + m.owner.handle : ''; fSort.value = String(m.sortOrder || 0);
+    adGateSet(m.adGate);
     fTitle.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   fCancel.onclick = reset;
@@ -140,6 +197,7 @@ window.registerAdminTab('Memberships', function(box, ctx){
       if (fOwner.value.trim()) p.ownerHandle = fOwner.value.trim();
       var cov = await fCover.value(); if (cov !== undefined) p.coverKey = cov;
       var r = editing ? await api('PATCH', '/memberships/manage/' + editing.id, p) : await api('POST', '/memberships/manage', p);
+      await api('PUT', '/memberships/' + r.id + '/ad-gate', { enabled: fAdOn.checked, ads: Number(fAdAds.value), frequency: fAdFreq.value });
       toast(editing ? 'Saved' : 'Created as a draft \\u2014 add a plan, then publish');
       open[r.id] = 'plans'; reset(); await load();
     } catch (e) { toast(e.message, true); }
@@ -153,7 +211,8 @@ window.registerAdminTab('Memberships', function(box, ctx){
 
   async function load(){
     var d = await api('GET', '/memberships/manage');
-    items = d.items; meta.categories = d.categories; meta.flags = d.flags;
+    items = d.items; meta.categories = d.categories; meta.flags = d.flags; meta.adGateDefault = d.adGateDefault;
+    if (!feeIn.cycle) api('GET', '/memberships/manage/fee-settings').then(feeCard).catch(function(e){ feeBox.innerHTML = ''; feeBox.appendChild(h('div', { class: 'meta', text: e.message })); });
     if (!fCat.options.length) { meta.categories.forEach(function(cn){ fCat.appendChild(h('option', { value: cn, text: cn })); }); }
     flagsLine.innerHTML = '';
     flagsLine.appendChild(h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [
@@ -184,7 +243,7 @@ window.registerAdminTab('Memberships', function(box, ctx){
       card.appendChild(h('div', { class: 'row', style: 'gap:14px;align-items:flex-start' }, [
         m.coverUrl ? h('img', { src: m.coverUrl, alt: '', style: 'width:150px;height:84px;border-radius:12px;object-fit:cover;flex:none' }) : h('div', { style: 'width:150px;height:84px;border-radius:12px;background:var(--raised);flex:none' }),
         h('div', { class: 'grow' }, [
-          h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [h('b', { text: m.title }), chip(h, m.status, statusKind), chip(h, m.category, 'mut'), m.hasPreview ? chip(h, 'Intro video', 'gold') : null]),
+          h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [h('b', { text: m.title }), chip(h, m.status, statusKind), chip(h, m.category, 'mut'), chip(h, feeLabel(m), m.creationFee && m.creationFee.paid ? '' : (m.creationFee && m.creationFee.required ? 'neg' : 'mut')), chip(h, m.subscribers.active + ' active / ' + m.subscribers.total + ' total', 'mut'), m.hasPreview ? chip(h, 'Intro video', 'gold') : null]),
           h('div', { class: 'meta', style: 'margin-top:4px', text: (m.priceLabel || 'No active plan') + ' \\u00B7 ' + m.memberCount + ' members \\u00B7 \\u2605 ' + m.rating.avg.toFixed(2) + ' (' + m.rating.count + ') \\u00B7 owner ' + (m.owner ? m.owner.name : '\\u2014') }),
           h('div', { style: 'margin-top:4px', text: m.headline || '' }),
           m.channelId ? sectionsLine(h, m) : h('div', { class: 'meta', style: 'margin-top:4px', text: 'MASTER CLASS and EXECUTIVE CLASS are created when you publish.' }),

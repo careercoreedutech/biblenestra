@@ -2,7 +2,7 @@
 // search entry, "Continue reading" (state.lastPosition), translation chips + Compare, the 66 books with
 // Old / New Testament tabs (real book metadata), Beyond the 66, and the study tools.
 // Tapping a book or Continue opens the reader (BibleScreen) pushed on top of this screen.
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../components/Icons';
 import { useToast } from '../components/Toast';
@@ -10,7 +10,9 @@ import { useStore } from '../store';
 import { useNav } from '../navigation';
 import { BOOKS } from '../data/bible';
 import { resolveTranslationId, translationInfo } from '../bible/catalog';
+import { showBookListAd } from '../ads/breaks'; // 66 BOOKS AD: one interstitial the first time, then subject to the caps
 import { d, df, k, gradients, Grad, Tap, Eyebrow, PageHeader, IconButton, SectionTitle } from '../design/sanctuary';
+import { colors } from '../theme';
 
 // Common translations offered next to the reader's own (all present in src/bible/catalog.js)
 const COMMON_TRANSLATIONS = ['KJV', 'BSB', 'WEB', 'ASV'];
@@ -24,6 +26,8 @@ export default function BibleHomeScreen() {
   const nav = useNav();
   const toast = useToast();
   const [testament, setTestament] = useState('OT');
+  const scrollRef = useRef(null);
+  const browseY = useRef(0);
 
   const current = resolveTranslationId(state.translation);
   const translations = [current, ...COMMON_TRANSLATIONS.filter((id) => id !== current)];
@@ -41,9 +45,33 @@ export default function BibleHomeScreen() {
   const openReader = (bookId, chapter) => nav.push('Bible', { bookId, chapter });
   const books = BOOKS.filter((b) => b.testament === testament);
 
+  // 66 Books: the first time (and on later visits, subject to the caps) one interstitial plays before the list opens.
+  // Never during reading. showBookListAd resolves quickly when no ad is ready, so the list always opens.
+  const open66Books = async () => {
+    try { await showBookListAd(); } catch (e) { /* the list still opens */ }
+    if (scrollRef.current) scrollRef.current.scrollTo({ y: Math.max(0, browseY.current - 8), animated: true });
+  };
+
+  // Visible feature navigation (always shown, directly below the top section). Each tile opens a real screen.
+  const features = [
+    { key: 'compare', label: 'Compare Translations', icon: 'bible', onPress: () => nav.push('Bible', { bookId: lp.bookId, chapter: lp.chapter, compare: true }) },
+    { key: 'books', label: '66 Books', icon: 'book', onPress: open66Books },
+    { key: 'commentary', label: 'Commentary', icon: 'book', onPress: () => nav.push('Study', { bookId: lp.bookId, chapter: lp.chapter, tab: 'Commentary' }) },
+    { key: 'concordance', label: 'Concordance', icon: 'search', onPress: () => nav.push('Concordance', {}) },
+    { key: 'dictionary', label: 'Bible Dictionary', icon: 'bookmark', onPress: () => nav.push('Factbook', {}) },
+    { key: 'hebrew', label: 'Hebrew & Greek', icon: 'sparkles', onPress: () => nav.push('Study', { bookId: lp.bookId, chapter: lp.chapter, tab: 'Word study' }) },
+    { key: 'references', label: 'Scripture References', icon: 'link', onPress: () => nav.push('Study', { bookId: lp.bookId, chapter: lp.chapter, tab: 'Cross-references' }) },
+    { key: 'exegesis', label: 'Exegesis', icon: 'sparkles', onPress: () => nav.push('Exegesis', { bookId: lp.bookId, chapter: lp.chapter }) },
+    { key: 'search', label: 'Search', icon: 'search', onPress: () => nav.push('Search', {}) },
+    { key: 'beyond', label: 'Beyond the 66', icon: 'book', onPress: () => nav.push('ExtraBooks') },
+    { key: 'saved', label: 'Saved & Library', icon: 'bookmark', onPress: () => nav.push('Library', {}) },
+    { key: 'audio', label: 'Audio', icon: 'headphones', onPress: () => nav.push('MediaLibrary', {}) },
+    { key: 'journey', label: 'Scripture Journey', icon: 'compass', onPress: () => nav.push('Journey') },
+  ];
+
   return (
     <View style={k.screen}>
-      <ScrollView contentContainerStyle={[k.scroll, { paddingBottom: 24 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={[k.scroll, { paddingBottom: 24 }]} showsVerticalScrollIndicator={false}>
         <PageHeader
           title="The Bible"
           subtitle="Sacred scripture"
@@ -89,7 +117,19 @@ export default function BibleHomeScreen() {
           </Tap>
         </ScrollView>
 
-        <SectionTitle eyebrow={`${BOOKS.length} books`} title="Browse scripture" />
+        {/* Feature navigation: always visible, never hidden */}
+        <View style={s.featureGrid} accessibilityLabel="Bible study features">
+          {features.map((f) => (
+            <Tap key={f.key} onPress={f.onPress} style={s.feature} accessibilityRole="button" accessibilityLabel={f.label} testID={`bible-feature-${f.key}`}>
+              <View style={s.featureIcon}><Icon name={f.icon} size={18} color={d.plum} /></View>
+              <Text style={s.featureLabel} numberOfLines={2}>{f.label}</Text>
+            </Tap>
+          ))}
+        </View>
+
+        <View onLayout={(e) => { browseY.current = e.nativeEvent.layout.y; }}>
+          <SectionTitle eyebrow={`${BOOKS.length} books`} title="Browse scripture" />
+        </View>
 
         {/* .testament-tabs */}
         <View style={s.segment}>
@@ -118,32 +158,14 @@ export default function BibleHomeScreen() {
           ))}
         </View>
 
-        <SectionTitle title="Study tools" />
-        <View style={s.toolRow}>
-          <Tool icon="sparkles" label="Exegesis" onPress={() => nav.push('Exegesis', { bookId: lp.bookId, chapter: lp.chapter })} />
-          <Tool icon="book" label="Lexicon" onPress={() => nav.push('Concordance', {})} />
-          <Tool icon="bookmark" label="Saved" onPress={() => nav.push('Library', {})} />
-          <Tool icon="headphones" label="Audio" onPress={() => nav.push('MediaLibrary', {})} />
-        </View>
       </ScrollView>
     </View>
   );
 }
 
-function Tool({ icon, label, onPress }) {
-  return (
-    <Tap onPress={onPress} style={s.tool} accessibilityLabel={label}>
-      <View style={s.toolIcon}>
-        <Icon name={icon} size={19} color={d.plum} />
-      </View>
-      <Text style={s.toolLabel}>{label}</Text>
-    </Tap>
-  );
-}
-
 const s = StyleSheet.create({
   searchBox: { height: 48, borderRadius: 15, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, marginTop: 4 },
-  searchPlaceholder: { flex: 1, fontFamily: df.sans, fontSize: 13, color: '#AA9A8C' },
+  searchPlaceholder: { flex: 1, fontFamily: df.sans, fontSize: 13, color: colors.faint },
   continueCard: { marginTop: 14, minHeight: 220, borderRadius: 25, padding: 22, overflow: 'hidden', flexDirection: 'row', justifyContent: 'space-between' },
   continueText: { flex: 1, paddingRight: 118 },
   continueTitle: { fontFamily: df.displayBold, fontSize: 27, lineHeight: 30, color: '#FFFFFF', marginTop: 12, marginBottom: 10 },
@@ -158,18 +180,18 @@ const s = StyleSheet.create({
   chipOn: { backgroundColor: d.plum, borderColor: d.plum },
   chipText: { fontFamily: df.sansBold, fontSize: 11, color: d.muted },
   chipTextOn: { color: '#FFFFFF' },
-  segment: { flexDirection: 'row', backgroundColor: '#ECE9E2', padding: 4, borderRadius: 13 },
+  segment: { flexDirection: 'row', backgroundColor: colors.raised, padding: 4, borderRadius: 13 },
   segBtn: { flex: 1, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 10, alignItems: 'center' },
   segBtnOn: { backgroundColor: d.paper, shadowColor: '#141219', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
-  segText: { fontFamily: df.sansBold, fontSize: 10, color: '#858189' },
+  segText: { fontFamily: df.sansBold, fontSize: 10, color: colors.muted },
   segTextOn: { color: d.ink },
   bookList: { marginTop: 8 },
   bookRow: { height: 60, flexDirection: 'row', alignItems: 'center', gap: 11, borderBottomWidth: 1, borderBottomColor: d.line },
   bookNum: { width: 20, fontFamily: df.sansHeavy, fontSize: 10, color: d.plum },
   bookName: { flex: 1, fontFamily: df.displayBold, fontSize: 15, color: d.ink },
   bookChapters: { fontFamily: df.sans, fontSize: 10, color: d.muted },
-  toolRow: { flexDirection: 'row', gap: 7 },
-  tool: { flex: 1, alignItems: 'center' },
-  toolIcon: { width: '100%', aspectRatio: 1.3, marginBottom: 7, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, alignItems: 'center', justifyContent: 'center' },
-  toolLabel: { fontFamily: df.sansBold, fontSize: 10, color: d.muted },
+  featureGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  feature: { width: '31.5%', flexGrow: 1, minHeight: 92, borderRadius: 16, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, padding: 10, justifyContent: 'space-between' },
+  featureIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
+  featureLabel: { fontFamily: df.sansBold, fontSize: 11, lineHeight: 14, color: d.ink, marginTop: 8 },
 });

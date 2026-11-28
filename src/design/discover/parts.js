@@ -5,6 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { d, df, Tap } from '../sanctuary';
 import { Icon } from '../../components/Icons';
 import { useNav } from '../../navigation';
+import { colors } from '../../theme'; // APPEARANCE (item 14): palette tokens
 
 const DIRECTORY_TABS = [
   { label: 'Communities', route: 'Communities' },
@@ -111,5 +112,5 @@ const s = StyleSheet.create({
   dayText: { fontFamily: df.sansMedium, fontSize: 13, color: d.ink },
   dayTextOn: { color: '#FFFFFF' },
   dot: { position: 'absolute', bottom: 4, width: 4, height: 4, borderRadius: 2, backgroundColor: d.plum },
-  dotOn: { backgroundColor: '#FFFFFF' },
+  dotOn: { backgroundColor: colors.surfaceWhite },
 });

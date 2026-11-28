@@ -45,6 +45,11 @@ import { audit, registerAdminScript } from './admin.js';
 import { masterTitle, executiveTitle, groupSettingsOf, actorIn, welcomeText, prefsOf, MASTER, EXECUTIVE } from '../lib/membershipGroups.js'; // MEMBERSHIP GROUPS
 import { assertMayJoin, joinRequestOf, freePlanOf } from '../lib/memberships.js';
 import { mountGroupRoutes } from './membershipGroups.js'; // MEMBERSHIP GROUPS: /memberships/:id/group/* + welcome + joining
+import { setConfig } from '../lib/wallet.js'; // MEMBERSHIP CREATION FEE (Development Update v1, item 4.2)
+import { getCreationFeeConfig, creationFeeStatus, assertCreationFeePaid, FEE_CYCLES, feeFor } from '../lib/membershipFees.js';
+import { startCreationFeeCheckout } from '../lib/paystackCheckout.js';
+import { creatorStats } from '../lib/membershipCreator.js'; // CREATOR DASHBOARD (item 4.3)
+import { adGateFor, adGateError, settingsOfRow, getAdGateDefault, setAdGateRow } from '../lib/membershipAdGate.js'; // MEMBERSHIP AD GATE (client request 2026-11-27)
 
 registerAdminScript(MEMBERSHIPS_ADMIN_SCRIPT);
 
@@ -133,6 +138,9 @@ export async function membershipChatGuard(c, next) {
   await expireDue(c.env, { userId: me.id, membershipId: m.id });
   const sub = await subscriptionOf(c.env, m.id, me.id);
   if (hasAccess(sub)) {
+    // MEMBERSHIP AD GATE: a paying member still watches the ads first (owner, admins and Plus are exempt; see lib/membershipAdGate.js)
+    const gate = await adGateFor(c.env, m, me);
+    if (gate.required) throw adGateError(m, gate);
     if (!mem) await addToConversations(c.env, m, me.id, { quiet: true });
     return next();
   }
@@ -148,6 +156,65 @@ export async function membershipLazyExpiry(c, next) {
 }
 
 export const membershipsApp = new Hono();
+
+// ----- creation fee (admin settings) + creator dashboard (Development Update v1, items 4.2 / 4.3).
+// Registered before /memberships/manage/:id so the fixed paths below are never read as an id.
+// CREATION FEE PREVIEW (client request): what the Create form shows at the top, before anything is published.
+//   GET /memberships/creation-fee?category=&type=free|paid → { amountMinor, currency, cycle, type, free }
+membershipsApp.get('/memberships/creation-fee', async (c) => {
+  const category = String(c.req.query('category') || '');
+  const type = c.req.query('type') === 'paid' ? 'paid' : 'free';
+  // a dummy plan priced above 0 makes feeFor() treat the membership as paid (the real plans are not needed to quote the fee)
+  const fee = feeFor(await getCreationFeeConfig(c.env), { category, plans: type === 'paid' ? [{ price_minor: 1, active: true }] : [] });
+  return c.json({ amountMinor: fee.amountMinor, currency: fee.currency, cycle: fee.cycle, type: fee.type, free: fee.amountMinor === 0 });
+});
+
+membershipsApp.get('/memberships/manage/fee-settings', async (c) => {
+  const me = c.get('user');
+  if (!isPlatformAdmin(me) && !publicCreation(c.env)) throw forbidden('Only admins can manage memberships', 'ADMIN_ONLY');
+  return c.json({ fee: await getCreationFeeConfig(c.env), cycles: FEE_CYCLES, categories: CATEGORIES });
+});
+
+membershipsApp.put('/memberships/manage/fee-settings', async (c) => {
+  adminOnly(c);
+  const me = c.get('user');
+  const b = await body(c);
+  const cur = await getCreationFeeConfig(c.env);
+  const num = (v, d) => (v === undefined || v === null || v === '' ? d : Number(v));
+  const categories = b.categories === undefined ? cur.categories : Object.fromEntries(
+    Object.entries(b.categories || {}).filter(([, v]) => v !== '' && v !== null).map(([k, v]) => [String(k), Number(v)]));
+  const next = {
+    cycle: b.cycle !== undefined ? String(b.cycle) : cur.cycle,
+    currency: b.currency !== undefined ? String(b.currency).trim().toUpperCase() : cur.currency,
+    free: num(b.free, cur.free),
+    paid: num(b.paid, cur.paid),
+    categories,
+  };
+  const saved = await setConfig(c.env, 'membership_creation_fee', next, me.id); // validated: bad cycle / amount → 400
+  await audit(c.env, me, 'membership.fee.settings', 'membership_fee', 'settings', { cycle: next.cycle, free: next.free, paid: next.paid });
+  return c.json({ fee: saved.membership_creation_fee, cycles: FEE_CYCLES, categories: CATEGORIES });
+});
+
+membershipsApp.get('/memberships/manage/:id/creation-fee', async (c) => {
+  const m = await managed(c, uuidParam(c));
+  return c.json(await creationFeeStatus(c.env, m, await plansOf(c.env, [m.id])));
+});
+
+membershipsApp.post('/memberships/manage/:id/creation-fee/checkout', async (c) => {
+  const me = c.get('user');
+  const m = await managed(c, uuidParam(c));
+  const s = await creationFeeStatus(c.env, m, await plansOf(c.env, [m.id]));
+  if (!s.required) return c.json({ free: true, fee: s });
+  if (s.paid) throw bad('The creation fee is already paid for this period', 'ALREADY_PAID');
+  const b = await body(c);
+  const out = await startCreationFeeCheckout(c.env, me, { membership: m, amountMinor: s.amountMinor, cycle: s.cycle, currency: s.currency, email: b.email, origin: origin(c) });
+  return c.json(out, 201);
+});
+
+membershipsApp.get('/memberships/manage/:id/stats', async (c) => {
+  const m = await managed(c, uuidParam(c));
+  return c.json({ membership: { id: m.id, title: m.title, status: m.status }, ...(await creatorStats(c.env, m.id)) });
+});
 
 // ======================================================================================================
 // Manage (registered first so /memberships/manage never matches /memberships/:ref)
@@ -193,8 +260,12 @@ function membershipFields(b, cur = {}) {
     creatorName: has('creatorName') ? str(b.creatorName || '', { max: 80, field: 'creatorName' }) || null : cur.creator_name || null,
     creatorBio: has('creatorBio') ? str(b.creatorBio || '', { max: 1000, field: 'creatorBio' }) || null : cur.creator_bio || null,
     sortOrder: has('sortOrder') ? int(b.sortOrder, { min: -100, max: 100, field: 'sortOrder' }) : cur.sort_order || 0,
+    rules: has('rules') ? (str(b.rules || '', { max: 4000, field: 'rules' }) || null) : cur.rules || null,
   };
 }
+
+/** Public / private (listed in the catalogue or by link only). */
+const visibilityOf = (b) => (b.visibility === undefined ? undefined : b.visibility === 'private' ? 'private' : 'public');
 
 function planFields(b, cur = {}) {
   const has = (k) => b[k] !== undefined;
@@ -202,7 +273,7 @@ function planFields(b, cur = {}) {
   if (!INTERVALS.includes(interval)) throw bad(`interval must be one of ${INTERVALS.join(', ')}`, 'BAD_INTERVAL');
   let intervalDays = has('intervalDays') ? (b.intervalDays === null || b.intervalDays === '' ? null : int(b.intervalDays, { min: 1, max: 3650, field: 'intervalDays' })) : cur.interval_days ?? null;
   if (interval === 'days' && !intervalDays) throw bad('Custom plans need the number of days', 'BAD_INTERVAL');
-  if (interval === 'month' || interval === 'year') intervalDays = null;
+  if (interval === 'week' || interval === 'month' || interval === 'year') intervalDays = null;
   const currency = has('currency') ? String(b.currency || 'NGN').trim().toUpperCase() : cur.currency || 'NGN';
   if (!/^[A-Z]{3}$/.test(currency)) throw bad('currency must be a 3-letter code like NGN', 'BAD_CURRENCY');
   return {
@@ -296,6 +367,10 @@ async function manageShape(c, m) {
     creatorName: m.creator_name || '',
     creatorBio: m.creator_bio || '',
     sortOrder: m.sort_order || 0,
+    rules: m.rules || '',
+    visibility: (m.group_settings && m.group_settings.visibility) || 'public',
+    creationFee: await creationFeeStatus(env, m, plans), // admin monitor: fee due / paid / lapsed
+    adGate: settingsOfRow(m), // MEMBERSHIP AD GATE: the ads setting (enabled, ads, frequency) for admins and owners
     owner: owner ? { id: owner.id, name: owner.display_name, handle: owner.handle } : null,
     creator: creatorShape(m, owner),
     plans: plans.map(planShape),
@@ -321,6 +396,7 @@ membershipsApp.get('/memberships/manage', async (c) => {
   return c.json({
     items, categories: CATEGORIES, intervals: INTERVALS,
     flags: { publicCreation: publicCreation(c.env), testCheckout: testCheckoutAllowed(c.env, me), playConfigured: playConfigured(c.env) },
+    adGateDefault: await getAdGateDefault(c.env), // MEMBERSHIP AD GATE: the default the admin form starts from
   });
 });
 
@@ -342,8 +418,14 @@ membershipsApp.post('/memberships/manage', async (c) => {
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14) RETURNING *`,
   [slug, f.title, f.category, f.coverKey, f.introVideoUrl, f.headline, f.description, JSON.stringify(f.benefits), JSON.stringify(f.faqs),
     JSON.stringify(f.questions), f.creatorName, f.creatorBio, f.sortOrder, ownerId]);
+  // Users (not platform admins) pay the creation fee before publishing (membershipFees.js); rules + public/private set here too.
+  const vis = visibilityOf(b);
+  await q(c.env, `UPDATE memberships SET rules = $2, creation_fee_required = $3,
+      group_settings = COALESCE(group_settings, '{}'::jsonb) || CASE WHEN $4::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('visibility', $4::text) END
+    WHERE id = $1`, [row.id, f.rules, !isPlatformAdmin(me), vis ?? null]);
+  await setAdGateRow(c.env, row.id, await getAdGateDefault(c.env)); // MEMBERSHIP AD GATE: new memberships start from the configured default
   if (isPlatformAdmin(me)) await audit(c.env, me, 'membership.create', 'membership', row.id, { title: f.title });
-  return c.json(await manageShape(c, row), 201);
+  return c.json(await manageShape(c, await one(c.env, 'SELECT * FROM memberships WHERE id = $1', [row.id])), 201);
 });
 
 membershipsApp.get('/memberships/manage/:id', async (c) => c.json(await manageShape(c, await managed(c, uuidParam(c)))));
@@ -370,6 +452,10 @@ membershipsApp.patch('/memberships/manage/:id', async (c) => {
     await q(c.env, 'UPDATE conversations SET title = $2 WHERE id = $1', [row.channel_id, masterTitle(row.title)]);
     await q(c.env, 'UPDATE conversations SET title = $2 WHERE id = $1', [row.community_id, executiveTitle(row.title)]);
   }
+  const vis = visibilityOf(b);
+  await q(c.env, `UPDATE memberships SET rules = $2,
+      group_settings = COALESCE(group_settings, '{}'::jsonb) || CASE WHEN $3::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('visibility', $3::text) END
+    WHERE id = $1`, [row.id, f.rules, vis ?? null]);
   await recomputeStats(c.env, row.id);
   if (isPlatformAdmin(me)) await audit(c.env, me, 'membership.update', 'membership', row.id, { title: row.title });
   return c.json(await manageShape(c, await one(c.env, 'SELECT * FROM memberships WHERE id = $1', [row.id])));
@@ -382,6 +468,7 @@ membershipsApp.post('/memberships/manage/:id/:action{publish|archive|draft}', as
   if (action === 'publish') {
     const plans = await plansOf(c.env, [m.id]);
     if (!plans.length) throw bad('Add at least one active plan before publishing', 'NEEDS_PLAN');
+    await assertCreationFeePaid(c.env, m, plans); // creation fee (Development Update v1, item 4.2): 402 until paid
     const fresh = await ensureConversations(c.env, m, me);
     await q(c.env, `UPDATE memberships SET status = 'published', published_at = COALESCE(published_at, now()), updated_at = now() WHERE id = $1`, [fresh.id]);
   } else {
@@ -863,6 +950,7 @@ membershipsApp.get('/memberships/:id/home', async (c) => {
     },
     welcome,
     library: lib.progress,
+    adGate: await adGateFor(c.env, m, me), // MEMBERSHIP AD GATE: the ads still to watch before the sections open (required)
   });
 });
 

@@ -14,6 +14,8 @@ import { PressScale, FadeInUp, ScaleIn, Pop, Pulse, LiveRing, AnimatedNumber, An
 import { haptic } from '../Toast';
 import { SocialAvatar } from './FeedCard';
 import { ND, WHITE, countFormat } from './shared';
+import { compactCount } from '../../utils/compactCount'; // PACKAGE F: 1, 1.2K, 10K, 1.2M plays on every video tile
+import { useLiveCount, ViewCount } from './viewCounts'; // VIEW COUNTS: post views on cards, plays on video tiles
 import { TextPostCard } from './TextPostCard';
 import { LinkText } from '../EmbedViewer'; // YOUTUBE LIVE: video links in posts open in-app
 
@@ -345,6 +347,7 @@ function LightPostCardImpl({
   const comments = Number(item.comments) || 0;
   const shares = Number(item.shares) || 0;
   const likes = Number(item.likes) || 0;
+  const views = useLiveCount('post', item.id, item.views); // VIEW COUNTS: post impressions, live after this device reports them
   const showFollow = (item.src === 'video' || !!item.handle) && !item.mine && onFollow && !isFollowing;
 
   const pick = (key) => {
@@ -434,7 +437,7 @@ function LightPostCardImpl({
       ) : null}
 
       {/* Counts line */}
-      {likes || comments || shares ? (
+      {likes || comments || shares || views ? (
         <View style={styles.counts}>
           {likes ? (
             <Pressable onPress={onOpenLikes} disabled={!onOpenLikes} hitSlop={6} style={styles.countsLeft} accessibilityLabel={`${likes} ${likes === 1 ? 'like' : 'likes'} · see who liked`}>
@@ -461,6 +464,7 @@ function LightPostCardImpl({
             ) : null}
             {comments && shares ? <Text style={styles.countsText}> · </Text> : null}
             {shares ? <Text style={styles.countsText}>{`${countFormat(shares)} ${shares === 1 ? 'share' : 'shares'}`}</Text> : null}
+            {views ? <ViewCount count={views} color={colors.muted} size={12} style={styles.countsViews} textStyle={styles.countsViewsText} /> : null}
           </View>
         </View>
       ) : null}
@@ -558,6 +562,7 @@ const TILE_H = Math.round((TILE_W * 16) / 9);
 function ReelThumb({ video, onPress, index, onOpenCreator }) {
   // A still frame only — no player per tile (see VideoPoster)
   const c = video.creator || {};
+  const plays = useLiveCount('plays', video.id, video.plays);
   return (
     <FadeInUp index={index} distance={10} duration={360}>
       <PressScale onPress={onPress} scaleTo={0.95} style={[styles.tile, { backgroundColor: video.bg || colors.night }]} accessibilityLabel={`Watch ${c.name || 'reel'}`}>
@@ -588,8 +593,8 @@ function ReelThumb({ video, onPress, index, onOpenCreator }) {
         <View style={styles.tileFoot} pointerEvents="none">
           <Text style={styles.tileName} numberOfLines={2}>{c.name}</Text>
           <View style={styles.tileViews}>
-            <Icon name="play" size={9} color={WHITE} />
-            <Text style={styles.tileViewsText}>{video.views || countFormat(video.likes || 0)}</Text>
+            <Icon name="eye" size={10} color={WHITE} />
+            <Text style={styles.tileViewsText}>{compactCount(plays)}</Text>
           </View>
         </View>
       </PressScale>
@@ -637,7 +642,7 @@ export function HubCards({ guildUnread, onGuild, onCorner }) {
   return (
     <FadeInUp distance={12} style={styles.hubRow}>
       {/* MEMBERSHIPS (brief 8.3): Clip Farm became My Channels — the paid channel communities you joined */}
-      <PressScale onPress={onGuild} scaleTo={0.97} style={styles.hubCard} accessibilityLabel="Open My Channels">
+      <PressScale onPress={onGuild} scaleTo={0.97} style={styles.hubCard} accessibilityLabel="Open My membership groups">
         <View style={[styles.hubIcon, { backgroundColor: colors.primarySoft }]}>
           <Icon name="volume" size={17} color={colors.primary} />
           {guildUnread ? (
@@ -647,8 +652,8 @@ export function HubCards({ guildUnread, onGuild, onCorner }) {
           ) : null}
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.hubTitle} numberOfLines={1}>My Channels</Text>
-          <Text style={styles.hubSub} numberOfLines={1}>Paid channel communities</Text>
+          <Text style={styles.hubTitle} numberOfLines={1}>My membership groups</Text>
+          <Text style={styles.hubSub} numberOfLines={1}>Membership groups you joined</Text>
         </View>
       </PressScale>
       <PressScale onPress={onCorner} scaleTo={0.97} style={styles.hubCard} accessibilityLabel="Creators Corner bounties">
@@ -788,7 +793,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 6,
-    backgroundColor: '#F6E4D2',
+    backgroundColor: colors.cardLavender,
     paddingLeft: 9,
     paddingRight: 7,
     height: 26,
@@ -851,6 +856,8 @@ const styles = StyleSheet.create({
   counts: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, paddingBottom: 8, gap: 10 },
   countsLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   countsRight: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
+  countsViews: { marginLeft: 10 },
+  countsViewsText: { fontSize: 12.5, fontWeight: '500' },
   countsText: { fontSize: 12.5, color: colors.muted },
   reactStack: { flexDirection: 'row' },
   reactBubble: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.surface },

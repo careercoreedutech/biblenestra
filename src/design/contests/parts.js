@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../palette';
 // Shared pieces for the Contest Centre screens (Contests, Organize/Judge, Battles) in the Figma design's language.
 // Built on src/design/sanctuary.js tokens. Keeps the old call shapes (Screen / Section / Button / Pills) so the
 // screens' logic reads the same as before.
@@ -59,7 +60,7 @@ export function Pills({ items, value, onChange, style }) {
 const cs = StyleSheet.create({
   btn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 46, paddingHorizontal: 18, borderRadius: 999 },
   btnPrimary: { backgroundColor: d.plum },
-  btnGhost: { backgroundColor: 'rgba(255,255,255,0.78)', borderWidth: 1, borderColor: d.line },
+  btnGhost: { backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.78)' : 'rgba(255,255,255,0.78)'), borderWidth: 1, borderColor: d.line },
   btnDanger: { backgroundColor: '#B33D3D' },
   btnText: { fontFamily: df.sansBold, fontSize: 14, color: '#FFFFFF' },
   pill: { paddingHorizontal: 14, height: 34, borderRadius: 999, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, justifyContent: 'center' },

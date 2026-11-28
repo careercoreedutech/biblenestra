@@ -60,7 +60,7 @@ conversations.get('/conversations', async (c) => {
   const meVis = (await one(c.env, 'SELECT last_seen_visibility FROM users WHERE id = $1', [me.id]))?.last_seen_visibility || 'everyone';
   const rows = await q(c.env,
     `SELECT c.id, c.kind, c.title, c.avatar_key, c.pinned_message_id, c.created_at, c.last_message_at,
-            c.description, c.is_public, c.settings,
+            c.description, c.is_public, c.settings, c.membership_id,
             (SELECT COALESCE(json_agg(tu.display_name), '[]'::json) FROM conversation_members tm JOIN users tu ON tu.id = tm.user_id
               WHERE tm.conversation_id = c.id AND tm.user_id <> $1 AND tm.typing_at > now() - interval '6 seconds') AS typing,
             (SELECT json_build_object('presence_at', pu.presence_at, 'last_seen_visibility', pu.last_seen_visibility)
@@ -70,7 +70,7 @@ conversations.get('/conversations', async (c) => {
             (SELECT MIN(COALESCE(rm.last_delivered_at, rm.last_read_at)) FROM conversation_members rm WHERE rm.conversation_id = c.id AND rm.user_id <> $1) AS others_delivered_at,
             (SELECT COUNT(*)::int FROM conversation_members cnt WHERE cnt.conversation_id = c.id) AS members_count,
             (SELECT co.name FROM community_channels cc JOIN communities co ON co.id = cc.community_id WHERE cc.conversation_id = c.id LIMIT 1) AS community_name,
-            m.role, m.last_read_at, ${mutedSql('m')} AS muted, m.muted_until,
+            m.role, m.last_read_at, ${mutedSql('m')} AS muted, m.muted_until, m.pinned_at, m.hidden_at,
             (SELECT json_build_object(
                'id', msg.id, 'kind', msg.kind, 'body', CASE WHEN msg.deleted THEN 'This message was deleted' ELSE msg.body END,
                'senderId', msg.sender_id, 'createdAt', msg.created_at, 'deleted', msg.deleted,
@@ -109,7 +109,9 @@ conversations.get('/conversations', async (c) => {
             )) AS i_follow_other
      FROM conversations c
      JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = $1
-     ORDER BY c.last_message_at DESC
+     -- PACKAGE F: "remove from my list" hides a chat until someone posts there again; pinned chats sit on top
+     WHERE (m.hidden_at IS NULL OR c.last_message_at > m.hidden_at)
+     ORDER BY (m.pinned_at IS NULL), m.pinned_at DESC, c.last_message_at DESC
      LIMIT 50`,
     [me.id]
   );
@@ -127,6 +129,9 @@ conversations.get('/conversations', async (c) => {
       avatarKey: r.avatar_key,
       avatarUrl: r.avatar_key ? mediaUrl(c.env, new URL(c.req.url).origin, r.avatar_key) : null,
       otherUser,
+      // MEMBERSHIP GROUPS: the MASTER CLASS / EXECUTIVE CLASS section of a membership group (null for every other chat)
+      membershipId: r.membership_id || null,
+      membershipSection: r.membership_id ? (r.kind === 'channel' ? 'master' : 'executive') : null,
       // CHAT 7.3: live "Typing…" in the list, online / last seen (privacy-aware), read receipt for my last message
       typing: parseJ(r.typing) || [],
       presence: r.kind === 'dm' ? presenceShape(parseJ(r.other_presence), meVis) : null,
@@ -136,6 +141,8 @@ conversations.get('/conversations', async (c) => {
       },
       settings,
       role: r.role,
+      myRole: r.role, // PACKAGE F: the long-press menu shows Delete / Manage only where allowed
+      pinned: !!r.pinned_at,
       muted: !!r.muted,
       mutedUntil: r.muted && r.muted_until ? new Date(r.muted_until).toISOString() : null, // CHAT GAPS: timed mute
       unreadCount: r.unread_count || 0,
@@ -511,6 +518,8 @@ conversations.post('/conversations/:id/coins', async (c) => {
     FROM conversations c WHERE c.id = $1`, [convId, me.id]);
   if (!conv || !conv.is_member) throw forbidden('Not a member of this conversation');
   if (conv.kind === 'channel') throw bad('Coins can be gifted in private chats and groups', 'NOT_ALLOWED');
+  // MEMBERSHIP GROUPS: muted / suspended members (and the group's who-can-send rules) can't gift in EXECUTIVE CLASS
+  await membershipSendGuard(c.env, convId, me, { kind: 'gift' });
 
   let toId;
   if (conv.kind === 'dm') {
@@ -686,20 +695,28 @@ conversations.delete('/users/:id/block', async (c) => {
 // ---------- WhatsApp-style: people search, groups, channels ----------
 const cleanIds = (v, me) => [...new Set((Array.isArray(v) ? v : []).map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x) && x !== me))].slice(0, 255);
 
-// GET /people?q= — find believers to message (by name, @handle or church)
+// GET /people?q= — find believers to message (by @username, name or church). PACKAGE F: a leading "@" is ignored,
+// an exact username comes first, then usernames starting with the text, then names starting with it, then the rest.
+// Blocked people in either direction and banned accounts never show. Each row carries the bio line for the preview.
 conversations.get('/people', async (c) => {
   const me = c.get('user');
-  const term = String(c.req.query('q') || '').trim().slice(0, 60);
-  const like = '%' + term.replace(/[\\%_]/g, (ch) => '\\' + ch) + '%';
-  const rows = await q(c.env, `SELECT ${userJson('u')} AS u,
-      EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = $1 AND f.followee_id = u.id) AS is_following
+  const term = String(c.req.query('q') || '').trim().replace(/^@+/, '').trim().slice(0, 60);
+  const esc = term.replace(/[\\%_]/g, (ch) => '\\' + ch);
+  const like = '%' + esc + '%';
+  const prefix = esc + '%';
+  const rows = await q(c.env, `SELECT ${userJson('u')} AS u, u.bio,
+      EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = $1 AND f.followee_id = u.id) AS is_following,
+      CASE WHEN lower(u.handle) = lower($2) THEN 0
+           WHEN u.handle ILIKE $4 THEN 1
+           WHEN u.display_name ILIKE $4 THEN 2
+           ELSE 3 END AS match_rank
     FROM users u
     WHERE u.id <> $1 AND NOT u.banned
       AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $1))
-      AND ($2 = '' OR u.display_name ILIKE $3 OR u.handle ILIKE $3 OR u.church ILIKE $3)
-    ORDER BY u.last_seen_at DESC NULLS LAST, u.created_at DESC
-    LIMIT 40`, [me.id, term, like]);
-  return c.json({ items: rows.map((r) => ({ ...r.u, isFollowing: !!r.is_following })) });
+      AND ($2 = '' OR u.handle ILIKE $3 OR u.display_name ILIKE $3 OR u.church ILIKE $3)
+    ORDER BY match_rank, u.last_seen_at DESC NULLS LAST, u.created_at DESC
+    LIMIT 40`, [me.id, term, like, prefix]);
+  return c.json({ items: rows.map((r) => ({ ...r.u, bio: r.bio || null, isFollowing: !!r.is_following, matchRank: r.match_rank })) });
 });
 
 // POST /conversations/group — { title, description?, memberIds[] }: you become its owner

@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // MEMBERSHIPS & PAID CHANNELS (brief section 8) — one membership system shown in three places:
 //   Discover › Memberships (MembershipsCatalog + "My Memberships" row) · Paid Channels (PaidChannelsRail, in place of the
 //   Fellowship section) · My Channels (MyChannelsScreen, where Clip Farm used to be in Socials).
@@ -15,8 +16,9 @@ import { Icon } from '../components/Icons';
 import { PressScale, FadeInUp, ScaleIn, AnimatedModal } from '../components/Motion';
 import { SocialAvatar } from '../components/social/FeedCard';
 import { colors, fonts, radius, shadow } from '../theme';
-import { d, df, Grad } from '../design/sanctuary';
+import { d, df, Grad, gradients } from '../design/sanctuary';
 import { DScreen } from '../design/profile/parts';
+import { useAds } from '../ads/Ads'; // MEMBERSHIP AD GATE: rewarded ad for membership_gate:<id>
 import { useNav } from '../navigation';
 import { useToast } from '../components/Toast';
 import { useApi } from '../api/auth';
@@ -27,7 +29,7 @@ import { ChatScreen } from './ChatScreen';
 import {
   useMembershipCatalog, useMyMemberships, useMembership, membershipsChanged, getCheckout, quotePromo, submitCheckout, getHome,
   getLibrary, setLessonDone, getReviews, postReview, isMembershipRequired, friendly, ratingLabel, initialsOf, joinedLabel,
-  writtenLabel, untilLabel, newKey, joinFreeGroup, askToJoin, markWelcomeSeen, MASTER, EXECUTIVE,
+  writtenLabel, untilLabel, newKey, joinFreeGroup, askToJoin, markWelcomeSeen, MASTER, EXECUTIVE, creditAdGateAd,
 } from '../api/memberships';
 import { WelcomeModal } from './MembershipGroupScreens'; // MEMBERSHIP GROUPS: once-only welcome pop-up
 
@@ -198,7 +200,7 @@ export function MembershipsCatalog({ nav, limit }) {
   const cat = useMembershipCatalog({ category, sort });
   const items = limit ? cat.items.slice(0, limit) : cat.items;
   if (!cat.online) {
-    return <Notice text="Memberships need a connection to BibleNestra — sign in to browse paid channels." />;
+    return <Notice text="Memberships need a connection to BibleNestra — sign in to browse membership groups." />;
   }
   return (
     <View>
@@ -209,7 +211,7 @@ export function MembershipsCatalog({ nav, limit }) {
       </View>
       {!cat.loaded ? <ActivityIndicator color={colors.primary} style={{ marginVertical: 30 }} /> : null}
       {cat.loaded && cat.error && !items.length ? <Empty title="Couldn’t load memberships" body={friendly(cat.error)} action="Try again" onAction={cat.reload} /> : null}
-      {cat.loaded && !cat.error && !items.length ? <Empty title="Nothing here yet" body="New paid channels from trusted ministers appear here." /> : null}
+      {cat.loaded && !cat.error && !items.length ? <Empty title="Nothing here yet" body="New membership groups from trusted ministers appear here." /> : null}
       <View style={{ gap: 14 }}>
         {items.map((m, i) => <MembershipCard key={m.id} m={m} index={i} onPress={() => nav.push('Membership', { id: m.id, title: m.title })} />)}
       </View>
@@ -487,6 +489,9 @@ export function MembershipScreen({ params = {} }) {
         </PressScale>
       </View>
 
+      <Pressable onPress={() => nav.push('PaymentReport', { kind: 'membership', targetId: m.id, title: m.title, plans: (m.plans || []).map((p) => ({ id: p.id, name: p.name })) })} accessibilityRole="link" style={{ alignSelf: 'center', marginTop: 10 }}>
+        <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 13, textDecorationLine: 'underline' }}>Paid but not admitted? Report a payment</Text>
+      </Pressable>
       <ChoosePlanSheet visible={sheet === 'plans'} m={m} value={planId} onChange={setPlanId} onClose={() => setSheet(null)} onContinue={(id) => { setPlanId(id); setSheet('checkout'); }} />
       <CheckoutSheet
         visible={sheet === 'checkout'}
@@ -869,6 +874,73 @@ export function LibraryView({ api, id }) {
 
 // MEMBERSHIP GROUPS: the group home — MASTER CLASS | EXECUTIVE CLASS (Telegram's channel + linked discussion), with
 // Library, Media, Members and Settings one tap away, and the once-only welcome pop-up.
+// MEMBERSHIP AD GATE: the full-screen "Watch N ads to enter" card that replaces the MASTER / EXECUTIVE sections until the
+// server issues the pass. The server decides; this card only shows progress and records each watched ad.
+const GATE_FREQUENCY = { daily: 'Unlocks for today', weekly: 'Unlocks this week', every_entry: 'Unlocks for this visit' };
+function AdGateCard({ id, title, gate, onChange }) {
+  const api = useApi();
+  const ads = useAds();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const need = Math.max(1, Number(gate.adsNeeded) || 1);
+  const watched = Math.min(need, Number(gate.adsWatched) || 0);
+  const watchAd = async () => {
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await ads.showRewarded({ purpose: `membership_gate:${id}`, loadTimeoutMs: 30000 });
+      if (!r || !r.rewarded) {
+        setMsg(r && r.error ? 'No ad is available right now. Try again in a moment.' : 'The ad closed early. Watch it to the end to unlock.');
+        return;
+      }
+      const next = await creditAdGateAd(api, id, gate);
+      if (!next.required) onChange(next);
+      else {
+        if ((next.adsWatched || 0) === watched) setMsg('That ad is still being counted. Try again in a moment.');
+        onChange(next);
+      }
+    } catch (e) {
+      setMsg(friendly(e, 'Could not record that ad. Please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <View style={gateStyles.wrap} accessibilityLabel={`Watch ${need} ad${need === 1 ? '' : 's'} to enter ${title}`}>
+      <Text style={gateStyles.eyebrow}>Members only</Text>
+      <Text style={gateStyles.title}>{`Watch ${need} ad${need === 1 ? '' : 's'} to enter`}</Text>
+      <Text style={gateStyles.body}>{`Watch a short ad to open ${MASTER} and ${EXECUTIVE} in ${title}. Your paid membership is not affected.`}</Text>
+      <View style={gateStyles.dots} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: need, now: watched }}>
+        {Array.from({ length: need }).map((_, i) => <View key={i} style={[gateStyles.dot, i < watched && gateStyles.dotOn]} />)}
+      </View>
+      <Text style={gateStyles.count}>{`${watched} of ${need} watched`}</Text>
+      <Text style={gateStyles.freq}>{GATE_FREQUENCY[gate.frequency] || 'Unlocks for a while'}</Text>
+      <Pressable onPress={watchAd} disabled={busy} accessibilityRole="button" accessibilityLabel={msg ? 'Try the ad again' : 'Watch ad'} style={[gateStyles.btnWrap, busy && { opacity: 0.6 }]}>
+        <Grad colors={gradients.orange} style={gateStyles.btn}>
+          {busy ? <ActivityIndicator color={d.paper} /> : <Text style={gateStyles.btnText}>{msg ? 'Try again' : 'Watch ad'}</Text>}
+        </Grad>
+      </Pressable>
+      {msg ? <Text style={gateStyles.error}>{msg}</Text> : null}
+    </View>
+  );
+}
+const gateStyles = StyleSheet.create({
+  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10, backgroundColor: d.ivory },
+  eyebrow: { fontFamily: df.sansHeavy, fontSize: 11, letterSpacing: 1.2, color: d.plum, textTransform: 'uppercase' },
+  title: { fontFamily: df.display, fontSize: 28, lineHeight: 34, color: d.ink, textAlign: 'center' },
+  body: { fontFamily: df.sans, fontSize: 14, lineHeight: 21, color: d.muted, textAlign: 'center', maxWidth: 340 },
+  dots: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: d.line },
+  dotOn: { backgroundColor: d.plum },
+  count: { fontFamily: df.sansBold, fontSize: 15, color: d.ink },
+  freq: { fontFamily: df.sans, fontSize: 13, color: d.muted },
+  btnWrap: { alignSelf: 'stretch', maxWidth: 340, marginTop: 16, borderRadius: 999, overflow: 'hidden' },
+  btn: { height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 999 },
+  btnText: { fontFamily: df.sansBold, fontSize: 16, color: d.paper },
+  error: { fontFamily: df.sansMedium, fontSize: 13, color: d.roseDark, textAlign: 'center', maxWidth: 340 },
+});
+
 export function MembershipHomeScreen({ params = {} }) {
   const nav = useNav();
   const api = useApi();
@@ -889,6 +961,12 @@ export function MembershipHomeScreen({ params = {} }) {
     if (to) setTab(to);
   };
   const role = home ? home.role : null;
+  // MEMBERSHIP AD GATE: while the server says ads are still needed, the sections are replaced by the gate card.
+  const gate = home && home.adGate && home.adGate.required ? home.adGate : null;
+  const onGate = (next) => {
+    if (!next || !next.required) { load(); return; }
+    setHome((h) => (h ? { ...h, adGate: next } : h));
+  };
   const tools = home ? [
     { id: 'library', icon: 'book', label: home.library.total ? `Library ${home.library.done}/${home.library.total}` : 'Library', go: () => nav.push('MembershipLibrary', { id: params.id, title }) },
     { id: 'media', icon: 'image', label: 'Media', go: () => nav.push('MembershipMedia', { id: params.id, title, masterId: home.channelId, executiveId: home.communityId }) },
@@ -915,6 +993,8 @@ export function MembershipHomeScreen({ params = {} }) {
         <Empty title="Couldn’t open this group" body={friendly(err)} action="Try again" onAction={load} />
       ) : !home ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 50 }} />
+      ) : gate ? (
+        <AdGateCard id={params.id} title={title} gate={gate} onChange={onGate} />
       ) : (
         <>
           <View style={styles.groupBar}>
@@ -964,11 +1044,11 @@ export function MyChannelsScreen() {
   const nav = useNav();
   const mine = useMyMemberships();
   return (
-    <Screen back title="My Channels" subtitle="Membership groups you belong to">
+    <Screen back title="My membership groups" subtitle="Membership groups you belong to">
       {!mine.online ? <Notice text="Sign in to see the membership groups you belong to." /> : null}
       {mine.online && !mine.loaded ? <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} /> : null}
       {mine.loaded && !mine.items.length ? (
-        <Empty title="No membership groups yet" body={`Join a membership to open its ${MASTER} for lessons, its ${EXECUTIVE} to talk with other members, and a Library of lessons.`} action="Browse Paid Channels" onAction={() => nav.push('Memberships')} />
+        <Empty title="No membership groups yet" body={`Join a membership to open its ${MASTER} for lessons, its ${EXECUTIVE} to talk with other members, and a Library of lessons.`} action="Browse membership groups" onAction={() => nav.push('Memberships')} />
       ) : null}
       <View style={{ gap: 12 }}>
         {mine.items.map((m, i) => (
@@ -998,7 +1078,7 @@ export function MyChannelsScreen() {
           </FadeInUp>
         ))}
       </View>
-      {mine.items.length ? <Button kind="ghost" label="Browse more Paid Channels" onPress={() => nav.push('Memberships')} style={{ marginTop: 16 }} /> : null}
+      {mine.items.length ? <Button kind="ghost" label="Browse more membership groups" onPress={() => nav.push('Memberships')} style={{ marginTop: 16 }} /> : null}
     </Screen>
   );
 }
@@ -1014,7 +1094,7 @@ const styles = StyleSheet.create({
   // SegmentToggle = the design's .discover-toggle: two rounded paper pills, the active one orange-tinted
   segRow: { flexDirection: 'row', gap: 7, marginVertical: 10 },
   segTab: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, paddingHorizontal: 8, borderRadius: 13, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
-  segTabOn: { backgroundColor: '#FFE9DA', borderColor: 'rgba(255,107,26,0.45)' },
+  segTabOn: { backgroundColor: colors.primarySoft, borderColor: 'rgba(255,107,26,0.45)' },
   segText: { fontFamily: df.sansHeavy, fontSize: 12, color: d.plumDark },
   segTextOn: { color: d.plum },
   segBadge: { backgroundColor: d.plum, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 },
@@ -1040,7 +1120,7 @@ const styles = StyleSheet.create({
   featureEyebrow: { color: '#F4C294', fontFamily: df.sansHeavy, fontSize: 10, letterSpacing: 1.4, textTransform: 'uppercase' },
   featureTitle: { fontFamily: df.displayBold, fontSize: 26, lineHeight: 31, color: '#FFFFFF', marginTop: 9 },
   featureBody: { fontFamily: df.sans, fontSize: 12, lineHeight: 18, color: '#D8C5B8', marginTop: 5 },
-  featureBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, backgroundColor: '#FFFFFF', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, marginTop: 16 },
+  featureBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 7, backgroundColor: colors.surfaceWhite, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, marginTop: 16 },
   featureBtnText: { color: d.ink, fontFamily: df.sansHeavy, fontSize: 12 },
 
   // catalogue list row (the design's .membership-list article)
@@ -1095,10 +1175,10 @@ const styles = StyleSheet.create({
 
   // product page header + hero
   top: { height: 64, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, backgroundColor: d.ivory, borderBottomWidth: 1, borderBottomColor: d.line },
-  topBtn: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: d.line, backgroundColor: 'rgba(255,255,255,0.78)', alignItems: 'center', justifyContent: 'center' },
+  topBtn: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: d.line, backgroundColor: d.glass, alignItems: 'center', justifyContent: 'center' },
   topTitle: { flex: 1, textAlign: 'center', fontFamily: df.displayBold, fontSize: 16, color: d.ink },
   heroCover: { marginHorizontal: 18, marginTop: 12, height: 230, borderRadius: 25 },
-  heroPlay: { position: 'absolute', left: 14, bottom: 14, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,250,242,0.94)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  heroPlay: { position: 'absolute', left: 14, bottom: 14, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.94)' : 'rgba(255,250,242,0.94)'), borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   heroPlayText: { color: d.ink, fontFamily: df.sansBold, fontSize: 12 },
   prodName: { fontFamily: df.displayBold, fontSize: 26, lineHeight: 31, color: d.ink, textAlign: 'center', marginTop: 20, letterSpacing: -0.4 },
   prodHeadline: { fontFamily: df.display, fontSize: 16, lineHeight: 22, color: d.plum, textAlign: 'center', marginTop: 8 },
@@ -1135,7 +1215,7 @@ const styles = StyleSheet.create({
   reviewName: { fontFamily: df.sansBold, fontSize: 13, color: d.ink, flexShrink: 1 },
   reviewDate: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
   reviewBody: { fontFamily: df.sans, fontSize: 13, color: d.ink, lineHeight: 20, marginTop: 10 },
-  sticky: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, backgroundColor: 'rgba(248,241,231,0.96)', borderTopWidth: 1, borderTopColor: d.line },
+  sticky: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, backgroundColor: (isDarkScheme() ? 'rgba(20,16,13,0.96)' : 'rgba(248,241,231,0.96)'), borderTopWidth: 1, borderTopColor: d.line },
   joinBtn: { height: 52, borderRadius: 14, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', shadowColor: d.plum, shadowOpacity: 0.25, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
   joinText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 14 },
 
@@ -1143,11 +1223,11 @@ const styles = StyleSheet.create({
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: d.line, marginBottom: 12 },
   sheetTitle: { fontFamily: df.displayBold, fontSize: 22, color: d.ink },
   plan: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: d.paper, borderRadius: 18, padding: 16, borderWidth: 1.5, borderColor: d.line },
-  planOn: { borderColor: d.plum, backgroundColor: '#FFF1E6' },
+  planOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E6') },
   planName: { fontFamily: df.sansBold, fontSize: 12, color: d.muted },
   planPrice: { fontFamily: df.displayBold, fontSize: 22, color: d.ink, marginTop: 4 },
   planPer: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 2 },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#CDBBA6', alignItems: 'center', justifyContent: 'center' },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: (isDarkScheme() ? '#4D3D30' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center' },
   radioOn: { borderColor: d.plum },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: d.plum },
 
@@ -1162,7 +1242,7 @@ const styles = StyleSheet.create({
   coDiscount: { fontFamily: df.sansBold, fontSize: 11, color: d.positive, marginTop: 2 },
   coAccess: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 4, textAlign: 'center' },
   promoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, alignSelf: 'stretch' },
-  label: { fontFamily: df.sansBold, fontSize: 11, color: '#4C3D32', marginTop: 16, marginBottom: 7 },
+  label: { fontFamily: df.sansBold, fontSize: 11, color: (isDarkScheme() ? '#CDBBA6' : '#4C3D32'), marginTop: 16, marginBottom: 7 },
   input: { height: 52, paddingHorizontal: 14, borderRadius: 14, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, fontFamily: df.sans, fontSize: 13, color: d.ink },
   inputLocked: { backgroundColor: d.raised, justifyContent: 'center' },
   inputLockedText: { fontFamily: df.sans, fontSize: 13, color: d.muted },
@@ -1174,7 +1254,7 @@ const styles = StyleSheet.create({
   methodLabel: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
   methodNote: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 1 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  checkBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: '#CDBBA6', alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
+  checkBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
   checkBoxOn: { backgroundColor: d.plum, borderColor: d.plum },
   checkText: { fontFamily: df.sans, fontSize: 12, color: d.ink, flex: 1 },
   shopBtn: { height: 52, borderRadius: 14, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
@@ -1195,22 +1275,22 @@ const styles = StyleSheet.create({
   progressTitle: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
   lesson: { backgroundColor: d.paper, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: d.line },
   lessonHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  lessonNum: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: '#CDBBA6', alignItems: 'center', justifyContent: 'center' },
+  lessonNum: { width: 30, height: 30, borderRadius: 15, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#CDBBA6'), alignItems: 'center', justifyContent: 'center' },
   lessonNumText: { fontSize: 12, fontFamily: df.sansHeavy, color: d.muted },
   lessonTitle: { fontFamily: df.display, fontSize: 14, color: d.ink },
   lessonBody: { fontFamily: df.sans, fontSize: 13, color: d.ink, lineHeight: 21 },
   lockCover: { height: 220 },
   lockScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(40,26,17,0.55)' },
   lockCard: { marginHorizontal: 18, marginTop: -60, backgroundColor: d.paper, borderRadius: 26, padding: 22, alignItems: 'center', borderWidth: 1, borderColor: d.line, shadowColor: '#362012', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
-  lockIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFE9DA', alignItems: 'center', justifyContent: 'center' },
+  lockIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   lockTitle: { fontFamily: df.displayBold, fontSize: 22, color: d.ink, marginTop: 12, textAlign: 'center' },
   lockBody: { fontFamily: df.sans, fontSize: 13, color: d.muted, textAlign: 'center', lineHeight: 20, marginTop: 6 },
 
   myRow: { backgroundColor: d.paper, borderRadius: 20, padding: 14, borderWidth: 1, borderColor: d.line },
   myThumb: { width: 84, height: 48, borderRadius: 14 },
-  myBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 12, backgroundColor: '#FFE9DA' },
+  myBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 12, backgroundColor: colors.primarySoft },
   myBtnText: { fontSize: 11, fontFamily: df.sansHeavy, color: d.plumDark },
-  myIconBtn: { width: 38, height: 34, borderRadius: 12, backgroundColor: '#FFE9DA', alignItems: 'center', justifyContent: 'center' },
+  myIconBtn: { width: 38, height: 34, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   newDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: d.plum },
   // group tabs row: Library, Media, Members, Settings (design .group-tabs as pills)
   groupBar: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 10, backgroundColor: d.ivory, borderBottomWidth: 1, borderBottomColor: d.line },

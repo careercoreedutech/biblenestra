@@ -146,7 +146,7 @@ export function cardShape(r, ctx) {
   return {
     userId: r.user_id, firstName: r.first_name, age: Number(r.age ?? ageOn(r.birth_date)),
     city: r.city || '', country: r.country || '', denomination: r.denomination || '', churchInvolvement: r.church_involvement || '',
-    intention: r.intention, intentionLabel: INTENTIONS[r.intention] || r.intention, bio: r.bio || '', prompts: parse(r.prompts, []) || [],
+    intention: r.intention, intentionLabel: INTENTIONS[r.intention] || r.intention, bio: r.bio || '', prompts: parse(r.prompts, []) || [], interests: parse(r.interests, []) || [],
     photos: photos.map((p) => ({ id: p.id, url: photoUrl(ctx, p.url) })),
     verified: !!r.verified, vip: !!r.vip_badge, boosted: !!r.boosted || !!r.spotlight, spotlight: !!r.spotlight,
     superLikedYou: r.their_action === 'super_like' || r.their_action === 'priority_like',
@@ -163,13 +163,18 @@ export async function myProfile(env, userId, ctx) {
     userId, firstName: r.first_name, birthDate: ymd(r.birth_date), age: ageOn(r.birth_date),
     gender: r.gender, interestedIn: r.interested_in, city: r.city, country: r.country, denomination: r.denomination,
     churchInvolvement: r.church_involvement, intention: r.intention, intentionLabel: INTENTIONS[r.intention], bio: r.bio,
-    prompts: parse(r.prompts, []), prefs: parse(r.prefs, {}), status: r.status, verified: !!r.verified, banReason: r.status === 'banned' ? (r.ban_reason || null) : null,
+    prompts: parse(r.prompts, []), interests: parse(r.interests, []) || [], prefs: parse(r.prefs, {}), status: r.status, verified: !!r.verified, banReason: r.status === 'banned' ? (r.ban_reason || null) : null,
     photos: photos.map((p) => ({ id: p.id, url: photoUrl(ctx, p.url), status: p.status, rejectReason: p.reject_reason || null, visible: photoVisible(p, rules.photoReview) })),
     underReview: !!r.report_hold_at, // hidden from discovery after reports, until the team reviews it
     visible: r.status === 'active' && !r.report_hold_at && photos.some((p) => photoVisible(p, rules.photoReview)),
     verification: await verificationShape(env, userId),
     createdAt: iso(r.created_at),
   };
+}
+
+/** Interests: up to 10 short tags, de-duplicated (the app offers a fixed list; the server only bounds length). */
+export function cleanTags(v) {
+  return Array.isArray(v) ? [...new Set(v.map((x) => clean(x, 40)).filter(Boolean))].slice(0, 10) : [];
 }
 
 function cleanPrefs(b, myAge) {
@@ -183,6 +188,7 @@ function cleanPrefs(b, myAge) {
     city: clean(p.city, 60) || null,                     // VIP: advanced location filter
     intentions: list(p.intentions, Object.keys(INTENTIONS)),
     denominations: list(p.denominations),                // Plus: advanced filter
+    interests: list(p.interests),                        // free: they share at least one of these
     involvement: list(p.involvement),                    // Plus: advanced filter
     compatibleOnly: !!p.compatibleOnly,                  // VIP: only people whose own preferences include you
   };
@@ -211,18 +217,19 @@ export async function saveProfile(env, user, b) {
   const prompts = (Array.isArray(b.prompts) ? b.prompts : parse(existing && existing.prompts, []) || [])
     .map((x) => ({ q: clean(x && x.q, 80), a: clean(x && x.a, 200) })).filter((x) => x.q && x.a).slice(0, 3);
   const prefs = cleanPrefs(b.prefs !== undefined ? b.prefs : parse(existing && existing.prefs, {}), age);
+  const interests = cleanTags(pick('interests', existing ? parse(existing.interests, []) : []));
   const vals = [
     user.id, firstName, birth, gender, interestedIn,
     clean(pick('city', existing ? existing.city : ''), 60), clean(pick('country', existing ? existing.country : user.country || ''), 60),
     clean(pick('denomination', existing ? existing.denomination : ''), 60), clean(pick('churchInvolvement', existing ? existing.church_involvement : ''), 60),
-    intention, String(pick('bio', existing ? existing.bio : '') || '').trim().slice(0, 500), JSON.stringify(prompts), JSON.stringify(prefs),
+    intention, String(pick('bio', existing ? existing.bio : '') || '').trim().slice(0, 500), JSON.stringify(prompts), JSON.stringify(prefs), JSON.stringify(interests),
   ];
-  await q(env, `INSERT INTO dating_profiles (user_id, first_name, birth_date, gender, interested_in, city, country, denomination, church_involvement, intention, bio, prompts, prefs)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb)
+  await q(env, `INSERT INTO dating_profiles (user_id, first_name, birth_date, gender, interested_in, city, country, denomination, church_involvement, intention, bio, prompts, prefs, interests)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb)
       ON CONFLICT (user_id) DO UPDATE SET first_name = EXCLUDED.first_name, birth_date = EXCLUDED.birth_date, gender = EXCLUDED.gender,
         interested_in = EXCLUDED.interested_in, city = EXCLUDED.city, country = EXCLUDED.country, denomination = EXCLUDED.denomination,
         church_involvement = EXCLUDED.church_involvement, intention = EXCLUDED.intention, bio = EXCLUDED.bio, prompts = EXCLUDED.prompts,
-        prefs = EXCLUDED.prefs, updated_at = now(), last_active_at = now()`, vals);
+        prefs = EXCLUDED.prefs, interests = EXCLUDED.interests, updated_at = now(), last_active_at = now()`, vals);
   return { created: !existing };
 }
 
@@ -440,6 +447,7 @@ export async function discover(env, user, ctx, { limit = null, record = true } =
       AND ($7::text[] IS NULL OR p.intention = ANY($7))
       AND ($8::text[] IS NULL OR p.denomination = ANY($8))
       AND ($9::text[] IS NULL OR p.church_involvement = ANY($9))
+      AND ($12::text[] IS NULL OR p.interests ?| $12::text[])
       AND (NOT $10 OR (
             (jsonb_array_length(COALESCE(p.prefs->'intentions', '[]'::jsonb)) = 0 OR (p.prefs->'intentions') ? me.intention)
         AND (jsonb_array_length(COALESCE(p.prefs->'denominations', '[]'::jsonb)) = 0 OR (p.prefs->'denominations') ? me.denomination)
@@ -457,7 +465,7 @@ export async function discover(env, user, ctx, { limit = null, record = true } =
     user.id, n, prefs.ageMin, prefs.ageMax, prefs.country,
     f.advancedLocationFilters ? prefs.city : null, arr(prefs.intentions),
     f.advancedFilters ? arr(prefs.denominations) : null, f.advancedFilters ? arr(prefs.involvement) : null,
-    !!(f.advancedLocationFilters && prefs.compatibleOnly), rules.photoReview,
+    !!(f.advancedLocationFilters && prefs.compatibleOnly), rules.photoReview, arr(prefs.interests),
   ]);
   if (record && rows.length) {
     await q(env, `INSERT INTO dating_views (viewer_id, target_id) SELECT $1, unnest($2::uuid[])

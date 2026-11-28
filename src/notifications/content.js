@@ -57,3 +57,33 @@ export const POP_PRAYERS = [
   'Jesus, thank You for the cross. Let me never take Your love for granted.',
   'Lord, as evening comes, I give You this day. Keep me in Your peace tonight.',
 ];
+
+// Encouragement (original short lines written for BibleNestra). Each one points at a KJV verse; the verse text itself
+// is read from the bundled KJV data (lib data/bible.js), so the reference is always the real scripture.
+export const POP_ENCOURAGEMENTS = [
+  { text: 'You do not have to carry today alone. Hand the weight to the One who is able to hold it.', ref: 'PSA:55:22' },
+  { text: 'A hard day is not the end of your story. God is still writing it, and He is faithful to finish.', ref: 'PHP:1:6' },
+  { text: 'You do not need to see the whole road to take the next step with God.', ref: 'PRO:3:5' },
+  { text: 'Fear is loud, but God’s word is steadier. Let Him speak first.', ref: 'ISA:41:10' },
+  { text: 'Rest is not laziness. It is trust, practised one quiet hour at a time.', ref: 'MAT:11:28' },
+  { text: 'His mercies come new this morning. Receive today’s portion with open hands.', ref: 'LAM:3:23' },
+  { text: 'Your prayer is never too small for a God who does more than we ask or imagine.', ref: 'EPH:3:20' },
+  { text: 'Faithfulness is quiet work: showing up again, even when no one is watching.', ref: 'GAL:6:9' },
+  { text: 'You were loved before you did anything right, and you are loved still on the days you get it wrong.', ref: 'ROM:5:8' },
+  { text: 'Grace is enough for the weak place you are facing today.', ref: '2CO:12:9' },
+  { text: 'Keep asking, keep seeking, keep knocking. The door opens for those who persevere.', ref: 'MAT:7:7' },
+  { text: 'Peace is not the absence of noise. It is the presence of Jesus in the middle of it.', ref: 'JHN:14:27' },
+  { text: 'Hand over each worry, one at a time. He cares for you more than you can imagine.', ref: '1PE:5:7' },
+  { text: 'The Lord is never late. Be still today and trust His timing.', ref: 'PSA:46:10' },
+  { text: 'Inwardly you are being renewed day by day, even on the days you feel worn out.', ref: '2CO:4:16' },
+  { text: 'Courage is not the absence of fear. It is walking forward because the Lord walks with you.', ref: 'DEU:31:8' },
+  { text: 'Joy grows in ordinary places: a kind word, a sunrise, a small answer to prayer.', ref: 'PSA:118:24' },
+  { text: 'Whatever your hands find to do today, do it wholeheartedly for the Lord.', ref: 'COL:3:23' },
+  { text: 'God does not waste the hard seasons. He uses them to root you deeper.', ref: 'JER:29:11' },
+  { text: 'Seek Him first, and the rest of your day finds its right order.', ref: 'MAT:6:33' },
+  { text: 'Hope is not wishful thinking. It is confidence in a promise that has never failed.', ref: 'HEB:11:1' },
+  { text: 'Lack wisdom? Ask. God gives generously and without scolding.', ref: 'JAS:1:5' },
+  { text: 'Yesterday’s failures do not have the last word. Mercy starts again today.', ref: 'LAM:3:22' },
+  { text: 'You are not alone. The same God who was with Joshua is with you now.', ref: 'JOS:1:9' },
+  { text: 'Let thankfulness be your first response today. It opens your eyes to what God is doing.', ref: '1TH:5:18' },
+];

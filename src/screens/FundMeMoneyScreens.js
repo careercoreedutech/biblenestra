@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // FUND ME MONEY (monetisation stage 2 — client spec §1 credits, §2 gifting credits, §3 donations and payouts).
 //   FundMeCredits         balance, what a credit does, buy (BuyCoinsSheet), send to a friend, history
 //   FundMeGiftCredits     pick a member → amount → ConfirmSpend → atomic transfer (credits only, never cash)
@@ -700,7 +701,7 @@ const s = {
   body: { color: d.muted, fontFamily: df.sans, fontSize: 12, lineHeight: 18, marginTop: 4 },
   kpis: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 6 },
   link: { color: d.plum, fontFamily: df.sansBold, fontSize: 12 },
-  short: { color: '#8A2F2F', fontFamily: df.sans, fontSize: 11, marginTop: 8, lineHeight: 17 },
+  short: { color: (isDarkScheme() ? '#E8A09A' : '#8A2F2F'), fontFamily: df.sans, fontSize: 11, marginTop: 8, lineHeight: 17 },
   rowMeta: { color: d.muted, fontFamily: df.sans, fontSize: 10.5, marginTop: 2, lineHeight: 16 },
   rowTitle: { color: d.ink, fontFamily: df.display, fontSize: 13 },
   rowAmt: { color: d.ink, fontFamily: df.sansBold, fontSize: 13, textAlign: 'right' },
@@ -714,14 +715,14 @@ const s = {
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 999, paddingHorizontal: 14, height: 46 },
   searchInput: { flex: 1, color: d.ink, fontFamily: df.sans, fontSize: 12, outlineStyle: 'none' },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  stepBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: '#D8CFC5', alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
+  stepBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
   stepBtnText: { fontSize: 20, color: d.ink, fontFamily: df.sansBold },
   stepNum: { fontFamily: df.displayBold, fontSize: 28, color: d.ink, minWidth: 40, textAlign: 'center' },
 
   // payouts / timeline
   tlRow: { flexDirection: 'row', gap: 10 },
   tlRail: { width: 14, alignItems: 'center' },
-  tlDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: '#D8CFC5', backgroundColor: d.paper, marginTop: 4 },
+  tlDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), backgroundColor: d.paper, marginTop: 4 },
   tlLine: { flex: 1, width: 2, backgroundColor: d.line, marginTop: 2 },
   tlTitle: { color: d.ink, fontFamily: df.sansBold, fontSize: 11.5 },
   tlMeta: { color: d.muted, fontFamily: df.sans, fontSize: 10, marginTop: 1 },

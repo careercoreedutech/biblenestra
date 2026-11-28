@@ -147,6 +147,30 @@ window.registerAdminTab('Audio & Books', function(box, ctx){
     var rightsNote = h('input', { placeholder: 'e.g. Public domain (published 1678) · or: permission from the author, 2026' });
     var bar = h('div', { class: 'meta', style: 'margin-top:8px' });
     var go = h('button', { class: 'btn', text: 'Upload & publish' });
+    // Audio books (brief 18.1): an ordered list of chapter files, each with its own title. Empty = a single recording.
+    var chapterList = [];
+    var chapterBox = h('div');
+    function moveChapter(i, to){ if (to < 0 || to >= chapterList.length) return; var t = chapterList[to]; chapterList[to] = chapterList[i]; chapterList[i] = t; drawChapters(); }
+    function drawChapters(){
+      chapterBox.innerHTML = '';
+      chapterBox.appendChild(h('div', { class: 'meta', style: 'margin-top:12px', text: chapterList.length ? 'Audio book chapters, in play order. The first chapter is the item’s main file, so leave the single audio file above empty.' : 'Audio book with chapters (optional): add one audio file per chapter. Leave this empty for a single recording.' }));
+      chapterList.forEach(function(ch, i){
+        chapterBox.appendChild(h('div', { class: 'card row', style: 'gap:8px;flex-wrap:wrap;align-items:flex-end' }, [
+          h('span', { class: 'chip', text: 'Chapter ' + (i + 1) }),
+          field('Chapter title', ch.title), field('Audio file', ch.file),
+          h('button', { class: 'btn small ghost', text: 'Up', onclick: function(){ moveChapter(i, i - 1); } }),
+          h('button', { class: 'btn small ghost', text: 'Down', onclick: function(){ moveChapter(i, i + 1); } }),
+          h('button', { class: 'btn small danger', text: 'Remove', onclick: function(){ chapterList.splice(i, 1); drawChapters(); } }),
+        ]));
+      });
+      chapterBox.appendChild(h('button', { class: 'btn small ghost', text: 'Add chapter', style: 'margin-top:8px', onclick: function(){
+        if (chapterList.length >= 300) { ctx.toast('An audio book can have up to 300 chapters', true); return; }
+        var fileIn = h('input', { type: 'file', accept: 'audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac' });
+        var titleIn = h('input', { placeholder: 'Chapter ' + (chapterList.length + 1) + ': title' });
+        fileIn.onchange = function(){ var f = fileIn.files[0]; if (f && !titleIn.value) titleIn.value = f.name.replace(/\\.[^.]+$/, '').replace(/[_-]+/g, ' '); };
+        chapterList.push({ file: fileIn, title: titleIn }); drawChapters();
+      } }));
+    }
     file.onchange = function(){ var f = file.files[0]; if (f && !title.value) title.value = f.name.replace(/\\.[^.]+$/, '').replace(/[_-]+/g, ' '); };
     var kids = [h('div', { class: 'row', style: 'flex-wrap:wrap' }, [field(kind === 'pdf' ? 'PDF file (up to 60 MB)' : 'Audio file (up to 95 MB)', file), field('Cover image', cover)]),
       h('div', { class: 'row', style: 'flex-wrap:wrap' }, [field('Title', title), field(kind === 'pdf' ? 'Author' : 'Speaker / artist', artist), field('Category', cat)]),
@@ -154,9 +178,38 @@ window.registerAdminTab('Audio & Books', function(box, ctx){
     if (kind === 'pdf') {
       kids.push(h('div', { class: 'quote' }, [h('label', { class: 'row', style: 'gap:8px;align-items:flex-start' }, [rights, h('span', { text: 'I confirm this book is in the public domain, or that BibleNestra has the rights holder’s permission to distribute it for free. Copyrighted books without permission must not be uploaded.' })]), field('Rights note (shown to admins)', rightsNote)]));
     }
+    if (kind === 'audio') { drawChapters(); kids.push(chapterBox); }
     kids.push(h('div', { class: 'row', style: 'margin-top:12px' }, [go])); kids.push(bar);
     body.appendChild(h('div', { class: 'card' }, kids));
+    // Chapters: each file goes to the library upload endpoint in order, then one item is created with a chapters list
+    // (the first chapter doubles as the item's main file). The server checks every chapter.
+    async function publishChapters(){
+      if (!title.value.trim()) { ctx.toast('Add the book title', true); title.focus(); return; }
+      for (var k = 0; k < chapterList.length; k++) {
+        if (!chapterList[k].file.files[0]) { ctx.toast('Choose an audio file for chapter ' + (k + 1), true); return; }
+      }
+      go.disabled = true;
+      try {
+        var coverKey = null;
+        if (cover.files[0]) { bar.textContent = 'Uploading cover…'; coverKey = (await upload('/uploads/image', cover.files[0], cover.files[0].type || 'image/jpeg')).key; }
+        var done = []; var total = 0; var n = chapterList.length;
+        for (var i = 0; i < n; i++) {
+          var cf = chapterList[i].file.files[0];
+          var cdur = await mediaDuration(cf);
+          var label = 'Uploading chapter ' + (i + 1) + ' of ' + n;
+          bar.textContent = label + '…';
+          var cup = await upload('/library/files?kind=audio', cf, guessType(cf, 'audio'), function(p){ bar.textContent = label + '… ' + Math.round(p * 100) + '%'; });
+          done.push({ fileKey: cup.key, title: chapterList[i].title.value.trim() || ('Chapter ' + (i + 1)), durationSec: cdur });
+          total += cdur || 0;
+        }
+        bar.textContent = 'Publishing the audio book…';
+        await ctx.api('POST', '/library/items', { kind: 'audio', scope: 'platform', fileKey: done[0].fileKey, title: title.value, artist: artist.value, description: desc.value, categoryId: cat.value || null, coverKey: coverKey, durationSec: total || null, featured: feat.checked, chapters: done });
+        ctx.toast('Published — available to everyone now'); show('Library');
+      } catch (e) { ctx.toast(e.message, true); bar.textContent = ''; }
+      go.disabled = false;
+    }
     go.onclick = async function(){
+      if (kind === 'audio' && chapterList.length) return publishChapters();
       var f = file.files[0];
       if (!f) { ctx.toast('Choose a file first', true); return; }
       if (!title.value.trim()) { ctx.toast('Add a title', true); title.focus(); return; }

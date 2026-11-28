@@ -1,6 +1,7 @@
 import React from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
+import { colors } from '../theme'; // APPEARANCE (item 14): the wrap uses the page token
 
 // Lucide icons used by the design: Home, BookOpen, Compass, UsersRound
 const svg = (c, paths) => <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">{paths}</Svg>;
@@ -49,12 +50,17 @@ export default function TabBar({ active, onChange, onCreate, hidden }) {
   const bar = (
     <View
       onLayout={(e) => { const hh = e.nativeEvent.layout.height; if (hh && Math.abs(hh - h) > 0.5) setH(hh); }}
-      style={[styles.wrap, { backgroundColor: '#F8F1E7' }]}
+      style={[styles.wrap, { backgroundColor: colors.screen }]}
     >
       <View style={styles.dock}>
         {TABS.slice(0, 2).map(tab)}
-        <Pressable accessibilityLabel="Create" onPress={onCreate} style={({ pressed }) => [styles.create, pressed && { transform: [{ scale: 0.95 }] }]}>
-          <Svg width={22} height={22} viewBox="0 0 24 24" fill="none"><Path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth={2.2} strokeLinecap="round" /></Svg>
+        {/* Centre button: Find Love (heart under a magnifier, as in the client's home mock-up) */}
+        <Pressable accessibilityLabel="Find Love" onPress={onCreate} style={({ pressed }) => [styles.create, pressed && { transform: [{ scale: 0.95 }] }]}>
+          <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+            <Path d="M10.5 15.2c-.2 0-.4-.1-.6-.2C7.6 13.4 6 11.9 6 10.1 6 8.9 6.9 8 8.1 8c.9 0 1.6.5 2.4 1.3.8-.8 1.5-1.3 2.4-1.3 1.2 0 2.1.9 2.1 2.1 0 1.8-1.6 3.3-3.9 4.9-.2.1-.4.2-.6.2z" fill="#fff" />
+            <Path d="M10.5 3a7.5 7.5 0 1 0 4.74 13.31L19.5 20.6" stroke="#fff" strokeWidth={2.1} strokeLinecap="round" />
+            <Path d="M10.5 3A7.5 7.5 0 0 1 17.9 11" stroke="#fff" strokeWidth={2.1} strokeLinecap="round" />
+          </Svg>
         </Pressable>
         {TABS.slice(2).map(tab)}
       </View>

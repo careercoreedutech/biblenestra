@@ -764,7 +764,7 @@ const ask = StyleSheet.create({
   quoteLinkText: { fontFamily: df.sansBold, fontSize: 11, color: d.plum },
 
   actionChip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: 999, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
-  actionChipOn: { borderColor: d.plum, backgroundColor: '#FFF0E5' },
+  actionChipOn: { borderColor: d.plum, backgroundColor: colors.primarySoft },
   actionChipText: { fontFamily: df.sansBold, fontSize: 11.5, color: d.muted },
 
   typingRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },

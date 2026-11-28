@@ -3,7 +3,7 @@
 // and tap through to apply on the ORIGINAL site. Every listing credits its source ("via <source>") and every
 // apply button opens item.url — required by the sources' terms.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { Screen, Badge, Button, alpha } from '../components/ui';
 import { Icon } from '../components/Icons';
@@ -17,6 +17,7 @@ import { useOpportunitiesApi, isWebUrl } from '../api/opportunities';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAds } from '../ads/Ads';
 import { NightGlow } from '../components/ui';
+import { FeedNativeAd } from '../ads/AdSlots'; // PACKAGE E: the labelled native ad in the list
 
 // ---------- kinds ----------
 export const KIND_META = {
@@ -147,7 +148,6 @@ export function OpportunitiesScreen({ params = {} }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [summary, setSummary] = useState(null);
-  const [selected, setSelected] = useState(null);
 
   const reqId = useRef(0);
   const listRef = useRef(null);
@@ -248,34 +248,30 @@ export function OpportunitiesScreen({ params = {} }) {
     }
   }, [state.savedOpportunities, dispatch, toast]);
 
-  // Brief 12.2: the detail sheet preloads an interstitial; "Apply on …" shows it, then opens the site in the
-  // in-app browser. If no ad opens within ~2 s (or caps / Plus say no ad) we go straight to the site.
-  // JOBS FEEDS: the Directory's "Open" buttons go through the same interstitial-then-in-app-browser path.
-  useEffect(() => { if (selected || view === 'directory') ads.preloadInterstitial(); }, [selected, view]);
+  // PACKAGE E: a job opens full screen after one interstitial, and Apply / View job goes through a second one before the
+  // original site. adGate() is the only path to an ad here; it never holds the user for long (see adGate below).
+  useEffect(() => { ads.preloadInterstitial(); }, [view]);
   const proceeding = useRef(false);
-  const proceedToUrl = useCallback(async (url, { closeSheet = false } = {}) => {
+  const proceedToUrl = useCallback(async (url) => {
     if (!isWebUrl(url)) { openLink(url); return; }
     if (proceeding.current) return;
     proceeding.current = true;
     try {
-      // full-screen ads can't reliably stack over our own sheet, so slide it away first (the user comes back to the list)
-      if (closeSheet) {
-        setSelected(null);
-        await new Promise((r) => setTimeout(r, 280));
-      }
-      try {
-        await Promise.race([
-          ads.showInterstitial({ surface: 'other', placement: 'opportunity', loadTimeoutMs: 2000, skipAfterSec: 3 }),
-          new Promise((r) => setTimeout(r, 2000 + 3 * 60 * 1000)), // safety net: never hold the user forever
-        ]);
-      } catch (e) { /* never block the redirect */ }
+      await adGate(ads, 'opportunity');
       await openLink(url);
       ads.preloadInterstitial(); // ready for the next one
     } finally {
       proceeding.current = false;
     }
   }, [ads, openLink]);
-  const proceedToSite = useCallback((it) => { if (it) proceedToUrl(it.url, { closeSheet: true }); }, [proceedToUrl]);
+  const opening = useRef(false);
+  const openDetail = useCallback(async (it) => {
+    if (!it || opening.current) return;
+    opening.current = true;
+    haptic('select');
+    try { await adGate(ads, 'opportunity_open'); } finally { opening.current = false; }
+    nav.push('OpportunityDetail', { id: it.id, item: it });
+  }, [ads, nav]);
 
   // Directory → "See listings": jump to the listings view filtered to that source
   const showSourceListings = useCallback((entry) => {
@@ -285,14 +281,6 @@ export function OpportunitiesScreen({ params = {} }) {
     setView('listings');
     listRef.current?.scrollToOffset?.({ offset: 0, animated: false });
   }, []);
-
-  const share = async (it) => {
-    try {
-      await Share.share({ message: `${it.title}${it.org ? ` — ${it.org}` : ''}\n${it.url || ''}\n\nvia ${it.source.name} · found on BibleNestra` });
-    } catch (e) {
-      toast.show('Sharing isn’t available here', { tone: 'error' });
-    }
-  };
 
   // Saved view filters locally (works offline)
   const savedFiltered = useMemo(() => {
@@ -324,6 +312,16 @@ export function OpportunitiesScreen({ params = {} }) {
 
   const isSaved = kind === 'saved' && !isDir;
   const data = isDir ? dirRows : isSaved ? savedFiltered : api.online ? items : [];
+  // PACKAGE E: a labelled native ad after every 5 listings (not between directory rows, not after the last listing)
+  const listData = useMemo(() => {
+    if (isDir || isSaved) return data;
+    const out = [];
+    data.forEach((x, i) => {
+      out.push(x);
+      if ((i + 1) % 5 === 0 && i + 1 < data.length) out.push({ id: `ad-after-${i + 1}`, type: 'ad' });
+    });
+    return out;
+  }, [data, isDir, isSaved]);
 
   // Chips: All + kinds with listings + Saved
   const kindChips = useMemo(() => {
@@ -584,6 +582,7 @@ export function OpportunitiesScreen({ params = {} }) {
   const renderItem = ({ item, index }) => {
     // JOBS FEEDS: directory rows
     if (item.type === 'cat') return <DirectoryHeading cat={item.cat} n={item.n} />;
+    if (item.type === 'ad') return <FeedNativeAd style={styles.listAd} />;
     if (item.type === 'entry') {
       return (
         <DirectoryCard
@@ -598,7 +597,7 @@ export function OpportunitiesScreen({ params = {} }) {
         <OpportunityCard
           item={item}
           saved={savedIds.has(item.id)}
-          onPress={() => setSelected(item)}
+          onPress={() => openDetail(item)}
           onToggleSave={() => toggleSave(item)}
         />
       </FadeInUp>
@@ -609,7 +608,7 @@ export function OpportunitiesScreen({ params = {} }) {
     <Screen back title="Opportunities" subtitle="Jobs, scholarships, grants & more from trusted sources" scroll={false} padded={false}>
       <FlatList
         ref={listRef}
-        data={data}
+        data={listData}
         keyExtractor={(it) => it.id}
         renderItem={renderItem}
         ListHeaderComponent={header}
@@ -629,15 +628,6 @@ export function OpportunitiesScreen({ params = {} }) {
         ) : undefined}
       />
 
-      <OpportunitySheet
-        item={selected}
-        saved={selected ? savedIds.has(selected.id) : false}
-        onClose={() => setSelected(null)}
-        onToggleSave={() => selected && toggleSave(selected)}
-        onOpen={openLink}
-        onProceed={proceedToSite}
-        onShare={share}
-      />
       <CareerPrayerCard />
     </Screen>
   );
@@ -698,6 +688,19 @@ function Chip({ label, icon, tint = colors.primary, count, active, onPress }) {
       ) : null}
     </PressScale>
   );
+}
+
+/** PACKAGE E: one interstitial in front of a listing (or before leaving for the original site). Shows nothing when the ads
+ *  module has no ad ready, the frequency caps or Plus say no, or the app is in the background; then it continues at once
+ *  (the 2 s load timeout). Never blocks for long. */
+async function adGate(ads, placement) {
+  try {
+    await Promise.race([
+      ads.showInterstitial({ surface: 'other', placement, loadTimeoutMs: 2000, skipAfterSec: 3 }),
+      new Promise((r) => setTimeout(r, 2000 + 3 * 60 * 1000)), // safety net: never hold the user forever
+    ]);
+  } catch (e) { /* never block the user */ }
+  ads.preloadInterstitial();
 }
 
 function SaveButton({ saved, onPress, size = 34 }) {
@@ -778,118 +781,6 @@ function OpportunityCard({ item, saved, onPress, onToggleSave }) {
       <SaveButton saved={saved} onPress={onToggleSave} />
     </View>
     </View>
-  );
-}
-
-function OpportunitySheet({ item, saved, onClose, onToggleSave, onOpen, onProceed, onShare }) {
-  // keep the last item while the sheet animates closed
-  const last = useRef(item);
-  if (item) last.current = item;
-  const it = item || last.current;
-  if (!it) return null;
-  const meta = kindMeta(it.kind);
-  const dl = deadlineInfo(it.deadline);
-  const posted = postedText(it.postedAt);
-  const place = placeText(it);
-  const applyVerb = ['job', 'remote', 'internship', 'scholarship', 'fellowship', 'grant', 'hackathon', 'competition', 'volunteer'].includes(it.kind) ? 'Apply' : 'View';
-  const btnLabel = dl && dl.closed ? `View on ${it.source.name}` : `${applyVerb} on ${it.source.name}`;
-
-  return (
-    <AnimatedModal visible={!!item} onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss" />
-        <View style={styles.sheet}>
-          <View style={styles.grabber} />
-          <View style={styles.sheetHeader}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <Badge label={meta.one} tint={meta.tint} />
-                {it.remote ? <Badge label="Remote" tint={colors.sky} /> : null}
-                {it.openTo ? <Badge label={OPEN_TO_LABEL[it.openTo]} tint={colors.sage} /> : null}
-              </View>
-              <Text style={styles.sheetTitle}>{it.title}</Text>
-              {it.org ? <Text style={styles.sheetOrg}>{it.org}</Text> : null}
-            </View>
-            <PressScale onPress={onClose} hitSlop={12} scaleTo={0.88} accessibilityLabel="Close" style={styles.closeBtn}>
-              <Icon name="x" size={14} color={colors.fg} strokeWidth={2.4} />
-            </PressScale>
-          </View>
-
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
-            {/* Facts */}
-            <View style={styles.factsBox}>
-              {place ? <Fact icon="map-pin" label="Location" value={place} /> : null}
-              {it.salary ? <Fact icon="coin" label={it.kind === 'scholarship' || it.kind === 'grant' || it.kind === 'fellowship' ? 'Award' : 'Pay'} value={it.salary} /> : null}
-              {dl ? <Fact icon="clock" label="Deadline" value={dl.text} urgent={dl.urgent} /> : null}
-              {posted ? <Fact icon="calendar" label="Posted" value={posted.replace(/^Posted (\w)/, (_, c) => c.toUpperCase())} /> : null}
-              {it.openTo ? <Fact icon="globe" label="Who" value={it.openTo === 'worldwide' ? 'Open worldwide' : OPEN_TO_LABEL[it.openTo]} /> : null}
-              {it.category ? <Fact icon={catMeta(it.category).icon} label="Area" value={catMeta(it.category).label} /> : null}
-              <Fact icon="link" label="Source" value={it.source.name} last />
-            </View>
-
-            {dl && dl.closed ? (
-              <View style={styles.closedNote}>
-                <Icon name="clock" size={13} color={colors.warning} />
-                <Text style={styles.closedNoteText}>The deadline shown has passed. Check the original listing — it may have been extended or re-opened.</Text>
-              </View>
-            ) : null}
-
-            {it.excerpt ? (
-              <>
-                <Text style={styles.sheetLabel}>About this opportunity</Text>
-                <Text style={styles.sheetBody}>{it.excerpt}</Text>
-                <Text style={styles.sheetHint}>This is a summary. The full description and how to apply are on {it.source.name}.</Text>
-              </>
-            ) : null}
-
-            {it.tags && it.tags.length ? (
-              <>
-                <Text style={styles.sheetLabel}>Tags</Text>
-                <View style={styles.tagsRow}>
-                  {it.tags.map((t, i) => (
-                    <View key={`${t}-${i}`} style={styles.tagChip}><Text style={styles.tagText}>{t}</Text></View>
-                  ))}
-                </View>
-              </>
-            ) : null}
-
-            {/* Source credit */}
-            <PressScale onPress={() => onOpen(it.source.url || it.url)} scaleTo={0.98} accessibilityRole="link" accessibilityLabel={`Listing via ${it.source.name}`} style={styles.creditBox}>
-              <View style={styles.creditIcon}><Icon name="globe" size={15} color={colors.primary} /></View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.creditTitle}>Listing via {it.source.name}</Text>
-                <Text style={styles.creditSub} numberOfLines={1}>{hostOf(it.url) || hostOf(it.source.url) || 'Original site'}</Text>
-              </View>
-              <Icon name="arrow-up-right" size={14} color={colors.primary} strokeWidth={2.2} />
-            </PressScale>
-
-            <View style={styles.safetyNote}>
-              <Icon name="shield" size={14} color={colors.gold} />
-              <Text style={styles.safetyText}>{DISCLAIMER}</Text>
-            </View>
-          </ScrollView>
-
-          {/* Actions */}
-          <View style={styles.sheetActions}>
-            <SaveButton saved={saved} onPress={onToggleSave} size={46} />
-            <PressScale onPress={() => onShare(it)} hitSlop={6} scaleTo={0.88} accessibilityLabel="Share" style={styles.shareBtn}>
-              <Icon name="share" size={16} color={colors.fg} />
-            </PressScale>
-            <PressScale
-              onPress={() => (onProceed ? onProceed(it) : onOpen(it.url))}
-              disabled={!it.url}
-              scaleTo={0.96}
-              accessibilityRole="link"
-              accessibilityLabel={btnLabel}
-              style={[styles.applyBtn, !it.url && { opacity: 0.4 }]}
-            >
-              <Text style={styles.applyBtnText} numberOfLines={1}>{btnLabel}</Text>
-              <Icon name="arrow-up-right" size={15} color={colors.primaryFg} strokeWidth={2.4} />
-            </PressScale>
-          </View>
-        </View>
-      </View>
-    </AnimatedModal>
   );
 }
 
@@ -1128,6 +1019,7 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   kindIcon: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   saveBtn: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.raised },
+  listAd: { borderLeftWidth: 3, borderLeftColor: colors.gold, backgroundColor: alpha(colors.gold, 0.08) }, // PACKAGE E: sponsored card in the list
   saveBtnOn: { backgroundColor: colors.cardGold },
   cardTitle: { fontFamily: fonts.serifBold, fontSize: 18, lineHeight: 23.5, letterSpacing: -0.3, color: colors.fg, marginTop: 10 },
   cardOrg: { fontSize: 13, color: colors.fg, fontWeight: '600', marginTop: 3 },
@@ -1371,4 +1263,237 @@ const prayerStyles = StyleSheet.create({
   body: { fontFamily: fonts.serifItalic, fontSize: 18, lineHeight: 27, color: colors.nightFg, textAlign: 'center', marginTop: 12 },
   btn: { marginTop: 22, height: 52, borderRadius: 26, backgroundColor: colors.goldLight, alignItems: 'center', justifyContent: 'center' },
   btnText: { fontSize: 16, fontWeight: '800', color: colors.night },
+});
+
+// =============================================================================================
+// PACKAGE E: full-screen job detail (route "OpportunityDetail"). Everything the source gave: title, company, logo,
+// the full description as readable text, responsibilities, qualifications, skills, location, pay, type, deadline,
+// how to apply, the original site, and View job / Apply (each through one interstitial, then the original site).
+// Rows with no data are hidden. Opened from the list after one interstitial (see adGate / openDetail above).
+// =============================================================================================
+function TextBlock({ text }) {
+  const blocks = String(text || '').split(/\n{2,}/).map((b) => b.split('\n').map((l) => l.trim()).filter(Boolean)).filter((b) => b.length);
+  return (
+    <View style={{ gap: 12 }}>
+      {blocks.map((lines, bi) => (
+        <View key={bi} style={{ gap: 6 }}>
+          {lines.map((line, li) => (line.startsWith('• ') ? (
+            <View key={li} style={detailStyles.bulletRow}>
+              <Text style={detailStyles.bulletDot}>•</Text>
+              <Text style={detailStyles.bulletText}>{line.slice(2)}</Text>
+            </View>
+          ) : (
+            <Text key={li} style={detailStyles.paragraph}>{line}</Text>
+          )))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function DetailSection({ label, text }) {
+  if (!text) return null;
+  return (
+    <View>
+      <Text style={styles.sheetLabel}>{label}</Text>
+      <TextBlock text={text} />
+    </View>
+  );
+}
+
+export function OpportunityDetailScreen({ params = {} }) {
+  const nav = useNav();
+  const api = useOpportunitiesApi();
+  const ads = useAds();
+  const openLink = useOpenLink();
+  const toast = useToast();
+  const { state, dispatch } = useStore();
+  const id = params.id || (params.item && params.item.id) || null;
+  const [it, setIt] = useState(params.item || null); // the list item shows at once; the full listing replaces it
+  const [loadError, setLoadError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const proceeding = useRef(false);
+
+  const load = useCallback(async () => {
+    if (!id || !api.online) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const full = await api.detail(id);
+      if (full) setIt(full);
+      else setLoadError(new Error('This listing is no longer available.'));
+    } catch (e) {
+      setLoadError(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [api, id]);
+  useEffect(() => { load(); }, [load]);
+
+  const saved = Array.isArray(state.savedOpportunities) ? state.savedOpportunities : [];
+  const isSaved = !!it && saved.some((x) => x.id === it.id);
+  const toggleSave = () => {
+    if (!it) return;
+    const list = Array.isArray(state.savedOpportunities) ? state.savedOpportunities : [];
+    if (list.some((x) => x.id === it.id)) {
+      dispatch({ type: 'set', patch: { savedOpportunities: list.filter((x) => x.id !== it.id) } });
+      toast.show('Removed from saved', { icon: 'bookmark' });
+    } else {
+      dispatch({ type: 'set', patch: { savedOpportunities: [{ ...it, savedAt: new Date().toISOString() }, ...list].slice(0, 200) } });
+      toast.show('Saved — find it under Saved', { icon: 'bookmark', haptic: 'success' });
+    }
+  };
+  const share = async () => {
+    if (!it) return;
+    try {
+      await Share.share({ message: `${it.title}${it.org ? ` — ${it.org}` : ''}\n${it.url || ''}\n\nvia ${it.source.name} · found on BibleNestra` });
+    } catch (e) {
+      toast.show('Sharing isn’t available here', { tone: 'error' });
+    }
+  };
+  // Apply / View job / the source credit: one interstitial, then the original site in the in-app browser
+  const goToSite = useCallback(async (url) => {
+    if (!url) return;
+    if (!isWebUrl(url)) { openLink(url); return; }
+    if (proceeding.current) return;
+    proceeding.current = true;
+    try {
+      await adGate(ads, 'opportunity');
+      await openLink(url);
+    } finally {
+      proceeding.current = false;
+    }
+  }, [ads, openLink]);
+
+  if (!it) {
+    return (
+      <Screen back title="Opportunity" scroll={false} padded={false}>
+        <View style={detailStyles.center}>
+          {loading ? <ActivityIndicator color={colors.primary} /> : <Text style={detailStyles.muted}>{loadError ? errorMessage(loadError, 'Couldn’t open this listing.') : 'Opening…'}</Text>}
+        </View>
+      </Screen>
+    );
+  }
+
+  const meta = kindMeta(it.kind);
+  const dl = deadlineInfo(it.deadline);
+  const posted = postedText(it.postedAt);
+  const place = placeText(it);
+  const applyVerb = ['job', 'remote', 'internship', 'scholarship', 'fellowship', 'grant', 'hackathon', 'competition', 'volunteer'].includes(it.kind) ? 'Apply' : 'View';
+  const applyUrl = it.applyUrl || it.url;
+  const applyLabel = dl && dl.closed ? `View on ${it.source.name}` : `${applyVerb} on ${it.source.name}`;
+
+  return (
+    <Screen back title={meta.one} scroll={false} padded={false}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={detailStyles.body} showsVerticalScrollIndicator={false}>
+        <View style={detailStyles.head}>
+          {it.logoUrl ? (
+            <Image source={{ uri: it.logoUrl }} style={detailStyles.logo} accessibilityLabel={it.org ? `${it.org} logo` : 'Company logo'} />
+          ) : (
+            <View style={[detailStyles.logo, detailStyles.logoFallback]}>
+              <Text style={detailStyles.logoText}>{(it.org || it.source.name || '?').trim().charAt(0).toUpperCase()}</Text>
+            </View>
+          )}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Badge label={meta.one} tint={meta.tint} />
+              {it.remote ? <Badge label="Remote" tint={colors.sky} /> : null}
+              {it.openTo ? <Badge label={OPEN_TO_LABEL[it.openTo]} tint={colors.sage} /> : null}
+            </View>
+            <Text style={styles.sheetTitle}>{it.title}</Text>
+            {it.org ? <Text style={styles.sheetOrg}>{it.org}</Text> : null}
+          </View>
+        </View>
+
+        <View style={styles.factsBox}>
+          {place ? <Fact icon="map-pin" label="Location" value={place} /> : null}
+          {it.salary ? <Fact icon="coin" label={it.kind === 'scholarship' || it.kind === 'grant' || it.kind === 'fellowship' ? 'Award' : 'Pay'} value={it.salary} /> : null}
+          {it.employmentType ? <Fact icon="briefcase" label="Type" value={it.employmentType} /> : null}
+          {dl ? <Fact icon="clock" label="Deadline" value={dl.text} urgent={dl.urgent} /> : null}
+          {posted ? <Fact icon="calendar" label="Posted" value={posted.replace(/^Posted (\w)/, (_, c) => c.toUpperCase())} /> : null}
+          {it.openTo ? <Fact icon="globe" label="Who" value={it.openTo === 'worldwide' ? 'Open worldwide' : OPEN_TO_LABEL[it.openTo]} /> : null}
+          {it.category ? <Fact icon={catMeta(it.category).icon} label="Area" value={catMeta(it.category).label} /> : null}
+          <Fact icon="link" label="Original site" value={hostOf(applyUrl) || it.source.name} last />
+        </View>
+
+        {dl && dl.closed ? (
+          <View style={styles.closedNote}>
+            <Icon name="clock" size={13} color={colors.warning} />
+            <Text style={styles.closedNoteText}>The deadline shown has passed. Check the original listing — it may have been extended or re-opened.</Text>
+          </View>
+        ) : null}
+
+        <DetailSection label="About this opportunity" text={it.description || it.excerpt} />
+        <DetailSection label="Responsibilities" text={it.responsibilities} />
+        <DetailSection label="Qualifications" text={it.qualifications} />
+        {it.skills && it.skills.length ? (
+          <>
+            <Text style={styles.sheetLabel}>Skills</Text>
+            <View style={styles.tagsRow}>
+              {it.skills.map((t, i) => <View key={`${t}-${i}`} style={styles.tagChip}><Text style={styles.tagText}>{t}</Text></View>)}
+            </View>
+          </>
+        ) : null}
+        <DetailSection label="How to apply" text={it.instructions} />
+
+        {it.tags && it.tags.length ? (
+          <>
+            <Text style={styles.sheetLabel}>Tags</Text>
+            <View style={styles.tagsRow}>
+              {it.tags.map((t, i) => <View key={`${t}-${i}`} style={styles.tagChip}><Text style={styles.tagText}>{t}</Text></View>)}
+            </View>
+          </>
+        ) : null}
+
+        <PressScale onPress={() => goToSite(it.source.url || applyUrl)} disabled={!(it.source.url || applyUrl)} scaleTo={0.98} accessibilityRole="link" accessibilityLabel={`Listing via ${it.source.name}`} style={styles.creditBox}>
+          <View style={styles.creditIcon}><Icon name="globe" size={15} color={colors.primary} /></View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.creditTitle}>Listing via {it.source.name}</Text>
+            <Text style={styles.creditSub} numberOfLines={1}>{hostOf(applyUrl) || hostOf(it.source.url) || 'Original site'}</Text>
+          </View>
+          <Icon name="arrow-up-right" size={14} color={colors.primary} strokeWidth={2.2} />
+        </PressScale>
+
+        <View style={styles.safetyNote}>
+          <Icon name="shield" size={14} color={colors.gold} />
+          <Text style={styles.safetyText}>{DISCLAIMER}</Text>
+        </View>
+      </ScrollView>
+
+      <View style={detailStyles.bar}>
+        <SaveButton saved={isSaved} onPress={toggleSave} size={46} />
+        <PressScale onPress={share} hitSlop={6} scaleTo={0.88} accessibilityLabel="Share" style={styles.shareBtn}>
+          <Icon name="share" size={16} color={colors.fg} />
+        </PressScale>
+        <PressScale onPress={() => goToSite(applyUrl)} disabled={!applyUrl} scaleTo={0.96} accessibilityRole="link" accessibilityLabel="View job" style={[detailStyles.viewBtn, !applyUrl && { opacity: 0.4 }]}>
+          <Text style={detailStyles.viewBtnText} numberOfLines={1}>View job</Text>
+        </PressScale>
+        <PressScale onPress={() => goToSite(applyUrl)} disabled={!applyUrl} scaleTo={0.96} accessibilityRole="link" accessibilityLabel={applyLabel} style={[styles.applyBtn, !applyUrl && { opacity: 0.4 }]}>
+          <Text style={styles.applyBtnText} numberOfLines={1}>{applyVerb}</Text>
+          <Icon name="arrow-up-right" size={15} color={colors.primaryFg} strokeWidth={2.4} />
+        </PressScale>
+      </View>
+    </Screen>
+  );
+}
+
+const detailStyles = StyleSheet.create({
+  body: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 130 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  muted: { fontSize: 14, color: colors.muted, textAlign: 'center' },
+  head: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
+  logo: { width: 56, height: 56, borderRadius: 14, backgroundColor: colors.raised },
+  logoFallback: { alignItems: 'center', justifyContent: 'center' },
+  logoText: { fontFamily: fonts.serifBold, fontSize: 22, color: colors.muted },
+  bulletRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingLeft: 2 },
+  bulletDot: { fontSize: 14, lineHeight: 22, color: colors.primary, width: 10 },
+  bulletText: { flex: 1, fontSize: 14.5, lineHeight: 22, color: colors.passage },
+  paragraph: { fontSize: 14.5, lineHeight: 22, color: colors.passage },
+  bar: {
+    position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 14, paddingTop: 10, paddingBottom: 22, backgroundColor: colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderStrong,
+  },
+  viewBtn: { flex: 1, height: 46, borderRadius: 999, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.raised },
+  viewBtnText: { fontFamily: fonts.sansMedium, fontSize: 14, color: colors.fg },
 });

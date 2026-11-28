@@ -54,7 +54,7 @@ export const startLive = (api, title) => api.request('POST', '/live-sessions', {
 export const endLive = (api, id) => api.request('POST', `/live-sessions/${id}/end`);
 export const liveGifts = (api, id, after) => api.request('GET', `/live-sessions/${id}${after ? `?after=${encodeURIComponent(after)}` : ''}`);
 
-export const CONTEXT_LABEL = { chat: 'in a chat', profile: 'on a profile', live: 'in a live session', post: 'on a post', support: 'Support BibleNestra' };
+export const CONTEXT_LABEL = { chat: 'in a chat', profile: 'on a profile', live: 'in a live session', post: 'on a post', fundme: 'on a Fund Me request', support: 'Support BibleNestra' };
 // SUPPORT BIBLENESTRA: <GiftSheet context={SUPPORT_CONTEXT} recipient={SUPPORT_RECIPIENT} /> sends any gift to the official
 // BibleNestra account. 100% goes to BibleNestra (platform revenue); the server records it as "Support BibleNestra".
 export const SUPPORT_CONTEXT = { type: 'support' };

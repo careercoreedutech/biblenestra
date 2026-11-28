@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Defs, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
@@ -308,7 +309,7 @@ export const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.78)',
+    backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.78)' : 'rgba(255,255,255,0.78)'),
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',

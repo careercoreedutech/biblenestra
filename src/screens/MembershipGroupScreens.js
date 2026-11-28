@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // MEMBERSHIP GROUPS — MASTER CLASS + EXECUTIVE CLASS: the welcome pop-up and the group's own screens.
 //   WelcomeModal / MembershipWelcomeGate  once per member per group (seen is stored on the server, so once across devices)
 //   MembershipMediaScreen                 Videos · Images · Audio · Documents · Files from both sections
@@ -24,7 +25,7 @@ import { downloadChatFile } from '../api/chatMedia';
 import {
   MASTER, EXECUTIVE, MUTE_CHOICES, addGroupAdmin, decideJoinRequest, friendly, getGroup, getGroupAdmins, getGroupInvite, getGroupMembers,
   getJoinRequests, getPendingWelcome, markWelcomeSeen, memberAction, membershipsChanged, mutedLabel, removeGroupAdmin, setAdminPermissions,
-  setGroupNotifications, updateGroup,
+  setGroupNotifications, updateGroup, getAdGate, saveAdGate,
 } from '../api/memberships';
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -36,7 +37,7 @@ export function WelcomeModal({ visible, title, text, onMaster, onExecutive, onCl
       <View style={s.welcomeWrap}>
         <ScaleIn style={s.welcomeCard}>
           <View style={s.welcomeIcon}><Icon name="sparkles" size={28} color={d.plum} /></View>
-          <Text style={s.welcomeEyebrow}>Welcome to the group</Text>
+          <Text style={s.welcomeEyebrow}>Welcome</Text>
           <Text style={s.welcomeTitle} numberOfLines={2}>{title}</Text>
           <ScrollView style={{ maxHeight: 300, alignSelf: 'stretch' }} contentContainerStyle={{ paddingVertical: 4 }}>
             <Text style={s.welcomeText}>{text}</Text>
@@ -181,14 +182,39 @@ export function MembershipMediaScreen({ params = {} }) {
   const [err, setErr] = useState(null);
   const [viewer, setViewer] = useState(null);
   const convs = useMemo(() => [[params.masterId, MASTER], [params.executiveId, EXECUTIVE]].filter(([id]) => !!id), [params.masterId, params.executiveId]);
+  // paged per section: `more` holds each chat's next cursor (null = that section has no more)
+  const [more, setMore] = useState({});
+  const [moreBusy, setMoreBusy] = useState(false);
+  const pageOf = useCallback((before) => Promise.all(convs.map(([id, section]) => {
+    const cur = before ? before[id] : null;
+    if (before && !cur) return Promise.resolve({ id, items: [], next: null });
+    return api.request('GET', `/conversations/${id}/media?type=${tab}${cur ? `&before=${encodeURIComponent(cur)}` : ''}`)
+      .then((r) => ({ id, items: (r.items || []).map((x) => ({ ...x, section })), next: r.nextBefore || null }));
+  })), [tab, convs]);
+  const absorb = (pages) => {
+    const next = {};
+    pages.forEach((p) => { next[p.id] = p.next; });
+    return { next, rows: pages.flatMap((p) => p.items) };
+  };
   useEffect(() => {
     let alive = true;
-    setItems(null); setErr(null);
-    Promise.all(convs.map(([id, section]) => api.request('GET', `/conversations/${id}/media?type=${tab}`).then((r) => (r.items || []).map((x) => ({ ...x, section })))))
-      .then((lists) => { if (alive) setItems(lists.flat().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))); })
+    setItems(null); setErr(null); setMore({});
+    pageOf(null)
+      .then((pages) => { if (!alive) return; const { next, rows } = absorb(pages); setMore(next); setItems(rows.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))); })
       .catch((e) => { if (alive) setErr(e); });
     return () => { alive = false; };
   }, [tab, convs]);
+  const loadMore = async () => {
+    if (moreBusy || !Object.values(more).some(Boolean)) return;
+    setMoreBusy(true);
+    try {
+      const { next, rows } = absorb(await pageOf(more));
+      setMore(next);
+      setItems((cur) => [...(cur || []), ...rows].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
+    } catch (e) { setErr(e); }
+    setMoreBusy(false);
+  };
+  const hasMore = Object.values(more).some(Boolean);
   const empty = { videos: 'No videos yet', photos: 'No images yet', audio: 'No audio yet', docs: 'No documents yet', files: 'No files yet' }[tab];
   return (
     <Screen back title="Media" subtitle={params.title} scroll={false} padded={false}>
@@ -230,6 +256,7 @@ export function MembershipMediaScreen({ params = {} }) {
             </View>
           </FadeInUp>
         )) : null}
+        {items && hasMore ? <Button small kind="ghost" label={moreBusy ? 'Loading…' : 'Load more'} disabled={moreBusy} onPress={loadMore} style={{ alignSelf: 'center', marginTop: 14 }} /> : null}
       </ScrollView>
       <ChatMediaViewer item={viewer} request={api.request} onClose={() => setViewer(null)} />
     </Screen>
@@ -246,15 +273,27 @@ export function MembershipMembersScreen({ params = {} }) {
   const [tab, setTab] = useState(params.tab || 'members');
   const [term, setTerm] = useState('');
   const [list, setList] = useState(null);
+  const [cursor, setCursor] = useState(null); // the server's next page (null = that was the last one)
+  const [moreBusy, setMoreBusy] = useState(false);
   const [sheet, setSheet] = useState(null);
   const manage = !!(g && g.me.permissions.manageMembers);
   const isOwner = !!(g && g.me.role === 'owner');
+  const filterFor = tab === 'banned' ? 'banned' : 'all';
   const load = useCallback(() => {
-    setList(null);
-    const p = tab === 'requests' ? getJoinRequests(api, params.id) : getGroupMembers(api, params.id, { q: term.trim(), filter: tab === 'banned' ? 'banned' : 'all' });
-    return p.then((r) => setList(r.items || [])).catch((e) => { setList([]); toast.show(friendly(e), { tone: 'error' }); });
+    setList(null); setCursor(null);
+    const p = tab === 'requests' ? getJoinRequests(api, params.id) : getGroupMembers(api, params.id, { q: term.trim(), filter: filterFor });
+    return p.then((r) => { setList(r.items || []); setCursor(r.nextCursor || null); }).catch((e) => { setList([]); toast.show(friendly(e), { tone: 'error' }); });
   }, [tab, term, params.id]);
   useEffect(() => { const t = setTimeout(load, term ? 300 : 0); return () => clearTimeout(t); }, [load]);
+  const loadMore = async () => {
+    if (!cursor || moreBusy) return;
+    setMoreBusy(true);
+    try {
+      const r = await getGroupMembers(api, params.id, { q: term.trim(), filter: filterFor, cursor });
+      setList((cur) => [...(cur || []), ...(r.items || [])]); setCursor(r.nextCursor || null);
+    } catch (e) { toast.show(friendly(e), { tone: 'error' }); }
+    setMoreBusy(false);
+  };
 
   const act = async (u, action, extra, done) => {
     try {
@@ -266,10 +305,17 @@ export function MembershipMembersScreen({ params = {} }) {
   const menuFor = (u) => {
     if (!manage || u.role === 'owner' || u.isMe) return [];
     const items = [];
-    if (u.role !== 'admin' && isOwner) items.push({ label: 'Make admin', icon: 'shield', onPress: async () => { try { await addGroupAdmin(api, params.id, u.id); toast.show(`${u.displayName} is now an admin`, { icon: 'shield' }); load(); } catch (e) { toast.show(friendly(e), { tone: 'error' }); } } });
+    // promote: the owner, or an admin with "manage members" (the server gives only the permissions the promoter holds)
+    if (u.role !== 'admin') items.push({ label: 'Make admin', icon: 'shield', onPress: async () => { try { await addGroupAdmin(api, params.id, u.id); toast.show(`${u.displayName} is now an admin`, { icon: 'shield' }); load(); } catch (e) { toast.show(friendly(e), { tone: 'error' }); } } });
     if (u.role === 'admin' && !isOwner) return [];
-    if (u.mutedUntil) items.push({ label: `Unmute in ${EXECUTIVE}`, icon: 'volume', onPress: () => act(u, 'unmute', {}, `${u.displayName} can send messages again`) });
-    else MUTE_CHOICES.forEach((c) => items.push({ label: `Mute in ${EXECUTIVE} for ${c.label}`, icon: 'clock', onPress: () => act(u, 'mute', { minutes: c.minutes }, `${u.displayName} muted for ${c.label}`) }));
+    if (u.suspended) {
+      items.push({ label: `Lift suspension in ${EXECUTIVE}`, icon: 'check', onPress: () => act(u, 'unsuspend', {}, `${u.displayName} can join the discussion again`) });
+    } else {
+      if (u.mutedUntil) items.push({ label: `Unmute in ${EXECUTIVE}`, icon: 'volume', onPress: () => act(u, 'unmute', {}, `${u.displayName} can send messages again`) });
+      else MUTE_CHOICES.forEach((c) => items.push({ label: `Mute in ${EXECUTIVE} for ${c.label}`, icon: 'clock', onPress: () => act(u, 'mute', { minutes: c.minutes }, `${u.displayName} muted for ${c.label}`) }));
+      // suspend: indefinite, they can still read; only an admin can lift it
+      items.push({ label: `Suspend from ${EXECUTIVE}`, icon: 'lock', danger: true, onPress: () => act(u, 'suspend', {}, `${u.displayName} was suspended from ${EXECUTIVE}`) });
+    }
     items.push({ label: 'Remove from group', icon: 'x', danger: true, onPress: () => act(u, 'remove', {}, `${u.displayName} was removed`) });
     items.push({ label: 'Ban from group', icon: 'shield', danger: true, onPress: () => act(u, 'ban', {}, `${u.displayName} was banned`) });
     return items;
@@ -303,11 +349,12 @@ export function MembershipMembersScreen({ params = {} }) {
             <PersonRow key={u.id} u={u} sub="Can’t rejoin until unbanned" right={<Button small kind="ghost" label="Unban" onPress={() => act(u, 'unban', {}, `${u.displayName} was unbanned`)} />} />
           ) : (
             <PersonRow key={u.id} u={u}
-              sub={[u.handle ? `@${u.handle}` : null, u.mutedUntil ? mutedLabel(u.mutedUntil) : null].filter(Boolean).join(' · ') || null}
+              sub={[u.handle ? `@${u.handle}` : null, u.suspended ? `Suspended from ${EXECUTIVE}` : u.mutedUntil ? mutedLabel(u.mutedUntil) : null].filter(Boolean).join(' · ') || null}
               onPress={menuFor(u).length ? () => setSheet(u) : undefined}
               right={menuFor(u).length ? <Icon name="more" size={18} color={colors.muted} /> : null} />
           )))}
         </View>
+        {cursor ? <Button small kind="ghost" label={moreBusy ? 'Loading…' : 'Load more'} disabled={moreBusy} onPress={loadMore} style={{ alignSelf: 'center', marginTop: 14 }} /> : null}
       </ScrollView>
       <ActionSheet visible={!!sheet} title={sheet && sheet.displayName} items={sheet ? menuFor(sheet) : []} onClose={() => setSheet(null)} />
     </Screen>
@@ -338,7 +385,7 @@ export function MembershipAdminsScreen({ params = {} }) {
   };
   return (
     <Screen back title="Admins" subtitle={params.title}>
-      <Text style={s.lead}>Admins help you run both {MASTER} and {EXECUTIVE}. Choose what each one can do. Only you can add or remove admins, and nobody can remove you.</Text>
+      <Text style={s.lead}>Admins help you run both {MASTER} and {EXECUTIVE}. Choose what each one can do. Only you can change an admin’s permissions or remove an admin, and nobody can remove you. Admins with “Manage members” can make others admins, with only the permissions they hold themselves.</Text>
       {!data ? <ActivityIndicator color={colors.primary} style={{ marginTop: 30 }} /> : (
         <>
           {data.owner ? <View style={s.listCard}><PersonRow u={data.owner} sub="Full control" /></View> : null}
@@ -375,6 +422,65 @@ export function MembershipAdminsScreen({ params = {} }) {
 // ---------------------------------------------------------------------------------------------------------------
 // Settings (everyone sees their own notifications; owner / admins with the permission see the rest)
 // ---------------------------------------------------------------------------------------------------------------
+// MEMBERSHIP AD GATE (owner only, shown on the settings screen): watch ads before entering MASTER / EXECUTIVE.
+// The server checks the owner again on save (PUT /memberships/:id/ad-gate).
+const GATE_FREQ_CHOICES = [['daily', 'Daily'], ['weekly', 'Weekly'], ['every_entry', 'Every visit']];
+function AdGateSettings({ id }) {
+  const api = useApi();
+  const toast = useToast();
+  const [loaded, setLoaded] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [mode, setMode] = useState('1'); // '1' | '2' | 'custom'
+  const [custom, setCustom] = useState('3');
+  const [freq, setFreq] = useState('daily');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getAdGate(api, id).then((g) => {
+      if (!alive) return;
+      const n = Number(g.adsNeeded) || 1;
+      setEnabled(!!g.enabled);
+      setMode(n === 1 || n === 2 ? String(n) : 'custom');
+      setCustom(String(n));
+      setFreq(g.frequency || 'daily');
+      setLoaded(true);
+    }).catch((e) => { if (alive) toast.show(friendly(e), { tone: 'error' }); });
+    return () => { alive = false; };
+  }, [id]);
+  const count = mode === 'custom' ? Number(custom) : Number(mode);
+  const countOk = Number.isInteger(count) && count >= 1 && count <= 10;
+  const save = async () => {
+    if (!countOk) { toast.show('Choose between 1 and 10 ads', { tone: 'error' }); return; }
+    setBusy(true);
+    try {
+      await saveAdGate(api, id, { enabled, ads: count, frequency: freq });
+      toast.show('Ad gate saved', { icon: 'check' });
+    } catch (e) { toast.show(friendly(e), { tone: 'error' }); }
+    setBusy(false);
+  };
+  return (
+    <Card title="Ad gate" sub={`Members watch ads before they open ${MASTER} and ${EXECUTIVE}. Owners and admins are not asked.`}>
+      {!loaded ? <ActivityIndicator color={colors.primary} /> : (
+        <>
+          <SettingRow label="Require ads to enter">
+            <DToggle value={enabled} onChange={setEnabled} disabled={busy} accessibilityLabel="Require ads to enter" />
+          </SettingRow>
+          <SettingRow label="Ads to watch" hint="One, two, or your own number from 1 to 10.">
+            <Choice options={[['1', '1 ad'], ['2', '2 ads'], ['custom', 'Custom']]} value={mode} onChange={setMode} disabled={busy} />
+            {mode === 'custom' ? (
+              <TextInput style={[s.input, { marginTop: 8 }]} value={custom} onChangeText={(t) => setCustom(t.replace(/[^0-9]/g, '').slice(0, 2))} keyboardType="number-pad" placeholder="1 to 10" placeholderTextColor={d.muted} accessibilityLabel="Number of ads" />
+            ) : null}
+          </SettingRow>
+          <SettingRow label="How often" hint="Daily and weekly passes run to the end of the day or week (Africa/Lagos time). Every visit asks again on each entry.">
+            <Choice options={GATE_FREQ_CHOICES} value={freq} onChange={setFreq} disabled={busy} />
+          </SettingRow>
+          <Button label={busy ? 'Saving…' : 'Save ad gate'} onPress={save} disabled={busy || !countOk} style={{ marginTop: 12 }} />
+        </>
+      )}
+    </Card>
+  );
+}
+
 export function MembershipSettingsScreen({ params = {} }) {
   const nav = useNav();
   const toast = useToast();
@@ -491,6 +597,8 @@ export function MembershipSettingsScreen({ params = {} }) {
         </>
       ) : null}
 
+      {g.me.role === 'owner' ? <AdGateSettings id={params.id} /> : null}
+
       {g.me.role !== 'member' ? (
         <Card>
           <Pressable onPress={() => nav.push('MembershipMembers', { id: params.id, title: g.title })} style={s.linkRow} accessibilityRole="button">
@@ -517,12 +625,12 @@ const s = StyleSheet.create({
   welcomeTitle: { fontFamily: df.displayBold, fontSize: 24, lineHeight: 29, color: d.ink, textAlign: 'center', marginTop: 4, marginBottom: 8 },
   welcomeText: { fontFamily: df.sans, fontSize: 13, lineHeight: 21, color: d.ink },
   welcomeBtn: { alignSelf: 'stretch', height: 50, borderRadius: 14, backgroundColor: d.plum, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
-  welcomeBtnGhost: { backgroundColor: '#FFE9DA', marginTop: 8 },
+  welcomeBtnGhost: { backgroundColor: colors.primarySoft, marginTop: 8 },
   welcomeBtnText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 14 },
   // segmented choice: the design's .discover-toggle pills
   choice: { flexDirection: 'row', gap: 7 },
   choiceBtn: { flex: 1, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 13, alignItems: 'center', borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
-  choiceOn: { backgroundColor: '#FFE9DA', borderColor: 'rgba(255,107,26,0.45)' },
+  choiceOn: { backgroundColor: colors.primarySoft, borderColor: 'rgba(255,107,26,0.45)' },
   choiceText: { fontSize: 12, fontFamily: df.sansBold, color: d.plumDark },
   choiceTextOn: { color: d.plum },
   card: { backgroundColor: d.paper, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: d.line, marginBottom: 12 },
@@ -556,7 +664,7 @@ const s = StyleSheet.create({
   mediaMeta: { fontFamily: df.sans, fontSize: 10, color: d.muted },
   inviteUrl: { marginTop: 10, fontFamily: df.sansBold, fontSize: 12, color: d.plumDark, backgroundColor: d.lavender, borderRadius: 13, padding: 10 },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
-  fieldLabel: { fontFamily: df.sansBold, fontSize: 11, color: '#4C3D32', marginTop: 14, marginBottom: 7 },
+  fieldLabel: { fontFamily: df.sansBold, fontSize: 11, color: (isDarkScheme() ? '#CDBBA6' : '#4C3D32'), marginTop: 14, marginBottom: 7 },
   input: { backgroundColor: d.paper, borderWidth: 1, borderColor: d.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontFamily: df.sans, fontSize: 13, color: d.ink },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   linkRowText: { flex: 1, fontFamily: df.sansBold, fontSize: 13, color: d.ink },

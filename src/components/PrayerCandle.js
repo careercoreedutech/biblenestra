@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // PRAYER WALL "Light a Candle" (brief 6.6): the candle glyph, the ~1.5 s lighting ceremony that plays over a
 // prayer card, the two side-by-side support actions (🙏 I Am Praying · 🕯️ Light a Candle) and the
 // "who is praying / lit a candle" sheet. RN Animated only (native driver for opacity / transforms).
@@ -165,7 +166,7 @@ export function SupportActions({ p, onPray, onCandle, onShowSupporters, onPrayBu
           <Pop trigger={p.lit}>
             {p.lit ? <CandleGlyph size={15} color={colors.gold} /> : <Text style={styles.emoji}>🕯️</Text>}
           </Pop>
-          <Text style={[styles.btnText, { color: colors.goldMuted }, p.lit && { color: '#6B4E12' }]} numberOfLines={1}>{p.lit ? 'Candle lit' : 'Light a Candle'}</Text>
+          <Text style={[styles.btnText, { color: colors.goldMuted }, p.lit && { color: (isDarkScheme() ? '#E8C27A' : '#6B4E12') }]} numberOfLines={1}>{p.lit ? 'Candle lit' : 'Light a Candle'}</Text>
         </PressScale>
         <Pressable onPress={() => onShowSupporters && onShowSupporters(p, 'candle')} hitSlop={8} accessibilityRole="button" accessibilityLabel={`${p.candles || 0} candles lit. See who`} style={styles.count}>
           <Pop trigger={p.candles} amount={1.18}><AnimatedNumber value={p.candles || 0} style={[styles.countNum, { color: colors.goldMuted }]} /></Pop>
@@ -236,7 +237,7 @@ const styles = StyleSheet.create({
   btn: { minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: radius.pill, paddingHorizontal: 8, height: 38, backgroundColor: colors.primarySoft },
   prayOn: { backgroundColor: colors.primary },
   candleBtn: { backgroundColor: colors.cardGold },
-  candleOn: { backgroundColor: '#F3DFB2', borderWidth: 1, borderColor: 'rgba(168,122,39,0.35)' },
+  candleOn: { backgroundColor: (isDarkScheme() ? '#3A2E14' : '#F3DFB2'), borderWidth: 1, borderColor: 'rgba(168,122,39,0.35)' },
   emoji: { fontSize: 14 },
   btnText: { fontSize: 13, fontWeight: '600', color: colors.primary, flexShrink: 1 },
   count: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 20 },

@@ -8,10 +8,10 @@
 //   GET    /memberships/:id/group                     group overview: sections, my role & permissions, settings, counts
 //   PATCH  /memberships/:id/group                     { title, description, avatarKey, settings{}, welcomeMessage } (manage settings)
 //   GET    /memberships/:id/group/notifications       · PUT { master: bool, executive: 'all'|'mentions'|'off' } (any member)
-//   GET    /memberships/:id/group/members             ?q=&filter=all|admins|muted|banned
-//   POST   /memberships/:id/group/members/:userId     { action: remove|ban|unban|mute|unmute, minutes } (manage members)
+//   GET    /memberships/:id/group/members             ?q=&filter=all|admins|muted|banned&limit=&cursor= → { items, nextCursor }
+//   POST   /memberships/:id/group/members/:userId     { action: remove|ban|unban|mute|unmute|suspend|unsuspend, minutes } (manage members)
 //   GET    /memberships/:id/group/admins              admins + permissions
-//   POST   /memberships/:id/group/admins              { userId | handle, permissions } (owner / platform admins)
+//   POST   /memberships/:id/group/admins              { userId | handle, permissions } (owner, or manage-members admins: only permissions they hold)
 //   PATCH  /memberships/:id/group/admins/:userId      { permissions } (owner / platform admins)
 //   DELETE /memberships/:id/group/admins/:userId      (owner / platform admins) — the owner can never be removed or demoted
 //   GET    /memberships/:id/group/requests            · POST /memberships/:id/group/requests/:userId { approve } (manage members)
@@ -35,6 +35,24 @@ import { groupInviteUrl } from './chatGaps.js';
 
 const parse = (v) => (v == null ? null : typeof v === 'string' ? JSON.parse(v) : v);
 const MAX_MUTE_MIN = 30 * 24 * 60;
+// A suspension is an indefinite mute: muted_until far in the future, plus membership_member_prefs.suspended (see schema.sql)
+const SUSPENDED_UNTIL = new Date('9999-12-31T23:59:59.000Z');
+
+// Paging helpers: ?limit= (default 100, max 200); ?cursor= is opaque (URL-encoded JSON array of the last row's sort keys).
+const pageLimit = (c) => Math.min(200, Math.max(1, parseInt(c.req.query('limit') || '100', 10) || 100));
+const writeCursor = (keys) => JSON.stringify(keys); // the client sends it back URL-encoded as ?cursor=
+const suspendedNow = async (env, membershipId, userId) => !!(await one(env,
+  'SELECT 1 AS ok FROM membership_member_prefs WHERE membership_id = $1 AND user_id = $2 AND suspended AND muted_until > now()', [membershipId, userId]));
+function readCursor(raw, n) {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(String(raw));
+    if (!Array.isArray(v) || v.length !== n || v.some((x) => x === null || x === undefined)) throw new Error('shape');
+    return v;
+  } catch (e) {
+    throw bad('That page link has expired — start again from the first page', 'BAD_CURSOR');
+  }
+}
 
 export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin }) {
   /** The group + my place in it. Needs access (member, owner, admin or platform admin). */
@@ -140,6 +158,7 @@ export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin
         permissions: Object.fromEntries(PERMISSIONS.map((p) => [p, can(actor, p, settings)])),
         notifications: notifyShape(prefs),
         mutedUntil: mutedUntilOf(prefs),
+        suspended: !!(prefs && prefs.suspended && mutedUntilOf(prefs)),
       },
       permissionLabels: PERMISSION_LABELS,
       settings,
@@ -187,6 +206,8 @@ export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin
       const key = b.avatarKey ? str(b.avatarKey, { max: 300 }) : null;
       if (key && !(key.startsWith(`img/${me.id}/`) && /^[\w./-]+$/.test(key) && !key.includes('..'))) throw bad('Upload the photo first', 'BAD_MEDIA');
       await q(env, 'UPDATE conversations SET avatar_key = $2 WHERE id = ANY($1::uuid[])', [[m.channel_id, m.community_id], key]);
+      // the group's cover (group home + catalogue card) follows the new photo; removing the photo keeps the last cover
+      if (key) await q(env, 'UPDATE memberships SET cover_key = $2 WHERE id = $1', [m.id, key]);
       said.push(key ? 'changed the group photo' : 'removed the group photo');
     }
     for (const s of said) await systemMessage(env, m.community_id, me.id, `${me.display_name} ${s}`, { action: 'settings' }).catch(() => {});
@@ -221,23 +242,43 @@ export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin
     const manage = can(actor, 'manageMembers', settings);
     if (filter === 'banned') {
       if (!manage) throw forbidden('You need the “Manage members” permission', 'PERMISSION_REQUIRED');
-      const rows = await q(env, `SELECT b.created_at, ${userJson('u')} AS u FROM conversation_bans b JOIN users u ON u.id = b.user_id
-        WHERE b.conversation_id = $1 AND ($2 = '' OR u.display_name ILIKE $3 OR u.handle ILIKE $3) ORDER BY b.created_at DESC LIMIT 500`, [m.community_id, term, like]);
-      return c.json({ items: rows.map((r) => ({ ...parse(r.u), role: 'banned', banned: true, bannedAt: new Date(r.created_at).toISOString() })) });
+      const limit = pageLimit(c);
+      const cur = readCursor(c.req.query('cursor'), 2); // [createdAt, userId]
+      const rows = await q(env, `SELECT * FROM (
+          SELECT b.created_at, b.user_id AS uid, ${userJson('u')} AS u FROM conversation_bans b JOIN users u ON u.id = b.user_id
+          WHERE b.conversation_id = $1 AND ($2 = '' OR u.display_name ILIKE $3 OR u.handle ILIKE $3)
+        ) t
+        WHERE ($4::timestamptz IS NULL OR (t.created_at, t.uid::text) < ($4::timestamptz, $5::text))
+        ORDER BY t.created_at DESC, t.uid DESC LIMIT ${limit + 1}`, [m.community_id, term, like, cur ? cur[0] : null, cur ? cur[1] : null]);
+      const page = rows.slice(0, limit);
+      const last = page[page.length - 1];
+      return c.json({
+        items: page.map((r) => ({ ...parse(r.u), role: 'banned', banned: true, bannedAt: new Date(r.created_at).toISOString() })),
+        nextCursor: rows.length > limit && last ? writeCursor([new Date(last.created_at).toISOString(), last.uid]) : null,
+      });
     }
-    const rows = await q(env, `SELECT cm.role, cm.joined_at, p.joined_at AS first_joined_at, p.muted_until, a.permissions,
-        s.status AS sub_status, s.expires_at, s.source, ${userJson('u')} AS u
-      FROM conversation_members cm JOIN users u ON u.id = cm.user_id
-      LEFT JOIN membership_member_prefs p ON p.membership_id = $2 AND p.user_id = cm.user_id
-      LEFT JOIN membership_admins a ON a.membership_id = $2 AND a.user_id = cm.user_id
-      LEFT JOIN membership_subscriptions s ON s.membership_id = $2 AND s.user_id = cm.user_id
-      WHERE cm.conversation_id = $1 AND ($3 = '' OR u.display_name ILIKE $4 OR u.handle ILIKE $4)
-        AND ($5 <> 'admins' OR cm.role IN ('owner','admin'))
-        AND ($5 <> 'muted' OR p.muted_until > now())
-      ORDER BY CASE WHEN cm.user_id = $6 THEN 0 WHEN cm.role = 'admin' THEN 1 ELSE 2 END, u.display_name LIMIT 500`,
-    [m.community_id, m.id, term, like, filter, m.owner_id]);
+    // paging: ?limit= (default 100, max 200) and ?cursor= from the previous page's nextCursor (keyset on rank, name, id)
+    const limit = pageLimit(c);
+    const cur = readCursor(c.req.query('cursor'), 3);
+    const rows = await q(env, `SELECT * FROM (
+        SELECT (CASE WHEN cm.user_id = $6 THEN 0 WHEN cm.role = 'admin' THEN 1 ELSE 2 END)::int AS rank, u.display_name AS dn, cm.user_id AS uid,
+          cm.role, cm.joined_at, p.joined_at AS first_joined_at, p.muted_until, p.suspended, a.permissions,
+          s.status AS sub_status, s.expires_at, s.source, ${userJson('u')} AS u
+        FROM conversation_members cm JOIN users u ON u.id = cm.user_id
+        LEFT JOIN membership_member_prefs p ON p.membership_id = $2 AND p.user_id = cm.user_id
+        LEFT JOIN membership_admins a ON a.membership_id = $2 AND a.user_id = cm.user_id
+        LEFT JOIN membership_subscriptions s ON s.membership_id = $2 AND s.user_id = cm.user_id
+        WHERE cm.conversation_id = $1 AND ($3 = '' OR u.display_name ILIKE $4 OR u.handle ILIKE $4)
+          AND ($5 <> 'admins' OR cm.role IN ('owner','admin'))
+          AND ($5 <> 'muted' OR p.muted_until > now())
+      ) t
+      WHERE ($7::int IS NULL OR (t.rank, t.dn, t.uid::text) > ($7::int, $8::text, $9::text))
+      ORDER BY t.rank, t.dn, t.uid LIMIT ${limit + 1}`,
+    [m.community_id, m.id, term, like, filter, m.owner_id, cur ? cur[0] : null, cur ? cur[1] : null, cur ? cur[2] : null]);
+    const page = rows.slice(0, limit);
+    const last = page[page.length - 1];
     return c.json({
-      items: rows.map((r) => {
+      items: page.map((r) => {
         const u = parse(r.u);
         const role = u.id === m.owner_id ? 'owner' : ['owner', 'admin'].includes(r.role) ? 'admin' : 'member';
         return {
@@ -245,11 +286,13 @@ export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin
           role,
           joinedAt: new Date(r.first_joined_at || r.joined_at).toISOString(),
           mutedUntil: mutedUntilOf(r),
+          suspended: !!(r.suspended && mutedUntilOf(r)),
           permissions: role === 'admin' && r.permissions ? cleanPermissions(parse(r.permissions), {}) : undefined,
           // subscription details only for people who manage members
           membership: manage && r.sub_status ? { status: r.sub_status, expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null, source: r.source } : undefined,
         };
       }),
+      nextCursor: rows.length > limit && last ? writeCursor([last.rank, last.dn, last.uid]) : null,
     });
   });
 
@@ -270,6 +313,7 @@ export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin
     const convs = [m.channel_id, m.community_id];
     if (action === 'mute') {
       const minutes = int(b.minutes ?? 60, { min: 1, max: MAX_MUTE_MIN, field: 'minutes' });
+      if (await suspendedNow(env, m.id, targetId)) throw bad('This member is suspended — lift the suspension first', 'SUSPENDED');
       const until = new Date(Date.now() + minutes * 60e3);
       await q(env, `INSERT INTO membership_member_prefs (membership_id, user_id, muted_until, muted_by) VALUES ($1, $2, $3, $4)
         ON CONFLICT (membership_id, user_id) DO UPDATE SET muted_until = EXCLUDED.muted_until, muted_by = EXCLUDED.muted_by`, [m.id, targetId, until, me.id]);
@@ -277,8 +321,22 @@ export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin
       return c.json({ ok: true, action, mutedUntil: until.toISOString() });
     }
     if (action === 'unmute') {
-      await q(env, 'UPDATE membership_member_prefs SET muted_until = NULL, muted_by = NULL WHERE membership_id = $1 AND user_id = $2', [m.id, targetId]);
-      return c.json({ ok: true, action, mutedUntil: null });
+      // also lifts a suspension: only admins with "manage members" reach this
+      await q(env, 'UPDATE membership_member_prefs SET muted_until = NULL, muted_by = NULL, suspended = false WHERE membership_id = $1 AND user_id = $2', [m.id, targetId]);
+      return c.json({ ok: true, action, mutedUntil: null, suspended: false });
+    }
+    if (action === 'suspend') {
+      // an indefinite mute: they can still read; posting in EXECUTIVE CLASS and gifts are blocked until an admin lifts it
+      await q(env, `INSERT INTO membership_member_prefs (membership_id, user_id, muted_until, muted_by, suspended) VALUES ($1, $2, $3, $4, true)
+        ON CONFLICT (membership_id, user_id) DO UPDATE SET muted_until = EXCLUDED.muted_until, muted_by = EXCLUDED.muted_by, suspended = true`, [m.id, targetId, SUSPENDED_UNTIL, me.id]);
+      await notifyUser(env, targetId, { type: 'group.muted', membershipId: m.id, conversationId: m.community_id, mutedUntil: SUSPENDED_UNTIL.toISOString(), suspended: true }).catch(() => {});
+      await systemMessage(env, m.community_id, me.id, `${me.display_name} suspended ${target.display_name} from ${EXECUTIVE}`, { action: 'suspended', targetIds: [targetId] }).catch(() => {});
+      return c.json({ ok: true, action, suspended: true, mutedUntil: SUSPENDED_UNTIL.toISOString() });
+    }
+    if (action === 'unsuspend') {
+      await q(env, 'UPDATE membership_member_prefs SET muted_until = NULL, muted_by = NULL, suspended = false WHERE membership_id = $1 AND user_id = $2', [m.id, targetId]);
+      await systemMessage(env, m.community_id, me.id, `${me.display_name} lifted the suspension of ${target.display_name}`, { action: 'unsuspended', targetIds: [targetId] }).catch(() => {});
+      return c.json({ ok: true, action, suspended: false, mutedUntil: null });
     }
     if (action === 'ban') {
       await q(env, 'DELETE FROM membership_admins WHERE membership_id = $1 AND user_id = $2', [m.id, targetId]);
@@ -307,7 +365,7 @@ export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin
       await systemMessage(env, m.community_id, me.id, `${me.display_name} removed ${target.display_name}`, { action: 'removed', targetIds: [targetId] }).catch(() => {});
       return c.json({ ok: true, action });
     }
-    throw bad('action is remove, ban, unban, mute or unmute', 'BAD_ACTION');
+    throw bad('action is remove, ban, unban, mute, unmute, suspend or unsuspend', 'BAD_ACTION');
   });
 
   // ---------- admins & permissions (owner) ----------
@@ -335,15 +393,29 @@ export function mountGroupRoutes(app, { visibleMembership, requireAccess, origin
     if (!admin && !hasAccess(await subscriptionOf(env, m.id, userId))) await removeFromConversations(env, m, userId);
   }
 
+  // Promote: the owner, or an admin with "manage members", can make someone an admin — but only with permissions the
+  // promoter holds themselves. Only the owner changes an existing admin's permissions (PATCH below).
   app.post('/memberships/:id/group/admins', async (c) => {
-    const { me, m, actor } = await groupCtx(c);
-    ownerOnly(actor);
+    const { me, m, actor, settings } = await groupCtx(c);
+    const ownerLike = actor.role === 'owner' || !!actor.platformAdmin;
+    if (!ownerLike) requirePerm(actor, 'manageMembers', settings);
     const b = await body(c);
     const u = await targetUser(c.env, b);
     if (!u) throw bad('User not found — search by name or @handle', 'USER_NOT_FOUND');
     protectOwner(m, u.id);
     if (await isBanned(c.env, m, u.id)) throw bad('Unban this person first', 'BANNED');
-    const perms = cleanPermissions(b.permissions, DEFAULT_ADMIN_PERMISSIONS);
+    if (!ownerLike) {
+      const alreadyAdmin = await one(c.env, `SELECT 1 FROM membership_admins WHERE membership_id = $1 AND user_id = $2
+        UNION ALL SELECT 1 FROM conversation_members WHERE conversation_id = ANY($3::uuid[]) AND user_id = $2 AND role IN ('owner','admin')`,
+      [m.id, u.id, [m.channel_id, m.community_id]]);
+      if (alreadyAdmin) throw forbidden('Only the group owner can change an admin’s permissions', 'OWNER_ONLY');
+    }
+    const base = ownerLike ? DEFAULT_ADMIN_PERMISSIONS : Object.fromEntries(PERMISSIONS.map((p) => [p, !!DEFAULT_ADMIN_PERMISSIONS[p] && !!actor.perms[p]]));
+    const perms = cleanPermissions(b.permissions, base);
+    if (!ownerLike) {
+      const notHeld = PERMISSIONS.find((p) => perms[p] && !actor.perms[p]);
+      if (notHeld) throw forbidden(`You can only give permissions you have — you don’t have “${PERMISSION_LABELS[notHeld]}”`, 'PERMISSION_NOT_HELD');
+    }
     await q(c.env, `INSERT INTO membership_admins (membership_id, user_id, permissions, added_by) VALUES ($1, $2, $3::jsonb, $4)
       ON CONFLICT (membership_id, user_id) DO UPDATE SET permissions = EXCLUDED.permissions, updated_at = now()`, [m.id, u.id, JSON.stringify(perms), me.id]);
     await setAdminRole(c.env, m, u.id, true);

@@ -23,6 +23,7 @@ import { getConfig, getBalance, rateLimit } from '../lib/wallet.js';
 import { isOn } from '../lib/play.js';
 import { formatMoney, percentOf } from '../lib/money.js';
 import { renderFundraiserPage, renderTestCheckout, renderMessagePage } from '../lib/fundmePage.js';
+import { fundraiserGiftSummary } from '../lib/virtualGifts.js'; // FUND ME GIFTS
 import { fxAttribution } from '../lib/fxLive.js'; // LIVE FX: attribution required where the rates are used
 import { FUNDME_ADMIN_SCRIPT } from '../lib/fundmeAdmin.js';
 import { registerAdminScript } from './admin.js';
@@ -230,10 +231,11 @@ async function fullShape(c, f, { privileged }) {
     pausedBy: f.paused_by || null,
     ...moneyShape(f),
     ...(await donateInfo(c, f)),
-    owner: { displayName: f.owner_name || 'Friend', avatarUrl: f.owner_avatar || null },
+    owner: { id: f.owner_id, displayName: f.owner_name || 'Friend', avatarUrl: f.owner_avatar || null }, // id: the gift sheet sends to the creator
     media: items,
     createdAt: iso(f.created_at),
     updatedAt: iso(f.updated_at),
+    gifts: await fundraiserGiftSummary(c, f.id), // FUND ME GIFTS: total, top gifts, recent givers (lib/virtualGifts.js)
   };
   if (privileged) {
     out.mainImageKey = f.main_image_key || null;

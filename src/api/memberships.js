@@ -77,7 +77,12 @@ export const MASTER = 'MASTER CLASS';
 export const EXECUTIVE = 'EXECUTIVE CLASS';
 export const getGroup = (api, id) => api.request('GET', `/memberships/${id}/group`);
 export const updateGroup = (api, id, body) => api.request('PATCH', `/memberships/${id}/group`, body);
-export const getGroupMembers = (api, id, { q = '', filter = 'all' } = {}) => api.request('GET', `/memberships/${id}/group/members?${new URLSearchParams({ q, filter }).toString()}`);
+// paged: { items, nextCursor } — pass nextCursor back as `cursor` for "Load more" (null = no more)
+export const getGroupMembers = (api, id, { q = '', filter = 'all', cursor = null, limit = 100 } = {}) => {
+  const qs = new URLSearchParams({ q, filter, limit: String(limit) });
+  if (cursor) qs.set('cursor', cursor);
+  return api.request('GET', `/memberships/${id}/group/members?${qs.toString()}`);
+};
 export const memberAction = (api, id, userId, action, extra = {}) => api.request('POST', `/memberships/${id}/group/members/${userId}`, { action, ...extra });
 export const getGroupAdmins = (api, id) => api.request('GET', `/memberships/${id}/group/admins`);
 export const addGroupAdmin = (api, id, userId, permissions) => api.request('POST', `/memberships/${id}/group/admins`, { userId, permissions });
@@ -92,6 +97,31 @@ export const markWelcomeSeen = (api, id) => api.request('POST', `/memberships/${
 export const getPendingWelcome = (api) => api.request('GET', '/memberships/welcome');
 export const joinFreeGroup = (api, id) => api.request('POST', `/memberships/${id}/join`);
 export const askToJoin = (api, id) => api.request('POST', `/memberships/${id}/join-request`);
+
+// MEMBERSHIP AD GATE: watch ads to enter MASTER / EXECUTIVE. The server decides (backend/src/lib/membershipAdGate.js).
+export const getAdGate = (api, id) => api.request('GET', `/memberships/${id}/ad-gate`);
+export const saveAdGate = (api, id, body) => api.request('PUT', `/memberships/${id}/ad-gate`, body);
+// Creation fee for a category and type ('free' | 'paid') before the membership exists.
+export const getCreationFee = (api, category, type) => api.request('GET', `/memberships/creation-fee?category=${encodeURIComponent(category)}&type=${type}`);
+/**
+ * Credits one watched ad for the gate. Dev builds claim it at once; in production AdMob calls the server (SSV), so we
+ * re-read the gate for a short while until the count moves. Returns the gate as the server now has it.
+ */
+export async function creditAdGateAd(api, id, before) {
+  const was = (before && before.adsWatched) || 0;
+  try {
+    return await api.request('POST', `/memberships/${id}/ad-gate/claim`);
+  } catch (e) {
+    if (!e || e.code !== 'SSV_REQUIRED') throw e;
+  }
+  let cur = before;
+  for (let i = 0; i < 6; i += 1) {
+    await new Promise((res) => setTimeout(res, 1500));
+    cur = await getAdGate(api, id);
+    if (!cur.required || (cur.adsWatched || 0) !== was) return cur;
+  }
+  return cur;
+}
 export const setPostComments = (api, messageId, enabled) => api.request('POST', `/messages/${messageId}/comments`, { enabled });
 export const MUTE_CHOICES = [
   { minutes: 60, label: '1 hour' },

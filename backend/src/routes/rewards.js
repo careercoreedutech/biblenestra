@@ -6,9 +6,17 @@ import { RULES, jobAdsNeeded } from '../lib/rules.js';
 import { verifySsv } from '../lib/admob.js';
 import { meResponse } from './me.js';
 import { recordDatingAdSsv } from '../lib/dating.js'; // FIND LOVE: SSV for dating message unlocks
+import { applyUnlockAd, isUnlockFeature } from '../lib/featureUnlocks.js'; // FEATURE UNLOCKS: purpose 'unlock:<feature>' credits the unlock's coins
+import { applyMembershipGateAd, AD_GATE_PURPOSE } from '../lib/membershipAdGate.js'; // MEMBERSHIP AD GATE: purpose 'membership_gate:<id>'
 
-// Applies one watched ad. Returns { unlocked } (job purpose) or { counted } (support purpose).
+// Applies one watched ad. Returns { unlocked } (job purpose), { counted } (support purpose) or the unlock result.
 export async function applyAdReward(env, userId, purpose, { transactionId = null, verified = false } = {}) {
+  if (typeof purpose === 'string' && purpose.startsWith('unlock:')) {
+    return applyUnlockAd(env, userId, purpose.slice('unlock:'.length), { transactionId, verified });
+  }
+  if (typeof purpose === 'string' && purpose.startsWith(AD_GATE_PURPOSE)) {
+    return applyMembershipGateAd(env, userId, purpose.slice(AD_GATE_PURPOSE.length), { transactionId, verified });
+  }
   if (purpose === 'support') {
     const u = await one(env, 'SELECT tz_offset FROM users WHERE id = $1', [userId]);
     const row = await one(env, `INSERT INTO ad_rewards (user_id, purpose, day, transaction_id, verified)
@@ -43,7 +51,8 @@ rewards.post('/ads/claim', async (c) => {
   const b = await body(c);
   const res = await applyAdReward(c.env, me.id, b.purpose);
   const m = await meResponse(c.env, me.id);
-  return c.json({ supportAdsToday: m.supportAdsToday, jobAdCredits: m.jobAdCredits, coins: m.coins, unlocked: res.unlocked || 0, counted: res.counted });
+  const unlockAd = res.adsNeeded !== undefined ? res : null; // FEATURE UNLOCKS: progress of an unlock:<feature> ad
+  return c.json({ supportAdsToday: m.supportAdsToday, jobAdCredits: m.jobAdCredits, coins: m.coins, unlocked: res.unlocked || 0, counted: res.counted, unlockAd });
 });
 
 rewards.post('/games/results', async (c) => {
@@ -81,6 +90,22 @@ ssv.get('/ads/ssv', async (c) => {
   // FIND LOVE: rewarded ads that unlock dating messages carry custom_data 'dating:<nonce>' (lib/dating.js)
   if (isUuid(userId) && typeof purpose === 'string' && purpose.startsWith('dating:') && p.transaction_id) {
     return c.json({ ok: true, ...(await recordDatingAdSsv(c.env, { userId, customData: purpose, transactionId: p.transaction_id })) });
+  }
+  // MEMBERSHIP AD GATE: custom_data 'membership_gate:<membershipId>' (same SSV signature checks); unknown ids are ignored
+  if (isUuid(userId) && typeof purpose === 'string' && purpose.startsWith(AD_GATE_PURPOSE) && p.transaction_id) {
+    const membershipId = purpose.slice(AD_GATE_PURPOSE.length);
+    if (!isUuid(membershipId) || !(await one(c.env, 'SELECT id FROM users WHERE id = $1', [userId]))) return c.json({ ok: true, ignored: true });
+    await applyMembershipGateAd(c.env, userId, membershipId, { transactionId: p.transaction_id, verified: true });
+    return c.json({ ok: true });
+  }
+  // FEATURE UNLOCKS: custom_data 'unlock:<feature>' (same SSV signature checks as above); unknown features are acknowledged and ignored
+  if (isUuid(userId) && typeof purpose === 'string' && purpose.startsWith('unlock:') && p.transaction_id) {
+    const feature = purpose.slice('unlock:'.length);
+    if (!(await isUnlockFeature(c.env, feature))) return c.json({ ok: true, ignored: true });
+    const exists = await one(c.env, 'SELECT id FROM users WHERE id = $1', [userId]);
+    if (!exists) return c.json({ ok: true, ignored: true });
+    await applyUnlockAd(c.env, userId, feature, { transactionId: p.transaction_id, verified: true });
+    return c.json({ ok: true });
   }
   if (!isUuid(userId) || !['support', 'job'].includes(purpose) || !p.transaction_id) return c.json({ ok: true, ignored: true }); // still 200 so AdMob stops retrying
   const exists = await one(c.env, 'SELECT id FROM users WHERE id = $1', [userId]);

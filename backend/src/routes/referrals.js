@@ -20,6 +20,7 @@ import {
   buyWeekPass, weekPassOffer,
 } from '../lib/chatLimits.js';
 import { requireAdmin, registerAdminScript } from './admin.js';
+import { attributePartner } from '../lib/portfolio.js'; // PORTFOLIO & PARTNER MANAGERS: partner attribution (first touch)
 import { CHAT_PASS_ADMIN_SCRIPT } from '../lib/chatPassAdminPage.js';
 
 registerAdminScript(CHAT_PASS_ADMIN_SCRIPT); // CHAT WEEK PASS: "Chat passes" admin tab
@@ -115,6 +116,7 @@ referrals.post('/me/referral', async (c) => {
   // permanent: only ever set once (WHERE referred_by IS NULL)
   const set = await q(c.env, 'UPDATE users SET referred_by = $2, referred_at = now() WHERE id = $1 AND referred_by IS NULL RETURNING 1', [me.id, inviter.id]);
   if (!set.length) throw new ApiError(409, 'ALREADY_REFERRED', 'You already joined with an invite');
+  await attributePartner(c.env, me.id, inviter.id).catch(() => {}); // PORTFOLIO: a Partner Manager's code attributes this user to them, permanently (first touch)
   await q(c.env, `INSERT INTO notifications (user_id, kind, title, body, data) VALUES ($1, 'follow', $2, $3, $4::jsonb)`,
     [inviter.id, `${me.display_name} joined with your invite 🎉`, 'Invited friends can always chat with you — no limits.', JSON.stringify({ type: 'referral', fromId: me.id })]).catch(() => {});
   await notifyUser(c.env, inviter.id, { type: 'referral.joined', from: { id: me.id, displayName: me.display_name } }).catch(() => {});

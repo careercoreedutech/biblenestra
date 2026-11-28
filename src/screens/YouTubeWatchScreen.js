@@ -14,6 +14,7 @@ import { useApi } from '../api/auth';
 import { errorMessage } from '../api/client';
 import { useVideoInfo } from '../api/youtube';
 import { colors, fonts, radius, shadow } from '../theme';
+import { isDarkScheme } from '../design/palette'; // APPEARANCE (item 14)
 
 const LIVE_POLL_MS = 4000;
 // dev-only on web: ?mute=1 keeps embeds silent while testing (same switch as src/audio/Player.js)
@@ -108,7 +109,7 @@ export default function YouTubeWatchScreen({ params = {} }) {
 
   return (
     <View style={styles.root} onLayout={(e) => { const { width: w, height: h } = e.nativeEvent.layout; if (w > 0 && h > 0) setSize({ w, h }); }}>
-      <StatusBar style={expanded ? 'light' : 'dark'} hidden={expanded} />
+      <StatusBar style={expanded || isDarkScheme() ? 'light' : 'dark'} hidden={expanded} />
       <View style={styles.bar}>
         <Pressable onPress={() => nav.pop()} hitSlop={10} style={styles.barBtn} accessibilityRole="button" accessibilityLabel="Back">
           <Icon name="chevron-left" size={20} color={colors.fg} />

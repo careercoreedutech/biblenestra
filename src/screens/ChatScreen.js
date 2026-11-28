@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // CHAT 7.3 — one conversation (direct chat, group or channel). Opens instantly from the on-device cache, then merges
 // the server page. Virtualised thread (components/chat/ChatThread), optimistic sends with automatic retry and
 // "tap to retry", ticks, typing, online / last seen, swipe-to-reply, reactions, forward, copy, edit, pin, delete,
@@ -104,7 +105,7 @@ export function ChatScreen({ params = {} }) {
   const online = !!sync.online && !!convId;
   // MEMBERSHIP GROUPS: which section this is (MASTER CLASS / EXECUTIVE CLASS) and the group's media rule
   const group = (perms && perms.group) || (params.section ? { section: params.section } : null);
-  const section = group ? group.section : null;
+  const section = group ? group.section : (chat && chat.membershipSection) || null; // MEMBERSHIP GROUPS: before perms load, the chat row says it
   const mediaOk = !!api.online && !!convId && canMessage && !(permissions && permissions.canSendMedia === false);
 
   const threadRef = useRef(null);
@@ -150,6 +151,8 @@ export function ChatScreen({ params = {} }) {
   const actions = useMessageActions({
     scope,
     isGroup,
+    // MEMBERSHIP GROUPS: in MASTER CLASS only publishers can send, so "can send" here means "publisher": edit with no time limit
+    canEditAnyTime: section === 'master' && !!canMessage,
     canPin: permissions && permissions.canPin !== undefined ? permissions.canPin : (!isGroup || isMod || !sync.online),
     canModerate: permissions && permissions.canDeleteOthers !== undefined ? permissions.canDeleteOthers : isMod,
     canReplyTo: section === 'executive' ? (m) => !(m && m.shared && m.shared.commentsOff) : undefined,
@@ -252,7 +255,9 @@ export function ChatScreen({ params = {} }) {
   const matches = useMemo(() => {
     const t = term.trim().toLowerCase();
     if (!searching || t.length < 2) return [];
-    return msgs.filter((m) => !m.deleted && !m.system && ((m.text || '').toLowerCase().includes(t) || (m.file && m.file.name.toLowerCase().includes(t)))).map((m) => m.id).reverse();
+    // MEMBERSHIP GROUPS: a MASTER CLASS post shared into EXECUTIVE CLASS is a reference, so it matches on the original's text
+    const textOf = (m) => (m.shared ? (m.shared.text || '') : (m.text || ''));
+    return msgs.filter((m) => !m.deleted && !m.system && (textOf(m).toLowerCase().includes(t) || (m.file && m.file.name.toLowerCase().includes(t)))).map((m) => m.id).reverse();
   }, [searching, term, msgs]);
   useEffect(() => { setHit(0); }, [term]);
   useEffect(() => { if (matches.length) actions.jumpTo(matches[Math.min(hit, matches.length - 1)]); }, [matches.length, hit]);
@@ -332,7 +337,7 @@ export function ChatScreen({ params = {} }) {
   };
   const person = PEOPLE.find((p) => p.name === chat.with);
   const menuItems = [
-    { label: isGroup ? (isChannel ? 'Channel info' : 'Group info') : 'Contact info', onPress: () => { setMenu(false); openInfo(); } },
+    { label: section ? `${section === 'master' ? 'MASTER CLASS' : 'EXECUTIVE CLASS'} info` : isGroup ? (isChannel ? 'Channel info' : 'Group info') : 'Contact info', onPress: () => { setMenu(false); openInfo(); } },
     { label: 'Search in chat', onPress: () => { setMenu(false); setSearching(true); } },
     { label: muted ? 'Unmute notifications' : 'Mute notifications', onPress: () => toggleMute() },
     { label: 'Start a video call', onPress: () => { setMenu(false); setMeetOpen(true); } },
@@ -520,7 +525,7 @@ const styles = StyleSheet.create({
   iconOn: { backgroundColor: d.lavender, borderColor: d.plum },
   groupAv: { width: 42, height: 42, borderRadius: 21, backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
   initials: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
-  initialsText: { fontFamily: df.sansHeavy, color: '#704426', letterSpacing: 0.3 },
+  initialsText: { fontFamily: df.sansHeavy, color: (isDarkScheme() ? '#E9C9A8' : '#704426'), letterSpacing: 0.3 },
   onlineDot: { position: 'absolute', right: -1, bottom: -1, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: d.ivory },
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 14, height: 48, borderRadius: 15, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   searchInput: { flex: 1, fontSize: 14, color: d.ink, paddingVertical: 4, outlineStyle: 'none' },

@@ -40,19 +40,25 @@ import { CardFace, Stamp } from '../components/findlove/SwipeCard';
 import { ActionBtn, ActionBar } from '../components/findlove/ActionBar';
 import { MatchCelebration } from '../components/findlove/MatchCelebration';
 import { useSpend } from '../components/findlove/useSpend';
+import { FiltersSheet, activeFilterCount, INTEREST_OPTIONS } from '../components/findlove/FiltersSheet'; // FIND LOVE HUB: saved discovery filters
+import { ExampleStrip } from '../components/findlove/examples'; // FIND LOVE HUB: example profiles (presentation only)
 
 export { DatingPlansScreen, DatingBoostScreen, DatingSettingsScreen, DatingVerifyScreen } from '../components/findlove/AccountScreens';
+import { colors } from '../theme'; // APPEARANCE (item 14): palette tokens
+import { isDarkScheme } from '../design/palette';
 
-const DATING_BUBBLES = { mine: grad.wine, theirs: '#FFFAF2', theirsBorder: love.blushLine };
+const DATING_BUBBLES = { mine: grad.wine, theirs: colors.surface, theirsBorder: love.blushLine };
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Discover › Find Love
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-export function FindLoveTab({ nav }) {
+export function FindLoveTab({ nav, fullscreen = false, initialTab = 'discover' }) {
   const api = useApi();
   const home = useDatingHome();
-  const [tab, setTab] = useState('discover');
+  const [tab, setTab] = useState(initialTab);
   const [buying, setBuying] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [stackKey, setStackKey] = useState(0); // bumping it reloads the card stack after the filters change
   const d = home.data;
   if (!api.online) {
     return (
@@ -115,12 +121,15 @@ export function FindLoveTab({ nav }) {
           { id: 'discover', label: 'Discover' },
           { id: 'likes', label: 'Likes', count: d.likes && d.likes.count ? d.likes.count : 0 },
           { id: 'matches', label: 'Matches', count: matchCount },
+          ...(fullscreen ? [{ id: 'profile', label: 'Profile' }] : []),
         ]} />
       </View>
       {tab === 'discover' ? (p.underReview
         ? <ScrollView contentContainerStyle={s.tabPad}><LoveState art="shield" title="Discover is paused for you" body="While our team reviews reports about your profile, you won’t see new people and they won’t see you. Your matches and chats stay open." /></ScrollView>
-        : <DiscoverStack nav={nav} home={d} />) : tab === 'likes' ? <LikesPane nav={nav} home={d} /> : <MatchesPane nav={nav} />}
+        : <DiscoverStack key={stackKey} nav={nav} home={d} onFilters={() => setFiltersOpen(true)} filterCount={activeFilterCount(p.prefs)} />)
+        : tab === 'likes' ? <LikesPane nav={nav} home={d} /> : tab === 'profile' ? <ProfilePane nav={nav} home={d} onFilters={() => setFiltersOpen(true)} /> : <MatchesPane nav={nav} />}
       {buying ? <BuyCoinsSheet visible wallet="dating_coins" onClose={() => setBuying(false)} onPurchased={() => datingChanged()} /> : null}
+      <FiltersSheet visible={filtersOpen} home={d} onClose={() => setFiltersOpen(false)} onSaved={() => setStackKey((k) => k + 1)} />
     </View>
   );
 }
@@ -154,6 +163,7 @@ function LoveIntro({ onStart, note }) {
       {note ? (
         <View style={s.introNote}><Icon name="lock" size={14} color={love.goldBright} /><Text style={s.introNoteText}>{note}</Text></View>
       ) : <LoveButton label="Create my dating profile" icon="heart" kind="gold" onPress={onStart} style={{ marginTop: 18 }} />}
+      <View style={{ alignSelf: 'stretch', marginHorizontal: -20 }}><ExampleStrip /></View>
     </FadeInUp>
   );
 }
@@ -178,7 +188,7 @@ function BoostBar({ boost, onPress }) {
 }
 
 // ─── card stack ────────────────────────────────────────────────────────────────────────────────────────────────────
-function DiscoverStack({ nav, home }) {
+function DiscoverStack({ nav, home, onFilters, filterCount = 0 }) {
   const api = useApi();
   const toast = useToast();
   const [cards, setCards] = useState(null);
@@ -266,6 +276,14 @@ function DiscoverStack({ nav, home }) {
   const openProfile = () => top && nav.push('DatingProfileView', { userId: top.userId, card: top });
   return (
     <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 120 }} showsVerticalScrollIndicator={false} scrollEnabled>
+      {onFilters ? (
+        <View style={hs.filterRow}>
+          <PressScale onPress={onFilters} scaleTo={0.96} accessibilityRole="button" accessibilityLabel={filterCount ? `Discovery filters, ${filterCount} active` : 'Discovery filters'} style={hs.filterBtn}>
+            <Icon name="filter" size={14} color={love.wine} />
+            <Text style={hs.filterText}>{filterCount ? `Filters · ${filterCount}` : 'Filters'}</Text>
+          </PressScale>
+        </View>
+      ) : null}
       {cards === null ? <Skeleton.Card height={cardHeight} />
         : !top ? (
           <View style={[s.emptyCard, { minHeight: cardHeight }]}>
@@ -304,6 +322,7 @@ function DiscoverStack({ nav, home }) {
           <ActionBtn kind="priority" size={46} label={`Priority Like, ${prices.priority_like} coins`} onPress={() => act('priority_like')} cost={prices.priority_like} />
         </ActionBar>
       ) : null}
+      {cards !== null && !top ? <ExampleStrip title="Meanwhile, see who you could meet" note="Example profiles for illustration. They are not members and cannot be liked, messaged or matched." style={{ marginHorizontal: -18, marginTop: 22 }} /> : null}
       {swipes ? (
         <View style={s.swipeInfo}>
           <View style={s.swipePill}>
@@ -321,6 +340,52 @@ function DiscoverStack({ nav, home }) {
       {spendSheet}
       <MatchCelebration match={match} me={home.profile} onClose={() => setMatch(null)}
         onChat={() => { const m = match; setMatch(null); nav.push('DatingChat', { conversationId: m.conversationId, name: m.card.firstName, photo: firstPhoto(m.card) }); }} />
+    </ScrollView>
+  );
+}
+
+// ─── FIND LOVE HUB: full-screen Find Love (route 'FindLoveHub'). Discover / Likes / Matches / Profile, back to Discover. ───
+export function FindLoveHubScreen({ params = {} }) {
+  const nav = useNav();
+  return (
+    <LoveScreen title="Find Love" eyebrow="Meet believers" scroll={false} onBack={() => nav.pop()}>
+      <FindLoveTab nav={nav} fullscreen initialTab={params.tab || 'discover'} />
+    </LoveScreen>
+  );
+}
+
+// Profile tab (full-screen hub only): your photo, the filters, plans, boost, safety and verification.
+function ProfilePane({ nav, home, onFilters }) {
+  const p = home.profile;
+  const plan = home.plan.plan;
+  const rows = [
+    ['filter', 'Discovery filters', 'Age, intention, denomination, location and interests', onFilters],
+    ['flame', 'Boost your profile', 'Be seen by more people this week', () => nav.push('DatingBoost')],
+    ['sparkles', 'Plans', 'Dating Plus and VIP features', () => nav.push('DatingPlans')],
+    ['shield', 'Verification', 'Show the verified badge on your profile', () => nav.push('DatingVerify')],
+    ['settings', 'Safety and settings', 'Pause, block, report and account options', () => nav.push('DatingSettings')],
+  ];
+  return (
+    <ScrollView contentContainerStyle={s.tabPad} showsVerticalScrollIndicator={false}>
+      <View style={hs.profileCard}>
+        <RingAvatar uri={firstPhoto(p)} size={76} ring={3} gap={2} />
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={hs.profileName} numberOfLines={1}>{`${p.firstName}, ${p.age}`}</Text>
+          <Text style={hs.profileSub} numberOfLines={1}>{[p.city, p.country].filter(Boolean).join(', ') || 'Add your city'}</Text>
+          <PlanBadge plan={plan} onPress={() => nav.push('DatingPlans')} />
+        </View>
+      </View>
+      <LoveButton label="Edit my dating profile" icon="edit" kind="soft" onPress={() => nav.push('DatingProfileEdit')} style={{ marginTop: 14 }} />
+      <View style={hs.rows}>
+        {rows.map(([icon, title, sub, go], i) => (
+          <Pressable key={title} onPress={go} accessibilityRole="button" accessibilityLabel={title}
+            style={[hs.row, i === rows.length - 1 && { borderBottomWidth: 0 }]}>
+            <View style={hs.rowIcon}><Icon name={icon} size={16} color={love.rose} /></View>
+            <View style={{ flex: 1 }}><Text style={hs.rowTitle}>{title}</Text><Text style={hs.rowSub}>{sub}</Text></View>
+            <Icon name="chevron-right" size={16} color={love.faint} />
+          </Pressable>
+        ))}
+      </View>
     </ScrollView>
   );
 }
@@ -404,7 +469,9 @@ function LikesPane({ nav, home }) {
 }
 
 function LockedTile({ k }) {
-  const tints = [['#F7B98A', '#ED5C12'], ['#F6E4D2', '#A66D22'], ['#FF8B3D', '#3C2518'], ['#F4D8CB', '#8A451F']];
+  const tints = isDarkScheme()
+    ? [['#5A2E18', '#ED5C12'], ['#3A2E14', '#A66D22'], ['#3C2518', '#2A1B14'], ['#3A221C', '#8A451F']]
+    : [['#F7B98A', '#ED5C12'], ['#F6E4D2', '#A66D22'], ['#FF8B3D', '#3C2518'], ['#F4D8CB', '#8A451F']];
   return (
     <View style={s.lockTile} accessibilityLabel="Hidden like" accessible>
       <LinearGradient colors={tints[k % 4]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
@@ -535,7 +602,7 @@ export function DatingProfileEditScreen({ params = {} }) {
     setF({
       firstName: p ? p.firstName : '', y: b[0], m: b[1], d: b[2], gender: p ? p.gender : null, interestedIn: p ? p.interestedIn : null,
       city: p ? p.city : '', country: p ? p.country : 'Nigeria', denomination: p ? p.denomination : '', churchInvolvement: p ? p.churchInvolvement : '',
-      intention: p ? p.intention : 'marriage', bio: p ? p.bio : '', prompts: p ? p.prompts : [], confirmAdult: !!p,
+      interests: p ? p.interests || [] : [], intention: p ? p.intention : 'marriage', bio: p ? p.bio : '', prompts: p ? p.prompts : [], confirmAdult: !!p,
       prefs: p ? { ageMin: 18, ageMax: 60, intentions: [], denominations: [], involvement: [], ...p.prefs } : { ageMin: 21, ageMax: 40, country: 'Nigeria', intentions: [], denominations: [], involvement: [] },
     });
   }, [home.loaded, p]);
@@ -552,7 +619,7 @@ export function DatingProfileEditScreen({ params = {} }) {
     try {
       await dating.saveProfile(api, {
         firstName: f.firstName, birthDate, confirmAdult: f.confirmAdult, gender: f.gender, interestedIn: f.interestedIn, city: f.city, country: f.country,
-        denomination: f.denomination, churchInvolvement: f.churchInvolvement, intention: f.intention, bio: f.bio,
+        denomination: f.denomination, churchInvolvement: f.churchInvolvement, intention: f.intention, bio: f.bio, interests: f.interests || [],
         prompts: (f.prompts || []).filter((x) => x.q && x.a), prefs: { ...f.prefs, ageMin: Number(f.prefs.ageMin) || 18, ageMax: Number(f.prefs.ageMax) || 60 },
       });
       haptic('success');
@@ -643,6 +710,7 @@ export function DatingProfileEditScreen({ params = {} }) {
       </SectionCard>
 
       <SectionCard eyebrow="In your words" title="Your story">
+        <Field label="Interests" hint="Pick what you enjoy. Shared interests help people find you."><Choice multi items={INTEREST_OPTIONS} value={f.interests || []} onChange={(v) => set('interests', v)} /></Field>
         <Field label="About you"><Input value={f.bio} onChangeText={(v) => set('bio', v)} placeholder="Your faith, what you love, what you’re hoping for…" multiline maxLength={500} /></Field>
         <Field label="Prompts" hint="Answer up to three.">
           {promptSlots.map((k) => {
@@ -754,7 +822,7 @@ export function DatingProfileViewScreen({ params = {} }) {
           ) : null}
           <LinearGradient colors={grad.scrimTop} style={s.heroTop} pointerEvents="none" />
           <LinearGradient colors={['rgba(246,242,234,0)', 'rgba(40,26,17,0.25)', 'rgba(40,26,17,0.85)']} locations={[0, 0.4, 1]} style={s.heroScrim} pointerEvents="none" />
-          {photos.length > 1 ? <View style={s.heroBars} pointerEvents="none">{photos.map((ph, k) => <View key={ph.id} style={[s.heroBar, k === idx && { backgroundColor: '#FFFFFF' }]} />)}</View> : null}
+          {photos.length > 1 ? <View style={s.heroBars} pointerEvents="none">{photos.map((ph, k) => <View key={ph.id} style={[s.heroBar, k === idx && { backgroundColor: colors.surfaceWhite }]} />)}</View> : null}
           <View style={s.heroInfo} pointerEvents="none">
             {card.superLikedYou ? <View style={[s.likesYou, { marginBottom: 8 }]}><Icon name="star" size={12} color={love.plum} fill={love.plum} /><Text style={s.likesYouText}>Likes you a lot</Text></View> : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -786,6 +854,11 @@ export function DatingProfileViewScreen({ params = {} }) {
               <Text style={s.promptA}>{pr.a}</Text>
             </FadeInUp>
           ))}
+          {card.interests && card.interests.length ? (
+            <SectionCard eyebrow="Interests" title={`What ${card.firstName} enjoys`}>
+              <View style={hs.interestWrap}>{card.interests.map((t) => <LoveChip key={t} label={t} tone="rose" />)}</View>
+            </SectionCard>
+          ) : null}
           {faith.length ? (
             <SectionCard eyebrow="Faith" title="Walking with God">
               {faith.map(([ic, l, v], i) => (
@@ -849,7 +922,7 @@ function SafetyMenu({ visible, name, onClose, onReport, onBlock, onUnmatch, onPr
 function MenuRow({ icon, label, onPress, danger }) {
   return (
     <PressScale onPress={onPress} style={s.menuRow} scaleTo={0.98} accessibilityRole="button" accessibilityLabel={label}>
-      <View style={[s.menuIcon, danger && { backgroundColor: '#F8E1DF' }]}><Icon name={icon} size={16} color={danger ? love.danger : love.wine} /></View>
+      <View style={[s.menuIcon, danger && { backgroundColor: love.dangerSoft }]}><Icon name={icon} size={16} color={danger ? love.danger : love.wine} /></View>
       <Text style={[s.menuText, danger && { color: love.danger }]}>{label}</Text>
       <Icon name="chevron-right" size={15} color={love.faint} />
     </PressScale>
@@ -1032,6 +1105,21 @@ export function DatingChatScreen({ params = {} }) {
 }
 
 // ─── styles ────────────────────────────────────────────────────────────────────────────────────────────────────────
+const hs = StyleSheet.create({
+  profileCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 22, backgroundColor: love.card, borderWidth: 1, borderColor: love.blushLine },
+  profileName: { fontFamily: fonts.display, fontSize: 24, color: love.ink },
+  profileSub: { fontSize: 13, color: love.faint },
+  rows: { marginTop: 14, borderRadius: 22, backgroundColor: love.card, borderWidth: 1, borderColor: love.blushLine, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: love.blushLine },
+  rowIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: love.blush, alignItems: 'center', justifyContent: 'center' },
+  rowTitle: { fontSize: 15, fontWeight: '700', color: love.ink },
+  rowSub: { fontSize: 12, color: love.faint, marginTop: 1 },
+  filterRow: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 12 },
+  filterBtn: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 14, height: 36, borderRadius: 18, backgroundColor: love.card, borderWidth: 1, borderColor: love.blushLine },
+  filterText: { fontSize: 13, fontWeight: '700', color: love.wine },
+  interestWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+});
+
 const s = StyleSheet.create({
   tabPad: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 110 },
   loveBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingTop: 12 },
@@ -1127,7 +1215,7 @@ const s = StyleSheet.create({
   photoTools: { position: 'absolute', top: 6, right: 6, flexDirection: 'row', gap: 5 },
   photoTool: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.94)', alignItems: 'center', justifyContent: 'center' },
   photoAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: love.roseSoft, backgroundColor: love.blush },
-  photoSlot: { borderColor: love.blushLine, backgroundColor: '#FFFAF2' },
+  photoSlot: { borderColor: love.blushLine, backgroundColor: colors.surface },
   addDisc: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photoAddText: { fontSize: 12, fontWeight: '800', color: love.wine, marginTop: 6 },
   // profile view
@@ -1160,13 +1248,13 @@ const s = StyleSheet.create({
   menuText: { flex: 1, fontSize: 15, fontWeight: '600', color: love.ink },
   // chat
   chatScreen: { flex: 1, backgroundColor: love.paper },
-  chatTop: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: love.blushLine, backgroundColor: '#FFFAF2' },
+  chatTop: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: love.blushLine, backgroundColor: colors.surface },
   chatWho: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0, minHeight: 44 },
   chatName: { fontFamily: fonts.serifBold, fontSize: 19, color: love.ink, flexShrink: 1 },
   chatSub: { fontSize: 12, color: love.rose, fontWeight: '700' },
   socialBar: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 40, borderBottomWidth: 1, borderBottomColor: love.blushLine, backgroundColor: love.card },
   socialText: { flex: 1, minWidth: 0, fontSize: 12.5, color: love.ink },
-  meterWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#FFFAF2' },
+  meterWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.surface },
   meterPill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, minHeight: 34, borderRadius: 17, backgroundColor: love.blush, borderWidth: 1, borderColor: love.blushLine },
   meterText: { fontSize: 12.5, color: love.wine, fontWeight: '700', flexShrink: 1 },
   meterTrack: { flex: 1, minWidth: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(237,92,18,0.16)', overflow: 'hidden' },

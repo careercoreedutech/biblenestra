@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { DARK_COLORS, isDarkScheme } from './design/palette'; // APPEARANCE (item 14): palette chosen at boot
 
 /*
  * BibleNestra design system — "Sanctuary Paper"
@@ -150,7 +151,11 @@ export const colors = {
   yellow: '#A87A27',
   glossBorder: '#EADFCE',
   subtle: '#7C6C60',
+  surfaceWhite: '#FFFFFF',  // white card fills (light); warm dark card in dark mode
+  peachTint: '#FFF2E5',     // pale peach chips (light); warm dark tint in dark mode
 };
+// APPEARANCE: in dark mode the warm dark palette replaces the ivory values above (set once at boot, see src/design/palette.js)
+if (isDarkScheme()) Object.assign(colors, DARK_COLORS);
 
 export const radius = { xs: 6, sm: 10, md: 14, lg: 18, xl: 24, pill: 999 };
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 28 };

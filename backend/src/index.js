@@ -10,10 +10,14 @@ import { Hub } from './hub.js';
 // Phase 1 routes
 import me from './routes/me.js';
 import posts from './routes/posts.js';
+import viewCounts from './routes/views.js'; // PACKAGE F: video plays / unique viewers / post views
+import groupDiscovery from './routes/groupDiscovery.js'; // PACKAGE F: Search groups, join, pin / remove from list, delete group
 import prayers from './routes/prayers.js';
 import jobs from './routes/jobs.js';
 import { uploads, media, chatMedia } from './routes/media.js';
 import { rewards, ssv } from './routes/rewards.js';
+import { featureUnlocks } from './routes/featureUnlocks.js'; // FEATURE UNLOCKS (dev update v1, package C step 0)
+import { journey } from './routes/journey.js'; // MY SCRIPTURE JOURNEY: daily Scripture tracker
 
 // Phase 2 routes
 import conversations from './routes/conversations.js';
@@ -39,11 +43,13 @@ import { adminPlus, announcementsPublic } from './routes/adminPlus.js'; // ROUND
 import { contests, adminContests, contestPublic } from './routes/contests.js'; // CONTESTS
 import { opportunities, adminOpportunities } from './routes/opportunities.js'; // OPPORTUNITIES (imported listings)
 import { websites, adminWebsites } from './routes/websites.js'; // MEMBER WEBSITES (open inside the app)
+import { runWebsiteSync } from './lib/websiteSync.js'; // WEBSITE INTEGRATION: poll connected sites (RSS / WordPress) for new articles
 import { extraBooks } from './routes/extraBooks.js'; // BEYOND THE 66: deuterocanonical & extra-biblical texts
 import { battles } from './routes/battles.js'; // CONTEST CENTRE: live Bible battles
 import { youtubePublic, youtubeComments, adminYouTubeLive } from './routes/youtubeLive.js'; // YOUTUBE LIVE: live alerts + comments per video
 import { adsPublic, ads, adminAds } from './routes/ads.js'; // ADS: remote ad rules, ad events, admin Ads tab
-import { library, libraryPublic, adminLibrary } from './routes/library.js'; // MEDIA LIBRARY: audio library, Christian books (PDF), personal & group uploads
+import { library, libraryPublic, adminLibrary } from './routes/library.js';
+import { books } from './routes/books.js'; // PACKAGE G: Books library (public-domain reader) // MEDIA LIBRARY: audio library, Christian books (PDF), personal & group uploads
 import { dailyPublic, adminDaily } from './routes/daily.js'; // TODAY'S JOURNEY: Daily Bread, blessing videos, Watch on Today (latest channel videos)
 import exegesis from './routes/exegesis.js'; // EXEGESIS: POST /study/exegesis (one-tap AI exegesis, cached)
 import { care, adminCare } from './routes/care.js'; // CARE NETWORK: Talk to a Priest (verified directory) + Talk to an Apostle
@@ -60,15 +66,19 @@ import { blogPublic, adminBlog } from './routes/blog.js'; // BLOG: public /blog 
 import { runBlogCron } from './lib/blog.js'; // BLOG: cron publishes scheduled posts and runs AI schedules
 import { legalPublic, accountDeletion, adminAccountDeletions } from './routes/legal.js'; // LEGAL: /terms, /privacy, /delete-account + account deletion
 import { membershipsApp, membershipChatGuard, membershipLazyExpiry } from './routes/memberships.js'; // MEMBERSHIPS & PAID CHANNELS (brief 8)
+import { membershipAdGate } from './routes/membershipAdGate.js'; // MEMBERSHIP AD GATE: GET/PUT /memberships/:id/ad-gate, dev claim
 import { runMembershipCron } from './lib/memberships.js'; // MEMBERSHIPS: expiry sweep (lapsed members leave Channel + Community)
 import { walletApp, adminWallet } from './routes/wallet.js';
 import { paystackPublic, paystackApp, adminPaystack } from './routes/paystack.js'; // PAYSTACK FOR EVERY PURCHASE
 import { runPaystackCron } from './lib/paystackCheckout.js'; // WALLET CORE: separate wallets, ledger, packages, purchases, Dating Plus / VIP
+import { reconcilePaystack } from './lib/paystackReconcile.js'; // PAYMENT VERIFICATION: re-verify unfinished Paystack payments (capped)
+import { paymentReportsPublic, paymentReportsApp, adminPaymentReports } from './routes/paymentReports.js'; // PAYMENT VERIFICATION: report a payment, admin queue, invite links
 import { runWalletCron } from './lib/walletStore.js'; // WALLET CORE: expire ended dating subscriptions, prune rate-limit windows
 import { datingApp, adminDating } from './routes/dating.js'; // FIND LOVE (Christian dating): profiles, discovery, matches, Dating Coin uses, ad unlocks, boosts, admin "Dating"
 import { runDatingCron } from './lib/dating.js'; // FIND LOVE: retention (closed dating chats' messages after 2 years) + expired verification drafts
 import { giftsApp, adminGifts } from './routes/virtualGifts.js'; // VIRTUAL GIFTS & STARS: catalogue, send (20/80 split), histories, earnings, withdrawals, live sessions, admin "Gift catalogue"
 import { staffPublic, adminStaff } from './routes/staff.js'; // STAFF ACCESS: dashboard invites, staff accounts, roles (gate: lib/auth.js + lib/staff.js)
+import { portfolioPublic, portfolio, adminPortfolio } from './routes/portfolio.js'; // PORTFOLIO & PARTNER MANAGERS: /p/:code, recruitment pages, PM/partner dashboards, admin tab
 
 export function createApp() {
   const app = new Hono();
@@ -136,6 +146,8 @@ export function createApp() {
   app.route('/', blogPublic); // BLOG: GET /blog, /blog/:slug, /blog/api/posts[/:slug] (public, published posts only)
   app.route('/', legalPublic); // LEGAL: GET /terms, /privacy, /delete-account (public HTML)
   app.route('/', staffPublic); // STAFF ACCESS: POST /admin/api/staff/invite/check|accept (one-time invite links)
+  app.route('/', paymentReportsPublic); // PAYMENT VERIFICATION: GET /membership-invite/:token landing page
+  app.route('/', portfolioPublic); // PORTFOLIO & PARTNER MANAGERS: GET /p/:code, /portfolio/invite/:code, /partner/invite/:code, /portfolio/invites/:code
 
   // everything below needs a signed-in user
   app.use('*', requireUser());
@@ -151,10 +163,13 @@ export function createApp() {
   // Phase 1 routes
   app.route('/', me);
   app.route('/', posts);
+  app.route('/', viewCounts); // PACKAGE F
   app.route('/', uploads);
   app.route('/', prayers);
   app.route('/', jobs);
   app.route('/', rewards);
+  app.route('/', featureUnlocks); // FEATURE UNLOCKS: GET /unlocks, POST /unlocks/:feature (Kingdom Coins or rewarded ads)
+  app.route('/', journey); // MY SCRIPTURE JOURNEY: /journey/* (goals, sync, stats, achievements, community goals)
 
   // Phase 2 routes
   // MEMBERSHIPS (brief 8.1 / 8.6): a membership's Channel + Community need an active subscription on EVERY chat request.
@@ -168,6 +183,7 @@ export function createApp() {
   app.route('/', conversations);
   app.route('/', messages); // ROUND 4
   app.route('/', chatGroups); // CHAT 7.3/7.4
+  app.route('/', groupDiscovery); // PACKAGE F
   app.route('/', communities);
   app.route('/', events);
   app.route('/', wishes);
@@ -194,7 +210,8 @@ export function createApp() {
   app.route('/', adminAds); // ADS: /admin/api/ads/* (admin only)
   app.route('/', youtubeComments); // YOUTUBE LIVE: Bible Nestra comments per YouTube video
   app.route('/', adminYouTubeLive); // YOUTUBE LIVE: /admin/api/youtube/live (admin only)
-  app.route('/', library); // MEDIA LIBRARY: /library/* (signed in)
+  app.route('/', library);
+  app.route('/', books); // PACKAGE G: /books/* (signed in) // MEDIA LIBRARY: /library/* (signed in)
   app.route('/', adminLibrary); // MEDIA LIBRARY: /admin/api/library/* (admin only)
   app.route('/', broadcastsApp); // BROADCASTS: /broadcasts/:id (+ /open, /click read stats)
   app.route('/', adminBroadcasts); // BROADCASTS: /admin/api/broadcasts (admin only)
@@ -214,15 +231,20 @@ export function createApp() {
   app.route('/', accountDeletion); // LEGAL: POST /me/delete-account (signed in)
   app.route('/', adminAccountDeletions); // LEGAL: /admin/api/account-deletions (admin only)
   app.route('/', membershipsApp); // MEMBERSHIPS & PAID CHANNELS: /memberships/* (catalogue, product, checkout, library) + /memberships/manage/*
+  app.route('/', membershipAdGate); // MEMBERSHIP AD GATE: /memberships/:id/ad-gate (GET, PUT owner/admin, dev claim)
   app.route('/', walletApp); // WALLET CORE: /wallet, /wallet/:wallet/history, /wallet/products, /wallet/purchase, /wallet/subscriptions
   app.route('/', paystackApp); // PAYSTACK: /payments/paystack/:reference, /plus, /plus/checkout, /plus/cancel
   app.route('/', adminPaystack); // PAYSTACK: /admin/api/paystack/* (admin only)
+  app.route('/', paymentReportsApp); // PAYMENT VERIFICATION: /payments/report*, /membership-invites/:token/*
+  app.route('/', adminPaymentReports); // PAYMENT VERIFICATION: /admin/api/payment-reports, membership-grants, membership-invites (admin only)
   app.route('/', adminWallet); // WALLET CORE: /admin/api/wallet/* (admin only) — "Wallets & payments" tab
   app.route('/', giftsApp); // VIRTUAL GIFTS & STARS: /gifts/catalogue|send|history|wall|earnings|programme|withdrawals, /live-sessions
   app.route('/', adminGifts); // VIRTUAL GIFTS & STARS: /admin/api/gifts/* (admin only)
   app.route('/', datingApp); // FIND LOVE: /dating/* (profile, discover, swipes, likes, matches, requests, ad unlocks, bundles, boosts, safety)
   app.route('/', adminDating); // FIND LOVE: /admin/api/dating/* (admin only) — "Dating" section of Wallets & payments
   app.route('/', adminStaff); // STAFF ACCESS: /admin/api/staff/* (owner only) — "Staff" tab
+  app.route('/', portfolio); // PORTFOLIO & PARTNER MANAGERS: /portfolio/*, /partner/dashboard (signed in)
+  app.route('/', adminPortfolio); // PORTFOLIO & PARTNER MANAGERS: /admin/api/portfolio/* (admin only) — "Portfolio & Partners" tab
 
   return app;
 }
@@ -240,9 +262,11 @@ export default {
     sweepAbandonedUploads(env).catch((e) => console.error('upload sweep failed', e)),
     companionVectorsCron(env).catch((e) => console.error('companion vectors failed', e)), // COMPANION MEANING SEARCH: embeds ≤15 missing verses per run
     runBlogCron(env).catch((e) => console.error('blog cron failed', e)), // BLOG: publish due posts, run due AI schedules (≤ BLOG_CRON_POSTS posts per tick)
+    runWebsiteSync(env).catch((e) => console.error('website sync failed', e)), // WEBSITE INTEGRATION: import new articles from connected sites
     runMembershipCron(env).catch((e) => console.error('membership expiry failed', e)), // MEMBERSHIPS: expire lapsed subscriptions, remove them from Channel + Community
     runWalletCron(env).catch((e) => console.error('wallet cron failed', e)), // WALLET CORE: expire ended dating subscriptions
     runPaystackCron(env).catch((e) => console.error('paystack cron failed', e)), // PAYSTACK: card renewals, renewal reminders, Plus expiry
+    reconcilePaystack(env).catch((e) => console.error('paystack reconcile failed', e)), // PAYMENT VERIFICATION: grant Paystack payments that succeeded but were never credited (capped)
     runFundmePayoutCron(env).catch((e) => console.error('fundme payout run failed', e)), // FUND ME: monthly payout run (staff still pay by hand)
     runFxCron(env).catch((e) => console.error('fx refresh failed', e)), // FUND ME: live exchange rates (6-hour throttle, 25% guard, old rates kept on failure)
     runDatingCron(env).catch((e) => console.error('dating cron failed', e)), // FIND LOVE: delete closed dating chats' messages after rules.chatRetentionDays (small batches)

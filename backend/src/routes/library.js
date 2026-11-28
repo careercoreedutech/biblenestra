@@ -80,6 +80,9 @@ async function shape(c, it, me, { manage } = {}) {
     owner: it.owner || null,
     coverUrl: coverUrl(c.env, o, it.cover_key),
     fileUrl: await fileUrl(c.env, o, it),
+    // Audio books (brief 18.1): each chapter with its own playable (signed) URL
+    chapters: await Promise.all((Array.isArray(it.chapters) ? it.chapters : []).map((ch) => fileUrl(c.env, o, { ...it, file_key: ch.fileKey })
+      .then((url) => ({ index: ch.index, title: ch.title, durationSec: ch.durationSec || null, sizeBytes: ch.sizeBytes || null, url })))),
     mime: it.mime,
     sizeBytes: it.size_bytes != null ? Number(it.size_bytes) : null,
     durationSec: it.duration_sec,
@@ -324,12 +327,37 @@ library.post('/library/items', async (c) => {
   const pages = b.pages ? int(Number(b.pages), { min: 0, max: 100000, field: 'pages' }) : null;
   const visibility = scope === 'personal' && b.visibility === 'private' ? 'private' : 'public';
   const inLibrary = scope === 'platform';
+  // Audio books (brief 18.1): optional chapters, each an audio file this uploader already sent to POST /library/files.
+  const chapters = [];
+  if (b.chapters !== undefined && b.chapters !== null) {
+    if (kind !== 'audio') throw bad('Chapters are only for audio items', 'BAD_CHAPTERS');
+    if (!Array.isArray(b.chapters) || b.chapters.length > 300) throw bad('chapters must be a list of up to 300 audio files', 'BAD_CHAPTERS');
+    // The item's own file is chapter 1 (fileKey must equal chapters[0].fileKey), so every chapter is a distinct file.
+    const seen = new Set();
+    for (const ch of b.chapters) {
+      const key = ch && ch.fileKey;
+      if (!isFileKey(key) || !key.startsWith(`lib/audio/${me.id}/`) || seen.has(key)) throw bad('Each chapter must be a different audio file you uploaded', 'BAD_CHAPTERS');
+      seen.add(key);
+      const ob = await c.env.MEDIA.head(key);
+      if (!ob) throw bad('A chapter file was not found. Upload it again.', 'BAD_CHAPTERS');
+      if (await one(c.env, 'SELECT 1 FROM media_items WHERE file_key = $1 OR chapters @> $2::jsonb', [key, JSON.stringify([{ fileKey: key }])])) throw new ApiError(409, 'DUPLICATE', 'A chapter file is already in the library');
+      chapters.push({
+        index: chapters.length + 1,
+        title: str(ch.title, { max: 160, optional: true, field: 'Chapter title' }) || `Chapter ${chapters.length + 1}`,
+        fileKey: key,
+        mime: ob.httpMetadata?.contentType || 'audio/mpeg',
+        sizeBytes: ob.size,
+        durationSec: ch.durationSec ? int(Math.round(Number(ch.durationSec)), { min: 0, max: 48 * 3600, field: 'durationSec' }) : null,
+      });
+    }
+    if (chapters.length && chapters[0].fileKey !== fileKey) throw bad('The first chapter must be the item file (fileKey)', 'BAD_CHAPTERS');
+  }
   const row = await one(c.env, `INSERT INTO media_items (kind, scope, owner_id, community_id, category_id, title, artist, description, cover_key, file_key, mime,
-      size_bytes, duration_sec, pages, visibility, in_library, featured, rights_attested, rights_note, published_by, published_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id`, [
+      size_bytes, duration_sec, pages, visibility, in_library, featured, rights_attested, rights_note, published_by, published_at, chapters)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb) RETURNING id`, [
     kind, scope, me.id, communityId, categoryId || null, title, artist, description, coverKey || null, fileKey, head.httpMetadata?.contentType || (kind === 'pdf' ? 'application/pdf' : 'audio/mpeg'),
     head.size, durationSec, pages, visibility, inLibrary, inLibrary && !!b.featured, rights, str(b.rightsNote, { max: 500, optional: true, field: 'Rights note' }),
-    inLibrary ? me.id : null, inLibrary ? new Date().toISOString() : null,
+    inLibrary ? me.id : null, inLibrary ? new Date().toISOString() : null, JSON.stringify(chapters),
   ]);
   if (scope === 'platform') await audit(c.env, me, 'library.create', 'media_item', row.id, { kind, title });
   const it = await loadItem(c, row.id);

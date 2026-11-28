@@ -33,7 +33,7 @@ export function LinkPreviewCard({ preview, mine, onLongPress, style }) {
       {preview.image && imgOk ? (
         <Image source={{ uri: preview.image }} style={styles.thumb} resizeMode="cover" onError={() => setImgOk(false)} accessibilityIgnoresInvertColors />
       ) : (
-        <View style={[styles.thumb, styles.thumbIcon, mine && { backgroundColor: 'rgba(255,255,255,0.14)' }]}><Icon name="link" size={18} color={mine ? '#FFFFFF' : colors.primary} /></View>
+        <View style={[styles.thumb, styles.thumbIcon, mine && { backgroundColor: 'rgba(255,255,255,0.14)' }]}><Icon name="link" size={18} color={mine ? '#FFFAF2' : colors.primary} /></View>
       )}
       <View style={styles.body}>
         {site ? <Text style={[styles.site, mine && { color: 'rgba(255,255,255,0.72)' }]} numberOfLines={1}>{site}</Text> : null}

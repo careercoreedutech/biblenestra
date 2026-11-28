@@ -26,6 +26,7 @@ import { usePresence } from '../chat/live';
 import { presenceLabel, relTime, fmtBytes } from '../chat/messages';
 import { openLink } from '../components/EmbedViewer';
 import { LinkPreviewCard, MuteSheet, isMutedNow, muteLabel } from '../components/chat/ChatGaps'; // CHAT GAPS: link cards, timed mute
+import { GroupListingEditor } from '../components/chat/GroupListingEditor'; // PACKAGE F: Search groups listing (category, place, church)
 import { d, df, k, PageHeader } from '../design/sanctuary'; // FIGMA DESIGN: .page-header, paper cards, lavender chips
 
 const TABS = [
@@ -383,11 +384,13 @@ export function ChatInfoScreen({ params = {} }) {
   };
   const me = { role: info.myRole, permissions: p };
   const ou = info.otherUser;
+  const sectionName = info.membershipSection === 'master' ? 'MASTER CLASS' : info.membershipSection === 'executive' ? 'EXECUTIVE CLASS' : null;
 
   return (
     <View style={k.screen}>
       <ScrollView contentContainerStyle={[k.scroll, { paddingBottom: 48 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-      <PageHeader back onBack={() => nav.pop()} title={isDm ? 'Contact info' : info.kind === 'channel' ? 'Channel info' : 'Group info'} subtitle={isDm ? 'Direct message' : info.kind === 'channel' ? 'Channel' : 'Group'} action={null} />
+      {/* MEMBERSHIP GROUPS: a membership section is named MASTER CLASS or EXECUTIVE CLASS, never channel / group */}
+      <PageHeader back onBack={() => nav.pop()} title={isDm ? 'Contact info' : sectionName ? `${sectionName} info` : info.kind === 'channel' ? 'Channel info' : 'Group info'} subtitle={isDm ? 'Direct message' : sectionName || (info.kind === 'channel' ? 'Channel' : 'Group')} action={null} />
       <View style={styles.hero}>
         <Pressable onPress={p.canEditInfo && !isDm ? changePhoto : undefined} accessibilityLabel={p.canEditInfo ? 'Change group photo' : undefined}>
           {isDm ? <SocialAvatar name={info.title} uri={ou && ou.avatarUrl} size={88} />
@@ -409,7 +412,8 @@ export function ChatInfoScreen({ params = {} }) {
             <Text style={styles.heroTitle}>{info.title}</Text>
             <Text style={styles.heroSub}>
               {isDm ? (presenceLabel(presence || (ou && ou.presence)) || (ou && ou.handle ? `@${ou.handle}` : 'BibleNestra member'))
-                : `${info.kind === 'channel' ? 'Channel' : 'Group'} · ${info.membersCount} ${info.kind === 'channel' ? 'followers' : 'members'}`}
+                : sectionName ? `${sectionName} · ${info.membersCount} ${info.membersCount === 1 ? 'member' : 'members'}`
+                  : `${info.kind === 'channel' ? 'Channel' : 'Group'} · ${info.membersCount} ${info.kind === 'channel' ? 'followers' : 'members'}`}
             </Text>
             {info.description ? <Text style={styles.heroDesc}>{info.description}</Text> : null}
             {p.canEditInfo && !isDm ? <Pressable onPress={() => setEditing(true)} hitSlop={8}><Text style={styles.link}>Edit name & description</Text></Pressable> : null}
@@ -501,6 +505,9 @@ export function ChatInfoScreen({ params = {} }) {
             <Switch value={!!info.settings.approveJoins} onValueChange={(v) => setSetting({ approveJoins: v })} trackColor={{ true: colors.primary }} />
           </View>
           <ChoiceRow label="Slow mode" sub="Members wait between messages (admins and moderators don’t)" value={info.settings.slowModeSec} onChange={(v) => setSetting({ slowModeSec: v })} options={SLOW.map((s) => ({ value: s, label: slowLabel(s) }))} />
+          {info.listing ? (
+            <GroupListingEditor convId={convId} listing={info.listing} onSaved={(listing) => setInfo((x) => ({ ...x, listing }))} />
+          ) : null}
           {p.canInvite && info.inviteCode ? (
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
               <Button small kind="ghost" label="Copy invite link" onPress={copyInvite} />

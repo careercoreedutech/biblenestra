@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // TODAY'S JOURNEY screens
 //   'DailyVerse'     Daily Bread: the verse of the day (scheduled by admins at /admin, with their image and
 //                    reflection; otherwise the app's own verse of the day + the verse image maker), Listen,
@@ -145,7 +146,7 @@ export function DailyVerseScreen() {
         <Tap onPress={() => setImageOpen(true)} style={styles.makeImage} accessibilityLabel="Make your own verse image">
           <View style={styles.makeIcon}><Icon name="image" size={17} color={d.plum} /></View>
           <Text style={styles.makeImageText}>Make your own verse image</Text>
-          <Icon name="chevron-right" size={15} color="#AAA6AD" />
+          <Icon name="chevron-right" size={15} color={isDarkScheme() ? '#8A7A6C' : '#AAA6AD'} />
         </Tap>
       </FadeInUp>
 

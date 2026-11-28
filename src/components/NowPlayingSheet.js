@@ -261,7 +261,7 @@ const styles = StyleSheet.create({
   readingNumNow: { fontFamily: fonts.serifBold, fontSize: 13, color: colors.goldLight },
   track: { height: 22, justifyContent: 'center', marginTop: 20 },
   trackFill: { position: 'absolute', left: 0, height: 4, borderRadius: 2, backgroundColor: colors.goldLight },
-  knob: { position: 'absolute', width: 14, height: 14, borderRadius: 7, marginLeft: -7, backgroundColor: '#FFFFFF' },
+  knob: { position: 'absolute', width: 14, height: 14, borderRadius: 7, marginLeft: -7, backgroundColor: colors.surfaceWhite },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between' },
   time: { fontSize: 11.5, color: colors.nightMuted, fontWeight: '600' },
   transport: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 38, marginTop: 14 },

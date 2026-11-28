@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // CHRISTIAN CARE NETWORK (brief 6.7): Talk to a Priest (verified directory → profile → private chat, apply to be listed)
 // and Talk to an Apostle (opens the Apostle's inbox directly). Server: backend/src/routes/care.js.
 // Styled in the Figma care page: sage feature hero, feature list items and the trust note (src/design/sanctuary.js).
@@ -346,7 +347,7 @@ export function PriestApplyScreen() {
                 <Input multiline value={f.referenceNote} onChangeText={set('referenceNote')} placeholder="Year of ordination, your bishop or chancery contact, a link to your parish page or celebret…" maxLength={2000} />
               </Field>
               <Pressable onPress={() => setConfirm((x) => !x)} style={styles.confirm} accessibilityRole="checkbox" accessibilityState={{ checked: confirm }}>
-                <View style={[styles.check, confirm && { backgroundColor: colors.primary, borderColor: colors.primary }]}>{confirm ? <Icon name="check" size={12} color="#FFFFFF" strokeWidth={3} /> : null}</View>
+                <View style={[styles.check, confirm && { backgroundColor: colors.primary, borderColor: colors.primary }]}>{confirm ? <Icon name="check" size={12} color="#FFFAF2" strokeWidth={3} /> : null}</View>
                 <Text style={styles.confirmText}>I am an ordained Catholic priest and these details are true.</Text>
               </Pressable>
             </>
@@ -430,14 +431,14 @@ const styles = StyleSheet.create({
   verifiedText: { fontSize: 10, fontFamily: df.sansBold, color: '#FFFFFF' },
   applyRow: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 70, padding: 12, borderRadius: 17, backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   applyTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
-  trust: { flexDirection: 'row', gap: 11, marginTop: 20, padding: 15, borderRadius: 16, backgroundColor: '#ECEAE5' },
+  trust: { flexDirection: 'row', gap: 11, marginTop: 20, padding: 15, borderRadius: 16, backgroundColor: (isDarkScheme() ? '#2A241F' : '#ECEAE5') },
   trustText: { flex: 1, fontFamily: df.sans, fontSize: 10, lineHeight: 15, color: d.muted },
   trustStrong: { color: d.ink, fontFamily: df.sansBold },
   profile: { alignItems: 'center', backgroundColor: d.paper, borderRadius: 22, borderWidth: 1, borderColor: d.line, padding: 20, marginTop: 8, marginBottom: 12 },
   profileName: { fontFamily: df.displayBold, fontSize: 22, color: d.ink, textAlign: 'center' },
   profileMeta: { fontFamily: df.sans, fontSize: 11, color: d.muted, marginTop: 3, textAlign: 'center' },
   profileBio: { fontFamily: df.displayItalic, fontSize: 15, lineHeight: 22, color: d.ink, marginTop: 14, textAlign: 'center' },
-  fieldLabel: { fontFamily: df.sansBold, fontSize: 10, color: '#4C3D32', marginBottom: 8 },
+  fieldLabel: { fontFamily: df.sansBold, fontSize: 10, color: (isDarkScheme() ? '#CDBBA6' : '#4C3D32'), marginBottom: 8 },
   confirm: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
   check: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center' },
   confirmText: { flex: 1, fontFamily: df.sans, fontSize: 11, color: d.ink },

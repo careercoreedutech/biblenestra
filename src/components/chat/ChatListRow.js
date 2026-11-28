@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../../design/palette';
 // CHAT 7.3 — one row of the Messages list (memoised: only the chat that changed re-renders).
 // ~46 dp circular avatar (online dot for DMs), semibold name, relative time top-right, one-line grey preview
 // ("You: …" with ticks, "Grace: …" in groups, "🎤 Voice note (0:42)", live "Typing…"), rounded unread badge.
@@ -52,7 +53,7 @@ export function ChatAvatar({ c, size = AV, online }) {
   );
 }
 
-function ChatListRowInner({ c, onPress, myId }) {
+function ChatListRowInner({ c, onPress, onLongPress, myId }) {
   const typing = useTypingNames(c.id);
   const receipts = useReceipts(c.id);
   const presence = usePresence(c.id);
@@ -70,7 +71,7 @@ function ChatListRowInner({ c, onPress, myId }) {
   }
   const status = mineLast && lm && lm.kind !== 'system' ? messageStatus({ id: lm.id, mine: true, createdAt: lm.createdAt }, receipts) : null;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.raised }]} accessibilityRole="button" accessibilityLabel={`${c.with}. ${typingText || preview}${unread ? `. ${unread} unread` : ''}`}>
+    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.raised }]} accessibilityRole="button" accessibilityLabel={`${c.with}. ${typingText || preview}${unread ? `. ${unread} unread` : ''}`}>
       <ChatAvatar c={c} online={!isGroup && presence && presence.online} />
       <View style={styles.mid}>
         <View style={styles.line}>
@@ -94,7 +95,7 @@ function ChatListRowInner({ c, onPress, myId }) {
   );
 }
 
-export const ChatListRow = memo(ChatListRowInner, (a, b) => a.c === b.c && a.myId === b.myId && a.onPress === b.onPress);
+export const ChatListRow = memo(ChatListRowInner, (a, b) => a.c === b.c && a.myId === b.myId && a.onPress === b.onPress && a.onLongPress === b.onLongPress);
 
 export const CHAT_ROW_HEIGHT = 72;
 
@@ -109,7 +110,7 @@ const styles = StyleSheet.create({
   badge: { minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
   badgeText: { fontSize: 10.5, fontFamily: df.sansBold, color: '#FFFFFF' },
   initials: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
-  initialsText: { fontFamily: df.sansHeavy, color: '#704426', letterSpacing: 0.3 },
+  initialsText: { fontFamily: df.sansHeavy, color: (isDarkScheme() ? '#E9C9A8' : '#704426'), letterSpacing: 0.3 },
   groupIcon: { backgroundColor: d.lavender, alignItems: 'center', justifyContent: 'center' },
   onlineDot: { position: 'absolute', right: 1, bottom: 1, width: 12, height: 12, borderRadius: 6, backgroundColor: colors.positive || '#2FA36B', borderWidth: 2, borderColor: colors.surface },
 });

@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // FUND ME (round 3) — fundraising requests: home (start / mine / discover), detail (progress, story, donors,
 // donate, share), create/edit wizard (heading, goal, main photo, story with images, supporting photos & PDFs,
 // preview, submit for review) and the organiser's donations list.
@@ -22,6 +23,7 @@ import {
 } from '../api/fundme';
 // FUND ME MONEY (monetisation stage 2): credits before publishing, donations held by BibleNestra, payouts, receipts
 import { FundMeCreditsCard } from './FundMeMoneyScreens';
+import { FundGiftStar, FundGiftSheet, FundGiftsReceived } from '../components/fundme/FundGifts'; // FUND ME GIFTS
 import { BuyCoinsSheet } from '../components/wallet';
 import { useApi } from '../api/auth';
 import { alpha } from '../components/ui';
@@ -33,7 +35,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const STATUS_TINT = {
   draft: colors.muted, pending_review: colors.gold, live: colors.positive, paused: colors.slate, closed: colors.slate, rejected: colors.negative,
 };
-const HERO = ['#F0D292', '#F7E8C7']; // the design's fund-hero gold
+const HERO = [(isDarkScheme() ? '#4A3A1C' : '#F0D292'), (isDarkScheme() ? '#3A2E14' : '#F7E8C7')]; // the design's fund-hero gold
 const initials = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '?';
 function timeAgo(iso) {
   if (!iso) return '';
@@ -92,11 +94,12 @@ function Thumb({ uri, style }) {
 }
 
 // Big campaign card (.campaign-card) for the first live fundraiser
-function CampaignCard({ f, onPress, index }) {
+function CampaignCard({ f, onPress, index, onGift }) {
   return (
     <FadeInUp index={index}>
       <Tap onPress={onPress} style={s.bigCard} accessibilityLabel={f.title}>
         <Thumb uri={f.mainImageUrl} style={s.bigImg} />
+        {onGift ? <FundGiftStar onPress={onGift} size={40} style={s.giftOnImage} /> : null}
         <View style={s.bigBody}>
           <Text style={s.kicker}>Reviewed</Text>
           <Text style={s.bigTitle} numberOfLines={2}>{f.title}</Text>
@@ -114,11 +117,12 @@ function CampaignCard({ f, onPress, index }) {
 }
 
 // Small campaign tile (.mini-campaigns) for the rest of the live list
-function MiniCard({ f, onPress, index }) {
+function MiniCard({ f, onPress, index, onGift }) {
   return (
     <FadeInUp index={index} style={s.miniWrap}>
       <Tap onPress={onPress} style={s.mini} accessibilityLabel={f.title}>
         <Thumb uri={f.mainImageUrl} style={s.miniImg} />
+        {onGift ? <FundGiftStar onPress={onGift} size={30} style={s.giftOnImage} /> : null}
         <View style={s.miniBody}>
           <Text style={s.miniKicker}>Live</Text>
           <Text style={s.miniTitle} numberOfLines={2}>{f.title}</Text>
@@ -158,6 +162,11 @@ export function FundMeHomeScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [credits, setCredits] = useState(null);
+  const [giftFor, setGiftFor] = useState(null); // FUND ME GIFTS: the request whose gift sheet is open
+  const [giftOpen, setGiftOpen] = useState(false);
+  // gifts need a real creator to send to (not demo data, not a request without an owner id)
+  const giftable = (f) => !fm.demo && !!(f && f.owner && f.owner.id);
+  const openGift = (f) => { setGiftFor(f); setGiftOpen(true); };
 
   const load = useCallback(async () => {
     try {
@@ -245,15 +254,16 @@ export function FundMeHomeScreen() {
       <SectionTitle eyebrow="Urgent needs" title="Discover fundraisers" />
       {live === null ? <Skeleton rows={2} big /> : live.length ? (
         <View style={{ gap: 14 }}>
-          {firstLive ? <CampaignCard f={firstLive} index={0} onPress={() => nav.push('Fundraiser', { id: firstLive.id })} /> : null}
+          {firstLive ? <CampaignCard f={firstLive} index={0} onPress={() => nav.push('Fundraiser', { id: firstLive.id })} onGift={giftable(firstLive) ? () => openGift(firstLive) : null} /> : null}
           {restLive.length ? (
             <View style={s.minis}>
-              {restLive.map((f, i) => <MiniCard key={f.id} f={f} index={i + 1} onPress={() => nav.push('Fundraiser', { id: f.id })} />)}
+              {restLive.map((f, i) => <MiniCard key={f.id} f={f} index={i + 1} onPress={() => nav.push('Fundraiser', { id: f.id })} onGift={giftable(f) ? () => openGift(f) : null} />)}
             </View>
           ) : null}
           {more ? <FBtn kind="ghost" label={loadingMore ? 'Loading…' : 'Show more'} onPress={loadMore} disabled={loadingMore} /> : null}
         </View>
       ) : <FEmpty title="No live fundraisers yet" body="When fundraisers are approved they appear here." />}
+      <FundGiftSheet fundraiser={giftFor} visible={giftOpen} onClose={() => setGiftOpen(false)} onSent={() => setGiftOpen(false)} />
     </DScreen>
   );
 }
@@ -378,6 +388,7 @@ export function FundraiserScreen({ params = {} }) {
   const [lightbox, setLightbox] = useState(null);
   const [donateOpen, setDonateOpen] = useState(false);
   const [giftOpen, setGiftOpen] = useState(false); // send platform coins as a seed to the organiser
+  const [fundGiftOpen, setFundGiftOpen] = useState(false); // FUND ME GIFTS: the star/gift sheet (a gift to the creator)
   const [confirm, setConfirm] = useState(null); // 'close'
   const [busy, setBusy] = useState(null);
   const [celebrate, setCelebrate] = useState(0);
@@ -483,6 +494,8 @@ export function FundraiserScreen({ params = {} }) {
   const canDonate = f.status === 'live';
   // Anyone but the organiser can send coins as a seed while the fundraiser is live
   const canGift = canDonate && !owner && !fm.demo && !!(f.owner && f.owner.id);
+  // FUND ME GIFTS: the star/gift button (any live request, not your own) opens the gift sheet for the creator
+  const canSendFundGift = canDonate && !owner && !fm.demo && !!(f.owner && f.owner.id);
   const soon = canDonate && !f.paymentsReady;
   // the donate bar (Share + Donate) is shown while donations are switched on
   const showBar = canDonate && !soon;
@@ -503,6 +516,8 @@ export function FundraiserScreen({ params = {} }) {
           onBack={() => nav.pop()}
           action={owner && f.status !== 'closed' ? (
             <IconButton icon="edit" label="Edit fundraiser" onPress={() => nav.push('FundraiserEdit', { id: f.id })} />
+          ) : canSendFundGift ? (
+            <IconButton icon="gift" label="Send a gift to this request" onPress={() => setFundGiftOpen(true)} />
           ) : null}
         />
 
@@ -589,6 +604,7 @@ export function FundraiserScreen({ params = {} }) {
 
         <FundraiserBody f={f} onImage={setLightbox} onDoc={openDoc} showPrivate={owner} />
         <Donors f={f} />
+        <FundGiftsReceived gifts={f.gifts} isOwner={owner} />
       </ScrollView>
 
       {showBar ? (
@@ -599,6 +615,7 @@ export function FundraiserScreen({ params = {} }) {
       ) : null}
 
       <Lightbox uri={lightbox} onClose={() => setLightbox(null)} />
+      <FundGiftSheet fundraiser={f} visible={fundGiftOpen} onClose={() => setFundGiftOpen(false)} onSent={() => load()} />
       <GiftSheet
         visible={giftOpen}
         target={{ userId: f.owner && f.owner.id, name: (f.owner && f.owner.displayName) || 'the organiser' }}
@@ -624,10 +641,10 @@ export function FundraiserScreen({ params = {} }) {
 function Tool({ icon, label, onPress, danger }) {
   return (
     <Tap onPress={onPress} style={s.tool} accessibilityLabel={label}>
-      <View style={[s.toolIcon, danger && { backgroundColor: '#F6E0DC' }]}>
-        <Icon name={icon} size={17} color={danger ? '#8A2F2F' : d.plum} />
+      <View style={[s.toolIcon, danger && { backgroundColor: (isDarkScheme() ? '#3A221C' : '#F6E0DC') }]}>
+        <Icon name={icon} size={17} color={danger ? (isDarkScheme() ? '#E8A09A' : '#8A2F2F') : d.plum} />
       </View>
-      <Text style={[s.toolLabel, danger && { color: '#8A2F2F' }]}>{label}</Text>
+      <Text style={[s.toolLabel, danger && { color: (isDarkScheme() ? '#E8A09A' : '#8A2F2F') }]}>{label}</Text>
     </Tap>
   );
 }
@@ -1172,7 +1189,7 @@ export function FundraiserEditScreen({ params = {} }) {
             <View style={s.checklist}>
               {checklist.map(([label, ok]) => (
                 <View key={label} style={s.checkItem}>
-                  <View style={[s.checkDot, ok && { backgroundColor: d.sageDark, borderColor: d.sageDark }]}>{ok ? <Icon name="check" size={11} color="#FFFFFF" strokeWidth={3} /> : null}</View>
+                  <View style={[s.checkDot, ok && { backgroundColor: d.sageDark, borderColor: d.sageDark }]}>{ok ? <Icon name="check" size={11} color="#FFFAF2" strokeWidth={3} /> : null}</View>
                   <Text style={[s.checkText, !ok && { color: d.muted }]}>{label}</Text>
                 </View>
               ))}
@@ -1284,6 +1301,7 @@ const s = {
   note: { color: d.muted, fontFamily: df.sans, fontSize: 10.5, lineHeight: 16, marginTop: 10 },
   minis: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
   miniWrap: { width: '48.5%' },
+  giftOnImage: { position: 'absolute', top: 10, right: 10, zIndex: 2 }, // FUND ME GIFTS: star on a card's photo
   mini: { borderRadius: 18, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1, borderColor: d.line },
   miniImg: { width: '100%', height: 96 },
   miniBody: { padding: 12 },
@@ -1308,7 +1326,7 @@ const s = {
   saveText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 11.5 },
 
   // progress
-  bar: { height: 8, borderRadius: 99, backgroundColor: '#E9DFD3', marginTop: 8, overflow: 'hidden' },
+  bar: { height: 8, borderRadius: 99, backgroundColor: (isDarkScheme() ? '#3A2E24' : '#E9DFD3'), marginTop: 8, overflow: 'hidden' },
   barBig: { height: 10, marginTop: 14, marginBottom: 10 },
   barFill: { backgroundColor: d.plum, borderRadius: 99 },
   raisedBig: { fontFamily: df.displayBold, fontSize: 30, letterSpacing: -0.6, color: d.ink },
@@ -1356,7 +1374,7 @@ const s = {
   gridItem: { width: '31.6%', aspectRatio: 1, borderRadius: 14, overflow: 'hidden', backgroundColor: d.lavender },
   gridImg: { width: '100%', height: '100%' },
   gridRemove: { position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(40,26,17,0.6)', alignItems: 'center', justifyContent: 'center' },
-  gridAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C8B5A4', backgroundColor: d.paper, gap: 2 },
+  gridAdd: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: (isDarkScheme() ? '#4D3D30' : '#C8B5A4'), backgroundColor: d.paper, gap: 2 },
   gridAddText: { color: d.plum, fontFamily: df.sansBold, fontSize: 10.5 },
   docRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: d.paper, borderRadius: 16, borderWidth: 1, borderColor: d.line },
   docTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
@@ -1376,11 +1394,11 @@ const s = {
   lightboxImg: { width: '100%', height: '80%' },
   lightboxClose: { position: 'absolute', top: 50, right: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
 
-  donateBar: { position: 'absolute', left: 12, right: 12, bottom: 12, flexDirection: 'row', gap: 8, padding: 7, borderRadius: 18, backgroundColor: 'rgba(255,250,242,0.96)', borderWidth: 1, borderColor: d.line },
+  donateBar: { position: 'absolute', left: 12, right: 12, bottom: 12, flexDirection: 'row', gap: 8, padding: 7, borderRadius: 18, backgroundColor: (isDarkScheme() ? 'rgba(30,24,19,0.96)' : 'rgba(255,250,242,0.96)'), borderWidth: 1, borderColor: d.line },
 
   // sheets
   sheet: { backgroundColor: d.ivory, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 28, maxHeight: '92%' },
-  grabber: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: '#D8CFC5', marginBottom: 14 },
+  grabber: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), marginBottom: 14 },
   sheetTitle: { fontFamily: df.displayBold, fontSize: 21, letterSpacing: -0.4, color: d.ink, marginTop: 4 },
   sheetNote: { color: d.muted, fontFamily: df.sans, fontSize: 10, textAlign: 'center', marginTop: 10, lineHeight: 16 },
   curBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
@@ -1404,7 +1422,7 @@ const s = {
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14, backgroundColor: d.paper, borderRadius: 18, borderWidth: 1, borderColor: d.line, padding: 14 },
   toggleTitle: { fontFamily: df.display, fontSize: 13, color: d.ink },
   toggleSub: { fontFamily: df.sans, color: d.muted, fontSize: 9.5, lineHeight: 15, marginTop: 3 },
-  err: { color: '#8A2F2F', fontFamily: df.sans, fontSize: 11, marginTop: 8 },
+  err: { color: (isDarkScheme() ? '#E8A09A' : '#8A2F2F'), fontFamily: df.sans, fontSize: 11, marginTop: 8 },
   hint: { color: d.muted, fontFamily: df.sans, fontSize: 10.5, marginTop: 8, lineHeight: 16 },
 
   // wizard
@@ -1412,7 +1430,7 @@ const s = {
   stepper: { flexDirection: 'row', paddingHorizontal: 18, paddingTop: 6, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: d.line },
   stepperRail: { position: 'absolute', left: '12.5%', right: '12.5%', top: 18, height: 1.5, backgroundColor: d.line },
   stepItem: { flex: 1, alignItems: 'center', gap: 6 },
-  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: '#D8CFC5', alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
+  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), alignItems: 'center', justifyContent: 'center', backgroundColor: d.paper },
   stepDotOn: { backgroundColor: d.plum, borderColor: d.plum },
   stepNum: { fontFamily: df.sansHeavy, fontSize: 11, color: d.muted },
   stepLabel: { fontFamily: df.sansBold, fontSize: 9.5, color: d.muted },
@@ -1425,7 +1443,7 @@ const s = {
   cur: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
   curSym: { fontFamily: df.displayBold, fontSize: 18, color: d.ink },
   curCode: { fontFamily: df.sansBold, fontSize: 9.5, color: d.muted, marginTop: 1 },
-  mainPick: { height: 190, borderRadius: 20, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C8B5A4', alignItems: 'center', justifyContent: 'center' },
+  mainPick: { height: 190, borderRadius: 20, overflow: 'hidden', backgroundColor: d.paper, borderWidth: 1.5, borderStyle: 'dashed', borderColor: (isDarkScheme() ? '#4D3D30' : '#C8B5A4'), alignItems: 'center', justifyContent: 'center' },
   mainImg: fillImage,
   mainChange: { flexDirection: 'row', alignItems: 'center', gap: 6, position: 'absolute', bottom: 12, right: 12, backgroundColor: 'rgba(40,26,17,0.6)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
   mainChangeText: { color: '#FFFFFF', fontFamily: df.sansBold, fontSize: 11 },
@@ -1444,7 +1462,7 @@ const s = {
   visText: { flex: 1, color: d.muted, fontFamily: df.sans, fontSize: 10.5 },
   checklist: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8, marginBottom: 16 },
   checkItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  checkDot: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: '#D8CFC5', alignItems: 'center', justifyContent: 'center' },
+  checkDot: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: (isDarkScheme() ? '#4D3D30' : '#D8CFC5'), alignItems: 'center', justifyContent: 'center' },
   checkText: { fontFamily: df.sansBold, fontSize: 10.5, color: d.ink },
   previewFrame: { padding: 14, borderRadius: 24 },
   footer: { flexDirection: 'row', gap: 10, paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16, borderTopWidth: 1, borderTopColor: d.line, backgroundColor: d.ivory },

@@ -14,7 +14,7 @@ import { Hono } from 'hono';
 import { q, one } from '../lib/db.js';
 import { bad, body, notFound, isUuid } from '../lib/http.js';
 import { audit, requireAdmin, registerAdminScript } from './admin.js';
-import { KINDS, KIND_LABELS, SOURCES, sourceByKey, importSource, activeSourceKeys, sourcesInCategory, sourceActive } from '../lib/opportunities.js';
+import { KINDS, KIND_LABELS, SOURCES, sourceByKey, importSource, activeSourceKeys, sourcesInCategory, sourceActive, detailFields } from '../lib/opportunities.js';
 import { CATEGORIES, CATEGORY_IDS, DIRECTORY, ACCESS } from '../lib/jobsDirectory.js'; // JOBS FEEDS
 import { OPPS_ADMIN_SCRIPT } from '../lib/opportunitiesAdminPage.js';
 
@@ -174,6 +174,16 @@ function dirInput(b, prev = {}) {
   if (out.sort !== null && !Number.isFinite(out.sort)) throw bad('sort must be a number');
   return out;
 }
+// FULL DETAIL (Opportunities full-screen view): every field the source gave, full description as readable text.
+// Hidden listings and listings from switched-off sources are not found. Closed listings still open by link.
+opportunities.get('/opportunities/:id', async (c) => {
+  const id = c.req.param('id');
+  if (!isUuid(id)) throw notFound('Listing not found');
+  const row = await one(c.env, 'SELECT o.* FROM opportunities o WHERE o.id = $1 AND NOT o.hidden AND o.source = ANY($2::text[])', [id, await activeSourceKeys(c.env)]);
+  if (!row) throw notFound('Listing not found');
+  return c.json({ ...shape(row), ...detailFields(row) });
+});
+
 async function saveDir(env, slug, d) {
   await q(env, `INSERT INTO opportunity_directory (slug, category, name, url, description, hidden, sort, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, now())

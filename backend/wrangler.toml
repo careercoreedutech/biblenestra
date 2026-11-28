@@ -31,6 +31,7 @@ enabled = true
 crons = ["*/15 * * * *"]
 
 [vars]
+MEMBERSHIPS_PUBLIC_CREATION = "true" # Development Update v1 item 4.1: members can create their own (paid) memberships
 # Comma-separated list of allowed web origins ("*" is fine for the mobile app; restrict when you ship a website)
 CORS_ORIGINS = "*"
 # Recommended for production: connect a custom domain to the R2 bucket (e.g. https://media.biblenestra.com)

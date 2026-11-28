@@ -8,13 +8,10 @@ import { FadeInUp, PressScale } from '../components/Motion';
 import { useToast } from '../components/Toast';
 import { colors, fonts, shadow } from '../theme';
 import { useStore } from '../store';
-import { FREQUENCIES, contentFor, ensurePermission, sendTest, supported, upcomingSlots } from '../notifications/scripturePop';
-
-const CONTENT = [
-  { id: 'both', label: 'Both' },
-  { id: 'verses', label: 'Scriptures' },
-  { id: 'prayers', label: 'Prayers' },
-];
+import {
+  CATEGORIES, FREQUENCIES, categoriesOf, contentFor, ensurePermission, kindForSlot, plannedSlots, sendTest, supported, useScriptureUnlock,
+} from '../notifications/scripturePop';
+import UnlockGate, { formatRemaining } from '../components/UnlockGate';
 const QUIET = [
   { from: 22, to: 7, label: '10 pm – 7 am' },
   { from: 21, to: 6, label: '9 pm – 6 am' },
@@ -36,10 +33,20 @@ export default function ScripturePopScreen() {
   const toast = useToast();
   const s = { enabled: false, every: 180, quietFrom: 22, quietTo: 7, content: 'both', ...(state.scripturePop || {}) };
   const set = (patch) => dispatch({ type: 'scripturePop', patch });
-  const slots = useMemo(() => upcomingSlots(s, 4), [s.every, s.quietFrom, s.quietTo]);
+  const cats = categoriesOf(s);
+  // Access: the 'scripture_pop' unlock. Pop-ups are only planned before its expiry (see notifications/scripturePop.js).
+  const { known, unlocked, until } = useScriptureUnlock();
+  // the next four pop-ups, exactly as the scheduler will plan them (empty while locked)
+  const slots = useMemo(() => plannedSlots(s, unlocked ? until : 0).slice(0, 4),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [s.enabled, s.every, s.quietFrom, s.quietTo, unlocked, until]);
   const [preview, setPreview] = useState(null);
 
   const toggle = async (on) => {
+    if (on && !unlocked) {
+      toast.show('Unlock scripture pop-ups first (above)', { icon: 'bell', tone: 'error' });
+      return;
+    }
     if (on && supported) {
       const ok = await ensurePermission();
       if (!ok) {
@@ -51,10 +58,17 @@ export default function ScripturePopScreen() {
     toast.show(on ? 'Scripture pop-ups are on ✦' : 'Scripture pop-ups paused', { icon: 'bell', haptic: on ? 'success' : 'light' });
   };
 
+  // Categories are a multi-choice, always shown in CATEGORIES order; at least one stays on.
+  const toggleCategory = (id) => {
+    const next = cats.includes(id) ? cats.filter((x) => x !== id) : [...cats, id];
+    if (!next.length) return;
+    set({ categories: CATEGORIES.map((c) => c.id).filter((x) => next.includes(x)) });
+  };
+
   const test = async () => {
-    const c = contentFor(Date.now(), s.content);
+    const c = contentFor(Date.now(), cats[0]);
     setPreview({ ...c, key: Date.now() });
-    if (supported) {
+    if (supported && unlocked) {
       const ok = await sendTest(s);
       toast.show(ok ? 'A pop-up will arrive in a few seconds' : 'Notifications are blocked in settings', { icon: 'bell', tone: ok ? undefined : 'error' });
     }
@@ -62,40 +76,59 @@ export default function ScripturePopScreen() {
 
   const perDay = Math.round((24 - (s.quietFrom === s.quietTo ? 0 : ((s.quietTo - s.quietFrom + 24) % 24))) * 60 / s.every);
 
+  const heroItem = contentFor(slots[0] || Date.now(), kindForSlot(cats, 0));
+
   return (
     <View style={{ flex: 1 }}>
-    <KitScreen title="Scripture pop-ups" subtitle="Verses & prayers through your day">
+    <KitScreen title="Scripture pop-ups" subtitle="Scriptures, prayers & encouragement through your day">
 
-      <FadeInUp style={styles.hero}>
+      <FadeInUp>
+        <UnlockGate
+          feature="scripture_pop"
+          title="Scripture pop-ups"
+          body="Scriptures, prayers and encouragement on your screen for 24 hours. Unlock with coins, or watch ads to earn them."
+          onUnlocked={() => toast.show('Scripture pop-ups unlocked for 24 hours ✦', { icon: 'bell', haptic: 'success' })}
+        />
+      </FadeInUp>
+
+      <FadeInUp index={1} style={styles.hero}>
         <View style={styles.phone}>
           <View style={styles.phoneNotch} />
           <View style={styles.mockPop}>
             <View style={styles.mockIcon}><Text style={{ color: '#fff', fontSize: 12 }}>✦</Text></View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.mockApp}>BIBLENESTRA · now</Text>
-              <Text style={styles.mockTitle} numberOfLines={1}>{contentFor(slots[0] || Date.now(), s.content).title}</Text>
-              <Text style={styles.mockBody} numberOfLines={2}>{contentFor(slots[0] || Date.now(), s.content).body}</Text>
+              <Text style={styles.mockTitle} numberOfLines={1}>{heroItem.title}</Text>
+              <Text style={styles.mockBody} numberOfLines={2}>{heroItem.body}</Text>
             </View>
           </View>
         </View>
         <View style={styles.switchRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>Pop a word from God on my screen</Text>
-            <Text style={styles.heroSub}>{s.enabled ? `About ${perDay} a day · ${FREQUENCIES.find((f) => f.every === s.every)?.label.toLowerCase() || ''}` : 'Off — turn on to receive verses and prayers'}</Text>
+            <Text style={styles.heroSub}>
+              {!unlocked
+                ? (known ? 'Locked. Unlock above to receive them.' : 'Loading your access…')
+                : s.enabled ? `About ${perDay} a day · ${FREQUENCIES.find((f) => f.every === s.every)?.label.toLowerCase() || ''}` : 'Off. Turn on to receive them.'}
+            </Text>
           </View>
           <Switch value={!!s.enabled} onValueChange={toggle} trackColor={{ true: colors.primary, false: colors.borderStrong }} thumbColor="#FFFFFF" />
         </View>
       </FadeInUp>
 
-      <FadeInUp index={1}>
+      <FadeInUp index={2}>
         <Text style={styles.label}>What to show</Text>
         <View style={styles.segment}>
-          {CONTENT.map((c) => (
-            <PressScale key={c.id} onPress={() => set({ content: c.id })} scaleTo={0.96} style={[styles.segBtn, s.content === c.id && styles.segOn]}>
-              <Text style={[styles.segText, s.content === c.id && styles.segTextOn]}>{c.label}</Text>
-            </PressScale>
-          ))}
+          {CATEGORIES.map((c) => {
+            const on = cats.includes(c.id);
+            return (
+              <PressScale key={c.id} onPress={() => toggleCategory(c.id)} scaleTo={0.96} style={[styles.segBtn, on && styles.segOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
+                <Text style={[styles.segText, on && styles.segTextOn]}>{c.label}</Text>
+              </PressScale>
+            );
+          })}
         </View>
+        <Text style={styles.hint}>They rotate in this order: Scriptures, Prayers, Encouragement.</Text>
       </FadeInUp>
 
       <FadeInUp index={2}>
@@ -125,8 +158,13 @@ export default function ScripturePopScreen() {
 
       <FadeInUp index={4} style={styles.card}>
         <Text style={styles.cardHead}>Coming up</Text>
+        {slots.length === 0 ? (
+          <Text style={styles.slotBody}>
+            {!unlocked ? 'Unlock above and your next pop-ups will appear here.' : !s.enabled ? 'Turn pop-ups on to see what is coming.' : 'Nothing else is scheduled before your access ends.'}
+          </Text>
+        ) : null}
         {slots.map((t, i) => {
-          const c = contentFor(t, s.content);
+          const c = contentFor(t, kindForSlot(cats, i));
           return (
             <View key={t} style={[styles.slot, i === 0 && { borderTopWidth: 0 }]}>
               <View style={styles.slotTime}>
@@ -134,12 +172,14 @@ export default function ScripturePopScreen() {
                 <Text style={styles.slotClock}>{fmt(t)}</Text>
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.slotKind}>{CATEGORIES.find((x) => x.id === c.kind)?.label || ''}</Text>
                 <Text style={styles.slotTitle} numberOfLines={1}>{c.title}</Text>
                 <Text style={styles.slotBody} numberOfLines={2}>{c.body}</Text>
               </View>
             </View>
           );
         })}
+        {unlocked && until ? <Text style={styles.slotDay}>{`Access ends in ${formatRemaining((until - Date.now()) / 1000)}`}</Text> : null}
       </FadeInUp>
 
       <PressScale onPress={test} scaleTo={0.97} style={styles.testBtn}>
@@ -210,6 +250,8 @@ const styles = StyleSheet.create({
   slotClock: { fontSize: 14, fontWeight: '700', color: colors.primary, marginTop: 2 },
   slotTitle: { fontSize: 13, fontWeight: '700', color: colors.fg },
   slotBody: { fontFamily: fonts.serif, fontSize: 14, lineHeight: 19, color: colors.muted, marginTop: 2 },
+  slotKind: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: colors.gold },
+  hint: { fontSize: 12, color: colors.faint, marginTop: 8 },
   testBtn: { marginTop: 22, height: 50, borderRadius: 25, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   testText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   foot: { fontSize: 12, lineHeight: 18, color: colors.faint, textAlign: 'center', marginTop: 12 },

@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../palette';
 // Shared pieces for the study, daily and activity screens (Sermon Studio, Transcript, Lesson, Plan,
 // Welcome setup, Daily Bread, Activity), in the Figma design's language (src/design/sanctuary.js tokens).
 // Each piece keeps the props of the local helper it replaces, so the screen logic is unchanged.
@@ -78,7 +79,7 @@ export function SRow({ icon, tint = colors.primary, title, subtitle, right, onPr
           {typeof right === 'string' ? <Text style={ss.rowRight} numberOfLines={1}>{right}</Text> : right}
         </View>
       ) : null}
-      {showChevron ? <Icon name="chevron-right" size={15} color="#AAA6AD" /> : null}
+      {showChevron ? <Icon name="chevron-right" size={15} color={isDarkScheme() ? '#8A7A6C' : '#AAA6AD'} /> : null}
     </>
   );
   if (!onPress) return <View style={ss.row}>{body}</View>;
@@ -247,19 +248,19 @@ export const ss = StyleSheet.create({
 
   input: { height: 52, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, color: d.ink, fontSize: 13, fontFamily: df.sans },
   inputMulti: { height: undefined, minHeight: 120, paddingTop: 13, paddingBottom: 13 },
-  label: { marginTop: 18, marginBottom: 8, color: '#4C3D32', fontSize: 11, fontFamily: df.sansBold },
+  label: { marginTop: 18, marginBottom: 8, color: (isDarkScheme() ? '#F3E9DC' : '#4C3D32'), fontSize: 11, fontFamily: df.sansBold },
 
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { minHeight: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper, alignItems: 'center', justifyContent: 'center' },
   chipSmall: { minHeight: 32, paddingHorizontal: 11, borderRadius: 16 },
-  chipOn: { borderColor: d.plum, backgroundColor: '#FFF1E5' },
+  chipOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E5') },
   chipText: { fontSize: 13, fontFamily: df.sansBold, color: d.muted },
   chipTextOn: { color: d.plum },
 
   empty: { alignItems: 'center', paddingVertical: 26 },
   emptyTitle: { fontFamily: df.displayBold, fontSize: 18, color: d.ink, textAlign: 'center' },
   emptyBody: { fontFamily: df.sans, fontSize: 13, lineHeight: 19, color: d.muted, textAlign: 'center', marginTop: 6, maxWidth: 300 },
-  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginTop: 14, padding: 13, borderRadius: 15, backgroundColor: '#F6E4D2' },
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginTop: 14, padding: 13, borderRadius: 15, backgroundColor: colors.cardLavender },
   noticeText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: d.plumDark },
   badge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
   badgeText: { fontFamily: df.sansBold, fontSize: 10, letterSpacing: 0.2 },
@@ -294,7 +295,7 @@ export const ss = StyleSheet.create({
   // Lesson player (dark hero with a white play button)
   player: { borderRadius: 26, overflow: 'hidden', padding: 22, marginTop: 12 },
   playBtnWrap: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
-  playBtn: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  playBtn: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceWhite },
   playHalo: { position: 'absolute', width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
   playHaloRing: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)' },
   playerTitle: { fontFamily: df.displayBold, fontSize: 21, lineHeight: 26, color: '#FFFFFF', marginTop: 16 },
@@ -308,9 +309,9 @@ export const ss = StyleSheet.create({
 
   // Sermon Studio recorder (.recorder, .record-orb, .record-time, .waveform, .record-button)
   recorder: { alignItems: 'center', paddingTop: 16, paddingBottom: 6 },
-  orb: { width: 120, height: 120, borderRadius: 60, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: d.line,
+  orb: { width: 120, height: 120, borderRadius: 60, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceWhite, borderWidth: 1, borderColor: d.line,
     ...Platform.select({ web: { boxShadow: '0 0 0 18px rgba(255,107,26,0.08), 0 0 0 38px rgba(255,107,26,0.04)' }, default: { shadowColor: d.plum, shadowOpacity: 0.12, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 3 } }) },
-  orbRec: { borderColor: alpha('#C9435A', 0.35), backgroundColor: '#FFF6F7' },
+  orbRec: { borderColor: alpha('#C9435A', 0.35), backgroundColor: (isDarkScheme() ? '#3A221C' : '#FFF6F7') },
   recTime: { fontFamily: df.displayBold, fontSize: 42, lineHeight: 48, color: d.ink, marginTop: 18 },
   recStatus: { fontFamily: df.sansBold, fontSize: 12, color: d.muted, marginTop: 6 },
   wave: { height: 48, flexDirection: 'row', gap: 4, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch', marginTop: 22, marginBottom: 22 },
@@ -332,7 +333,7 @@ export const ss = StyleSheet.create({
   searchWrap: { position: 'relative', marginTop: 8 },
   searchIcon: { position: 'absolute', left: 14, top: 17, zIndex: 1 },
   churchRow: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 14, borderRadius: 17, borderWidth: 1, borderColor: d.line, backgroundColor: d.paper },
-  churchRowOn: { borderColor: d.plum, backgroundColor: '#FFF1E5' },
+  churchRowOn: { borderColor: d.plum, backgroundColor: (isDarkScheme() ? '#3A2216' : '#FFF1E5') },
   checkCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: d.plum, alignItems: 'center', justifyContent: 'center' },
   hintCard: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, padding: 14, borderRadius: 17, backgroundColor: d.lavender },
   hintText: { flex: 1, fontFamily: df.sans, fontSize: 12, lineHeight: 17, color: d.plumDark },

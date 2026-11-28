@@ -19,7 +19,9 @@ import { ApiError, bad, notFound } from './http.js';
 import { paystackConfigured, paystackTestMode, initializeTransaction, verifyTransaction, chargeAuthorization } from './paystack.js';
 import { getConfig, registerConfig } from './wallet.js';
 import { getProduct, productShape, activatePurchase, liveSubscription, addInterval, grantCycleBenefits, renewSubscription, testPurchaseAllowed } from './walletStore.js';
-import { activateSubscription, subscriptionOf, hasAccess, formatPrice } from './memberships.js';
+import { activateSubscription, subscriptionOf, hasAccess, formatPrice, ensureConversations } from './memberships.js';
+import { applyCreationFee } from './membershipFees.js'; // MEMBERSHIP CREATION FEE (Development Update v1, item 4.2)
+import { recordPaymentCommissions, reversePaymentCommissions } from './portfolio.js'; // PORTFOLIO: partner and Portfolio Manager commissions on eligible payments
 
 registerConfig('paystack_in_app', true, (v) => typeof v === 'boolean');
 
@@ -145,6 +147,16 @@ export async function startMembershipCheckout(env, user, { membership, plan, pri
   return { checkout: { reference: co.reference, url: co.url } };
 }
 
+/** Creation fee for a membership (Development Update v1, item 4.2). Paid to BibleNestra; the amount is computed by the caller. */
+export async function startCreationFeeCheckout(env, user, { membership, amountMinor, cycle, currency, email, origin }) {
+  if (!(amountMinor > 0)) throw bad('This membership has no creation fee', 'NO_FEE');
+  await assertCanPay(env, currency);
+  const mail = await billingEmail(env, user, email);
+  const co = await openCheckout(env, { user, kind: 'membership_fee', targetId: membership.id, amountMinor, currency, email: mail, origin,
+    payload: { title: `Creation fee · ${membership.title}`, cycle } });
+  return { checkout: { reference: co.reference, url: co.url } };
+}
+
 /** BibleNestra Plus plan. */
 export async function startPlusCheckout(env, user, { planId, email, origin }) {
   const plan = await one(env, 'SELECT * FROM plus_plans WHERE id = $1 AND active', [String(planId || '')]);
@@ -208,8 +220,10 @@ export async function settlePayment(env, reference, { verified = null } = {}) {
   const raw = v.raw || {};
   const channel = raw.channel || (raw.authorization && raw.authorization.channel) || null;
   try {
-    const authId = await saveAuthorization(env, claimed.user_id, claimed.email, raw);
+    // A card token that fails to save must never block the grant (it only enables auto-renew).
+    const authId = await saveAuthorization(env, claimed.user_id, claimed.email, raw).catch((e) => { console.error('save authorization failed', e && e.message); return null; });
     await grant(env, claimed, { authId, raw });
+    await recordPaymentCommissions(env, claimed).catch((e) => console.error('partner commission failed', e && e.message)); // PORTFOLIO: partner + PM commission (idempotent per reference)
     const done = await one(env, `UPDATE paystack_payments SET status = 'success', paid_at = COALESCE(paid_at, now()), channel = $2, gateway = $3::jsonb, error = NULL, updated_at = now()
         WHERE id = $1 RETURNING *`, [claimed.id, channel, JSON.stringify(gatewayOf(raw))]);
     if (claimed.user_id) await notify(env, claimed.user_id, 'payment', 'Payment received ✅', `${parse(claimed.payload, {}).title || 'Your purchase'} · ${formatPrice(Number(claimed.amount_minor), claimed.currency)}`, { reference: claimed.reference, kind: claimed.kind });
@@ -271,7 +285,9 @@ async function grant(env, p, { authId, raw }) {
       await q(env, `UPDATE membership_promos SET uses = uses + 1 WHERE id = $1`, [payload.promoId]); // paid already: count it even if just used up
     }
     const sub = await activateSubscription(env, {
-      membership, plan, userId: p.user_id, source: 'paystack',
+      // a paid membership must reach its Channel + Community even if they were never created (ids are null until publish)
+      membership: membership.channel_id && membership.community_id || !membership.owner_id ? membership : await ensureConversations(env, membership, { id: membership.owner_id }),
+      plan, userId: p.user_id, source: 'paystack',
       answers: renewal && cur ? parse(cur.answers, []) : payload.answers || [],
       contact: renewal && cur ? parse(cur.contact, {}) : payload.contact || {},
       promoCode: renewal ? null : payload.promoCode || null,
@@ -281,6 +297,11 @@ async function grant(env, p, { authId, raw }) {
     await q(env, `UPDATE membership_subscriptions SET auto_renew = CASE WHEN $2 THEN true WHEN $4 THEN auto_renew ELSE false END,
         paystack_auth_id = COALESCE($3, paystack_auth_id), renewal_attempts = 0, last_renewal_at = NULL WHERE id = $1`, [sub.id, renews, authId, renewal]);
     return sub;
+  }
+  if (p.kind === 'membership_fee') {
+    const membership = await one(env, 'SELECT * FROM memberships WHERE id = $1', [p.target_id]);
+    if (!membership) throw new ApiError(404, 'NOT_FOUND', 'This membership no longer exists');
+    return applyCreationFee(env, { membershipId: membership.id, userId: p.user_id, cycle: payload.cycle, amountMinor: Number(p.amount_minor), currency: p.currency, authId, reference: p.reference });
   }
   if (p.kind === 'plus') {
     const plan = await one(env, 'SELECT * FROM plus_plans WHERE id = $1', [p.target_id]);
@@ -301,8 +322,15 @@ export async function paymentStatus(env, user, reference) {
 }
 
 export async function refundedByGateway(env, reference) {
-  const p = await one(env, `UPDATE paystack_payments SET status = 'refunded', updated_at = now() WHERE reference = $1 AND status <> 'refunded' RETURNING *`, [String(reference || '')]);
+  const ref = String(reference || '');
+  // Atomic: only the call that flips the status refunds the wallet. The commission reversal runs on every call
+  // (it is idempotent), so a webhook retry also repairs a reversal that failed the first time.
+  const flipped = await one(env, `UPDATE paystack_payments SET status = 'refunded', updated_at = now() WHERE reference = $1 AND status <> 'refunded' RETURNING *`, [ref]);
+  const p = flipped || await one(env, 'SELECT * FROM paystack_payments WHERE reference = $1', [ref]);
   if (!p) return { changed: false };
+  // PORTFOLIO: a refunded payment takes back the partner and Portfolio Manager commissions it earned.
+  await reversePaymentCommissions(env, { reference: p.reference, reason: 'Refunded through Paystack' });
+  if (!flipped) return { changed: false };
   if (p.kind === 'wallet') {
     const { refundPurchase } = await import('./walletStore.js');
     try { await refundPurchase(env, { purchaseId: p.target_id, reason: 'Refunded through Paystack' }); } catch (e) { /* admin sees it in the ledger */ }
@@ -410,6 +438,10 @@ export async function runPaystackRenewals(env, { now = new Date(), limit = 50 } 
       WHERE membership_subscriptions.source = 'paystack' AND p.interval <> 'one_time' AND ${pick('membership_subscriptions', 'expires_at')} LIMIT $3`, [soon, retry, limit])) {
     jobs.push({ table: 'membership_subscriptions', s, kind: 'membership', amountMinor: Number(s.price_minor), currency: s.plan_currency, title: s.title || 'Membership' });
   }
+  for (const s of await q(env, `SELECT f.*, m.title FROM membership_creation_fees f JOIN memberships m ON m.id = f.membership_id
+      WHERE ${pick('f', 'paid_until')} AND f.cycle <> 'one_time' LIMIT $3`, [soon, retry, limit])) {
+    jobs.push({ table: 'membership_creation_fees', s, kind: 'membership_fee', amountMinor: Number(s.amount_minor), currency: s.currency, title: `Creation fee · ${s.title}` });
+  }
   for (const s of await q(env, `SELECT plus_subscriptions.*, p.price_minor, p.currency AS plan_currency, p.label FROM plus_subscriptions JOIN plus_plans p ON p.id = plus_subscriptions.plan_id
       WHERE plus_subscriptions.provider = 'paystack' AND ${pick('plus_subscriptions', 'current_period_end')} LIMIT $3`, [soon, retry, limit])) {
     jobs.push({ table: 'plus_subscriptions', s, kind: 'plus', amountMinor: Number(s.price_minor), currency: s.plan_currency, title: `BibleNestra Plus · ${s.label}` });
@@ -429,10 +461,10 @@ async function renewOne(env, { table, s, kind, amountMinor, currency, title }, n
   if (!marked) return { ok: false };
   const auth = await one(env, 'SELECT * FROM paystack_authorizations WHERE id = $1 AND active', [s.paystack_auth_id]);
   if (!auth) return stopRenewal(env, table, s, title, 'The saved card is no longer available.');
-  const end = new Date(table === 'membership_subscriptions' ? s.expires_at : s.current_period_end);
+  const end = new Date(table === 'membership_subscriptions' ? s.expires_at : table === 'membership_creation_fees' ? s.paid_until : s.current_period_end);
   const reference = `bnr-${String(s.id).replace(/-/g, '').slice(0, 12)}-${end.getTime()}-${marked.renewal_attempts}`;
-  let targetId = kind === 'membership' ? s.membership_id : kind === 'plus' ? s.plan_id : null;
-  const payload = { title, renewal: true, planId: kind === 'membership' ? s.plan_id : undefined, expectStart: kind === 'wallet' ? iso(s.current_period_start) : undefined };
+  let targetId = kind === 'membership' || kind === 'membership_fee' ? s.membership_id : kind === 'plus' ? s.plan_id : null;
+  const payload = { title, renewal: true, planId: kind === 'membership' ? s.plan_id : undefined, cycle: kind === 'membership_fee' ? s.cycle : undefined, expectStart: kind === 'wallet' ? iso(s.current_period_start) : undefined };
   if (kind === 'wallet') {
     const wp = await one(env, `INSERT INTO wallet_purchases (user_id, product_id, provider, provider_ref, idempotency_key, amount_minor, currency, units, test)
         VALUES ($1,$2,'paystack',$3,$3,$4,$5,0,$6) RETURNING id`, [s.user_id, s.product_id, reference, amountMinor, currency, !!s.test || paystackTestMode(env)]);
@@ -484,7 +516,9 @@ export async function runPaystackReminders(env, { now = new Date() } = {}) {
       WHERE s.provider = 'paystack' AND s.status = 'active' AND NOT s.auto_renew AND s.current_period_end BETWEEN $1 AND $2 AND s.reminded_for IS DISTINCT FROM s.current_period_end`, [nowIso, until])), 'current_period_end', (s) => s.title);
   await each(tag('membership_subscriptions')(await q(env, `SELECT s.*, m.title FROM membership_subscriptions s JOIN memberships m ON m.id = s.membership_id
       WHERE s.source = 'paystack' AND s.status = 'active' AND NOT s.auto_renew AND s.expires_at BETWEEN $1 AND $2 AND s.reminded_for IS DISTINCT FROM s.expires_at`, [nowIso, until])), 'expires_at', (s) => s.title || 'Your membership');
-  await each(tag('plus_subscriptions')(await q(env, `SELECT s.*, p.label FROM plus_subscriptions s JOIN plus_plans p ON p.id = s.plan_id
+  await each(tag('membership_creation_fees')(await q(env, `SELECT f.*, m.title FROM membership_creation_fees f JOIN memberships m ON m.id = f.membership_id
+      WHERE f.status = 'active' AND NOT f.auto_renew AND f.cycle <> 'one_time' AND f.paid_until BETWEEN $1 AND $2 AND f.reminded_for IS DISTINCT FROM f.paid_until`, [nowIso, until])), 'paid_until', (s) => `Creation fee for ${s.title}`);
+  await each(tag('plus_subscriptions')(await q(env,`SELECT s.*, p.label FROM plus_subscriptions s JOIN plus_plans p ON p.id = s.plan_id
       WHERE s.provider = 'paystack' AND s.status = 'active' AND NOT s.auto_renew AND s.current_period_end BETWEEN $1 AND $2 AND s.reminded_for IS DISTINCT FROM s.current_period_end`, [nowIso, until])), 'current_period_end', (s) => `BibleNestra Plus (${s.label})`);
   return { reminded: sent };
 }

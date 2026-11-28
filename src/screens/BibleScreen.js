@@ -17,12 +17,14 @@ import { translationInfo, resolveTranslationId } from '../bible/catalog';
 import { useNarration } from '../audio/Narration';
 import { Icon } from '../components/Icons';
 import { d, df } from '../design/sanctuary';
+import { isDarkScheme } from '../design/palette';
 import { colors, fonts, radius, shadow, readerThemes, lineSpacings, READER_FONTS, readerFontFamily } from '../theme';
 import { useStore } from '../store';
 import { useNav } from '../navigation';
 import * as Clipboard from 'expo-clipboard';
 import { setBibleImmersive, useBibleImmersive } from '../ui/chrome';
 import { CopyGlyph } from './ExegesisScreen';
+import { useJourneyReader } from '../journey/tracker'; // MY SCRIPTURE JOURNEY: counts verses on screen (dwell, pace, narration)
 import {
   BOOKS,
   TRANSLATIONS,
@@ -98,6 +100,7 @@ export default function BibleScreen({ params: routeParams }) {
     Animated.timing(headA, { toValue: show ? 1 : 0, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start();
   };
   const onReaderScroll = (e) => {
+    journey.onScroll(e.nativeEvent, verseY.current, verses ? verses.length : 0); // MY SCRIPTURE JOURNEY
     const y = e.nativeEvent.contentOffset.y;
     const dy = y - lastY.current;
     lastY.current = y;
@@ -120,7 +123,9 @@ export default function BibleScreen({ params: routeParams }) {
   };
   const [imageOpen, setImageOpen] = useState(false);
   const tr = resolveTranslationId(state.translation);
-  const t = readerThemes[state.readerTheme] || readerThemes.paper;
+  // Dark app mode: a reader still on Paper opens in Night (the saved choice is left untouched).
+  const savedReaderKey = state.readerTheme || 'paper';
+  const t = readerThemes[isDarkScheme() && savedReaderKey === 'paper' ? 'night' : savedReaderKey] || readerThemes.paper;
   const spacing = lineSpacings[state.lineSpacing] || lineSpacings.Comfortable;
   const readerFont = state.readerFont || 'Newsreader';
   const verseFont = { fontFamily: readerFontFamily(readerFont) };
@@ -129,6 +134,9 @@ export default function BibleScreen({ params: routeParams }) {
   // While a translation streams in (or if we're offline) the reader keeps showing KJV.
   const verses = chapterData.verses || chapterData.fallback;
   const showingFallback = !chapterData.verses && !!chapterData.fallback;
+  // MY SCRIPTURE JOURNEY: one reading session per chapter visit; narration counts the verse the narrator reaches
+  const journey = useJourneyReader({ translation: showingFallback ? 'KJV' : tr, bookId: pos.bookId, chapter: pos.chapter });
+  useEffect(() => { if (audio && nar.verse) journey.narrated(nar.verse); }, [audio, nar.verse]);
   useEffect(() => {
     // Warm the next chapter so swiping forward is instant.
     const b = BOOKS.find((x) => x.id === pos.bookId);

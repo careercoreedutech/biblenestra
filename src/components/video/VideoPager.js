@@ -14,6 +14,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useAdBreaks } from '../../ads/AdBreaks';
 import { Icon } from '../Icons';
 import VideoPoster from './VideoPoster';
+import { useVideoPlayCount } from './useVideoPlayCount'; // VIEW COUNTS: plays on every reel
 import VideoControls from './VideoControls';
 import { IS_WEB, LONG_VIDEO_SEC, VIDEO_FILL, posterSize } from './videoUtils';
 
@@ -99,6 +100,9 @@ export default function VideoPager({
     p.muted = mutedRef.current;
     try { p.timeUpdateEventInterval = 0.25; } catch (e) { /* older native */ }
   });
+  // VIEW COUNTS: the current video's play is reported once it has really played for a few seconds (any reel or video
+  // pager: Socials reels, Daily, the video viewer). Only the shared player is watched, so off-screen pages never count.
+  useVideoPlayCount(item ? item.id : null, player, !!(active && url && item));
   const viewRef = useRef(null);
   const wrapRef = useRef(null);
   const [wrapNode, setWrapNode] = useState(null); // web: the DOM node (inside a Modal it mounts late)

@@ -34,6 +34,7 @@ import { SOCIAL, CONTENT_THEMES, parseScriptureRef, passageLabel, timestampOf, r
 import { setSocialsDark, setSocialsImmersive } from '../ui/chrome';
 // SOCIAL (round 3): profile links, comment likes, gifts from comments, who-liked lists, activity inbox
 import { useApi } from '../api/auth';
+import { queuePostImpressions, useLiveCount, ViewCount } from '../components/social/viewCounts'; // VIEW COUNTS: eye counts + post impressions
 import { splitPosts, mapNotification } from '../api/mappers';
 import { toggleCommentLike, getCommentLikers, getPostReactors, isServerId } from '../api/social';
 import { useOpenProfile } from '../components/social/profileNav';
@@ -352,6 +353,7 @@ function ReelOverlay({
   onOpenCreator,
 }) {
   const isTextPost = false;
+  const plays = useLiveCount('plays', item.id, item.videoPlays || item.plays); // VIEW COUNTS: eye count on the reel
   // Creator info + caption ease in whenever this reel becomes the active one
   const infoIn = useRef(new Animated.Value(isActive ? 1 : 0)).current;
   useEffect(() => {
@@ -392,6 +394,7 @@ function ReelOverlay({
         <View style={styles.categoryBadgePill}>
           <Text style={styles.categoryBadgeText}>{String(item.category || 'Post').toUpperCase()}</Text>
         </View>
+        <ViewCount count={plays} style={styles.reelViews} size={13} />
 
         {/* Creator Row */}
         <View style={styles.creatorRow}>
@@ -558,8 +561,10 @@ const SEGMENTS = [
   { id: 'feed', label: 'Feed', icon: 'home' },
   { id: 'videos', label: 'Videos', icon: 'play' },
 ];
-const FEED_CHIPS = ['For You', 'Following', 'Communities', 'Events'];
-const EVENT_KINDS = ['Announcement', 'Celebration', 'Event', 'Greeting'];
+// DEV UPDATE v1 item 9: "Memberships" opens the Membership Hub and "Website" opens the member websites feed (both are
+// navigation, not filters of this feed). Only For You and Following filter the feed.
+const FEED_CHIPS = ['For You', 'Following', 'Memberships', 'Website'];
+const NAV_CHIPS = { Memberships: 'MembershipHub', Website: 'Websites' };
 
 // Header segmented switch with a sliding pill (light on Feed, dark on Videos)
 function SegmentSwitch({ value, onChange, light }) {
@@ -853,13 +858,9 @@ export default function SocialsScreen({ params }) {
     (it.src === 'video'
       ? follows.includes(it.handle)
       : (it.handle && follows.includes(it.handle)) || followedPeople.includes(it.name) || joinedCommunities.includes(it.name) || joinedChannelNames.includes(it.name));
-  // Chips port the old Feed filters: Communities = posts by communities / churches / groups / channels,
-  // Events = announcements, celebrations, events and greetings. Hidden posts (⋯ → Hide) are skipped.
+  // Hidden posts (⋯ → Hide) are skipped. Following filters to the people you follow; For You shows everything.
   const hidden = state.hiddenPosts || [];
-  const allChannelNames = (state.channels || CHANNELS_DATA).map((c) => c.name);
-  const isCommunity = (it) => it.src === 'post' && (communityNames.includes(it.name) || allChannelNames.includes(it.name));
-  const passesChip = (it, c = chip) =>
-    c === 'Following' ? isFollowed(it) : c === 'Communities' ? isCommunity(it) : c === 'Events' ? EVENT_KINDS.includes(it.kind) : true;
+  const passesChip = (it, c = chip) => (c === 'Following' ? isFollowed(it) : true);
   // memoised so the FlatList data (and its rows) only change when the posts / filters do
   const listItems = useMemo(
     () => allItems.filter((it) => !hidden.includes(it.key) && passesChip(it)),
@@ -988,6 +989,7 @@ export default function SocialsScreen({ params }) {
   };
 
   const switchChip = (c) => {
+    if (NAV_CHIPS[c]) { haptic('select'); nav.push(NAV_CHIPS[c]); return; } // Memberships / Website open their own screens
     if (c === chip) return;
     haptic('select');
     setVisibleVideoKey(null);
@@ -1475,7 +1477,8 @@ export default function SocialsScreen({ params }) {
       bg: colors.night,
       // online: the picked file is uploaded to Cloudflare Stream by the sync layer
       ...(upload ? { upload, passage: passage || undefined, videoStatus: 'uploading', uploadProgress: 0 } : {}),
-      views: '1',
+      plays: 0, // PACKAGE F: a new video starts at 0 plays (it used to be hard-coded to '1')
+      viewers: 0,
       likes: 0,
       liked: false,
       shares: 0,
@@ -1593,13 +1596,9 @@ export default function SocialsScreen({ params }) {
   const CHIP_EMPTY = {
     'For You': ['Your feed is quiet', 'Be the first to share a word, photo or video with the community.', 'Create a post', () => openComposer('text')],
     Following: ['Nothing from people you follow yet', 'Follow believers, creators or join communities to see their posts here.', 'Find believers', () => nav.push('People')],
-    Communities: ['No community posts yet', 'Join a church or study group to see its posts here.', 'Explore communities', () => nav.push('Communities')],
-    Events: ['No announcements or celebrations', 'Church announcements, events and celebrations will appear here.', 'Open calendar', () => nav.push('Calendar')],
   };
   const CHIP_INTRO = {
     Following: 'People, creators and communities you follow — plus your own posts.',
-    Communities: 'Posts from churches, groups and channels.',
-    Events: 'Announcements, events and celebrations.',
   };
 
   // ─── Feed (light, Facebook-style) ──────────────────────────────
@@ -1675,9 +1674,15 @@ export default function SocialsScreen({ params }) {
     mostlyVisible.current = new Set(info.viewableItems.map((v) => v.key));
     pickVisibleVideo();
   };
+  // VIEW COUNTS: a post counts as seen when half of it has been on screen for a second (batched to POST /posts/views)
+  const onImpressionRef = useRef(null);
+  onImpressionRef.current = (info) => {
+    queuePostImpressions(api, info.viewableItems.filter((v) => v.item && v.item.type === 'post' && v.item.it).map((v) => v.item.it.id));
+  };
   const viewabilityPairs = useRef([
     { viewabilityConfig: { itemVisiblePercentThreshold: 1 }, onViewableItemsChanged: (info) => onViewRef.current(info) },
     { viewabilityConfig: { itemVisiblePercentThreshold: 70 }, onViewableItemsChanged: (info) => onMostlyRef.current(info) },
+    { viewabilityConfig: { itemVisiblePercentThreshold: 50, minimumViewTime: 1000 }, onViewableItemsChanged: (info) => onImpressionRef.current(info) },
   ]).current;
   const feedOnScroll = useMemo(() => Animated.event([{ nativeEvent: { contentOffset: { y: feedScroll } } }], {
     useNativeDriver: ND,
@@ -1738,7 +1743,7 @@ export default function SocialsScreen({ params }) {
     const emptyView = (
       <View style={styles.listEmpty}>
         <ScaleIn key={chip} style={styles.feedEmptyIconLight}>
-          <Icon name={chip === 'Events' ? 'calendar' : chip === 'Communities' ? 'church' : 'users'} size={24} color={colors.primary} />
+          <Icon name="users" size={24} color={colors.primary} />
         </ScaleIn>
         <FadeInUp delay={90} style={{ alignItems: 'center' }}>
           <Text style={styles.feedEmptyTitleLight}>{empty[0]}</Text>
@@ -1921,6 +1926,9 @@ export default function SocialsScreen({ params }) {
                 <Text style={styles.headerSubtitle} numberOfLines={1}>Faith grows together</Text>
                 <Text style={[styles.headerTitle, !darkHead && { color: colors.fg }]} numberOfLines={1}>Community</Text>
               </View>
+              <PressScale onPress={() => nav.push('UserSearch')} scaleTo={0.9} hitSlop={6} style={[styles.headerBack, !darkHead && styles.headerBackLight]} accessibilityLabel="Find members" testID="socials-user-search">
+                <Icon name="search" size={18} color={darkHead ? colors.nightFg : colors.fg} />
+              </PressScale>
               <PressScale onPress={() => nav.push('Chats')} scaleTo={0.9} hitSlop={6} style={[styles.headerBack, !darkHead && styles.headerBackLight]} accessibilityLabel="Messages">
                 <Icon name="message" size={18} color={darkHead ? colors.nightFg : colors.fg} />
               </PressScale>
@@ -2499,6 +2507,7 @@ const styles = StyleSheet.create({
     right: 78,
     zIndex: 10,
   },
+  reelViews: { alignSelf: 'flex-start', marginTop: 6 },
   categoryBadgePill: {
     alignSelf: 'flex-start',
     flexDirection: 'row',

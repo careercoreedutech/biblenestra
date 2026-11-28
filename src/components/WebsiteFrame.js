@@ -6,6 +6,7 @@ import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { Linking, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
+import { colors } from '../theme'; // APPEARANCE (item 14): palette tokens
 
 // Google refuses OAuth sign-in inside embedded WebViews ("disallowed_useragent") — hand those to the browser.
 const BROWSER_ONLY = /^https:\/\/(accounts\.google\.com|accounts\.youtube\.com)\//i;
@@ -35,7 +36,7 @@ const WebsiteFrame = forwardRef(function WebsiteFrame({ url, onNav, onProgress, 
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: colors.surfaceWhite }}>
       <WebView
         ref={web}
         source={{ uri: url }}

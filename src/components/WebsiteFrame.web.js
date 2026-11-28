@@ -3,6 +3,7 @@
 // "Open in a new tab" on the web.
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { View } from 'react-native';
+import { colors } from '../theme'; // APPEARANCE (item 14): palette tokens
 
 const WebsiteFrame = forwardRef(function WebsiteFrame({ url, onLoaded }, ref) {
   const frame = useRef(null);
@@ -12,7 +13,7 @@ const WebsiteFrame = forwardRef(function WebsiteFrame({ url, onLoaded }, ref) {
     reload: () => { try { if (frame.current) frame.current.src = url; } catch (e) { /* ignore */ } },
   }));
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: colors.surfaceWhite }}>
       {React.createElement('iframe', {
         ref: frame,
         src: url,

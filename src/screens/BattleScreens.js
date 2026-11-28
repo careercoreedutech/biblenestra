@@ -1,3 +1,4 @@
+import { isDarkScheme } from '../design/palette';
 // LIVE BIBLE BATTLES: 1-on-1, 8 questions, 12 seconds each. The server keeps the clock and the score
 // (backend/src/routes/battles.js); this screen polls GET /battles/:id and shows whatever phase it reports.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -13,7 +14,7 @@ import { errorMessage } from '../api/client';
 import { d, df, Grad, Tap, SectionTitle } from '../design/sanctuary';
 import { DScreen, DInput, DCard } from '../design/profile/parts';
 
-const RESULT = { won: ['Won', '#4B5B35'], lost: ['Lost', '#B33D3D'], draw: ['Draw', d.muted] };
+const RESULT = { won: ['Won', d.sageDark], lost: ['Lost', '#B33D3D'], draw: ['Draw', d.muted] };
 const BATTLE_GRAD = ['#2D1B10', '#B95019'];
 
 /** Battle primary button (plum pill with arrow / icon), in the design's style. */
@@ -200,7 +201,7 @@ export function BattleScreen({ params = {} }) {
     body = (
       <View>
         {b.lastResult ? (
-          <Text style={[styles.lastLine, { color: b.lastResult.myOption === b.lastResult.correctIndex ? '#4B5B35' : '#B33D3D' }]} numberOfLines={2}>
+          <Text style={[styles.lastLine, { color: b.lastResult.myOption === b.lastResult.correctIndex ? d.sageDark : '#B33D3D' }]} numberOfLines={2}>
             {b.lastResult.myOption === b.lastResult.correctIndex ? `✓ +${b.lastResult.myPoints}` : '✗'} Last answer: {b.lastResult.options[b.lastResult.correctIndex]}
           </Text>
         ) : null}
@@ -233,7 +234,7 @@ export function BattleScreen({ params = {} }) {
     body = (
       <View>
         <ScaleIn from={0.9}>
-          <Grad colors={['#E4D18E', '#A66D22']} style={styles.final}>
+          <Grad colors={[(isDarkScheme() ? '#5A4620' : '#E4D18E'), '#A66D22']} style={styles.final}>
             <Text style={styles.finalTitle}>{label}</Text>
             <Text style={styles.finalScore}>{b.myScore} – {b.opponentScore}</Text>
           </Grad>
@@ -245,7 +246,7 @@ export function BattleScreen({ params = {} }) {
             {b.review.map((r) => (
               <DCard key={r.index} style={styles.review}>
                 <Text style={styles.reviewQ}>{r.index + 1}. {r.question}</Text>
-                <Text style={[styles.reviewA, { color: '#4B5B35' }]}>✓ {r.options[r.correctIndex]}</Text>
+                <Text style={[styles.reviewA, { color: d.sageDark }]}>✓ {r.options[r.correctIndex]}</Text>
                 {r.myOption !== r.correctIndex ? <Text style={[styles.reviewA, { color: '#B33D3D' }]}>{r.myOption === null ? 'No answer' : `You: ${r.options[r.myOption]}`}</Text> : <Text style={styles.meta}>+{r.myPoints} points</Text>}
                 {r.reference ? <Text style={styles.ref}>{r.reference}</Text> : null}
               </DCard>
@@ -279,7 +280,7 @@ const styles = StyleSheet.create({
   ctaText: { fontFamily: df.sansBold, fontSize: 13, color: d.plumDark },
   smallCta: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: d.plum },
   smallCtaText: { fontFamily: df.sansBold, fontSize: 11, color: '#FFFFFF' },
-  ghost: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 999, borderWidth: 1, borderColor: d.line, backgroundColor: 'rgba(255,255,255,0.78)' },
+  ghost: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 999, borderWidth: 1, borderColor: d.line, backgroundColor: d.glass },
   ghostText: { fontFamily: df.sansBold, fontSize: 13, color: d.ink },
   listCard: { marginTop: 4, paddingHorizontal: 14 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: d.line },
